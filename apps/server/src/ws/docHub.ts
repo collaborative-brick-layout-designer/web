@@ -20,6 +20,7 @@ import { encodeAwarenessUpdate, encodeSyncUpdate, isWsPeer, sendBytes } from './
 import { rollup } from '../metrics/rollup.js';
 import { applyStoredUpdate } from './yjsWork.js';
 import { MAX_PENDING_BYTES, MAX_PENDING_DS_BYTES, dropPending, noteWaitingOnOpen, pendingBytes, pendingDsBytes } from './pending.js';
+import { checkUpdate } from './updateGuard.js';
 
 /**
  * Largest awareness (presence) message taken from a client. A presence
@@ -344,12 +345,16 @@ export class DocSession {
 
   /**
    * Past MAX_PENDING_BYTES, drop what waits for changes the layout doesn't
-   * have, so no snapshot stores (or serves) more than that. The live
-   * handler keeps a room under it; this covers older snapshots.
+   * have, so no snapshot stores (or serves) more than that. What waits goes
+   * out with every sync, so it goes too when the apps couldn't read the
+   * layout with it (ws/updateGuard.ts). The live handler keeps a room within
+   * both; this covers older snapshots.
    */
   private limitPending(): void {
     const bytes = pendingBytes(this.doc);
-    if (bytes <= MAX_PENDING_BYTES && pendingDsBytes(this.doc) <= MAX_PENDING_DS_BYTES) return;
+    if (bytes === 0) return;
+    const over = bytes > MAX_PENDING_BYTES || pendingDsBytes(this.doc) > MAX_PENDING_DS_BYTES;
+    if (!over && checkUpdate(Y.encodeStateAsUpdate(this.doc)) === null) return;
     console.warn(`[docHub] layout ${this.layoutId}: dropped ${bytes} bytes waiting for changes the layout doesn't have`);
     dropPending(this.doc);
   }
