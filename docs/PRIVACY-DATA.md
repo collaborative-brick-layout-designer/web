@@ -83,6 +83,7 @@ host's to keep or not.
 | `daily_stats` | none | no | Site-wide daily numbers. |
 | `audit_events` | who did what to which thing, with a JSON payload; some payloads name an email (invites, admin actions) | yes | No IP addresses or user agents. |
 | `platform_settings` | `updated_by` (the admin who last saved) | as "site-settings-changes" | |
+| `data_fixes` | none | no | Which one-time data fixes the server has run, when, and how many values each changed (counts only). |
 | `data_exports` | data downloads: about whom, asked by whom, when | yes | Files in `exports/<id>.zip` next to the database. |
 | `privacy_requests` | requests logged by admins: type, the account or (with no account) who asked in the admin's words, dates, notes | yes | Closed ones are deleted after the records setting. After an erasure the request keeps the pseudonym. |
 | `privacy_request_events` | the history of a request (which admin did what) | with its request | |
