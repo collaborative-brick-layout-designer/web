@@ -193,6 +193,85 @@ describe('clampDocDrawing', () => {
   });
 });
 
+// Values of the wrong shape (the dry run on collab's backup found the grid
+// cell-index corner of a layout imported before 2026-09-27 holding the XML
+// element's whitespace text): never spread into an object of characters.
+const OLD_CORNER = '\n        \n        \n      ';
+const WRONG_SHAPES: [string, unknown][] = [
+  ['the old whitespace text', OLD_CORNER],
+  ['whitespace', '  \t '],
+  ['an empty string', ''],
+  ['a number', 7],
+  ['an array', [1, 2]],
+];
+
+describe('clampDocDrawing on values of the wrong shape', () => {
+  it('gives the grid of the old Fordyce 2026 import the default cell-index corner', () => {
+    const doc = goodDoc();
+    sheet(doc, 'grid').set('cellIndexCorner', OLD_CORNER);
+    expect([...drawingProblems(doc)]).toEqual(['grid-1.cellIndexCorner']);
+    const fix = clampDocDrawing(doc);
+    expect(sheet(doc, 'grid').get('cellIndexCorner')).toEqual({ x: 0, y: 0 });
+    expect(fix.changes).toEqual([{ setting: 'grid.cellIndexCorner', sheet: 'grid-1', from: OLD_CORNER, to: { x: 0, y: 0 } }]);
+    expect(fix.left).toEqual([]);
+  });
+
+  it.each(WRONG_SHAPES)('gives a cell-index corner that is %s the default corner', (_what, v) => {
+    const doc = goodDoc();
+    sheet(doc, 'grid').set('cellIndexCorner', v);
+    clampDocDrawing(doc);
+    expect(sheet(doc, 'grid').get('cellIndexCorner')).toEqual({ x: 0, y: 0 });
+    expect([...drawingProblems(doc)]).toEqual([]);
+  });
+
+  // (A whole number 0 to 16 is one the live route takes, so a number here is one past that.)
+  it.each([
+    ...WRONG_SHAPES.filter(([, v]) => typeof v !== 'number'),
+    ['a number past the last', 99] as [string, unknown],
+    ['a fraction', 2.5] as [string, unknown],
+    ['an object', { unit: 1 }] as [string, unknown],
+  ])('gives a ruler unit that is %s studs, in both ruler shapes', (_what, v) => {
+    const doc = goodDoc();
+    const items = sheet(doc, 'ruler').get('rulerItems') as Y.Array<unknown>;
+    const plain = items.get(0) as Record<string, unknown>;
+    doc.transact(() => {
+      items.delete(0, 1);
+      items.insert(0, [{ ...plain, unit: v }]);
+      (items.get(1) as Y.Map<unknown>).set('unit', v);
+    });
+    clampDocDrawing(doc);
+    expect((items.get(0) as Record<string, unknown>).unit).toBe(0);
+    expect((items.get(1) as Y.Map<unknown>).get('unit')).toBe(0);
+    expect([...drawingProblems(doc)]).toEqual([]);
+  });
+
+  it.each(WRONG_SHAPES)('removes a font, hull or point that is %s (the apps use their default), never spreading it', (_what, v) => {
+    const doc = goodDoc();
+    const grid = sheet(doc, 'grid');
+    const items = sheet(doc, 'ruler').get('rulerItems') as Y.Array<unknown>;
+    const plain = items.get(0) as Record<string, unknown>;
+    const map = items.get(1) as Y.Map<unknown>;
+    doc.transact(() => {
+      grid.set('cellIndexFont', v);
+      grid.set('hullProperties', v);
+      items.delete(0, 1);
+      items.insert(0, [{ ...plain, measureFont: v, point1: v, point2: v }]);
+      map.set('measureFont', v);
+      map.set('center', v);
+    });
+    const fix = clampDocDrawing(doc);
+    expect(fix.left).toEqual([]);
+    expect([...drawingProblems(doc)]).toEqual([]);
+    expect(grid.has('cellIndexFont')).toBe(false);
+    expect(grid.has('hullProperties')).toBe(false);
+    const p = items.get(0) as Record<string, unknown>;
+    expect(['measureFont', 'point1', 'point2'].filter((k) => k in p)).toEqual([]);
+    expect(map.has('measureFont')).toBe(false);
+    expect(map.has('center')).toBe(false);
+    for (const c of fix.changes) expect(c.to).toBeUndefined();
+  });
+});
+
 describe('the clamp-drawing-values fix on a database', () => {
   let app: FastifyInstance;
   let port: number;

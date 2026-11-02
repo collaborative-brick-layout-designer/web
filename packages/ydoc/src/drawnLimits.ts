@@ -2,7 +2,11 @@
 // grid's, an area sheet's and each ruler's), kept when a layout is made
 // from a .bbm (seedFromBbm). A value out of range is brought to the
 // nearest end; one that isn't a number (NaN, infinite) gets the default; a
-// dash pattern that isn't drawable is dropped (a solid guideline). Nothing
+// dash pattern that isn't drawable is dropped (a solid guideline), and a
+// cell-index corner that isn't an {x, y} object is the default corner (a
+// font, hull or point that isn't an object is left as it is: there is
+// nothing in it to keep in range, and spreading it would make an object of
+// a string's characters). Nothing
 // a layout made in either app holds is changed, and a file is never
 // refused for these.
 //
@@ -51,9 +55,18 @@ const keep = (v: number, r: Range): number => {
 };
 /** A whole number in range (the desktop holds an int); a fraction is rounded first. */
 const keepInt = (v: number, r: Range): number => keep(typeof v === 'number' && Number.isFinite(v) ? Math.round(v) : v, r);
-const keepFont = (f: FontSpec): FontSpec => (f && typeof f === 'object' ? { ...f, size: keep(f.size, L.fontSize) } : f);
+/**
+ * A plain object (not null, not an array). A field that should hold one
+ * may hold something else in a damaged document (layouts imported before
+ * 2026-09-27 hold the cell-index corner as the XML element's whitespace
+ * text): spreading a string or an array would make an object of its
+ * characters, so such a value is never spread.
+ */
+const isRecord = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object' && !Array.isArray(v) && !ArrayBuffer.isView(v);
+/** A font with its size in range; a value that isn't an object stays as it is (see isRecord). */
+const keepFont = (f: FontSpec): FontSpec => (isRecord(f) ? { ...f, size: keep(f.size, L.fontSize) } : f);
 const keepPoint = (p: { x: number; y: number }): { x: number; y: number } =>
-  p && typeof p === 'object' ? { ...p, x: keep(p.x, L.rulerCoordinate), y: keep(p.y, L.rulerCoordinate) } : p;
+  isRecord(p) ? { ...p, x: keep(p.x, L.rulerCoordinate), y: keep(p.y, L.rulerCoordinate) } : p;
 
 /** A drawable dash pattern, or none (a solid guideline). */
 function keepDashes(dashes: readonly number[]): number[] {
@@ -81,7 +94,9 @@ function keepRuler(r: RulerItem): RulerItem {
 function keepLayer(layer: Layer): Layer {
   const common = {
     transparency: keep(layer.transparency, L.transparency),
-    hullProperties: layer.hullProperties && { ...layer.hullProperties, hullThickness: keep(layer.hullProperties.hullThickness, L.hullThickness) },
+    hullProperties: isRecord(layer.hullProperties)
+      ? { ...layer.hullProperties, hullThickness: keep(layer.hullProperties.hullThickness, L.hullThickness) }
+      : layer.hullProperties,
   };
   switch (layer.type) {
     case 'grid':
@@ -93,16 +108,26 @@ function keepLayer(layer: Layer): Layer {
         gridThickness: keep(layer.gridThickness, L.gridThickness),
         subGridThickness: keep(layer.subGridThickness, L.subGridThickness),
         cellIndexFont: keepFont(layer.cellIndexFont),
-        cellIndexCorner: layer.cellIndexCorner && {
-          ...layer.cellIndexCorner,
-          x: keepInt(layer.cellIndexCorner.x, L.cellIndexCorner),
-          y: keepInt(layer.cellIndexCorner.y, L.cellIndexCorner),
-        },
+        // Not an object (a string, an array, a number): the default corner.
+        cellIndexCorner:
+          layer.cellIndexCorner === undefined
+            ? layer.cellIndexCorner
+            : isRecord(layer.cellIndexCorner)
+              ? {
+                  ...layer.cellIndexCorner,
+                  x: keepInt(layer.cellIndexCorner.x, L.cellIndexCorner),
+                  y: keepInt(layer.cellIndexCorner.y, L.cellIndexCorner),
+                }
+              : { x: L.cellIndexCorner.fallback, y: L.cellIndexCorner.fallback },
       };
     case 'area':
       return { ...layer, ...common, areaCellSize: keepInt(layer.areaCellSize, L.areaCellSize) };
     case 'ruler':
-      return { ...layer, ...common, rulerItems: layer.rulerItems.map(keepRuler) };
+      return {
+        ...layer,
+        ...common,
+        rulerItems: Array.isArray(layer.rulerItems) ? layer.rulerItems.map((r) => (isRecord(r) ? keepRuler(r) : r)) : layer.rulerItems,
+      };
     default:
       return { ...layer, ...common };
   }

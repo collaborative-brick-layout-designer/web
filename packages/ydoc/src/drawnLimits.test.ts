@@ -126,3 +126,68 @@ describe('drawing settings of a layout made from a .bbm', () => {
     expect(made).toEqual(expected);
   });
 });
+
+// Values of the wrong shape: a string, an array or a number where an object
+// belongs is never spread into an object of its characters, and a ruler's
+// unit (the one enum) that isn't a whole number in range is studs.
+// Layouts imported before 2026-09-27 hold the grid's cell-index corner as
+// the <CellIndexCorner> element's whitespace text, this exact string.
+const FORDYCE_OLD_CORNER = '\n        \n        \n      ';
+const WRONG_SHAPES: [string, unknown][] = [
+  ['the old whitespace text', FORDYCE_OLD_CORNER],
+  ['whitespace', '   '],
+  ['an empty string', ''],
+  ['a number', 7],
+  ['an array', [1, 2]],
+  ['a string of digits', '12'],
+];
+
+describe('drawing settings of the wrong shape', () => {
+  it.each(WRONG_SHAPES)('a cell-index corner that is %s is the default corner', (_what, v) => {
+    const map = fordyce();
+    (grid(map) as unknown as Record<string, unknown>).cellIndexCorner = v;
+    expect(grid(keepDrawnSettingsInRange(map)).cellIndexCorner).toEqual({ x: 0, y: 0 });
+  });
+
+  it('a cell-index corner that is an object keeps its shape, its x and y in range', () => {
+    const map = fordyce();
+    (grid(map) as unknown as Record<string, unknown>).cellIndexCorner = { x: '  ', y: { a: 1 } };
+    expect(grid(keepDrawnSettingsInRange(map)).cellIndexCorner).toEqual({ x: 0, y: 0 });
+  });
+
+  it.each([...WRONG_SHAPES, ['an object', { unit: 1 }] as [string, unknown], ['a fraction', 2.5] as [string, unknown], ['past the last unit', 6] as [string, unknown]])(
+    'a ruler unit that is %s is studs',
+    (_what, v) => {
+      const map = fordyce();
+      (linear(map) as unknown as Record<string, unknown>).unit = v;
+      expect(linear(keepDrawnSettingsInRange(map)).unit).toBe(0);
+    },
+  );
+
+  it.each([...WRONG_SHAPES, ['null', null] as [string, unknown]])('a font, hull or point that is %s is left as it is, never spread', (_what, v) => {
+    const map = fordyce();
+    const g = grid(map) as unknown as Record<string, unknown>;
+    const r = linear(map) as unknown as Record<string, unknown>;
+    g.cellIndexFont = v;
+    g.hullProperties = v;
+    r.measureFont = v;
+    r.point1 = v;
+    r.point2 = v;
+    const out = keepDrawnSettingsInRange(map);
+    const og = grid(out) as unknown as Record<string, unknown>;
+    const or = linear(out) as unknown as Record<string, unknown>;
+    for (const got of [og.cellIndexFont, og.hullProperties, or.measureFont, or.point1, or.point2]) expect(got).toBe(v);
+  });
+
+  it.each(WRONG_SHAPES.filter(([, v]) => !Array.isArray(v)))('a dash pattern that is %s is none', (_what, v) => {
+    const map = fordyce();
+    (linear(map) as unknown as Record<string, unknown>).guidelineDashPattern = v;
+    expect(linear(keepDrawnSettingsInRange(map)).guidelineDashPattern).toEqual([]);
+  });
+
+  it('a ruler entry that is not an object is left as it is', () => {
+    const map = fordyce();
+    (ruler(map).rulerItems as unknown[]).push(FORDYCE_OLD_CORNER, 3);
+    expect(ruler(keepDrawnSettingsInRange(map)).rulerItems.slice(-2)).toEqual([FORDYCE_OLD_CORNER, 3]);
+  });
+});

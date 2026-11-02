@@ -2154,7 +2154,9 @@ const NEW_LAYER_DEFAULTS: Record<LayerKind, { name: string; extraFields: () => R
       cellIndexColor: { kind: 'known', name: 'Black' } satisfies ColorSpec,
       cellIndexColumnType: '0',
       cellIndexRowType: '1',
-      cellIndexCorner: '',
+      // An {x, y} point (desktop LayerGrid.h): the server refuses any other
+      // shape, so a '' here once made adding a grid sheet close the connection.
+      cellIndexCorner: { x: 0, y: 0 },
     }),
   },
   brick: {
