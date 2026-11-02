@@ -11,8 +11,10 @@
 // sleeping the test for real.
 
 import { createHash, randomBytes } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 import { resolve } from 'node:path';
 import Database from 'better-sqlite3';
+import * as Y from 'yjs';
 
 function dbPath(): string {
   const configured = process.env.DB_PATH;
@@ -152,4 +154,45 @@ export function useSmtp(to: { host: string; port: number; from: string }): () =>
   } finally {
     db.close();
   }
+}
+
+/**
+ * Give a layout's sheet of `type` drawing settings out of range, the way a
+ * layout saved before the server checked them holds them: one more stored
+ * update, as an older app's edit would be. The layout mustn't be open.
+ */
+export function spoilSheetSettings(layoutId: string, type: string, values: Record<string, unknown>): void {
+  const db = new Database(dbPath());
+  try {
+    const doc = new Y.Doc();
+    const row = db.prepare('SELECT doc_snapshot FROM layouts WHERE id = ?').get(layoutId) as { doc_snapshot: Buffer };
+    Y.applyUpdate(doc, row.doc_snapshot);
+    for (const u of db.prepare("SELECT update_bytes FROM layout_updates WHERE layout_id = ? AND doc = 'main' ORDER BY id").all(layoutId) as { update_bytes: Buffer }[]) {
+      Y.applyUpdate(doc, u.update_bytes);
+    }
+    const sheet = [...doc.getMap<Y.Map<unknown>>('layerData').values()].find((l) => l.get('type') === type);
+    if (!sheet) throw new Error(`layout ${layoutId} has no ${type} sheet`);
+    const before = Y.encodeStateVector(doc);
+    doc.transact(() => {
+      for (const [k, v] of Object.entries(values)) sheet.set(k, v);
+    });
+    db.prepare("INSERT INTO layout_updates (layout_id, doc, update_bytes, created_at) VALUES (?, 'main', ?, ?)").run(
+      layoutId,
+      Buffer.from(Y.encodeStateAsUpdate(doc, before)),
+      Date.now(),
+    );
+  } finally {
+    db.close();
+  }
+}
+
+/**
+ * The one-time fix clamp-drawing-values on the test database, through its
+ * command (apps/server src/ops/clampDrawingValuesCli.ts): a dry run, or
+ * with `apply` the fix the server runs at a start with CBLD_DATA_FIX.
+ * Returns what it printed.
+ */
+export function clampDrawingValuesFix(apply: boolean): string {
+  const args = ['--filter', '@cld/server', 'data-fix:clamp-drawing-values', '--db', dbPath(), ...(apply ? ['--apply'] : [])];
+  return execFileSync('pnpm', args, { cwd: resolve(import.meta.dirname, '../../..'), encoding: 'utf8', timeout: 120_000 });
 }

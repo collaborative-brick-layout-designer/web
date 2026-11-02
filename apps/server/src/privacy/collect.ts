@@ -78,6 +78,7 @@ export const NO_PERSONAL_DATA: Record<string, string> = {
   platform_settings: 'Site settings. Only "who last changed them" points at a person, and that is listed under audit-log.',
   erasures: 'The record that an account or club was erased: a pseudonym ("Deleted user #abc123"), when, and how many things went. No personal data.',
   privacy_request_events: 'The history of a privacy request (listed under privacy-requests); the admin who acted is a site admin.',
+  data_fixes: 'Which one-time data fixes the server has run, when, and how many values each changed: counts only, never a person.',
   __drizzle_migrations: 'The database’s own record of its upgrades.',
 };
 

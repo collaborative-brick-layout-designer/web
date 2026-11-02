@@ -91,6 +91,10 @@ export const env = {
   // The biggest collection cover upload, in bytes: Admin › Settings (5 MB
   // by default); this env var, when set, forces it (images/covers.ts).
   collectionCoverMaxBytesForced: forcedInt(process.env.COLLECTION_COVER_MAX_BYTES),
+
+  // One-time data fixes to run at this start (ops/dataFixes.ts): only an
+  // operator turns one on, for one restart; each runs once.
+  dataFix: process.env.CBLD_DATA_FIX ?? '',
 };
 
 function providerEnv(prefix: string): { clientId: string; clientSecret: string } | null {
