@@ -32,6 +32,7 @@ import { wsRoutes } from '../ws.js';
 import { docHub } from '../../ws/docHub.js';
 import { MAX_PENDING_BYTES, MAX_PENDING_DS_BYTES, pendingBytes, pendingDsBytes } from '../../ws/pending.js';
 import { guardWork } from '../../ws/decoded.js';
+import { checkUpdate } from '../../ws/updateGuard.js';
 import { Peer } from './wsPeer.js';
 import { resetCopyBudgets, wsPacing } from '../../ws/pacing.js';
 
@@ -176,6 +177,53 @@ describe('WS update guard', () => {
     expect(pendingBytes(room(id).doc)).toBe(0);
     expect(peer.ws.readyState).toBe(WebSocket.OPEN);
     peer.ws.close();
+  });
+
+  it('rejects malformed documents without crashing, live and in older snapshots', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const varUint = (v: number): number[] => {
+      const out: number[] = [];
+      for (; v > 0x7f; v = Math.floor(v / 128)) out.push(0x80 | (v % 128));
+      out.push(v);
+      return out;
+    };
+    // meta[key] = 2 from client 7777 at `clock` (hand-encoded: Yjs never writes such a clock).
+    const setAt = (clock: number, key: string) =>
+      Uint8Array.from([1, 1, ...varUint(7777), ...varUint(clock), 8 | 0x20, 1, 4, ...Buffer.from('meta'), 1, key.charCodeAt(0), 1, 0x7d, 2, 0]);
+    const id = await create();
+    const peer = await rawSocket(port, id, cookieStr);
+    await sleep(100);
+    peer.ws.send(updateMsg(setAt(0, 'a')));
+    for (let i = 0; i < 50 && room(id).doc.getMap('meta').get('a') !== 2; i++) await sleep(20);
+    expect(room(id).doc.getMap('meta').get('a')).toBe(2);
+    // The next change from the same editor, at a clock past the limit.
+    peer.ws.send(updateMsg(setAt(0xffff_ff00, 'b')));
+    expect(await peer.closed).toEqual([1008, 'unreadable_update']);
+    expect(pendingBytes(room(id).doc)).toBe(0);
+    expect(checkUpdate(Y.encodeStateAsUpdate(room(id).doc))).toBeNull();
+    const fuzz = Buffer.from('AwGAgJYAlgEAAgGAgJYAlv////8BAAIAAAAAAAAAAAQA', 'base64');
+    const next = await rawSocket(port, id, cookieStr);
+    await sleep(50);
+    next.ws.send(updateMsg(fuzz));
+    expect(await next.closed).toEqual([1008, 'unreadable_update']);
+    expect(pendingBytes(room(id).doc)).toBe(0);
+
+    // A snapshot stored before the server refused them: what waits with
+    // such a clock is dropped when the room opens, so no sync hands it out.
+    await docHub.close(id);
+    const stored = new Y.Doc();
+    Y.applyUpdate(stored, db.select({ s: schema.layouts.docSnapshot }).from(schema.layouts).where(eq(schema.layouts.id, id)).get()!.s as Uint8Array);
+    Y.applyUpdate(stored, setAt(0xffff_ff00, 'b'));
+    expect(pendingBytes(stored)).toBeGreaterThan(0);
+    expect(checkUpdate(Y.encodeStateAsUpdate(stored))).not.toBeNull();
+    db.update(schema.layouts).set({ docSnapshot: Buffer.from(Y.encodeStateAsUpdate(stored)) }).where(eq(schema.layouts.id, id)).run();
+    const reader = new Y.Doc();
+    const again = new Peer(port, id, cookieStr, reader);
+    await again.synced;
+    expect(pendingBytes(room(id).doc)).toBe(0);
+    expect(reader.getMap('meta').get('a')).toBe(2);
+    expect(checkUpdate(Y.encodeStateAsUpdate(reader))).toBeNull();
+    await again.leave();
   });
 
   it('closes on an update the desktop cannot read, leaves the layout as it was, and audits it once', async () => {

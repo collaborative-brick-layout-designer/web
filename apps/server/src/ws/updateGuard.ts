@@ -12,7 +12,9 @@
 // - values nested deeper than MAX_NESTING;
 // - content kinds the desktop can't read, or a layout never holds (weak links);
 // - strings with a NUL character in them;
-// - an empty GC or skip block.
+// - an empty GC or skip block;
+// - a clock (where a change sits in its editor's run of changes) past
+//   MAX_CLOCK.
 //
 // Where yrs reads a field differently from Yjs (a JSON content holds one
 // string more than its count), the walk follows yrs, like the desktop's.
@@ -23,6 +25,15 @@ export const MAX_UPDATE_BYTES = 64 * 1024 * 1024;
 
 /** How deep values may nest (the desktop's kMaxNesting). The layout model nests 5 deep. */
 export const MAX_NESTING = 256;
+
+/**
+ * The highest clock read (the desktop's kMaxClock), in blocks (to their
+ * end), the ids they point at, deleted ranges and state vectors. The
+ * desktop's yrs keeps clocks as 32-bit numbers and works out the gap before
+ * a block with signed 32-bit arithmetic, which goes wrong past this. A clock
+ * counts one editor's changes in one session: real layouts stay far below it.
+ */
+export const MAX_CLOCK = 0x7fff_ffff;
 
 // Block info byte.
 const GC = 0;
@@ -38,6 +49,8 @@ class Walk {
   private readonly b: Uint8Array;
   /** When set, update() lists each block of structs' client id here, in order. */
   clients: number[] | null = null;
+  /** Where the next block of the client being read starts. */
+  private clock = 0;
 
   constructor(bytes: Uint8Array) {
     this.b = bytes;
@@ -90,10 +103,31 @@ class Walk {
     return [start, len];
   }
 
-  /** lib0 varString, without a NUL inside. */
-  private text(): void {
+  /** lib0 varString, without a NUL inside. Returns its length in UTF-16 code units (the clocks it takes as content). */
+  private text(): number {
     const [start, len] = this.bytes();
-    if (len > 0 && this.b.subarray(start, start + len).includes(0)) this.fail('a string has a NUL character in it');
+    const s = this.b.subarray(start, start + len);
+    if (len > 0 && s.includes(0)) this.fail('a string has a NUL character in it');
+    let units = 0;
+    for (const c of s) if ((c & 0xc0) !== 0x80) units += c >= 0xf0 ? 2 : 1;
+    return units;
+  }
+
+  /** `length` clocks from `clock` must end within MAX_CLOCK. */
+  private clockInRange(clock: number, length: number): void {
+    if (clock > MAX_CLOCK || length > MAX_CLOCK - clock) this.fail(`a clock is past ${MAX_CLOCK}`);
+  }
+
+  /** An id (client, clock). */
+  private id(): void {
+    this.varUint();
+    this.clockInRange(this.varUint(), 0);
+  }
+
+  /** The next block of the client being read takes `length` clocks. */
+  private place(length: number): void {
+    this.clockInRange(this.clock, length);
+    this.clock += length;
   }
 
   update(): void {
@@ -102,7 +136,8 @@ class Walk {
       const blocks = this.count(2, 'blocks'); // each: info byte and at least one more
       const client = this.varUint();
       this.clients?.push(client);
-      this.varUint(); // first clock
+      this.clock = this.varUint(); // first clock
+      this.clockInRange(this.clock, 0);
       for (let i = 0; i < blocks; i++) this.block();
     }
     this.deleteSet();
@@ -112,7 +147,7 @@ class Walk {
     const clients = this.count(2, 'clients'); // each: client id, clock
     for (let c = 0; c < clients; c++) {
       this.varUint();
-      this.varUint();
+      this.clockInRange(this.varUint(), 0);
     }
   }
 
@@ -121,65 +156,59 @@ class Walk {
     if (info === GC || info === SKIP) {
       // Yjs never writes an empty one, and the desktop's yrs divides by zero
       // looking up a clock after an empty GC block.
-      if (this.varUint() === 0) this.fail('it holds an empty block');
+      const length = this.varUint();
+      if (length === 0) this.fail('it holds an empty block');
+      this.place(length);
       return;
     }
     const cantCopyParentInfo = (info & (HAS_ORIGIN | HAS_RIGHT_ORIGIN)) === 0;
-    if (info & HAS_ORIGIN) {
-      this.varUint();
-      this.varUint();
-    }
-    if (info & HAS_RIGHT_ORIGIN) {
-      this.varUint();
-      this.varUint();
-    }
+    if (info & HAS_ORIGIN) this.id();
+    if (info & HAS_RIGHT_ORIGIN) this.id();
     if (cantCopyParentInfo) {
       if (this.varUint() === 1) this.text(); // a root type's name
-      else {
-        this.varUint(); // or the id of the type it's in
-        this.varUint();
-      }
+      else this.id(); // or the id of the type it's in
       if (info & HAS_PARENT_SUB) this.text(); // map key
     }
-    this.content(info & 0x0f);
+    this.place(this.content(info & 0x0f));
   }
 
-  private content(ref: number): void {
+  /** Returns how many clocks the content takes, as yrs counts them. */
+  private content(ref: number): number {
     switch (ref) {
       case 1: // deleted: a length
-        this.varUint();
-        return;
+        return this.varUint();
       case 2: {
-        // JSON: yrs reads count + 1 strings
+        // JSON: yrs reads count + 1 strings, and takes as many clocks
         const n = this.varUint();
         if (n >= this.left()) this.fail(`it claims ${n + 1} JSON values with ${this.left()} bytes left`);
         for (let i = 0; i <= n; i++) this.text();
-        return;
+        return n + 1;
       }
       case 3: // binary
         this.bytes();
-        return;
-      case 4: // string
+        return 1;
+      case 4: // string: as many clocks as UTF-16 code units
+        return this.text();
       case 5: // embed (JSON text)
         this.text();
-        return;
+        return 1;
       case 6: // format: key, JSON text
         this.text();
         this.text();
-        return;
+        return 1;
       case 7: // a nested type
         this.typeRef();
-        return;
+        return 1;
       case 8: {
         // values
         const n = this.count(1, 'values');
         for (let i = 0; i < n; i++) this.any(0);
-        return;
+        return n;
       }
       case 9: // a sub-document: guid, options
         this.text();
         this.any(0);
-        return;
+        return 1;
       default:
         this.fail(`unknown content kind ${ref}`);
     }
@@ -267,8 +296,8 @@ class Walk {
       this.varUint(); // client id
       const ranges = this.count(2, 'deleted ranges'); // each: clock, length
       for (let r = 0; r < ranges; r++) {
-        this.varUint();
-        this.varUint();
+        const clock = this.varUint();
+        this.clockInRange(clock, this.varUint());
       }
     }
     // Anything after the delete set is ignored (yrs does the same).
