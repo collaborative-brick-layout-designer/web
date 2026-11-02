@@ -1510,3 +1510,12 @@ export const clubLogos = sqliteTable('club_logos', {
   updatedBy: text('updated_by').references(() => users.id, { onDelete: 'set null' }),
   updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
 });
+
+// One-time data fixes (0039): each fix the server has run, by name, so it
+// runs only once (ops/dataFixes.ts). A fix runs only when an operator asks
+// for it (CBLD_DATA_FIX); `summary` is what it changed, as JSON.
+export const dataFixes = sqliteTable('data_fixes', {
+  id: text('id').primaryKey(),
+  appliedAt: integer('applied_at', { mode: 'timestamp_ms' }).notNull(),
+  summary: text('summary'),
+});

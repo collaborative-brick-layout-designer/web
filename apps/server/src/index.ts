@@ -8,7 +8,7 @@ import rateLimit from '@fastify/rate-limit';
 import fastifyStatic from '@fastify/static';
 import fastifyMultipart from '@fastify/multipart';
 import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
-import { db } from './db/index.js';
+import { db, sqlite } from './db/index.js';
 import { env, trustProxyWarning } from './env.js';
 import { attachUser } from './auth/cookie.js';
 import { ensureBootstrapAdmin } from './auth/bootstrap.js';
@@ -27,10 +27,15 @@ import { registerApiRoutes } from './routes/all.js';
 import { registerChangeHints } from './events/routeHints.js';
 import { setHintErrorLogger } from './events/audience.js';
 import { stopEvents } from './routes/events.js';
+import { askedFixes, runDataFixes } from './ops/dataFixes.js';
+import { docHub } from './ws/docHub.js';
 
 async function main() {
   // Run pending migrations on boot. Idempotent.
   migrate(db, { migrationsFolder: resolve('./migrations') });
+  // One-time data fixes: only those an operator asks for (CBLD_DATA_FIX),
+  // before anyone connects. Otherwise one log line when one waits.
+  runDataFixes(sqlite, askedFixes(env.dataFix), (line) => console.log(line), (id) => docHub.peek(id)?.doc);
   await ensureBootstrapAdmin();
   // Data downloads that were building when the server stopped can be asked for again.
   await failInterruptedExports();

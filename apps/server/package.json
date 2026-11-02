@@ -12,7 +12,8 @@
     "test": "vitest run",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx --env-file-if-exists=../../.env src/db/migrate.ts",
-    "docs:env": "tsx scripts/gen-env-docs.ts"
+    "docs:env": "tsx scripts/gen-env-docs.ts",
+    "data-fix:clamp-drawing-values": "tsx src/ops/clampDrawingValuesCli.ts"
   },
   "dependencies": {
     "@cld/bbm": "workspace:*",
