@@ -47,6 +47,16 @@ describe('addLayer', () => {
     expect(g.displayCellIndex).toBe(false);
   });
 
+  it('gives a new Grid layer an {x, y} cell-index corner, the only shape the server takes', () => {
+    // It was '' until 2026-11: the server refused the edit adding the sheet.
+    const doc = new Y.Doc();
+    const id = addLayer(doc, 'grid');
+    const raw = doc.getMap<Y.Map<unknown>>('layerData').get(id)!;
+    expect(raw.get('cellIndexCorner')).toEqual({ x: 0, y: 0 });
+    expect(raw.get('cellIndexFont')).toMatchObject({ size: 8.25 });
+    expect(raw.get('hullProperties')).toMatchObject({ hullThickness: 1 });
+  });
+
   it('new Area layers paint 32-stud cells (core/LayerArea.h:25)', () => {
     const doc = new Y.Doc();
     expect(layerById<LayerArea>(doc, addLayer(doc, 'area')).areaCellSize).toBe(32);

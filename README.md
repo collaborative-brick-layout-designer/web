@@ -334,7 +334,7 @@ when they fall behind.
 | `DAILY_COMPACTION_ENABLED` | unset (the switch decides; on) | Admin › Site settings › Background jobs | When set, forces the daily compaction of layout histories on or off. |
 | `COLLECTION_COVER_MAX_BYTES` | unset (5 MB) | Admin › Site settings › Public catalogs | When set, forces the largest collection and catalog cover picture, in bytes (at most 7 MB). |
 | `LIMITS_ENFORCE` | unset (the switch decides; on) | Admin › Site settings › Usage limits | `on` or `off` forces whether usage limits are enforced. |
-| `CBLD_DATA_FIX` | unset | — | A one-time data fix to run at this start (`clamp-drawing-values`), for one restart. Each runs once (recorded in `data_fixes`); without it the server only logs that one waits. Try it first on a copy: `pnpm --filter @cld/server data-fix:clamp-drawing-values --db <file>`. |
+| `CBLD_DATA_FIX` | unset | — | A one-time data fix to run at this start (`clamp-drawing-values`), for one restart. Each runs once (recorded in `data_fixes`); without it the server only logs that one waits. Try it first on a copy: `node dist/ops/clampDrawingValuesCli.js --db <file>` in the Docker image (from `/app/apps/server`), or `pnpm --filter @cld/server data-fix:clamp-drawing-values --db <file>` from a checkout. |
 | `PRIVACY_CONTACT` | unset | Admin › Site settings › Privacy | When set, forces the privacy contact (an email address or a web address) shown on the privacy page. |
 
 **Usage limits.** Each is also set in Admin › Site settings › Usage limits (and per person or club); the variable sets the default the admin starts from.

@@ -7,7 +7,8 @@
 // The fixes (one so far):
 //   clamp-drawing-values  drawing settings saved out of range before the
 //                         live route checked them (ops/clampDrawingValues.ts).
-//                         Dry run: pnpm --filter @cld/server data-fix:clamp-drawing-values --db <file>
+//                         Dry run: pnpm --filter @cld/server data-fix:clamp-drawing-values --db <file>,
+//                         or in the Docker image (/app/apps/server): node dist/ops/clampDrawingValuesCli.js --db <file>
 
 import type Database from 'better-sqlite3';
 import type * as Y from 'yjs';
@@ -74,7 +75,7 @@ export function runDataFixes(
   }
   if (out.pending.length > 0) {
     log(
-      `[dataFix] not run yet: ${out.pending.join(', ')}. Dry run with pnpm --filter @cld/server data-fix:<name> --db <copy of the database>; run it with ${DATA_FIX_ENV}=<name> for one restart.`,
+      `[dataFix] not run yet: ${out.pending.join(', ')}. Dry run on a copy of the database: node dist/ops/clampDrawingValuesCli.js --db <file> (in the Docker image), or pnpm --filter @cld/server data-fix:<name> --db <file>; run it with ${DATA_FIX_ENV}=<name> for one restart.`,
     );
   }
   return out;
