@@ -1,0 +1,79 @@
+name: Fuzz
+
+# Coverage-guided fuzzing of the server's live path (apps/server/src/fuzz,
+# scripts/fuzz.mjs): the update guard on raw bytes, and rooms taking runs of
+# messages through the live handler. A short run on pull requests that touch
+# that path, a longer one every night. The inputs that once broke it
+# (apps/server/fuzz/regressions) are replayed by the unit tests on every
+# pull request (src/fuzz/replay.test.ts, in CI's Build & test).
+#
+# A finding fails the job and is uploaded as an artifact: reproduce it with
+#   pnpm --filter @cld/server fuzz <target> replay <file>
+# and, once fixed, add it to apps/server/fuzz/regressions/<target>/.
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'apps/server/src/ws/**'
+      - 'apps/server/src/fuzz/**'
+      - 'apps/server/fuzz/**'
+      - 'apps/server/scripts/fuzz.mjs'
+      - 'packages/ydoc/src/**'
+      - 'fixtures/contracts/update-guard.json'
+      - 'pnpm-lock.yaml'
+      - '.github/workflows/fuzz.yml'
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+    inputs:
+      seconds:
+        description: Seconds per target
+        default: '600'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fuzz-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  fuzz:
+    name: Fuzz ${{ matrix.target }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [guard, room]
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile=false
+
+      - name: Fuzz
+        working-directory: apps/server
+        env:
+          # A shared runner is slower and noisier than a desk machine.
+          FUZZ_BUDGET_MS: '3000'
+        run: |
+          seconds='${{ github.event_name == 'pull_request' && '120' || inputs.seconds || '900' }}'
+          node scripts/fuzz.mjs '${{ matrix.target }}' "$seconds"
+
+      - name: Upload findings
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: fuzz-findings-${{ matrix.target }}
+          path: apps/server/fuzz/findings/
+          if-no-files-found: ignore

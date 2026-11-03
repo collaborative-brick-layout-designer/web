@@ -11,10 +11,11 @@ import { PRIVACY_SETTINGS } from './privacy/settings.js';
 const srcDir = fileURLToPath(new URL('.', import.meta.url));
 const readmePath = fileURLToPath(new URL('../../../README.md', import.meta.url));
 
+/** The server's sources (not its tests, nor the fuzz harness, src/fuzz, whose FUZZ_* settings aren't the server's). */
 function sources(dir: string): string[] {
   return readdirSync(dir).flatMap((name) => {
     const p = join(dir, name);
-    if (statSync(p).isDirectory()) return name === 'test' ? [] : sources(p);
+    if (statSync(p).isDirectory()) return name === 'test' || p === join(srcDir, 'fuzz') ? [] : sources(p);
     return name.endsWith('.ts') && !name.endsWith('.test.ts') ? [p] : [];
   });
 }

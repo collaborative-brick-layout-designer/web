@@ -89,7 +89,7 @@ export interface WsAuth {
 }
 
 /** Where a refused or flagged update came from, for the log and the audit. */
-interface Sender {
+export interface Sender {
   layoutId: string;
   userId: string;
   client: string;
@@ -247,7 +247,12 @@ export async function attachWsHandlers(
 // Helpers
 // ---------------------------------------------------------------------------
 
-function handleMessage(
+/**
+ * One message from a connection that is open and within its pace (the
+ * socket's 'message' listener above). Exported for the fuzz harness
+ * (src/fuzz/room.ts), which sends it messages the way that listener does.
+ */
+export function handleMessage(
   ws: WebSocket,
   session: DocSession,
   msg: Uint8Array,

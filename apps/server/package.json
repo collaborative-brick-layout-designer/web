@@ -13,7 +13,8 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx --env-file-if-exists=../../.env src/db/migrate.ts",
     "docs:env": "tsx scripts/gen-env-docs.ts",
-    "data-fix:clamp-drawing-values": "tsx src/ops/clampDrawingValuesCli.ts"
+    "data-fix:clamp-drawing-values": "tsx src/ops/clampDrawingValuesCli.ts",
+    "fuzz": "node scripts/fuzz.mjs"
   },
   "dependencies": {
     "@cld/bbm": "workspace:*",
@@ -40,12 +41,14 @@
     "yjs": "13.6.33"
   },
   "devDependencies": {
+    "@jazzer.js/core": "4.0.0",
     "@types/better-sqlite3": "9.6.0",
     "@types/node": "26.6.6",
     "@types/nodemailer": "8.0.2",
     "@types/ws": "^8.18.2",
     "@vitest/coverage-v8": "^5.0.5",
     "drizzle-kit": "0.31.11",
+    "esbuild": "0.28.2",
     "tsx": "4.23.15",
     "typescript": "7.0.2",
     "vitest": "5.0.5",
