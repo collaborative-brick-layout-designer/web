@@ -20,6 +20,7 @@ import { MAP_FONT_STACK } from './render/mapText';
 import * as Y from 'yjs';
 import type { BbmMap, Brick, RectangleF } from '@cld/model';
 import type { AnchoredLabel, SidecarModule } from '@cld/bbm';
+import { DRAWN_LIMITS } from '@cld/ydoc';
 import type { AnnoSelection } from './editorStore';
 import { polygonIntersectsMarquee, rotatedRectCorners, type Marquee, type Pt } from './render/marqueeMath';
 import { LOCAL_ORIGIN } from './useLayoutDoc';
@@ -222,12 +223,16 @@ export function labelFontStyle(bold: boolean, italic: boolean): string {
  * Scene-unit (world px at zoom 1, 8 px per stud) height of a label font.
  * Desktop builds `QFont(family, int(sizePt))` — the point size truncated
  * to an integer — and Qt lays points out at 96 logical DPI, so one point
- * is 96/72 scene px (SceneBuilderSidecar.cpp:205). A size that truncates
- * to 0 is invalid for QFont, which keeps its default (9 pt).
+ * is 96/72 scene px (SceneBuilderSidecar.cpp). The size is first brought
+ * into range as the desktop does when it reads a label (1 to 500 pt; not a
+ * number, 8.25 pt: DRAWN_LIMITS.fontSize): any writer may store any number
+ * there, and a huge one would draw a label without end. What is stored is
+ * left as it is.
  */
 export function labelFontPx(sizePt: number): number {
-  const pt = Math.trunc(sizePt);
-  return ((pt > 0 ? pt : 9) * 96) / 72;
+  const r = DRAWN_LIMITS.fontSize;
+  const size = typeof sizePt === 'number' && Number.isFinite(sizePt) ? Math.min(r.max, Math.max(r.min, sizePt)) : r.fallback;
+  return (Math.trunc(size) * 96) / 72;
 }
 
 /**

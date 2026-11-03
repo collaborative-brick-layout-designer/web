@@ -186,7 +186,17 @@ describe('label fonts (points, desktop default)', () => {
   it('converts points to scene px the way QFont(family, int(pt)) lays out at 96 dpi', () => {
     expect(labelFontPx(8.25)).toBeCloseTo((8 * 96) / 72, 9);
     expect(labelFontPx(12)).toBe(16);
-    expect(labelFontPx(0.5)).toBe(12); // invalid size → QFont default 9 pt
+  });
+
+  it('draws a size out of range at the nearest end, as the desktop reads it (1 to 500 pt)', () => {
+    expect(labelFontPx(1e9)).toBe((500 * 96) / 72);
+    expect(labelFontPx(501.5)).toBe((500 * 96) / 72);
+    expect(labelFontPx(0.5)).toBe(96 / 72);
+    expect(labelFontPx(-40)).toBe(96 / 72);
+    // Not a number: the default, 8.25 pt.
+    expect(labelFontPx(Number.NaN)).toBeCloseTo((8 * 96) / 72, 9);
+    expect(labelFontPx(Number.POSITIVE_INFINITY)).toBeCloseTo((8 * 96) / 72, 9);
+    expect(labelFontPx('big' as unknown as number)).toBeCloseTo((8 * 96) / 72, 9);
   });
 
   it('defaults to 8.25 pt Microsoft Sans Serif, drawn in the bundled map font', () => {
