@@ -8,6 +8,7 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as Y from 'yjs';
+import * as encoding from 'lib0/encoding';
 import { describe, expect, it } from 'vitest';
 import { readBbm, readSidecar } from '@cld/bbm';
 import { encodeDoc, seedFromBbm } from '@cld/ydoc';
@@ -218,5 +219,51 @@ describe('the update guard', () => {
     expect(checkUpdate(Buffer.from('00' + '01' + '07' + '01' + '0500', 'hex'))).toContain('empty range');
     expect(checkUpdate(Buffer.from('00' + '01' + '07' + '02' + '0a01' + '0501', 'hex'))).toContain('out of order');
     expect(checkUpdate(Buffer.from('00' + '02' + '07' + '01' + '0501' + '07' + '01' + '0a01', 'hex'))).toContain('twice');
+  });
+
+  it('refuses a client id past 2^53 - 1, wherever it is, and takes one up to it', () => {
+    const bytes = (write: (e: encoding.Encoder) => void) => {
+      const e = encoding.createEncoder();
+      write(e);
+      return encoding.toUint8Array(e);
+    };
+    for (const [client, refused] of [
+      [Number.MAX_SAFE_INTEGER, false],
+      [2 ** 53, true],
+      [2 ** 60, true],
+    ] as const) {
+      const v = (e: encoding.Encoder) => encoding.writeVarUint(e, client);
+      // A block's client: one GC block of length 1.
+      const block = bytes((e) => {
+        [1, 1].forEach((n) => encoding.writeVarUint(e, n));
+        v(e);
+        [0, 0, 1, 0].forEach((n) => encoding.writeVarUint(e, n)); // clock 0, GC, length 1, no deletions
+      });
+      // The parent an item is in: (client, clock 0).
+      const parent = bytes((e) => {
+        [1, 1, 5, 0, 8, 0].forEach((n) => encoding.writeVarUint(e, n)); // client 5, clock 0: values in the type with id…
+        v(e);
+        [0, 1, 0x7e, 0].forEach((n) => encoding.writeVarUint(e, n)); // …(client, 0): one null; no deletions
+      });
+      const deleted = bytes((e) => {
+        [0, 1].forEach((n) => encoding.writeVarUint(e, n));
+        v(e);
+        [1, 5, 1].forEach((n) => encoding.writeVarUint(e, n));
+      });
+      const sv = bytes((e) => {
+        encoding.writeVarUint(e, 1);
+        v(e);
+        encoding.writeVarUint(e, 3);
+      });
+      for (const [what, why] of [
+        ['block', checkUpdate(block)],
+        ['parent', checkUpdate(parent)],
+        ['deleted', checkUpdate(deleted)],
+        ['state vector', checkStateVector(sv)],
+      ] as const) {
+        if (refused) expect(why, `${what} ${client}`).toContain('client id');
+        else expect(why, `${what} ${client}`).toBeNull();
+      }
+    }
   });
 });

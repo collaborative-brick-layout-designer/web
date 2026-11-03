@@ -16,7 +16,8 @@
 // - an empty block (GC, skip, or an item of no content);
 // - deleted ranges that are empty, out of order, or a client's listed twice;
 // - a clock (where a change sits in its editor's run of changes) past
-//   MAX_CLOCK.
+//   MAX_CLOCK;
+// - a client id past MAX_CLIENT.
 //
 // Where yrs reads a field differently from Yjs, the walk follows yrs, like
 // the desktop's. JSON content is the one such field: yrs reads one string
@@ -39,6 +40,14 @@ export const MAX_NESTING = 256;
  * counts one editor's changes in one session: real layouts stay far below it.
  */
 export const MAX_CLOCK = 0x7fff_ffff;
+
+/**
+ * The highest client id read. Yjs picks 32-bit ids, yrs 53-bit ones (the
+ * largest whole number a JavaScript number holds exactly); Yjs can't read a
+ * larger one back once it has stored it (its document then can't be
+ * written out at all).
+ */
+export const MAX_CLIENT = Number.MAX_SAFE_INTEGER;
 
 // Block info byte.
 const GC = 0;
@@ -125,9 +134,16 @@ class Walk {
     if (clock > MAX_CLOCK || length > MAX_CLOCK - clock) this.fail(`a clock is past ${MAX_CLOCK}`);
   }
 
+  /** A client id. */
+  private client(): number {
+    const v = this.varUint();
+    if (v > MAX_CLIENT) this.fail(`a client id is past ${MAX_CLIENT}`);
+    return v;
+  }
+
   /** An id (client, clock). */
   private id(): void {
-    this.varUint();
+    this.client();
     this.clockInRange(this.varUint(), 0);
   }
 
@@ -141,7 +157,7 @@ class Walk {
     const clients = this.count(3, 'clients'); // each: block count, client id, clock
     for (let c = 0; c < clients; c++) {
       const blocks = this.count(2, 'blocks'); // each: info byte and at least one more
-      const client = this.varUint();
+      const client = this.client();
       this.clients?.push(client);
       this.clock = this.varUint(); // first clock
       this.clockInRange(this.clock, 0);
@@ -154,7 +170,7 @@ class Walk {
   stateVector(): void {
     const clients = this.count(2, 'clients'); // each: client id, clock
     for (let c = 0; c < clients; c++) {
-      this.varUint();
+      this.client();
       this.clockInRange(this.varUint(), 0);
     }
   }
@@ -309,7 +325,7 @@ class Walk {
     const clients = this.count(2, 'deleted-range clients'); // each: client id, range count
     const seen = new Set<number>();
     for (let c = 0; c < clients; c++) {
-      const client = this.varUint();
+      const client = this.client();
       if (seen.has(client)) this.fail('it lists the deletions of one client twice');
       seen.add(client);
       const ranges = this.count(2, 'deleted ranges'); // each: clock, length
