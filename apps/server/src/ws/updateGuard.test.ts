@@ -206,6 +206,9 @@ describe('the update guard', () => {
     // of the old JSON kind, as yrs would read it (count 0, one string).
     const json = Buffer.from('0101010002' + '0104' + Buffer.from('meta').toString('hex') + '00' + '00' + '00', 'hex');
     expect(checkUpdate(json)).toContain('JSON');
+    // An XML hook (Yjs reads a name after it, yrs doesn't): meta.x as one.
+    const hook = Buffer.from(`0101010027` + `0104${Buffer.from('meta').toString('hex')}0178` + '05' + '00', 'hex');
+    expect(checkUpdate(hook)).toContain('XML hook');
     // An item of no content: no values, an empty string, a deletion of 0.
     for (const [ref, body] of [
       [8, '00'],

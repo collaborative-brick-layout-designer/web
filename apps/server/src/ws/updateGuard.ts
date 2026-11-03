@@ -11,7 +11,7 @@
 // - a count or length longer than the bytes left could hold;
 // - values nested deeper than MAX_NESTING;
 // - content kinds the desktop can't read, or a layout never holds (weak links,
-//   JSON content);
+//   JSON content, XML hooks);
 // - strings with a NUL character in them;
 // - an empty block (GC, skip, or an item of no content);
 // - deleted ranges that are empty, out of order, or a client's listed twice;
@@ -20,11 +20,13 @@
 // - a client id past MAX_CLIENT.
 //
 // Where yrs reads a field differently from Yjs, the walk follows yrs, like
-// the desktop's. JSON content is the one such field: yrs reads one string
-// more than its count. Neither app writes that content kind, and whatever
-// Yjs reads of it Yjs writes back the Yjs way, which the desktop then can't
-// read: a room that took one would send every desktop a layout it refuses.
-// So the server refuses it (the desktop's own guard reads it the yrs way).
+// the desktop's. Two such fields: JSON content (yrs reads one string more
+// than its count) and an XML hook (Yjs reads a name after it, yrs nothing).
+// Neither app writes either, and Yjs reads the rest of such an update out of
+// step with yrs, and writes back what it read the Yjs way, which the desktop
+// then can't read: a room that took one would send every desktop a layout it
+// refuses. So the server refuses both (the desktop's own guard reads them
+// the yrs way).
 
 /** The largest update or state vector read (the desktop's kMaxUpdateBytes). */
 export const MAX_UPDATE_BYTES = 64 * 1024 * 1024;
@@ -252,7 +254,6 @@ class Walk {
       case 1: // map
       case 2: // text
       case 4: // XML fragment
-      case 5: // XML hook
       case 6: // XML text
       case 9: // sub-document
       case 15: // undefined
@@ -260,6 +261,8 @@ class Walk {
       case 3: // XML element: its name
         this.text();
         return;
+      case 5: // XML hook: Yjs reads a name after it, yrs doesn't
+        return this.fail('it holds an XML hook, which Yjs and yrs read differently');
       case 7:
         return this.fail('it holds a weak link, which layouts never use');
       default:
