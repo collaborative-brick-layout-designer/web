@@ -199,11 +199,6 @@ export class DocSession {
       .get();
     if (!layout) throw new Error(`layout ${this.layoutId} not found`);
 
-    const snapshot = layout.docSnapshot as Uint8Array;
-    if (snapshot && snapshot.length > 0) {
-      Y.applyUpdate(this.doc, snapshot);
-    }
-
     const updates = await db
       .select({ updateBytes: schema.layoutUpdates.updateBytes })
       .from(schema.layoutUpdates)
@@ -213,9 +208,24 @@ export class DocSession {
           eq(schema.layoutUpdates.doc, 'main'),
         ),
       );
+    this.load(
+      layout.docSnapshot as Uint8Array,
+      updates.map((u) => u.updateBytes as Uint8Array),
+    );
+  }
+
+  /**
+   * hydrate()'s work once the rows are read: the snapshot, then the update
+   * log, then the repairs a layout gets on opening. (Also the fuzz
+   * harness's way to reopen a room, src/fuzz/room.ts.)
+   */
+  load(snapshot: Uint8Array | null, updates: readonly Uint8Array[]): void {
+    if (snapshot && snapshot.length > 0) {
+      Y.applyUpdate(this.doc, snapshot);
+    }
     // Corrupt updates, and any that would take too long to apply
     // (ws/yjsWork.ts), are skipped: the snapshot is the source of truth.
-    for (const u of updates) applyStoredUpdate(this.doc, u.updateBytes as Uint8Array, `layout ${this.layoutId}`);
+    for (const u of updates) applyStoredUpdate(this.doc, u, `layout ${this.layoutId}`);
     // A snapshot written before rooms had a limit on it may hold more
     // waiting for changes nobody sent than one may (ws/pending.ts).
     this.limitPending();

@@ -43,3 +43,7 @@ Thumbs.db
 *.log
 npm-debug.log*
 pnpm-debug.log*
+
+# fuzzing (apps/server/scripts/fuzz.mjs): what a run finds and grows
+apps/server/fuzz/corpus/
+apps/server/fuzz/findings/
