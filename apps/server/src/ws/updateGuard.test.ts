@@ -218,6 +218,9 @@ describe('the update guard', () => {
       const empty = Buffer.from(`01010100${(ref | 0x20).toString(16).padStart(2, '0')}0104${Buffer.from('meta').toString('hex')}0178${body}00`, 'hex');
       expect(checkUpdate(empty), `content ${ref}`).toContain('empty block');
     }
+    // An item placed after a later change of its own editor (7:5 after 7:9).
+    expect(checkUpdate(Buffer.from('01010705880709017800', 'hex'))).toContain('later change of its own editor');
+    expect(checkUpdate(Buffer.from('01010705880704017800', 'hex'))).toBeNull(); // after 7:4, before it: fine
     // Deleted ranges: empty, out of order, one client listed twice.
     expect(checkUpdate(Buffer.from('00' + '01' + '07' + '01' + '0500', 'hex'))).toContain('empty range');
     expect(checkUpdate(Buffer.from('00' + '01' + '07' + '02' + '0a01' + '0501', 'hex'))).toContain('out of order');

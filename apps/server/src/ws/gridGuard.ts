@@ -284,11 +284,17 @@ export function checkGridSizesOnCopy(doc: Y.Doc | null, update: Uint8Array): str
       guardWork.copyBytes += state.length;
       Y.applyUpdate(after, state);
     }
-    Y.applyUpdate(after, update);
+    try {
+      Y.applyUpdate(after, update);
+    } catch {
+      // Yjs throws part-way through some hand-made updates and keeps what it
+      // applied before (the room would too): that is what is checked. One it
+      // can't read at all throws before changing anything.
+    }
     for (const p of drawingProblems(after)) if (!before.has(p)) return refusal(p);
     return null;
   } catch {
-    return null; // Yjs can't apply it either: it changes nothing
+    return null; // the room's own document can't be copied: nothing to compare
   } finally {
     after.destroy();
   }

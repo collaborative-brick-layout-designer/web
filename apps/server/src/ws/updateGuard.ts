@@ -15,6 +15,9 @@
 // - strings with a NUL character in them;
 // - an empty block (GC, skip, or an item of no content);
 // - deleted ranges that are empty, out of order, or a client's listed twice;
+// - an item placed next to, or in, a later change of its own editor (an
+//   editor's changes only ever point at its earlier ones; Yjs throws part-way
+//   through applying such an update, keeping what it applied before);
 // - a clock (where a change sits in its editor's run of changes) past
 //   MAX_CLOCK;
 // - a client id past MAX_CLIENT.
@@ -65,7 +68,8 @@ class Walk {
   private readonly b: Uint8Array;
   /** When set, update() lists each block of structs' client id here, in order. */
   clients: number[] | null = null;
-  /** Where the next block of the client being read starts. */
+  /** The client being read, and where its next block starts. */
+  private current = 0;
   private clock = 0;
   /** It holds JSON content (refused once the rest is read, as the desktop would refuse it otherwise). */
   private json = false;
@@ -143,10 +147,12 @@ class Walk {
     return v;
   }
 
-  /** An id (client, clock). */
+  /** An id (client, clock) an item of the block being read points at. */
   private id(): void {
-    this.client();
-    this.clockInRange(this.varUint(), 0);
+    const client = this.client();
+    const clock = this.varUint();
+    this.clockInRange(clock, 0);
+    if (client === this.current && clock >= this.clock) this.fail('an item points at a later change of its own editor');
   }
 
   /** The next block of the client being read takes `length` clocks. */
@@ -160,6 +166,7 @@ class Walk {
     for (let c = 0; c < clients; c++) {
       const blocks = this.count(2, 'blocks'); // each: info byte and at least one more
       const client = this.client();
+      this.current = client;
       this.clients?.push(client);
       this.clock = this.varUint(); // first clock
       this.clockInRange(this.clock, 0);

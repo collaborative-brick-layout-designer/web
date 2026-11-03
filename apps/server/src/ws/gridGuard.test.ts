@@ -10,6 +10,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as Y from 'yjs';
+import * as encoding from 'lib0/encoding';
 import { describe, expect, it } from 'vitest';
 import { readBbm } from '@cld/bbm';
 import { createDefaultLayoutDoc, seedFromBbm } from '@cld/ydoc';
@@ -230,6 +231,46 @@ describe('grid guard', () => {
     const before = guardWork.docCopies;
     expect(checkGridSizes(doc, both)).toMatch(/cell size/);
     expect(guardWork.docCopies - before).toBe(1);
+  });
+
+  it('checks what Yjs keeps of an update it throws on part-way', () => {
+    // A new grid sheet whose size is written into a later change of its own
+    // editor (no app writes that): Yjs adds the sheet and its type, then
+    // throws, so the room would hold a grid without a size.
+    const e = encoding.createEncoder();
+    const n = (v: number) => encoding.writeVarUint(e, v);
+    n(1); // one client
+    n(4); // four blocks
+    n(50); // client
+    n(0); // from clock 0
+    encoding.writeUint8(e, 7 | 0x20); // a type, with a key, in a root
+    n(1);
+    encoding.writeVarString(e, 'layerData');
+    encoding.writeVarString(e, 'L');
+    encoding.writeUint8(e, 1); // a map
+    const value = (parentClock: number, key: string, v: number | string) => {
+      encoding.writeUint8(e, 8 | 0x20); // values, with a key, in the type with id…
+      n(0);
+      n(50);
+      n(parentClock);
+      encoding.writeVarString(e, key);
+      n(1);
+      encoding.writeAny(e, v);
+    };
+    value(0, 'type', 'grid');
+    value(3, 'gridSizeInStud', 32); // …(50, 3): a later change of its own
+    value(0, 'x', 1);
+    n(0); // no deletions
+    const update = encoding.toUint8Array(e);
+    const doc = room();
+    const copy = new Y.Doc();
+    Y.applyUpdate(copy, Y.encodeStateAsUpdate(doc));
+    expect(() => Y.applyUpdate(copy, update)).toThrow();
+    expect((copy.getMap('layerData').get('L') as Y.Map<unknown>).get('type')).toBe('grid');
+    // The update guard refuses it first; the grid guard refuses it on its own too.
+    expect(checkUpdate(update)).toContain('later change of its own editor');
+    expect(checkGridSizesOnCopy(doc, update)).toMatch(/cell size/);
+    expect(checkGridSizes(doc, update)).toMatch(/cell size/);
   });
 
   it('sees a written size its own update deletes, whatever order the deleted ranges come in', () => {
