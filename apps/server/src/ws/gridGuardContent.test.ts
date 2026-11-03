@@ -1,7 +1,8 @@
 // The grid guard (gridGuard.ts) reads every kind of content a list entry
 // can hold. A ruler written as plain JSON (rulerView) can arrive as values,
 // as an embed or as JSON content: each is checked like the others, so a
-// ruler outside its range can't land by being written another way.
+// ruler outside its range can't land by being written another way. (The
+// update guard refuses JSON content before the grid guard sees it.)
 
 import * as Y from 'yjs';
 import * as encoding from 'lib0/encoding';
@@ -54,8 +55,11 @@ describe('a ruler written as another kind of content', () => {
   ] as const)('is refused when it arrives as %s', (_what, ref) => {
     const { doc, rulers } = room();
     const update = entryUpdate(rulers, ref, bad);
-    // Both apps read it.
-    expect(checkUpdate(update)).toBeNull();
+    // The update guard takes an embed; JSON content it refuses first, as
+    // Yjs and yrs read it differently (updateGuard.ts). The grid guard
+    // refuses either on its own too.
+    if (ref === 5) expect(checkUpdate(update)).toBeNull();
+    else expect(checkUpdate(update)).toContain('JSON');
     // Applied, the sheet would hold a ruler outside its range...
     const copy = new Y.Doc();
     Y.applyUpdate(copy, Y.encodeStateAsUpdate(doc));

@@ -537,11 +537,20 @@ describe('modules', () => {
       const { aliceCookie, id } = await setup();
       const { usageOf } = await import('../limits/limits.js');
       const alice = await db.select().from(schema.users).where(eq(schema.users.email, 'alice@example.com')).get();
-      await save(aliceCookie, id, Buffer.alloc(1000, 1));
+      // Two layouts of the same size (a module's contents are a layout the apps read).
+      const sized = (fill: string) => {
+        const d = new Y.Doc();
+        d.clientID = 1;
+        d.getMap('meta').set('note', fill.repeat(1000));
+        return Buffer.from(Y.encodeStateAsUpdate(d));
+      };
+      const [first, second] = [sized('a'), sized('b')];
+      expect(second.length).toBe(first.length);
+      expect((await save(aliceCookie, id, first)).statusCode).toBe(200);
       const before = usageOf({ kind: 'user', id: alice!.id }).storageBytes;
       // Same-size contents again: the module's size stays, the new version adds its copy.
-      await save(aliceCookie, id, Buffer.alloc(1000, 2));
-      expect(usageOf({ kind: 'user', id: alice!.id }).storageBytes - before).toBe(1000);
+      expect((await save(aliceCookie, id, second)).statusCode).toBe(200);
+      expect(usageOf({ kind: 'user', id: alice!.id }).storageBytes - before).toBe(second.length);
     });
 
     it('the newest version gets the picture that is uploaded after the save', async () => {

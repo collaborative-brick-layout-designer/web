@@ -10,15 +10,27 @@
 // - more than MAX_UPDATE_BYTES;
 // - a count or length longer than the bytes left could hold;
 // - values nested deeper than MAX_NESTING;
-// - content kinds the desktop can't read, or a layout never holds (weak links);
+// - content kinds the desktop can't read, or a layout never holds (weak links,
+//   JSON content, XML hooks);
 // - strings with a NUL character in them;
-// - an empty GC or skip block;
+// - an empty block (GC, skip, or an item of no content);
+// - deleted ranges that are empty, out of order, overlapping, or a client's
+//   listed twice;
+// - an item placed next to, or in, a later change of its own editor (an
+//   editor's changes only ever point at its earlier ones; Yjs throws part-way
+//   through applying such an update, keeping what it applied before);
 // - a clock (where a change sits in its editor's run of changes) past
-//   MAX_CLOCK.
+//   MAX_CLOCK;
+// - a client id past MAX_CLIENT.
 //
-// Where yrs reads a field differently from Yjs (a JSON content holds one
-// string more than its count), the walk follows yrs, like the desktop's.
-// Neither app writes that content kind.
+// Where yrs reads a field differently from Yjs, the walk follows yrs, like
+// the desktop's. Two such fields: JSON content (yrs reads one string more
+// than its count) and an XML hook (Yjs reads a name after it, yrs nothing).
+// Neither app writes either, and Yjs reads the rest of such an update out of
+// step with yrs, and writes back what it read the Yjs way, which the desktop
+// then can't read: a room that took one would send every desktop a layout it
+// refuses. So the server refuses both (the desktop's own guard reads them
+// the yrs way).
 
 /** The largest update or state vector read (the desktop's kMaxUpdateBytes). */
 export const MAX_UPDATE_BYTES = 64 * 1024 * 1024;
@@ -35,6 +47,14 @@ export const MAX_NESTING = 256;
  */
 export const MAX_CLOCK = 0x7fff_ffff;
 
+/**
+ * The highest client id read. Yjs picks 32-bit ids, yrs 53-bit ones (the
+ * largest whole number a JavaScript number holds exactly); Yjs can't read a
+ * larger one back once it has stored it (its document then can't be
+ * written out at all).
+ */
+export const MAX_CLIENT = Number.MAX_SAFE_INTEGER;
+
 // Block info byte.
 const GC = 0;
 const SKIP = 10;
@@ -49,8 +69,11 @@ class Walk {
   private readonly b: Uint8Array;
   /** When set, update() lists each block of structs' client id here, in order. */
   clients: number[] | null = null;
-  /** Where the next block of the client being read starts. */
+  /** The client being read, and where its next block starts. */
+  private current = 0;
   private clock = 0;
+  /** It holds JSON content (refused once the rest is read, as the desktop would refuse it otherwise). */
+  private json = false;
 
   constructor(bytes: Uint8Array) {
     this.b = bytes;
@@ -118,10 +141,19 @@ class Walk {
     if (clock > MAX_CLOCK || length > MAX_CLOCK - clock) this.fail(`a clock is past ${MAX_CLOCK}`);
   }
 
-  /** An id (client, clock). */
+  /** A client id. */
+  private client(): number {
+    const v = this.varUint();
+    if (v > MAX_CLIENT) this.fail(`a client id is past ${MAX_CLIENT}`);
+    return v;
+  }
+
+  /** An id (client, clock) an item of the block being read points at. */
   private id(): void {
-    this.varUint();
-    this.clockInRange(this.varUint(), 0);
+    const client = this.client();
+    const clock = this.varUint();
+    this.clockInRange(clock, 0);
+    if (client === this.current && clock >= this.clock) this.fail('an item points at a later change of its own editor');
   }
 
   /** The next block of the client being read takes `length` clocks. */
@@ -134,19 +166,21 @@ class Walk {
     const clients = this.count(3, 'clients'); // each: block count, client id, clock
     for (let c = 0; c < clients; c++) {
       const blocks = this.count(2, 'blocks'); // each: info byte and at least one more
-      const client = this.varUint();
+      const client = this.client();
+      this.current = client;
       this.clients?.push(client);
       this.clock = this.varUint(); // first clock
       this.clockInRange(this.clock, 0);
       for (let i = 0; i < blocks; i++) this.block();
     }
     this.deleteSet();
+    if (this.json) this.fail('it holds JSON content, which Yjs and yrs read differently');
   }
 
   stateVector(): void {
     const clients = this.count(2, 'clients'); // each: client id, clock
     for (let c = 0; c < clients; c++) {
-      this.varUint();
+      this.client();
       this.clockInRange(this.varUint(), 0);
     }
   }
@@ -169,7 +203,12 @@ class Walk {
       else this.id(); // or the id of the type it's in
       if (info & HAS_PARENT_SUB) this.text(); // map key
     }
-    this.place(this.content(info & 0x0f));
+    // An item of no content (no values, an empty string, a deletion of 0)
+    // takes no clock: Yjs never writes one, and applying one leaves its
+    // document unable to write itself out (Y.encodeStateAsUpdate throws).
+    const length = this.content(info & 0x0f);
+    if (length === 0) this.fail('it holds an empty block');
+    this.place(length);
   }
 
   /** Returns how many clocks the content takes, as yrs counts them. */
@@ -178,10 +217,12 @@ class Walk {
       case 1: // deleted: a length
         return this.varUint();
       case 2: {
-        // JSON: yrs reads count + 1 strings, and takes as many clocks
+        // JSON: yrs reads count + 1 strings, and takes as many clocks. Read
+        // through like the desktop's walk, then refused (update()).
         const n = this.varUint();
         if (n >= this.left()) this.fail(`it claims ${n + 1} JSON values with ${this.left()} bytes left`);
         for (let i = 0; i <= n; i++) this.text();
+        this.json = true;
         return n + 1;
       }
       case 3: // binary
@@ -221,7 +262,6 @@ class Walk {
       case 1: // map
       case 2: // text
       case 4: // XML fragment
-      case 5: // XML hook
       case 6: // XML text
       case 9: // sub-document
       case 15: // undefined
@@ -229,6 +269,8 @@ class Walk {
       case 3: // XML element: its name
         this.text();
         return;
+      case 5: // XML hook: Yjs reads a name after it, yrs doesn't
+        return this.fail('it holds an XML hook, which Yjs and yrs read differently');
       case 7:
         return this.fail('it holds a weak link, which layouts never use');
       default:
@@ -292,12 +334,25 @@ class Walk {
 
   private deleteSet(): void {
     const clients = this.count(2, 'deleted-range clients'); // each: client id, range count
+    const seen = new Set<number>();
     for (let c = 0; c < clients; c++) {
-      this.varUint(); // client id
+      const client = this.client();
+      if (seen.has(client)) this.fail('it lists the deletions of one client twice');
+      seen.add(client);
       const ranges = this.count(2, 'deleted ranges'); // each: clock, length
+      let last = 0;
       for (let r = 0; r < ranges; r++) {
         const clock = this.varUint();
-        this.clockInRange(clock, this.varUint());
+        const length = this.varUint();
+        this.clockInRange(clock, length);
+        // Both apps write each client's ranges once, in order, apart, none
+        // empty. Yjs keeps the ones it can't apply yet as differences from
+        // the end of the one before (and throws on an empty one) part-way
+        // through applying an update, so ranges out of order or overlapping
+        // come back with clocks nobody wrote.
+        if (length === 0) this.fail('it deletes an empty range');
+        if (clock < last) this.fail('its deleted ranges are out of order or overlap');
+        last = clock + length;
       }
     }
     // Anything after the delete set is ignored (yrs does the same).

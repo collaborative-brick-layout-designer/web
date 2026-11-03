@@ -8,6 +8,7 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as Y from 'yjs';
+import * as encoding from 'lib0/encoding';
 import { describe, expect, it } from 'vitest';
 import { readBbm, readSidecar } from '@cld/bbm';
 import { encodeDoc, seedFromBbm } from '@cld/ydoc';
@@ -155,5 +156,123 @@ describe('the update guard', () => {
     expect(checkUpdate(Y.encodeStateAsUpdate(doc, before))).toBeNull();
     expect(checkUpdate(Y.mergeUpdates(updates))).toBeNull();
     expectReadable(doc, 'the edited layout');
+  });
+
+  it('passes deletions as the apps write them: many ranges, many editors, any order of deleting', () => {
+    const editors = [1, 2, 3].map((id) => {
+      const d = new Y.Doc();
+      d.clientID = id;
+      return d;
+    });
+    const room = new Y.Doc();
+    const relayed: Uint8Array[] = [];
+    room.on('update', (u: Uint8Array) => relayed.push(u));
+    for (const d of editors) {
+      d.getArray('parts').push([...Array(200).keys()].map((i) => `${d.clientID}-${i}`));
+      Y.applyUpdate(room, Y.encodeStateAsUpdate(d));
+    }
+    for (const d of editors) Y.applyUpdate(d, Y.encodeStateAsUpdate(room));
+    const before = Y.encodeStateVector(room);
+    const sent: Uint8Array[] = [];
+    for (const d of editors) {
+      d.on('update', (u: Uint8Array) => sent.push(u));
+      const parts = d.getArray('parts');
+      // Every other part, from the end backwards, then a run from the front, in one transaction.
+      d.transact(() => {
+        for (let i = parts.length - 1; i >= 0; i -= 2) parts.delete(i, 1);
+        parts.delete(0, 5);
+      });
+    }
+    for (const u of sent) {
+      expect(checkUpdate(u)).toBeNull();
+      Y.applyUpdate(room, u);
+    }
+    for (const u of relayed) expect(checkUpdate(u)).toBeNull();
+    expect(checkUpdate(Y.mergeUpdates(sent))).toBeNull();
+    expect(checkUpdate(Y.encodeStateAsUpdate(room, before))).toBeNull();
+    expectReadable(room, 'the room after the deletions');
+  });
+
+  it('passes a layout the desktop wrote (yrs)', () => {
+    const bytes = new Uint8Array(readFileSync(join(ROOT, 'apps/server/fuzz/seeds/desktop-tight-corner.ydoc')));
+    expect(checkUpdate(bytes)).toBeNull();
+    const doc = new Y.Doc();
+    Y.applyUpdate(doc, bytes);
+    expectReadable(doc, 'the desktop layout');
+  });
+
+  it('refuses what Yjs would read but couldn\'t write back for the desktop', () => {
+    // JSON content (Yjs reads `count` strings, yrs one more): a root entry
+    // of the old JSON kind, as yrs would read it (count 0, one string).
+    const json = Buffer.from('0101010002' + '0104' + Buffer.from('meta').toString('hex') + '00' + '00' + '00', 'hex');
+    expect(checkUpdate(json)).toContain('JSON');
+    // An XML hook (Yjs reads a name after it, yrs doesn't): meta.x as one.
+    const hook = Buffer.from(`0101010027` + `0104${Buffer.from('meta').toString('hex')}0178` + '05' + '00', 'hex');
+    expect(checkUpdate(hook)).toContain('XML hook');
+    // An item of no content: no values, an empty string, a deletion of 0.
+    for (const [ref, body] of [
+      [8, '00'],
+      [4, '00'],
+      [1, '00'],
+    ] as const) {
+      const empty = Buffer.from(`01010100${(ref | 0x20).toString(16).padStart(2, '0')}0104${Buffer.from('meta').toString('hex')}0178${body}00`, 'hex');
+      expect(checkUpdate(empty), `content ${ref}`).toContain('empty block');
+    }
+    // An item placed after a later change of its own editor (7:5 after 7:9).
+    expect(checkUpdate(Buffer.from('01010705880709017800', 'hex'))).toContain('later change of its own editor');
+    expect(checkUpdate(Buffer.from('01010705880704017800', 'hex'))).toBeNull(); // after 7:4, before it: fine
+    // Deleted ranges: empty, out of order, overlapping, one client listed twice.
+    expect(checkUpdate(Buffer.from('00' + '01' + '07' + '01' + '0500', 'hex'))).toContain('empty range');
+    expect(checkUpdate(Buffer.from('00' + '01' + '07' + '02' + '0a01' + '0501', 'hex'))).toContain('out of order');
+    expect(checkUpdate(Buffer.from('00' + '01' + '07' + '02' + '0503' + '0601', 'hex'))).toContain('overlap');
+    expect(checkUpdate(Buffer.from('00' + '01' + '07' + '02' + '0501' + '0501', 'hex'))).toContain('overlap');
+    expect(checkUpdate(Buffer.from('00' + '01' + '07' + '02' + '0501' + '0601', 'hex'))).toBeNull(); // next to each other: fine
+    expect(checkUpdate(Buffer.from('00' + '02' + '07' + '01' + '0501' + '07' + '01' + '0a01', 'hex'))).toContain('twice');
+  });
+
+  it('refuses a client id past 2^53 - 1, wherever it is, and takes one up to it', () => {
+    const bytes = (write: (e: encoding.Encoder) => void) => {
+      const e = encoding.createEncoder();
+      write(e);
+      return encoding.toUint8Array(e);
+    };
+    for (const [client, refused] of [
+      [Number.MAX_SAFE_INTEGER, false],
+      [2 ** 53, true],
+      [2 ** 60, true],
+    ] as const) {
+      const v = (e: encoding.Encoder) => encoding.writeVarUint(e, client);
+      // A block's client: one GC block of length 1.
+      const block = bytes((e) => {
+        [1, 1].forEach((n) => encoding.writeVarUint(e, n));
+        v(e);
+        [0, 0, 1, 0].forEach((n) => encoding.writeVarUint(e, n)); // clock 0, GC, length 1, no deletions
+      });
+      // The parent an item is in: (client, clock 0).
+      const parent = bytes((e) => {
+        [1, 1, 5, 0, 8, 0].forEach((n) => encoding.writeVarUint(e, n)); // client 5, clock 0: values in the type with id…
+        v(e);
+        [0, 1, 0x7e, 0].forEach((n) => encoding.writeVarUint(e, n)); // …(client, 0): one null; no deletions
+      });
+      const deleted = bytes((e) => {
+        [0, 1].forEach((n) => encoding.writeVarUint(e, n));
+        v(e);
+        [1, 5, 1].forEach((n) => encoding.writeVarUint(e, n));
+      });
+      const sv = bytes((e) => {
+        encoding.writeVarUint(e, 1);
+        v(e);
+        encoding.writeVarUint(e, 3);
+      });
+      for (const [what, why] of [
+        ['block', checkUpdate(block)],
+        ['parent', checkUpdate(parent)],
+        ['deleted', checkUpdate(deleted)],
+        ['state vector', checkStateVector(sv)],
+      ] as const) {
+        if (refused) expect(why, `${what} ${client}`).toContain('client id');
+        else expect(why, `${what} ${client}`).toBeNull();
+      }
+    }
   });
 });
