@@ -221,9 +221,12 @@ describe('the update guard', () => {
     // An item placed after a later change of its own editor (7:5 after 7:9).
     expect(checkUpdate(Buffer.from('01010705880709017800', 'hex'))).toContain('later change of its own editor');
     expect(checkUpdate(Buffer.from('01010705880704017800', 'hex'))).toBeNull(); // after 7:4, before it: fine
-    // Deleted ranges: empty, out of order, one client listed twice.
+    // Deleted ranges: empty, out of order, overlapping, one client listed twice.
     expect(checkUpdate(Buffer.from('00' + '01' + '07' + '01' + '0500', 'hex'))).toContain('empty range');
     expect(checkUpdate(Buffer.from('00' + '01' + '07' + '02' + '0a01' + '0501', 'hex'))).toContain('out of order');
+    expect(checkUpdate(Buffer.from('00' + '01' + '07' + '02' + '0503' + '0601', 'hex'))).toContain('overlap');
+    expect(checkUpdate(Buffer.from('00' + '01' + '07' + '02' + '0501' + '0501', 'hex'))).toContain('overlap');
+    expect(checkUpdate(Buffer.from('00' + '01' + '07' + '02' + '0501' + '0601', 'hex'))).toBeNull(); // next to each other: fine
     expect(checkUpdate(Buffer.from('00' + '02' + '07' + '01' + '0501' + '07' + '01' + '0a01', 'hex'))).toContain('twice');
   });
 

@@ -14,7 +14,8 @@
 //   JSON content, XML hooks);
 // - strings with a NUL character in them;
 // - an empty block (GC, skip, or an item of no content);
-// - deleted ranges that are empty, out of order, or a client's listed twice;
+// - deleted ranges that are empty, out of order, overlapping, or a client's
+//   listed twice;
 // - an item placed next to, or in, a later change of its own editor (an
 //   editor's changes only ever point at its earlier ones; Yjs throws part-way
 //   through applying such an update, keeping what it applied before);
@@ -344,13 +345,14 @@ class Walk {
         const clock = this.varUint();
         const length = this.varUint();
         this.clockInRange(clock, length);
-        // Both apps write each client's ranges once, in order, none empty.
-        // Yjs keeps the ones it can't apply yet as differences from the one
-        // before (and throws on an empty one) part-way through applying an
-        // update, so ranges out of order come back with clocks nobody wrote.
+        // Both apps write each client's ranges once, in order, apart, none
+        // empty. Yjs keeps the ones it can't apply yet as differences from
+        // the end of the one before (and throws on an empty one) part-way
+        // through applying an update, so ranges out of order or overlapping
+        // come back with clocks nobody wrote.
         if (length === 0) this.fail('it deletes an empty range');
-        if (clock < last) this.fail('its deleted ranges are out of order');
-        last = clock;
+        if (clock < last) this.fail('its deleted ranges are out of order or overlap');
+        last = clock + length;
       }
     }
     // Anything after the delete set is ignored (yrs does the same).
