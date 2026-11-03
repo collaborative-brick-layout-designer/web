@@ -245,7 +245,8 @@ describe('grid guard', () => {
     expect(update.subarray(update.length - ds.length)).toEqual(ds);
     // Hand-made: client 77's deleted ranges out of order, clock 5 then clock 0 (the new size).
     const crafted = new Uint8Array([...update.subarray(0, update.length - ds.length), 1, 77, 2, 5, 1, 0, 1]);
-    expect(checkUpdate(crafted)).toBeNull();
+    // The update guard refuses it first (updateGuard.ts); the grid guard must still see it on its own.
+    expect(checkUpdate(crafted)).toContain('out of order');
     const after = new Y.Doc();
     Y.applyUpdate(after, Y.encodeStateAsUpdate(doc));
     Y.applyUpdate(after, crafted);

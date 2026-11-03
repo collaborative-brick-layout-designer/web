@@ -156,4 +156,67 @@ describe('the update guard', () => {
     expect(checkUpdate(Y.mergeUpdates(updates))).toBeNull();
     expectReadable(doc, 'the edited layout');
   });
+
+  it('passes deletions as the apps write them: many ranges, many editors, any order of deleting', () => {
+    const editors = [1, 2, 3].map((id) => {
+      const d = new Y.Doc();
+      d.clientID = id;
+      return d;
+    });
+    const room = new Y.Doc();
+    const relayed: Uint8Array[] = [];
+    room.on('update', (u: Uint8Array) => relayed.push(u));
+    for (const d of editors) {
+      d.getArray('parts').push([...Array(200).keys()].map((i) => `${d.clientID}-${i}`));
+      Y.applyUpdate(room, Y.encodeStateAsUpdate(d));
+    }
+    for (const d of editors) Y.applyUpdate(d, Y.encodeStateAsUpdate(room));
+    const before = Y.encodeStateVector(room);
+    const sent: Uint8Array[] = [];
+    for (const d of editors) {
+      d.on('update', (u: Uint8Array) => sent.push(u));
+      const parts = d.getArray('parts');
+      // Every other part, from the end backwards, then a run from the front, in one transaction.
+      d.transact(() => {
+        for (let i = parts.length - 1; i >= 0; i -= 2) parts.delete(i, 1);
+        parts.delete(0, 5);
+      });
+    }
+    for (const u of sent) {
+      expect(checkUpdate(u)).toBeNull();
+      Y.applyUpdate(room, u);
+    }
+    for (const u of relayed) expect(checkUpdate(u)).toBeNull();
+    expect(checkUpdate(Y.mergeUpdates(sent))).toBeNull();
+    expect(checkUpdate(Y.encodeStateAsUpdate(room, before))).toBeNull();
+    expectReadable(room, 'the room after the deletions');
+  });
+
+  it('passes a layout the desktop wrote (yrs)', () => {
+    const bytes = new Uint8Array(readFileSync(join(ROOT, 'apps/server/fuzz/seeds/desktop-tight-corner.ydoc')));
+    expect(checkUpdate(bytes)).toBeNull();
+    const doc = new Y.Doc();
+    Y.applyUpdate(doc, bytes);
+    expectReadable(doc, 'the desktop layout');
+  });
+
+  it('refuses what Yjs would read but couldn\'t write back for the desktop', () => {
+    // JSON content (Yjs reads `count` strings, yrs one more): a root entry
+    // of the old JSON kind, as yrs would read it (count 0, one string).
+    const json = Buffer.from('0101010002' + '0104' + Buffer.from('meta').toString('hex') + '00' + '00' + '00', 'hex');
+    expect(checkUpdate(json)).toContain('JSON');
+    // An item of no content: no values, an empty string, a deletion of 0.
+    for (const [ref, body] of [
+      [8, '00'],
+      [4, '00'],
+      [1, '00'],
+    ] as const) {
+      const empty = Buffer.from(`01010100${(ref | 0x20).toString(16).padStart(2, '0')}0104${Buffer.from('meta').toString('hex')}0178${body}00`, 'hex');
+      expect(checkUpdate(empty), `content ${ref}`).toContain('empty block');
+    }
+    // Deleted ranges: empty, out of order, one client listed twice.
+    expect(checkUpdate(Buffer.from('00' + '01' + '07' + '01' + '0500', 'hex'))).toContain('empty range');
+    expect(checkUpdate(Buffer.from('00' + '01' + '07' + '02' + '0a01' + '0501', 'hex'))).toContain('out of order');
+    expect(checkUpdate(Buffer.from('00' + '02' + '07' + '01' + '0501' + '07' + '01' + '0a01', 'hex'))).toContain('twice');
+  });
 });

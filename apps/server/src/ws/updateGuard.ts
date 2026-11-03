@@ -10,15 +10,20 @@
 // - more than MAX_UPDATE_BYTES;
 // - a count or length longer than the bytes left could hold;
 // - values nested deeper than MAX_NESTING;
-// - content kinds the desktop can't read, or a layout never holds (weak links);
+// - content kinds the desktop can't read, or a layout never holds (weak links,
+//   JSON content);
 // - strings with a NUL character in them;
-// - an empty GC or skip block;
+// - an empty block (GC, skip, or an item of no content);
+// - deleted ranges that are empty, out of order, or a client's listed twice;
 // - a clock (where a change sits in its editor's run of changes) past
 //   MAX_CLOCK.
 //
-// Where yrs reads a field differently from Yjs (a JSON content holds one
-// string more than its count), the walk follows yrs, like the desktop's.
-// Neither app writes that content kind.
+// Where yrs reads a field differently from Yjs, the walk follows yrs, like
+// the desktop's. JSON content is the one such field: yrs reads one string
+// more than its count. Neither app writes that content kind, and whatever
+// Yjs reads of it Yjs writes back the Yjs way, which the desktop then can't
+// read: a room that took one would send every desktop a layout it refuses.
+// So the server refuses it (the desktop's own guard reads it the yrs way).
 
 /** The largest update or state vector read (the desktop's kMaxUpdateBytes). */
 export const MAX_UPDATE_BYTES = 64 * 1024 * 1024;
@@ -51,6 +56,8 @@ class Walk {
   clients: number[] | null = null;
   /** Where the next block of the client being read starts. */
   private clock = 0;
+  /** It holds JSON content (refused once the rest is read, as the desktop would refuse it otherwise). */
+  private json = false;
 
   constructor(bytes: Uint8Array) {
     this.b = bytes;
@@ -141,6 +148,7 @@ class Walk {
       for (let i = 0; i < blocks; i++) this.block();
     }
     this.deleteSet();
+    if (this.json) this.fail('it holds JSON content, which Yjs and yrs read differently');
   }
 
   stateVector(): void {
@@ -169,7 +177,12 @@ class Walk {
       else this.id(); // or the id of the type it's in
       if (info & HAS_PARENT_SUB) this.text(); // map key
     }
-    this.place(this.content(info & 0x0f));
+    // An item of no content (no values, an empty string, a deletion of 0)
+    // takes no clock: Yjs never writes one, and applying one leaves its
+    // document unable to write itself out (Y.encodeStateAsUpdate throws).
+    const length = this.content(info & 0x0f);
+    if (length === 0) this.fail('it holds an empty block');
+    this.place(length);
   }
 
   /** Returns how many clocks the content takes, as yrs counts them. */
@@ -178,10 +191,12 @@ class Walk {
       case 1: // deleted: a length
         return this.varUint();
       case 2: {
-        // JSON: yrs reads count + 1 strings, and takes as many clocks
+        // JSON: yrs reads count + 1 strings, and takes as many clocks. Read
+        // through like the desktop's walk, then refused (update()).
         const n = this.varUint();
         if (n >= this.left()) this.fail(`it claims ${n + 1} JSON values with ${this.left()} bytes left`);
         for (let i = 0; i <= n; i++) this.text();
+        this.json = true;
         return n + 1;
       }
       case 3: // binary
@@ -292,12 +307,24 @@ class Walk {
 
   private deleteSet(): void {
     const clients = this.count(2, 'deleted-range clients'); // each: client id, range count
+    const seen = new Set<number>();
     for (let c = 0; c < clients; c++) {
-      this.varUint(); // client id
+      const client = this.varUint();
+      if (seen.has(client)) this.fail('it lists the deletions of one client twice');
+      seen.add(client);
       const ranges = this.count(2, 'deleted ranges'); // each: clock, length
+      let last = 0;
       for (let r = 0; r < ranges; r++) {
         const clock = this.varUint();
-        this.clockInRange(clock, this.varUint());
+        const length = this.varUint();
+        this.clockInRange(clock, length);
+        // Both apps write each client's ranges once, in order, none empty.
+        // Yjs keeps the ones it can't apply yet as differences from the one
+        // before (and throws on an empty one) part-way through applying an
+        // update, so ranges out of order come back with clocks nobody wrote.
+        if (length === 0) this.fail('it deletes an empty range');
+        if (clock < last) this.fail('its deleted ranges are out of order');
+        last = clock;
       }
     }
     // Anything after the delete set is ignored (yrs does the same).
