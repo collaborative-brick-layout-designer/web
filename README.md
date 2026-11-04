@@ -91,7 +91,8 @@ club** reviews what is published under its own name.
   audit log and the site settings.
 - **The demo account** ("Try the demo" on the sign-in page, when an admin
   turns it on) is shared by every visitor, holds sample layouts, and resets
-  on a schedule.
+  on a schedule. Each reset signs every visitor out (a demo sign-in lasts 24
+  hours at most), and their page offers "Start again".
 
 **Privacy.** People download all their data and delete their account from
 their Profile; nobody else ever sees their email address. See
@@ -224,7 +225,7 @@ What may still answer 4xx, one request at a time rather than in bursts:
 
 | Answer | When |
 |---|---|
-| 401 on `/api/*` | the session ended (signed out in another tab, account deleted) |
+| 401 on `/api/*` | the session ended (signed out in another tab, account deleted, a demo reset, or a sign-in past its longest) |
 | 403 / 404 on `/api/layouts/:id`, `/api/modules/:id`, `/api/venues/:id`, `/api/orgs/:slug/*` | a link to something deleted, or not shared with you; a club's manage page just after you handed the club over |
 | 404 on `/api/auth/password/verify-email/:token`, `/api/invites/*`, `/api/transfers/*`, `/api/org-invites/*` | an emailed link used twice or expired |
 | 400 / 409 / 413 | a form refused (a taken part number, a file too big) |
@@ -292,10 +293,19 @@ take effect without a restart:
 - the demo account and its reset schedule;
 - background jobs;
 - privacy settings, the privacy notice and contact;
+- how long people stay signed in, on the website and in the desktop app;
 - usage limits (and per person or club, under Heavy use);
 - the oldest desktop app version allowed.
 
 Trusted clubs are switched on in Admin › Clubs.
+
+**How long sign-ins last** (Admin › Site settings › Sign-in). A web sign-in
+ends after 30 days without a visit, and after 90 days at most however often
+it is used; a desktop sign-in after 90 days unused and 180 days at most. Each
+is a setting (the longest can be "never"), and a `SIGN_IN_*` variable below
+forces one. A change applies to every sign-in the next time it is used;
+saving signs nobody out. Demo sign-ins end at each demo reset, and after 24
+hours at most.
 
 Environment variables set what the app can't (addresses, sign-in providers,
 paths). Where a variable and an in-app setting overlap, setting the variable
@@ -370,6 +380,15 @@ when they fall behind.
 | `PRIVACY_AUDIT_PERSONAL_DAYS` | 365 days | 30–3650 | Keep email addresses in the audit log for: The audit log keeps what happened for as long as the site runs. Email addresses in it (invites, admin actions) are removed after this. It never records IP addresses or browsers. |
 | `PRIVACY_EXPIRED_SIGN_IN_DAYS` | 30 days | 1–365 | Keep expired sign-ins and invites for: Expired or signed-out browser sessions, revoked desktop sign-ins, and invites and offers nobody accepted are deleted this long after they ended. |
 | `PRIVACY_RECORDS_KEEP_DAYS` | 1095 days | 365–3650 | Keep erasure records and closed requests for: The record that an account or club was erased (no personal data), and privacy requests once closed, so you can show what you did. Deleted after this. |
+
+**Sign-in.** How long a sign-in lasts, on the website and in the desktop app. Each is also set in Admin › Site settings › Sign-in; when the variable is set to a duration in range (`30d` or `30` for days, `12h` for hours, `never` for the longest), it wins and the page says so. A change applies to existing sign-ins the next time they are used. Demo sign-ins always end at each demo reset, and after 24 hours at most.
+
+| Variable | Built-in default | Range | Setting |
+|---|---|---|---|
+| `SIGN_IN_WEB_IDLE` | 30 days | 1 hour–365 days | Website, sign out when not used for: Every visit starts this over, so people who keep using the site stay signed in. |
+| `SIGN_IN_WEB_MAX` | 90 days | 1 hour–3650 days, or `never` | Website, sign in again after at most: Even someone who visits every day signs in again after this long. |
+| `SIGN_IN_DESKTOP_IDLE` | 90 days | 1 hour–365 days | Desktop app, sign out when not used for: Every time the desktop app talks to this site it starts this over. |
+| `SIGN_IN_DESKTOP_MAX` | 180 days | 1 hour–3650 days, or `never` | Desktop app, sign in again after at most: Even a desktop app in daily use asks its owner to sign in again after this long. Work on the computer is kept. |
 <!-- env-table:end -->
 
 ### Sign-in providers
@@ -396,9 +415,11 @@ then edits layouts live over the same WebSocket as the browser:
 3. The app polls `POST /api/auth/device/token` and gets a personal access
    token (`bld_pat_…`, shown once, stored only as a hash).
 
-Tokens expire after 90 days without use. They are only accepted as an
-`Authorization: Bearer` header, never in the address, and only on the routes
-the desktop uses. People see and revoke their devices under Profile ›
+Tokens end after 90 days without use, and after 180 days however much they
+are used (Admin › Site settings › Sign-in changes both); then the app asks
+its owner to sign in again and keeps the work on the computer. They are only
+accepted as an `Authorization: Bearer` header, never in the address, and
+only on the routes the desktop uses. People see and revoke their devices under Profile ›
 Devices. The desktop needs no server settings.
 
 ---

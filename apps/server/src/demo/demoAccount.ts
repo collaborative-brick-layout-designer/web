@@ -7,12 +7,18 @@
 // It can't reach anyone else: no invites, public links, clubs, custom
 // part uploads, catalog submissions, transfers, profile changes or
 // desktop tokens. Every such route asks `isDemoUser`.
+//
+// A demo sign-in ends at the next reset, and after 24 hours at most; it
+// is never pushed back (auth/session.ts). Each reset signs every visitor
+// out, and the web says "The demo was reset. Start again?".
 
 import { eq } from 'drizzle-orm';
 import { db, schema } from '../db/index.js';
 import type { PlatformSettings, User } from '../db/schema.js';
 import { invalidateAllSessions } from '../auth/session.js';
 import { revokeAllApiTokens } from '../auth/apiTokens.js';
+import { DEMO_SIGN_IN_MAX_MS } from '../auth/signInSettings.js';
+import { getPlatformSettings } from '../auth/platformSettings.js';
 
 /** Fixed id, so the account is found (and re-enabled) the same way every time. */
 export const DEMO_USER_ID = 'demo-account';
@@ -98,8 +104,23 @@ export async function ensureDemoUser(): Promise<User> {
   return row;
 }
 
-/** Turning the demo off signs every visitor out, everywhere. */
-export async function signOutDemo(): Promise<void> {
-  await invalidateAllSessions(DEMO_USER_ID);
+/**
+ * When a demo sign-in made `now` ends: at the next reset, and 24 hours
+ * from now at most (also when the reset is already due: the caller resets
+ * first, see routes/auth/demo.ts).
+ */
+export async function demoSessionEnd(now: number): Promise<number> {
+  const latest = now + DEMO_SIGN_IN_MAX_MS;
+  const next = nextDemoReset(await getPlatformSettings())?.getTime() ?? latest;
+  return next > now ? Math.min(next, latest) : latest;
+}
+
+/**
+ * Sign every demo visitor out, everywhere: browser sessions and any
+ * tokens. Their open layouts close with `reason` ('demo_reset' at a
+ * reset), which the web turns into "The demo was reset. Start again?".
+ */
+export async function signOutDemo(reason: 'demo_reset' | 'demo_off' = 'demo_off'): Promise<void> {
+  await invalidateAllSessions(DEMO_USER_ID, reason);
   await revokeAllApiTokens(DEMO_USER_ID);
 }

@@ -1,3 +1,4 @@
+import { forgetDemoVisitor } from './demo/demoVisitor';
 import type { FourDBrixRemap, LDrawRemap, TrackDesignerRemap } from '@cld/parts-catalog/browser';
 import type { ClubRole } from './orgs/clubRoles';
 import { askForPermission, isClubPermission, type ClubPermission } from './orgs/clubPermissions';
@@ -130,7 +131,7 @@ const ERROR_MESSAGES: Record<string, string> = {
 };
 
 /** Errors whose server message is the sentence to show (privacy: "You can ask again after …"). */
-const MESSAGE_ERRORS = new Set(['invalid_logo', 'only_club_admins', 'only_admins_edit_roles', 'admin_role_fixed', 'builtin_role', 'role_in_use', 'role_name_taken', 'too_many_roles', 'only_admins_set_roles', 'last_admin', 'only_club_admins_can_give_back', 'export_too_soon', 'export_gone', 'demo_account', 'confirm_mismatch', 'deletion_blocked', 'account_pending_deletion', 'account_restricted', 'invalid_contact', 'no_account', 'subject_required', 'heir_not_member']);
+const MESSAGE_ERRORS = new Set(['invalid_logo', 'only_club_admins', 'only_admins_edit_roles', 'admin_role_fixed', 'builtin_role', 'role_in_use', 'role_name_taken', 'too_many_roles', 'only_admins_set_roles', 'last_admin', 'only_club_admins_can_give_back', 'export_too_soon', 'export_gone', 'demo_account', 'confirm_mismatch', 'deletion_blocked', 'account_pending_deletion', 'account_restricted', 'invalid_contact', 'no_account', 'subject_required', 'heir_not_member', 'sign_in_max_below_idle']);
 
 /** A 403 the site's firewall answered (empty or non-JSON body), not the app. */
 /** What a request says when it never reached the server (no Wi-Fi, server down). */
@@ -540,7 +541,11 @@ export const api = {
     patch<{ ok: true; displayName: string }>('/api/auth/me', { displayName }),
   providers: () =>
     get<{ providers: ProviderInfo[]; passwordEnabled: boolean; demoEnabled?: boolean }>('/api/auth/providers'),
-  logout: () => post<{ ok: true }>('/api/auth/logout'),
+  logout: () => {
+    // Signing out on purpose: no "The demo was reset" afterwards.
+    forgetDemoVisitor();
+    return post<{ ok: true }>('/api/auth/logout');
+  },
   /** "Try the demo": sign in as the shared demo account (JSON, empty object body). */
   tryDemo: () => post<{ ok: true }>('/api/auth/demo', {}),
   passwordLogin: (email: string, password: string) =>
@@ -1150,6 +1155,8 @@ export const api = {
       collectionCoverMaxBytes?: number;
       /** Admin › Settings › Privacy: key -> number, or null for the default. */
       privacy?: Record<string, number | null>;
+      /** Admin › Settings › Sign-in: key -> hours (or 'never'), or null for the default. */
+      signIn?: Record<string, SignInValue | null>;
       privacyNotice?: string | null;
       privacyContact?: string | null;
     }) => patch<{ ok: true }>('/api/admin/settings', body),
@@ -1720,9 +1727,33 @@ export interface AdminSettings {
     /** Who to ask: what applies, what an admin saved, and the env var forcing it. */
     contact?: { value: string | null; setting: string | null; forcedBy: string | null };
   };
+  /** Sign-in: how long web and desktop sign-ins last unused, and the longest they can last. */
+  signIn?: { settings: SignInSettingState[] };
   /** The server's env-only settings, read only (never a secret's value). */
   serverSetup?: { name: string; value: string; env: string; why: ServerSetupWhy }[];
   updatedAt: number;
+}
+
+/** Hours, or 'never' (only for the longest a sign-in can last). */
+export type SignInValue = number | 'never';
+
+export interface SignInSettingState {
+  key: 'webIdleHours' | 'webMaxHours' | 'desktopIdleHours' | 'desktopMaxHours';
+  app: 'web' | 'desktop';
+  kind: 'idle' | 'max';
+  label: string;
+  help: string;
+  /** Hours. */
+  builtIn: number;
+  /** Hours. */
+  min: number;
+  /** Hours. */
+  max: number;
+  allowNever: boolean;
+  envVar: string;
+  value: SignInValue;
+  setting: SignInValue | null;
+  forcedBy: string | null;
 }
 
 export interface PrivacySettingState {

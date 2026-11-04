@@ -27,6 +27,17 @@ This project runs the following automated checks:
 - **Sessions**: random 24-byte tokens; only the SHA-256 of the token is
   stored in the `sessions` table. A read of the database does not yield
   bearer tokens. (Verified by `apps/server/src/auth/session.test.ts`.)
+- **Sign-in lifetimes**: a web session ends after its idle window without
+  use (30 days by default; each use in the second half pushes it back) and
+  at its longest, counted from `sessions.created_at` (90 days by default),
+  however much it is used. Desktop tokens work the same way from
+  `api_tokens.created_at` (90 and 180 days). Both are set in Admin › Site
+  settings › Sign-in or forced with `SIGN_IN_*`, and are checked at every
+  request and every WebSocket revalidation. Demo sessions end at the next
+  demo reset and after 24 hours at most, are never pushed back, and each
+  reset signs every demo visitor out. (Verified by
+  `apps/server/src/auth/signInLifetimes.test.ts` and
+  `apps/server/src/demo/demo.test.ts`.)
 - **Passwords**: argon2id via `@node-rs/argon2`; never stored in plaintext.
 - **Cookies**: `HttpOnly`, `SameSite=Lax`, `Secure` in production
   (`COOKIE_SECURE=true`).

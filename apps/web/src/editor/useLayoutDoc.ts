@@ -22,6 +22,7 @@ import { WebsocketProvider } from 'y-websocket';
 import type { Awareness } from 'y-protocols/awareness';
 import { canReadDoc, removeDuplicateItems, repairSidecarCache } from '@cld/ydoc';
 import { keepRefusedCopy, type RefusedWhy } from './refusedCopies';
+import { announceSignInEnded } from '../demo/demoVisitor';
 
 export type SaveStatus =
   | { kind: 'connecting' }
@@ -85,6 +86,8 @@ export const UNREADABLE_LAYOUT =
 export const LAYOUT_NOT_FOUND = "This layout isn't here: it may have been deleted, or it isn't shared with you. Ask its owner for access.";
 export const LOAD_TIMED_OUT = "The layout hasn't opened yet. Check your connection: it opens by itself as soon as it gets through.";
 export const SIGN_IN_TO_OPEN = 'This layout is private. Sign in with an account it is shared with to open it.';
+/** The demo was reset (or turned off) while this layout was open: the page also offers to start again (demo/DemoResetNotice). */
+export const DEMO_WAS_RESET = 'The demo was reset, so this layout went back to the start.';
 /** The server refused what this page sent because it held another layout's parts (ws/mergeGuard.ts). */
 export const MERGE_REFUSED =
   "The server didn't take this page's changes: they looked like another layout's parts going into this one, so the layout on the server wasn't changed. Nothing you did is lost: your copy is kept on this page. Save it as a new layout or download it.";
@@ -349,9 +352,14 @@ export function useLayoutDoc(layoutId: string, canEdit?: boolean): LayoutDocStat
           clearTimeout(syncTimer);
           syncTimer = null;
         }
+        // Signed out (a demo reset, a sign-in that ran out): the demo notice checks /me.
+        const demoEnded = event.reason === 'demo_reset' || event.reason === 'demo_off';
+        if (event.code === 1008 || demoEnded) announceSignInEnded();
         setLoadError(
           new Error(
-            event.code === 4404
+            demoEnded
+              ? DEMO_WAS_RESET
+              : event.code === 4404
               ? LAYOUT_NOT_FOUND
               : why === 'merge'
                 ? MERGE_REFUSED

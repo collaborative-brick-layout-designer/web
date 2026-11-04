@@ -11,6 +11,7 @@ import { db, schema } from '../db/index.js';
 import type { ApiToken, User } from '../db/schema.js';
 import { hashToken } from './session.js';
 import { notifyCredentialRevoked } from './revocation.js';
+import { signInEnd, signInLimits } from './signInSettings.js';
 
 export const TOKEN_PREFIX = 'bld_pat_';
 
@@ -36,8 +37,13 @@ export const API_SCOPES = [
 ] as const;
 export type ApiScope = (typeof API_SCOPES)[number];
 
-/** Lifetime of a token, slid forward every time it is used. */
-export const TOKEN_TTL_MS = 90 * 24 * 60 * 60 * 1000;
+/*
+ * How long a token lasts: Admin › Settings › Sign-in, "In the desktop
+ * app" (auth/signInSettings.ts). It ends after the idle window without
+ * use (each use pushes it back) and at its longest, counted from
+ * createdAt, however much it is used. Both are read at each check, so a
+ * changed setting applies to every token the next time it is used.
+ */
 
 /**
  * lastUsedAt / expiresAt are rewritten at most this often per token, so
@@ -79,6 +85,7 @@ export async function createApiToken(
   const secret = randomBytes(32).toString('base64url');
   const token = `${TOKEN_PREFIX}${secret}`;
   const now = new Date();
+  const expiresAt = new Date(signInEnd((await signInLimits(now.getTime())).desktop, now.getTime(), now.getTime()).slid);
   const row: ApiToken = {
     id: randomUUID(),
     userId,
@@ -89,22 +96,41 @@ export async function createApiToken(
     scopes: scopes.join(' '),
     createdAt: now,
     lastUsedAt: null,
-    expiresAt: new Date(now.getTime() + TOKEN_TTL_MS),
+    expiresAt,
     revokedAt: null,
   };
   await db.insert(schema.apiTokens).values(row);
   return { token, row };
 }
 
-function isLive(row: Pick<ApiToken, 'revokedAt' | 'expiresAt'>, now: number): boolean {
-  return row.revokedAt === null && row.expiresAt.getTime() >= now;
+/** When a token ends under today's rules: its stored expiry, or its longest if sooner. */
+async function endOf(row: Pick<ApiToken, 'createdAt' | 'expiresAt'>, now: number): Promise<number> {
+  const { cap } = signInEnd((await signInLimits(now)).desktop, row.createdAt.getTime(), now);
+  return Math.min(row.expiresAt.getTime(), cap);
 }
 
-/** Slide expiry + stamp lastUsedAt, at most once per TOUCH_INTERVAL_MS. */
+async function isLive(row: ApiToken, now: number): Promise<boolean> {
+  if (row.revokedAt !== null) return false;
+  const end = await endOf(row, now);
+  if (end >= now) return true;
+  // Past its longest though still in its idle window: write the end down,
+  // so the Devices list and the clean-up see it as expired too.
+  if (end < row.expiresAt.getTime()) {
+    row.expiresAt = new Date(end);
+    await db.update(schema.apiTokens).set({ expiresAt: row.expiresAt }).where(eq(schema.apiTokens.id, row.id));
+  }
+  return false;
+}
+
+/**
+ * Slide expiry + stamp lastUsedAt, at most once per TOUCH_INTERVAL_MS.
+ * Never past the token's longest; a shorter idle window than the token
+ * was made with brings its end forward.
+ */
 async function touch(row: ApiToken, now: number): Promise<void> {
   if (row.lastUsedAt && now - row.lastUsedAt.getTime() < TOUCH_INTERVAL_MS) return;
   const lastUsedAt = new Date(now);
-  const expiresAt = new Date(now + TOKEN_TTL_MS);
+  const expiresAt = new Date(signInEnd((await signInLimits(now)).desktop, row.createdAt.getTime(), now).slid);
   await db
     .update(schema.apiTokens)
     .set({ lastUsedAt, expiresAt })
@@ -128,7 +154,7 @@ export async function validateApiToken(
     .where(eq(schema.apiTokens.tokenHash, hashToken(token)))
     .get();
   const now = Date.now();
-  if (!row || !isLive(row.token, now)) return null;
+  if (!row || !(await isLive(row.token, now))) return null;
   await touch(row.token, now);
   return { user: row.user, token: row.token, scopes: scopesOf(row.token) };
 }
@@ -141,14 +167,15 @@ export async function validateApiToken(
 export async function isApiTokenActive(tokenId: string): Promise<boolean> {
   const row = await db.select().from(schema.apiTokens).where(eq(schema.apiTokens.id, tokenId)).get();
   const now = Date.now();
-  if (!row || !isLive(row, now)) return false;
+  if (!row || !(await isLive(row, now))) return false;
   await touch(row, now);
   return true;
 }
 
-/** The user's live (unrevoked, unexpired) tokens, newest first. */
+/** The user's live (unrevoked, unexpired) tokens, newest first, each with when it ends. */
 export async function listApiTokens(userId: string): Promise<ApiToken[]> {
-  return db
+  const now = Date.now();
+  const rows = await db
     .select()
     .from(schema.apiTokens)
     .where(
@@ -159,6 +186,12 @@ export async function listApiTokens(userId: string): Promise<ApiToken[]> {
       ),
     )
     .orderBy(desc(schema.apiTokens.createdAt));
+  const out: ApiToken[] = [];
+  for (const row of rows) {
+    const end = await endOf(row, now);
+    if (end >= now) out.push({ ...row, expiresAt: new Date(end) });
+  }
+  return out;
 }
 
 /**

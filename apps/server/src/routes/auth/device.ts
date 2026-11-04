@@ -23,7 +23,7 @@ import { and, eq, lt } from 'drizzle-orm';
 import { db, schema } from '../../db/index.js';
 import { requireUser } from '../../auth/cookie.js';
 import { isDemoUser } from '../../demo/demoAccount.js';
-import { createApiToken, parseScopes, scopesOf, TOKEN_TTL_MS } from '../../auth/apiTokens.js';
+import { createApiToken, parseScopes, scopesOf } from '../../auth/apiTokens.js';
 import { writeAuditEvent } from '../../audit/writeAuditEvent.js';
 import { env } from '../../env.js';
 
@@ -221,7 +221,8 @@ export async function deviceRoutes(app: FastifyInstance) {
         access_token: token,
         token_type: 'Bearer',
         scope: scopes.join(' '),
-        expires_in: Math.floor(TOKEN_TTL_MS / 1000),
+        // Until it ends unused (each use pushes it back; Admin › Settings › Sign-in).
+        expires_in: Math.max(0, Math.round((tokenRow.expiresAt.getTime() - Date.now()) / 1000)),
       };
     },
   );

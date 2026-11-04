@@ -1,5 +1,6 @@
-// Resetting the demo account: delete everything it owns, put the samples
-// back, and tell anyone looking (the visitors signed in to it, admins on
+// Resetting the demo account: sign every visitor out, delete everything it
+// owns, put the samples back, and tell anyone looking (the visitors'
+// pages, which then say "The demo was reset. Start again?", and admins on
 // the settings page) so their screens update without a reload.
 //
 // Only rows the demo account owns are touched. The timer in workers/
@@ -20,7 +21,7 @@ import { env } from '../env.js';
 import { docHub } from '../ws/docHub.js';
 import { publish } from '../events/audience.js';
 import { getPlatformSettings, PLATFORM_SETTINGS_ID } from '../auth/platformSettings.js';
-import { DEMO_USER_ID, ensureDemoUser } from './demoAccount.js';
+import { DEMO_USER_ID, ensureDemoUser, signOutDemo } from './demoAccount.js';
 
 /**
  * The samples are the repo's own test fixtures (packages/bbm/tests/
@@ -125,6 +126,9 @@ async function seedSamples(now: Date): Promise<void> {
 export async function resetDemoAccount(now = new Date()): Promise<{ lastResetAt: number; items: number }> {
   await getPlatformSettings();
   await ensureDemoUser();
+  // Everyone in the demo now is signed out first (their open layouts close
+  // with 'demo_reset'), so nobody edits what is being wiped.
+  await signOutDemo('demo_reset');
   await deleteDemoThings();
   await seedSamples(now);
   await db.update(schema.platformSettings).set({ demoLastResetAt: now }).where(eq(schema.platformSettings.id, PLATFORM_SETTINGS_ID));
@@ -137,6 +141,11 @@ export async function resetDemoAccount(now = new Date()): Promise<{ lastResetAt:
 }
 
 let running: Promise<{ lastResetAt: number; items: number }> | null = null;
+
+/** The reset running now, if any (Try the demo waits for it). */
+export function demoResetRunning(): Promise<unknown> | null {
+  return running;
+}
 
 /** Run a reset, or join the one already running. */
 export function runDemoReset(now?: Date): Promise<{ lastResetAt: number; items: number }> {

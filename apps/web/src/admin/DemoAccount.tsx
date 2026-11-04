@@ -38,6 +38,9 @@ export function DemoAccountSection() {
         Enable the demo account
       </label>
       <p className="text-xs text-muted">Turning it off signs every demo visitor out and hides “Try the demo”.</p>
+      <p className="text-xs text-muted" data-testid="demo-sign-in-note">
+        Demo sign-ins end at each demo reset (at most 24 hours): every reset signs the visitors out, and their page offers to start again.
+      </p>
       <fieldset className="space-y-1 text-sm">
         <legend className="mb-1 text-xs text-muted">Reset it every</legend>
         <div className="flex flex-wrap gap-4">

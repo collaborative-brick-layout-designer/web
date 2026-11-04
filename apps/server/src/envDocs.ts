@@ -1,11 +1,13 @@
 // The environment variables the server reads, for the README's
 // configuration table (scripts/gen-env-docs.ts writes it; envDocs.test.ts
 // checks the README matches and that every variable the code reads is
-// listed). The usage limits and privacy settings add their own rows from
-// LIMITS and PRIVACY_SETTINGS, so those stay in step by themselves.
+// listed). The usage limits, privacy and sign-in settings add their own
+// rows from LIMITS, PRIVACY_SETTINGS and SIGN_IN_SETTINGS, so those stay in
+// step by themselves.
 
 import { LIMITS } from './limits/limits.js';
 import { PRIVACY_SETTINGS } from './privacy/settings.js';
+import { SIGN_IN_SETTINGS } from './auth/signInSettings.js';
 
 export interface EnvVarDoc {
   name: string;
@@ -72,6 +74,18 @@ export function envTablesMarkdown(): string {
   for (const p of PRIVACY_SETTINGS) {
     const unit = p.unit === 'mb' ? 'MB' : p.unit;
     lines.push(`| \`${p.envVar}\` | ${p.builtIn} ${unit} | ${p.min}–${p.max} | ${cell(p.label)}: ${cell(p.help)} |`);
+  }
+  lines.push(
+    '',
+    '**Sign-in.** How long a sign-in lasts, on the website and in the desktop app. Each is also set in Admin › Site settings › Sign-in; when the variable is set to a duration in range (`30d` or `30` for days, `12h` for hours, `never` for the longest), it wins and the page says so. A change applies to existing sign-ins the next time they are used. Demo sign-ins always end at each demo reset, and after 24 hours at most.',
+    '',
+  );
+  lines.push('| Variable | Built-in default | Range | Setting |', '|---|---|---|---|');
+  const span = (h: number) => (h % 24 === 0 ? `${h / 24} days` : `${h} hours`);
+  for (const s of SIGN_IN_SETTINGS) {
+    const where = s.app === 'web' ? 'Website' : 'Desktop app';
+    const range = `${span(s.min).replace(/^1 hours$/, '1 hour')}–${span(s.max)}${s.allowNever ? ', or `never`' : ''}`;
+    lines.push(`| \`${s.envVar}\` | ${span(s.builtIn)} | ${range} | ${where}, ${cell(s.label.toLowerCase())}: ${cell(s.help)} |`);
   }
   return lines.join('\n');
 }
