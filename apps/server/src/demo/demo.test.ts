@@ -5,6 +5,7 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import cookie from '@fastify/cookie';
 import fastifyMultipart from '@fastify/multipart';
 import http from 'node:http';
+import { WebSocket } from 'ws';
 import type { AddressInfo } from 'node:net';
 import { randomUUID } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -212,8 +213,9 @@ describe('a reset', () => {
     expect(db.select().from(schema.layouts).where(eq(schema.layouts.id, aliceLayout.id)).get()).toBeDefined();
     expect(owned(schema.modules, alice.id)).toHaveLength(1);
     expect(owned(schema.venueLibrary, alice.id)).toHaveLength(1);
-    // The visitor stays signed in and sees the fresh sample.
-    const list = (await call({ url: '/api/layouts', cookie: demo })).json() as { layouts: { title: string }[] };
+    // The visitor was signed out by the reset; trying again shows the fresh sample.
+    expect(((await call({ url: '/api/auth/me', cookie: demo })).json() as { user: unknown }).user).toBeNull();
+    const list = (await call({ url: '/api/layouts', cookie: await tryDemo() })).json() as { layouts: { title: string }[] };
     expect(list.layouts.map((l) => l.title)).toEqual([DEMO_SAMPLES.layout.title]);
     expect((await getPlatformSettings()).demoLastResetAt).not.toBeNull();
   });
@@ -340,6 +342,94 @@ describe('what the demo account can and cannot do', () => {
     expect((await call({ method: 'POST', url: `/api/layouts/${layout.id}/public-share`, cookie: alice.cookie })).statusCode).toBe(200);
     expect((await call({ method: 'PATCH', url: '/api/auth/me', cookie: alice.cookie, payload: { displayName: 'Alice A' } })).statusCode).toBe(200);
     expect((await call({ method: 'POST', url: '/api/orgs', cookie: alice.cookie, payload: { name: 'Alice club' } })).statusCode).toBe(201);
+  });
+});
+
+describe('demo sign-ins', () => {
+  const demoSessions = () => db.select().from(schema.sessions).where(eq(schema.sessions.userId, DEMO_USER_ID)).all();
+  const signedIn = async (c: string) => ((await call({ url: '/api/auth/me', cookie: c })).json() as { user: unknown }).user !== null;
+  const HOUR = 60 * 60 * 1000;
+
+  it('end at the next reset and are never pushed back', async () => {
+    await setDemo({ demoEnabled: true, demoResetEvery: '6h' });
+    const demo = await tryDemo();
+    const next = nextDemoReset(await getPlatformSettings())!.getTime();
+    const [row] = demoSessions();
+    expect(row!.expiresAt.getTime()).toBe(next);
+    // Used a lot: its end stays where it was (a web session would slide).
+    for (let i = 0; i < 3; i++) expect(await signedIn(demo)).toBe(true);
+    expect(demoSessions()[0]!.expiresAt.getTime()).toBe(next);
+    // At the reset time it has ended, even before the timer gets round to the reset.
+    db.update(schema.sessions).set({ expiresAt: new Date(Date.now() - 1) }).where(eq(schema.sessions.userId, DEMO_USER_ID)).run();
+    expect(await signedIn(demo)).toBe(false);
+  });
+
+  it('last 24 hours at most, whatever the stored end says', async () => {
+    await setDemo({ demoEnabled: true });
+    const demo = await tryDemo();
+    expect(demoSessions()[0]!.expiresAt.getTime()).toBeLessThanOrEqual(Date.now() + 24 * HOUR);
+    // A day and a bit old with an end far away (as a database edit could leave it): ended.
+    db.update(schema.sessions)
+      .set({ createdAt: new Date(Date.now() - 25 * HOUR), expiresAt: new Date(Date.now() + 30 * 24 * HOUR) })
+      .where(eq(schema.sessions.userId, DEMO_USER_ID))
+      .run();
+    expect(await signedIn(demo)).toBe(false);
+    expect(demoSessions()).toHaveLength(0);
+  });
+
+  it('a reset signs every demo visitor out, web sessions and tokens, and nobody else', async () => {
+    await setDemo({ demoEnabled: true });
+    const one = await tryDemo();
+    const two = await tryDemo();
+    // The demo can't get a desktop token, but one made anyway (a database edit) goes too.
+    const now = new Date();
+    db.insert(schema.apiTokens)
+      .values({ id: randomUUID(), userId: DEMO_USER_ID, name: 'x', tokenHash: randomUUID(), prefix: 'bld_pat_x', last4: 'xxxx', scopes: 'layouts:read', createdAt: now, lastUsedAt: null, expiresAt: new Date(now.getTime() + HOUR), revokedAt: null })
+      .run();
+    expect(await signedIn(one)).toBe(true);
+    expect((await resetNow()).statusCode).toBe(200);
+    expect(await signedIn(one)).toBe(false);
+    expect(await signedIn(two)).toBe(false);
+    expect(demoSessions()).toHaveLength(0);
+    expect(db.select().from(schema.apiTokens).where(eq(schema.apiTokens.userId, DEMO_USER_ID)).all().every((t) => t.revokedAt !== null)).toBe(true);
+    // Other people stay signed in.
+    expect(await signedIn(alice.cookie)).toBe(true);
+    expect(await signedIn(admin.cookie)).toBe(true);
+    // …and the timer's reset does the same.
+    const three = await tryDemo();
+    expect(await demoTick(new Date(Date.now() + 25 * HOUR))).toBe(true);
+    expect(await signedIn(three)).toBe(false);
+  });
+
+  it('a visitor with a live layout open is closed with the reason demo_reset', async () => {
+    await setDemo({ demoEnabled: true });
+    const demo = await tryDemo();
+    const sample = owned(schema.layouts, DEMO_USER_ID)[0] as { id: string };
+    await app.listen({ port: 0, host: '127.0.0.1' });
+    const port = (app.server.address() as AddressInfo).port;
+    const ws = new WebSocket(`ws://127.0.0.1:${port}/ws/layout/${sample.id}`, { headers: { cookie: demo } });
+    ws.on('error', () => {});
+    const closed = new Promise<{ code: number; reason: string }>((r) => ws.once('close', (code, reason) => r({ code, reason: reason.toString() })));
+    await new Promise<void>((resolve, reject) => {
+      ws.once('open', () => resolve());
+      ws.once('error', reject);
+    });
+    await resetNow();
+    const got = await Promise.race([closed, new Promise<'timeout'>((r) => setTimeout(() => r('timeout'), 3000))]);
+    expect(got).not.toBe('timeout');
+    expect((got as { reason: string }).reason).toBe('demo_reset');
+  });
+
+  it('Try the demo runs a reset that is due first, so the new sign-in isn’t ended by it', async () => {
+    await setDemo({ demoEnabled: true, demoResetEvery: '1h' });
+    // The last reset was two hours ago: one is due, and the timer hasn't run yet.
+    const old = new Date(Date.now() - 2 * HOUR);
+    db.update(schema.platformSettings).set({ demoLastResetAt: old }).run();
+    const demo = await tryDemo();
+    const after = (await getPlatformSettings()).demoLastResetAt!.getTime();
+    expect(after).toBeGreaterThan(old.getTime());
+    expect(await signedIn(demo)).toBe(true);
+    expect(demoSessions()[0]!.expiresAt.getTime()).toBe(after + HOUR);
   });
 });
 

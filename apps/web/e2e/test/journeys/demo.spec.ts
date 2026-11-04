@@ -5,9 +5,13 @@
 //   2. A visitor tries the demo: no sign-up, a banner says it resets, and
 //      the sample layout is there. They add a part to it and make a layout
 //      of their own.
-//   3. The admin presses Reset now. The visitor's Home updates without a
-//      reload: their layout is gone and the sample is back, unedited.
-//   4. Turning the demo off signs the visitor out and hides Try the demo.
+//   3. The admin presses Reset now while the visitor has the sample open in
+//      the editor. The reset signs every visitor out: the live layout
+//      closes and the page says "The demo was reset. Start again?" instead
+//      of an error. One click brings them back in, to a Home where their
+//      layout is gone and the sample is back, unedited.
+//   4. Turning the demo off signs the visitor out and hides Try the demo;
+//      their page says the demo has ended.
 
 import { test, expect, type Page } from '@playwright/test';
 import { signIn, adminSection } from '../../helpers';
@@ -38,7 +42,7 @@ async function savedBricks(page: Page, id: string): Promise<number> {
   return bbm.split('<Brick ').length - 1;
 }
 
-test('an admin turns on the demo, a visitor tries it, and Reset now puts the sample back live', async ({ page: admin, browser }) => {
+test('an admin turns on the demo, a visitor tries it, Reset now signs them out and Start again brings them back', async ({ page: admin, browser }) => {
   test.setTimeout(240_000);
   await signIn(admin, ADMIN, 'Demo Admin');
   makeGlobalAdmin(ADMIN);
@@ -82,21 +86,29 @@ test('an admin turns on the demo, a visitor tries it, and Reset now puts the sam
     await expect.poll(() => brickCount(visitor)).toBe(original + 1);
     await expect.poll(() => savedBricks(visitor, sample!.id), { timeout: 15000 }).toBe(original + 1);
 
-    // …and a layout of their own, then go Home.
+    // …and a layout of their own.
     expect((await visitor.request.post('/api/layouts', { data: { title: `Visitor layout ${ts}` } })).ok()).toBe(true);
-    await visitor.goto('/');
-    await expect(visitor.getByText(`Visitor layout ${ts}`)).toBeVisible();
-    await expect(visitor.locator('html')).toHaveAttribute('data-live', 'open', { timeout: 15000 });
-    // Marks this page load: a reload would lose it.
-    await visitor.evaluate(() => ((window as unknown as { __sameLoad: boolean }).__sameLoad = true));
+    await expect(admin.getByTestId('demo-sign-in-note')).toContainText('Demo sign-ins end at each demo reset (at most 24 hours)');
 
-    // ── 3. The admin resets it; the visitor's Home updates live. ──
+    // ── 3. The admin resets it while the visitor has the layout open. ──
     const lastBefore = await admin.getByTestId('demo-last-reset').textContent();
     await admin.getByRole('button', { name: 'Reset now' }).click();
-    await expect(visitor.getByText(`Visitor layout ${ts}`)).toHaveCount(0, { timeout: 15000 });
-    await expect(visitor.getByText(SAMPLE, { exact: true }).first()).toBeVisible();
-    expect(await visitor.evaluate(() => (window as unknown as { __sameLoad?: boolean }).__sameLoad)).toBe(true);
+    const notice = visitor.getByRole('alertdialog', { name: 'The demo was reset. Start again?' });
+    await expect(notice).toBeVisible({ timeout: 15000 });
+    await expect(notice).toContainText('Everything in the demo went back to the start');
+    // The editor behind it says so in the same words, not "this layout isn't here".
+    await expect(visitor.getByText('The demo was reset, so this layout went back to the start.')).toBeVisible();
+    await expect(visitor.getByText(/This layout isn't here/)).toHaveCount(0);
+    expect(((await (await visitor.request.get('/api/auth/me')).json()) as { user: unknown }).user).toBeNull();
     await expect(admin.getByTestId('demo-last-reset')).not.toHaveText(lastBefore ?? '');
+
+    // One click back in: Home, with the sample back and their layout gone.
+    await notice.getByRole('button', { name: 'Start again' }).click();
+    await expect(visitor).toHaveURL(/\/$/);
+    await expect(visitor.getByTestId('demo-banner')).toBeVisible();
+    await expect(visitor.getByText(SAMPLE, { exact: true }).first()).toBeVisible();
+    await expect(visitor.getByText(`Visitor layout ${ts}`)).toHaveCount(0);
+    await expect(visitor.getByRole('alertdialog')).toHaveCount(0);
 
     // The sample is back as it was: a fresh copy, without the added part.
     const after = await myLayouts(visitor);
@@ -126,5 +138,10 @@ test('an admin turns on the demo, a visitor tries it, and Reset now puts the sam
   await visitor.goto('/login');
   await expect(visitor.getByRole('heading', { name: /Sign in/ })).toBeVisible();
   await expect(visitor.getByRole('button', { name: 'Try the demo' })).toHaveCount(0);
+  // Their page says the demo has ended, and Sign in closes that.
+  const ended = visitor.getByRole('alertdialog', { name: 'The demo has ended' });
+  await expect(ended).toBeVisible();
+  await ended.getByRole('button', { name: 'Sign in' }).click();
+  await expect(visitor.getByRole('alertdialog')).toHaveCount(0);
   await visitorCtx.close();
 });

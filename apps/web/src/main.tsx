@@ -31,6 +31,7 @@ import { NotFoundPage } from './NotFoundPage';
 import { PrivacyPage } from './privacy/PrivacyPage';
 import { SiteVersionBar } from './SiteVersionBar';
 import { DemoBanner } from './demo/DemoBanner';
+import { DemoResetNotice } from './demo/DemoResetNotice';
 import { NamePrompt } from './auth/NamePrompt';
 import { CollectionToastHost } from './catalog/collectionToast';
 import { ConfirmDialogHost, ToastHost } from './ui/ConfirmDialog';
@@ -87,6 +88,7 @@ createRoot(root).render(
         <NoticeBanner />
         <RefusedCopies />
         <DemoBanner />
+        <DemoResetNotice />
         <NamePrompt />
         <CollectionToastHost />
         <ConfirmDialogHost />

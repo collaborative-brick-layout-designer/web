@@ -281,6 +281,13 @@
       "when": 1793644397504,
       "tag": "0039_data_fixes",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "6",
+      "when": 1793830162205,
+      "tag": "0040_sign_in_lifetimes",
+      "breakpoints": true
     }
   ]
 }

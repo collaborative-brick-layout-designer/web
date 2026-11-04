@@ -35,6 +35,7 @@ import { NOTICE_MAX, privacyContact, validContact } from '../privacy/page.js';
 import { readPlan, requestClubDeletion } from '../privacy/clubDeletion.js';
 import { catalogChoice } from './orgs.js';
 import { invalidatePrivacyCache, mergePrivacyPatch, privacySettingStates } from '../privacy/settings.js';
+import { invalidateSignInCache, mergeSignInPatch, signInSettingStates } from '../auth/signInSettings.js';
 import { DEMO_RESET_CHOICES, demoStatus, ensureDemoUser, isDemoUser, signOutDemo, type DemoResetEvery } from '../demo/demoAccount.js';
 import { demoItemCount, runDemoReset } from '../demo/reset.js';
 import { perPerson } from '../utils/rateLimits.js';
@@ -1174,6 +1175,10 @@ export async function adminRoutes(app: FastifyInstance): Promise<void> {
         notice: settings.privacyNotice ?? '',
         contact: await privacyContact(),
       },
+      // Sign-in: how long a web or desktop sign-in lasts unused, and the
+      // longest it can last (hours or 'never'), each with where its value
+      // comes from. Demo sign-ins end at each reset (24 hours at most).
+      signIn: { settings: await signInSettingStates() },
       // The server's own settings that can't be changed from this page,
       // with why: secrets, things read once at start, the deployment's own
       // paths and ports, and the first admin (needed before there is a DB).
@@ -1208,6 +1213,8 @@ export async function adminRoutes(app: FastifyInstance): Promise<void> {
       /** The privacy page: a notice (markdown) and a contact (email or web address); "" clears. */
       privacyNotice?: string | null;
       privacyContact?: string | null;
+      /** Admin › Settings › Sign-in: key -> hours (or 'never' for a longest), or null for the default (auth/signInSettings.ts). */
+      signIn?: Record<string, number | 'never' | null>;
     };
   }>('/api/admin/settings', async (req, reply) => {
     const me = requireGlobalAdmin(req);
@@ -1273,6 +1280,21 @@ export async function adminRoutes(app: FastifyInstance): Promise<void> {
       if ('error' in merged) return reply.code(400).send({ error: 'invalid_input', detail: merged.error });
       patch.privacy = merged.json;
     }
+    if ('signIn' in body) {
+      const merged = mergeSignInPatch((await getPlatformSettings()).signIn, body.signIn);
+      if ('error' in merged) {
+        // The longest below the idle window gets its own sentence.
+        if (merged.error.startsWith('sign_in_max_below_idle')) {
+          return reply.code(400).send({
+            error: 'sign_in_max_below_idle',
+            detail: merged.error,
+            message: 'The longest a sign-in can last can’t be shorter than the time it lasts unused.',
+          });
+        }
+        return reply.code(400).send({ error: 'invalid_input', detail: merged.error });
+      }
+      patch.signIn = merged.json;
+    }
     if ('privacyNotice' in body) {
       const v = body.privacyNotice;
       if (v !== null && (typeof v !== 'string' || v.length > NOTICE_MAX)) return reply.code(400).send({ error: 'invalid_input' });
@@ -1303,6 +1325,8 @@ export async function adminRoutes(app: FastifyInstance): Promise<void> {
     resetDesktopPolicy();
     invalidateLimitCaches(); // the limits switch takes effect at once
     invalidatePrivacyCache();
+    // Applies to every sign-in at its next check; nobody is signed out now.
+    invalidateSignInCache();
     // Turning the demo on makes (or re-enables) its account with fresh
     // samples; turning it off signs every visitor out.
     if (patch.demoEnabled === true && !before.demoEnabled) {

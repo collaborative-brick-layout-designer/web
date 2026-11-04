@@ -1,4 +1,4 @@
-// Admin › Settings: email, the desktop app, catalogs, privacy, jobs, demo, server.
+// Admin › Settings: email, the desktop app, catalogs, privacy, sign-in, jobs, demo, server.
 
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -8,6 +8,7 @@ import { CatalogSettingsSection } from '../Moderation';
 import { BackgroundJobsSection, ServerSetupSection } from '../ServerSetup';
 import { DemoAccountSection } from '../DemoAccount';
 import { PrivacySettingsSection } from '../../privacy/PrivacySettings';
+import { SignInSettingsSection } from '../SignInSettings';
 import { Loading } from './shared';
 
 export function SettingsTab() {
@@ -82,6 +83,7 @@ export function SettingsTab() {
       <CatalogSettingsSection />
       <BackgroundJobsSection />
       <PrivacySettingsSection />
+      <SignInSettingsSection />
       <ServerSetupSection />
       <section className="space-y-3">
         <h2 className="text-sm font-semibold text-neutral-300">Desktop app</h2>

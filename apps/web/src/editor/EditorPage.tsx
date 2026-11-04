@@ -9,7 +9,7 @@ import { Stage, Layer as KonvaLayer, Circle, Group, Image as KonvaImage, Line, T
 import Konva from 'konva';
 import type { KonvaEventObject } from 'konva/lib/Node';
 import { api, spriteUrlFor, type LayoutSummary, type PartWire } from '../api';
-import { MERGE_REFUSED, SIGN_IN_TO_OPEN, useLayoutDoc, type LayoutDocState } from './useLayoutDoc';
+import { DEMO_WAS_RESET, MERGE_REFUSED, SIGN_IN_TO_OPEN, useLayoutDoc, type LayoutDocState } from './useLayoutDoc';
 import { useModuleDoc } from './useModuleDoc';
 import { ShareToCatalogDialog, useCatalogStatus } from '../catalog/ShareToCatalog';
 import { makeModuleThumbnail, makeRegionThumbnail, waitForPartPictures } from './moduleThumbnail';
@@ -5926,7 +5926,13 @@ function ErrorScreen({ err, what }: { err: Error; what: 'layout' | 'module' }) {
     <div className="grid h-screen place-items-center p-4">
       <div role="alert" className="max-w-sm rounded-lg border border-red-900 bg-red-950/30 p-4 text-sm">
         <p className="font-semibold text-danger">
-          {signIn ? `Sign in to open this ${what}` : err.message === MERGE_REFUSED ? 'Your changes weren’t sent' : `Couldn't open this ${what}`}
+          {signIn
+            ? `Sign in to open this ${what}`
+            : err.message === MERGE_REFUSED
+              ? 'Your changes weren’t sent'
+              : err.message === DEMO_WAS_RESET
+                ? 'The demo was reset'
+                : `Couldn't open this ${what}`}
         </p>
         <p className="mt-2 text-neutral-300">{err.message}</p>
         <div className="mt-4 flex flex-wrap items-center gap-3">

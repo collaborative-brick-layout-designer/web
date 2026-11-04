@@ -8,10 +8,11 @@ export type CredentialRevocation =
   | { tokenId: string }
   /**
    * Every credential of one person. `reason`, when the account itself
-   * changed (privacy), is the WebSocket close reason, so the web and the
+   * changed (privacy) or the demo was reset or turned off, is the
+   * WebSocket close reason, so the web and the
    * desktop can say why instead of "not signed in".
    */
-  | { userId: string; reason?: 'account_pending_deletion' | 'account_restricted' };
+  | { userId: string; reason?: 'account_pending_deletion' | 'account_restricted' | 'demo_reset' | 'demo_off' };
 
 const revocationListeners = new Set<(r: CredentialRevocation) => void>();
 

@@ -64,6 +64,14 @@ export const sessions = sqliteTable(
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
     expiresAt: integer('expires_at', { mode: 'timestamp_ms' }).notNull(),
+    /**
+     * When the person signed in (0040): the longest a sign-in can last
+     * counts from here (auth/signInSettings.ts). Sessions from before 0040
+     * got the migration's time. Filled in on insert when left out.
+     */
+    createdAt: integer('created_at', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
   },
   (t) => ({
     // "Log out everywhere" / user delete cascade look sessions up by user.
@@ -264,6 +272,13 @@ export const platformSettings = sqliteTable('platform_settings', {
    */
   privacyNotice: text('privacy_notice'),
   privacyContact: text('privacy_contact'),
+  /**
+   * Admin › Settings › Sign-in (0040): a JSON object of sign-in setting key
+   * -> hours or "never" (see auth/signInSettings.ts): how long a web or
+   * desktop sign-in lasts unused, and the longest it can last. Keys left
+   * out use the built-in default; a SIGN_IN_* env var forces one.
+   */
+  signIn: text('sign_in'),
   updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
   updatedBy: text('updated_by').references(() => users.id, { onDelete: 'set null' }),
 });

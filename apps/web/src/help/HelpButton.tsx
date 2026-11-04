@@ -15,7 +15,13 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type SyntheticEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { usePreferences } from '../theme/PrefsProvider';
-import { HELP_TEXTS, type HelpKey } from './helpTexts';
+import { HELP_TEXTS, type HelpEntry, type HelpKey } from './helpTexts';
+import { WEB_ONLY_HELP_TEXTS, type WebOnlyHelpKey } from './webOnlyHelpTexts';
+
+/** A shared entry, or one only the web has (admin pages). */
+function helpEntryFor(key: HelpKey | WebOnlyHelpKey): HelpEntry {
+  return key in HELP_TEXTS ? HELP_TEXTS[key as HelpKey] : WEB_ONLY_HELP_TEXTS[key as WebOnlyHelpKey];
+}
 
 const PULSE_CLASS = 'help-pulse';
 const PULSE_MS = 2700;
@@ -57,7 +63,7 @@ function place(anchor: DOMRect, box: { width: number; height: number }): CSSProp
 const stop = (e: SyntheticEvent) => e.stopPropagation();
 
 interface Props {
-  helpKey: HelpKey;
+  helpKey: HelpKey | WebOnlyHelpKey;
   /**
    * What "Show me" highlights: a selector, looked up among the button's
    * ancestors first. By default, the element just before the button.
@@ -68,7 +74,7 @@ interface Props {
 
 export function HelpButton({ helpKey, target, className = '' }: Props) {
   const { prefs } = usePreferences();
-  const entry = HELP_TEXTS[helpKey];
+  const entry = helpEntryFor(helpKey);
   const id = useId();
   const tipId = `${id}-tip`;
   const popId = `${id}-pop`;
