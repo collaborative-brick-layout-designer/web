@@ -19,7 +19,8 @@
 //   - every update relayed to the other connections, and every answer to
 //     sync step 1, passes the desktop's guard and work limit, and a desktop
 //     that only ever got the relayed updates applies each of them;
-//   - what waits for missing changes stays within its limits;
+//   - what waits for missing changes stays within its limits, with the
+//     updates held back until the edit before them arrives (ws/held.ts);
 //   - no drawing setting or grid size is out of range that wasn't already;
 //   - presence entries carry the sender's own user id, at most
 //     MAX_AWARENESS_IDS per connection;
@@ -49,6 +50,7 @@ import { DocSession, MAX_AWARENESS_IDS } from '../ws/docHub.js';
 import { handleMessage, type Sender } from '../ws/handler.js';
 import { newPace, resetCopyBudgets } from '../ws/pacing.js';
 import { MAX_PENDING_BYTES, MAX_PENDING_DS_BYTES, pendingBytes, pendingDsBytes } from '../ws/pending.js';
+import { MAX_HELD_UPDATES } from '../ws/held.js';
 import { checkUpdate } from '../ws/updateGuard.js';
 import { decodeIncoming } from '../ws/decoded.js';
 import { UNSURE, checkGridSizesOnCopy, drawingProblems, exactVerdict } from '../ws/gridGuard.js';
@@ -157,6 +159,7 @@ function disconnect(session: DocSession, conn: Conn): void {
   if (owned.length > 0) awarenessProtocol.removeAwarenessStates(session.awareness, owned, conn.ws);
   session.clients.delete(conn.ws);
   session.clientUsers.delete(conn.ws);
+  session.held.drop(conn.ws);
 }
 
 // ---- one input ------------------------------------------------------------------
@@ -239,7 +242,8 @@ export function encodeRoomInput(room: number, viewers: number, messages: [number
 
 /**
  * `allTaken`: the input is only what real clients send, so no connection
- * may be closed (the replay test's check that the guards refuse no real edit).
+ * may be closed and nothing may be left held back at the end (the replay
+ * test's check that the guards refuse no real edit).
  */
 export function fuzzRoom(data: Uint8Array, { allTaken = false } = {}): void {
   const states = roomStates();
@@ -298,7 +302,10 @@ export function fuzzRoom(data: Uint8Array, { allTaken = false } = {}): void {
       }
       if (threw !== null && relayed.length > 0) fail(`handling a message threw after it changed the room: ${String(threw)}`);
       if (conn.ws.closed !== null && !CLOSES.has(conn.ws.closed)) fail(`a connection was closed with ${conn.ws.closed}`);
-      if (allTaken && conn.ws.closed !== null) fail(`a real client's message was refused (${conn.ws.closed})`);
+      if (allTaken) {
+        // (An update held back lands with another connection's message: its own connection is the one refused.)
+        for (const other of conns) if (other.ws.closed !== null) fail(`a real client's message was refused (${other.ws.closed})`);
+      }
       if (conn.role === 'viewer' && relayed.length > 0) fail('a viewer changed the room');
       for (const u of relayed) {
         desktopReads(u, 'a relayed update', mirror);
@@ -312,6 +319,14 @@ export function fuzzRoom(data: Uint8Array, { allTaken = false } = {}): void {
       for (const out of conn.ws.sent.slice(sentBefore)) checkReply(out);
       if (pendingBytes(session.doc) > MAX_PENDING_BYTES) fail(`the room holds ${pendingBytes(session.doc)} bytes waiting`);
       if (pendingDsBytes(session.doc) > MAX_PENDING_DS_BYTES) fail(`the room holds ${pendingDsBytes(session.doc)} bytes of deletions waiting`);
+      if (session.held.count > MAX_HELD_UPDATES) fail(`the room holds back ${session.held.count} updates`);
+      if (session.held.bytes + pendingBytes(session.doc) > MAX_PENDING_BYTES) {
+        fail(`the room holds back ${session.held.bytes} bytes, with ${pendingBytes(session.doc)} waiting`);
+      }
+      for (const holder of session.held.holders()) {
+        const ws = holder as FakeSocket;
+        if (ws.closed !== null || !session.clients.has(ws)) fail('the room holds back an update of a closed connection');
+      }
       if (relayed.length > 0) {
         for (const p of drawingProblems(session.doc)) {
           if (!seen.has(p)) fail(`an update left ${p} out of range`);
@@ -319,6 +334,8 @@ export function fuzzRoom(data: Uint8Array, { allTaken = false } = {}): void {
       }
       checkPresence(session);
     }
+
+    if (allTaken && session.held.count > 0) fail(`${session.held.count} updates of real clients were never applied`);
 
     // ---- the room as a desktop opens it, and as the server reopens it ----
     const full = Y.encodeStateAsUpdate(session.doc);

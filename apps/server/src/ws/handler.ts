@@ -43,8 +43,9 @@ import {
 } from './pending.js';
 import { newPace, workBudget, type Pace } from './pacing.js';
 import { concerns, onAccessChanged, suspendedIn } from './liveAccess.js';
-import { COPY_BUDGET_SPENT, checkGridSizesDecoded } from './gridGuard.js';
-import { decodeIncoming, guardWork } from './decoded.js';
+import { COPY_BUDGET_SPENT, checkGridSizesDecoded, heldValueProblem } from './gridGuard.js';
+import { decodeIncoming, guardWork, type DecodedUpdate } from './decoded.js';
+import { MAX_HELD_UPDATES, deletesPresent, waitsOn } from './held.js';
 import { MAX_UPDATE_WORK, yjsWork } from './yjsWork.js';
 
 /**
@@ -305,67 +306,11 @@ export function handleMessage(
           }
           allowance.charge(work);
         }
-        // The few it works out on a copy of the layout count against the
-        // sender's copy budget (ws/pacing.ts): past it, they slow down. One
-        // that lands changes waiting on another editor counts against the
-        // room's and theirs instead (ws/pending.ts copyPayer).
-        const payer = copyPayer(session.doc, decoded, sender.userId);
-        const copied = guardWork.copyBytes;
-        const badGrid = decoded ? checkGridSizesDecoded(session.doc, update, decoded, payer.available) : null;
-        payer.charge(guardWork.copyBytes - copied);
-        if (badGrid === COPY_BUDGET_SPENT) {
-          slowDown(ws, session, sender, update.length);
-          return;
-        }
-        if (badGrid !== null) {
-          refuseUpdate(ws, session, sender, update.length, 'unreadable', badGrid);
-          return;
-        }
-        const check = checkIncomingDecoded(session.doc, update, decoded);
-        if (check.refuse) {
-          refuseMerge(ws, session, sender, check);
-          return;
-        }
-        if (check.suspicious) flagUpdate(session, sender, check);
-        const pending = savePending(session.doc);
-        try {
-          // Origin = this socket, so our own broadcasts skip this client.
-          Y.applyUpdate(session.doc, update, ws);
-        } catch (err) {
-          if (once(sender, 'apply_error')) {
-            console.error(
-              `[ws] could not apply an update to layout ${session.layoutId} from user ${sender.userId} ` +
-                `(${sender.client || 'unknown client'}; later ones from this connection aren't logged): ${String(err)}`,
-            );
-          }
-        }
-        // What it left waiting for changes the room doesn't have is kept up
-        // to a limit (ws/pending.ts). Past it, what this update left goes;
-        // what it integrated stays (stored and sent like any edit).
-        const nowPending = pendingBytes(session.doc);
-        if (nowPending > MAX_PENDING_BYTES && nowPending > pending.bytes) {
-          restorePending(session.doc, pending);
-          refuseUpdate(ws, session, sender, update.length, 'incomplete', `it leaves ${nowPending} bytes waiting for changes the layout doesn't have`);
-          return;
-        }
-        // Deletions waiting are read again with every update: far less of them.
-        const nowDs = pendingDsBytes(session.doc);
-        if (nowDs > MAX_PENDING_DS_BYTES && nowDs > (pending.ds?.length ?? 0)) {
-          restorePending(session.doc, pending);
-          refuseUpdate(ws, session, sender, update.length, 'incomplete', `it leaves ${nowDs} bytes of deletions waiting for changes the layout doesn't have`);
-          return;
-        }
-        // Changes left waiting on another editor's: only while the room's
-        // budget for them lasts (ws/pending.ts), and on whoever left them.
-        const foreign = newForeignWaits(session.doc, pending, decoded);
-        if (foreign.length > 0) {
-          if (!mayLeaveForeignWaits(session.doc)) {
-            restorePending(session.doc, pending);
-            refuseUpdate(ws, session, sender, update.length, 'incomplete', 'it leaves changes waiting for another editor\'s, past what the layout takes for now');
-            return;
-          }
-          noteForeignWaits(session.doc, foreign, sender.userId);
-        }
+        // One that would leave some of it waiting for an earlier edit and
+        // delete something the room has is held whole until that edit
+        // arrives (ws/held.ts), then checked and applied as one.
+        if (decoded && holdIfEarly(ws, session, sender, update, decoded)) return;
+        if (takeUpdate(ws, session, sender, update, decoded)) landHeld(session);
       }
       if (encoding.length(encoder) > 1) {
         sendBytes(ws, encoding.toUint8Array(encoder));
@@ -382,6 +327,119 @@ export function handleMessage(
     default:
       // Unknown message type — ignore.
       break;
+  }
+}
+
+/**
+ * The checks of an update that read the room (grid and drawing settings,
+ * merges), applying it, and the limits on what it leaves waiting: for one
+ * that just arrived, and for one held until the edit before it arrived
+ * (landHeld). False when it was refused (the connection is then closed).
+ */
+function takeUpdate(ws: WebSocket, session: DocSession, sender: Sender, update: Uint8Array, decoded: DecodedUpdate | null): boolean {
+  // The few it works out on a copy of the layout count against the
+  // sender's copy budget (ws/pacing.ts): past it, they slow down. One
+  // that lands changes waiting on another editor counts against the
+  // room's and theirs instead (ws/pending.ts copyPayer).
+  const payer = copyPayer(session.doc, decoded, sender.userId);
+  const copied = guardWork.copyBytes;
+  const badGrid = decoded ? checkGridSizesDecoded(session.doc, update, decoded, payer.available) : null;
+  payer.charge(guardWork.copyBytes - copied);
+  if (badGrid === COPY_BUDGET_SPENT) {
+    slowDown(ws, session, sender, update.length);
+    return false;
+  }
+  if (badGrid !== null) {
+    refuseUpdate(ws, session, sender, update.length, 'unreadable', badGrid);
+    return false;
+  }
+  const check = checkIncomingDecoded(session.doc, update, decoded);
+  if (check.refuse) {
+    refuseMerge(ws, session, sender, check);
+    return false;
+  }
+  if (check.suspicious) flagUpdate(session, sender, check);
+  const pending = savePending(session.doc);
+  try {
+    // Origin = this socket, so our own broadcasts skip this client.
+    Y.applyUpdate(session.doc, update, ws);
+  } catch (err) {
+    if (once(sender, 'apply_error')) {
+      console.error(
+        `[ws] could not apply an update to layout ${session.layoutId} from user ${sender.userId} ` +
+          `(${sender.client || 'unknown client'}; later ones from this connection aren't logged): ${String(err)}`,
+      );
+    }
+  }
+  // What it left waiting for changes the room doesn't have is kept up
+  // to a limit (ws/pending.ts), with the updates the room holds back
+  // (ws/held.ts). Past it, what this update left goes; what it
+  // integrated stays (stored and sent like any edit).
+  const nowPending = pendingBytes(session.doc);
+  if (nowPending + session.held.bytes > MAX_PENDING_BYTES && nowPending > pending.bytes) {
+    restorePending(session.doc, pending);
+    refuseUpdate(ws, session, sender, update.length, 'incomplete', `it leaves ${nowPending} bytes waiting for changes the layout doesn't have`);
+    return false;
+  }
+  // Deletions waiting are read again with every update: far less of them.
+  const nowDs = pendingDsBytes(session.doc);
+  if (nowDs > MAX_PENDING_DS_BYTES && nowDs > (pending.ds?.length ?? 0)) {
+    restorePending(session.doc, pending);
+    refuseUpdate(ws, session, sender, update.length, 'incomplete', `it leaves ${nowDs} bytes of deletions waiting for changes the layout doesn't have`);
+    return false;
+  }
+  // Changes left waiting on another editor's: only while the room's
+  // budget for them lasts (ws/pending.ts), and on whoever left them.
+  const foreign = newForeignWaits(session.doc, pending, decoded);
+  if (foreign.length > 0) {
+    if (!mayLeaveForeignWaits(session.doc)) {
+      restorePending(session.doc, pending);
+      refuseUpdate(ws, session, sender, update.length, 'incomplete', 'it leaves changes waiting for another editor\'s, past what the layout takes for now');
+      return false;
+    }
+    noteForeignWaits(session.doc, foreign, sender.userId);
+  }
+  return true;
+}
+
+/**
+ * Hold `update` back if some of it would wait for an earlier edit the room
+ * doesn't have and it deletes something the room has (ws/held.ts): applied
+ * now, the deletion would land before what replaces it. True when it was
+ * held or refused. A drawing setting it writes out of range, where that can
+ * be told now, is refused at once; the rest is checked when it lands.
+ */
+function holdIfEarly(ws: WebSocket, session: DocSession, sender: Sender, update: Uint8Array, decoded: DecodedUpdate): boolean {
+  const waitsFor = waitsOn(session.doc, decoded);
+  if (!waitsFor || !deletesPresent(session.doc, decoded.ds)) return false;
+  const bad = heldValueProblem(session.doc, decoded);
+  if (bad !== null) {
+    refuseUpdate(ws, session, sender, update.length, 'unreadable', bad);
+    return true;
+  }
+  const { held } = session;
+  if (held.count >= MAX_HELD_UPDATES || held.bytes + pendingBytes(session.doc) + update.length > MAX_PENDING_BYTES) {
+    // Past what a room holds: "try again later". The app reconnects and its
+    // sync step 2 brings this and the edit it waits for together.
+    closeSlowDown(ws, session);
+    if (once(sender, 'held_full')) {
+      console.warn(
+        `[ws] closed a connection to layout ${session.layoutId} from user ${sender.userId} (${sender.client || 'unknown client'}): ` +
+          `the room holds ${held.count} updates (${held.bytes} bytes) waiting for the edits before them`,
+      );
+    }
+    return true;
+  }
+  held.add({ client: ws, sender, update, decoded, waitsFor });
+  return true;
+}
+
+/** Apply the held updates whose earlier edits have now arrived (each may let others land). */
+function landHeld(session: DocSession): void {
+  for (let entry = session.held.takeReady(session.doc); entry; entry = session.held.takeReady(session.doc)) {
+    const ws = entry.client as WebSocket;
+    if (ws.readyState !== ws.OPEN || !session.clients.has(ws)) continue;
+    takeUpdate(ws, session, entry.sender, entry.update, entry.decoded);
   }
 }
 
@@ -402,6 +460,7 @@ function mergePayload(sender: Sender, check: MergeCheck): Record<string, unknown
  * the log and the audit.
  */
 function refuseMerge(ws: WebSocket, session: DocSession, sender: Sender, check: MergeCheck): void {
+  session.held.drop(ws);
   console.warn(
     `[ws] refused an update to layout ${session.layoutId} from user ${sender.userId} (${sender.client || 'unknown client'}): ` +
       `it adds ${check.foreignLayers} layer entries from another layout (${check.updateBytes} bytes, ` +
@@ -422,16 +481,22 @@ function refuseMerge(ws: WebSocket, session: DocSession, sender: Sender, check: 
 
 /** Sending faster than ws/pacing.ts allows: close with 1013 "try again later" (the apps reconnect), logged once. */
 function slowDown(ws: WebSocket, session: DocSession, sender: Sender, bytes: number): void {
-  try {
-    ws.close(CLOSE_SLOW_DOWN, SLOW_DOWN_REASON);
-  } catch {
-    /* already closed */
-  }
+  closeSlowDown(ws, session);
   if (!once(sender, 'slow_down')) return;
   console.warn(
     `[ws] closed a connection to layout ${session.layoutId} from user ${sender.userId} (${sender.client || 'unknown client'}): ` +
       `it sent faster than allowed (last message ${bytes} bytes)`,
   );
+}
+
+/** Close with 1013 "try again later"; what the connection held back goes (its next sync step 2 brings it again). */
+function closeSlowDown(ws: WebSocket, session: DocSession): void {
+  session.held.drop(ws);
+  try {
+    ws.close(CLOSE_SLOW_DOWN, SLOW_DOWN_REASON);
+  } catch {
+    /* already closed */
+  }
 }
 
 /** True the first time this connection notes `what`. */
@@ -454,6 +519,7 @@ function refuseUpdate(
   kind: 'unreadable' | 'incomplete',
   why: string,
 ): void {
+  session.held.drop(ws);
   try {
     ws.close(CLOSE_MERGE_REFUSED, UPDATE_REFUSED_REASON);
   } catch {

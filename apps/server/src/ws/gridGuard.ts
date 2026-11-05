@@ -43,7 +43,7 @@ import * as Y from 'yjs';
 import { decodeIncoming, findStruct, guardWork, type DecodedUpdate, type DeleteSet, type Struct } from './decoded.js';
 import { updateClientBlocks } from './updateGuard.js';
 import { pendingMayLand } from './pending.js';
-import { docSheetProblems, placeOf, RULER_KEYS, rulerView, SHEET_KEYS, sheetProblems, type RulerView } from './drawingSettings.js';
+import { docSheetProblems, placeOf, RULER_KEYS, RULER_RULES, rulerView, SHEET_KEYS, SHEET_RULES, sheetProblems, type RulerView } from './drawingSettings.js';
 
 const SIZE_KEY = 'gridSizeInStud';
 const TYPE_KEY = 'type';
@@ -633,6 +633,79 @@ function exactOrThrow(doc: Y.Doc | null, decoded: DecodedUpdate): string | null 
     const before = problemsBefore(doc, sheet);
     const fresh = after.find((p) => !before.has(p));
     if (fresh) return refusal(fresh);
+  }
+  return null;
+}
+
+// ---- an update held back until the edit before it arrives --------------------
+
+/**
+ * For an update the live handler holds until the edit before it arrives
+ * (held.ts): a drawing setting it writes outside its range, where the room
+ * can tell now (a new plain value for a key of a sheet or a ruler the room
+ * has), answered as checkGridSizes will once it lands. What can't be told
+ * yet (a new ruler, a new sheet) is checked when it lands, with the rest.
+ */
+export function heldValueProblem(doc: Y.Doc, decoded: DecodedUpdate): string | null {
+  const layerData = doc.share.get(LAYER_DATA);
+  if (!(layerData instanceof Y.Map)) return null;
+  const { structs, ds } = decoded;
+  const known = (id: Y.ID): boolean => id.clock < Y.getState(doc.store, id.client);
+  const roomItem = (id: Y.ID): Y.Item | null => {
+    if (!known(id)) return null;
+    try {
+      const s = Y.getItem(doc.store, id);
+      return s instanceof Y.Item ? s : null;
+    } catch {
+      return null;
+    }
+  };
+  // The sheet a map is (its key in layerData), or null.
+  const sheetOf = (m: Y.Map<unknown>): string | null => {
+    const it = m._item;
+    return it && it.parent === layerData && it.parentSub !== null && !it.deleted ? it.parentSub : null;
+  };
+  // A value another write of the update replaces isn't the one its key ends with.
+  const replaced = new Set<string>();
+  for (const s of structs) if (s instanceof Y.Item && s.origin) replaced.add(idKey(s.origin.client, s.origin.clock));
+  for (const s of structs) {
+    if (!(s instanceof Y.Item) || !(s.content instanceof Y.ContentAny) || s.content.arr.length === 0) continue;
+    if (replaced.has(lastKey(s)) || deletesLast(ds, s)) continue;
+    // The map and the key it writes, when the room has them.
+    let map: unknown = null;
+    let key: string | null = s.parentSub;
+    const parent = s.parent as unknown;
+    if (parent instanceof Y.ID) {
+      const p = roomItem(parent);
+      if (!p || !(p.content instanceof Y.ContentType)) continue;
+      map = p.content.type;
+    } else if (typeof parent === 'string') {
+      map = doc.share.get(parent);
+    } else if (s.origin) {
+      const o = roomItem(s.origin);
+      if (!o) continue;
+      map = o.parent;
+      key = o.parentSub;
+    }
+    if (key === null || !(map instanceof Y.Map)) continue;
+    const value: unknown = s.content.arr[s.content.arr.length - 1];
+    let sheet = sheetOf(map);
+    let problem: string | null = null;
+    if (sheet !== null) {
+      const rule = SHEET_RULES[key];
+      if (rule && !rule(value)) problem = `${sheet}.${key}`;
+      else if (key === SIZE_KEY && map.get(TYPE_KEY) === 'grid' && !validGridSize(value)) problem = sizeProblem(sheet);
+    } else {
+      const list = map._item?.parent;
+      const holder = list instanceof Y.Array ? list._item : null;
+      const rule = RULER_RULES[key];
+      if (!rule || !holder || holder.parentSub !== RULERS_KEY || !(holder.parent instanceof Y.Map)) continue;
+      sheet = sheetOf(holder.parent);
+      if (sheet === null || rule(value)) continue;
+      const id = map.get('id');
+      problem = `${sheet}.rulers.${typeof id === 'string' && id ? id : placeOf(map._item!.id.client, map._item!.id.clock)}.${key}`;
+    }
+    if (problem !== null && !problemsBefore(doc, sheet).has(problem)) return refusal(problem);
   }
   return null;
 }
