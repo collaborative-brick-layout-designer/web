@@ -7,7 +7,9 @@
 // edits, and its sync step 2 carries everything the room lacks
 // (routes/test/wsUpdateGuard.test.ts measures the desktop's first sync, a
 // paste of 1000 parts and an offline session: 0 bytes). So a room holds at
-// most MAX_PENDING_BYTES of it.
+// most MAX_PENDING_BYTES of it, together with the updates the live handler
+// holds back whole instead (held.ts: one that would also delete something
+// the room has, before what replaces it lands).
 
 import * as Y from 'yjs';
 import type { DecodedUpdate } from './decoded.js';

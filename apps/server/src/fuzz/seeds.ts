@@ -239,24 +239,34 @@ export function taggedRoomSeeds(): RoomSeed[] {
     for (const edit of EDITS) edit(off.doc);
     real(encodeRoomInput(r, 0, [[1, msgStep1(empty)], [1, msgStep2(Y.encodeStateAsUpdate(off.doc, roomSv))]]));
     // Two edits of one client arriving out of order (the second waits for the
-    // first), with another editor's in between. Parts edits are taken. A
-    // drawing setting's change is not (so not a real-client seed): its
-    // deletion of the old value lands at once while the new value waits, which
-    // leaves the sheet without the value for a while, and the grid and
-    // drawing-settings guards refuse that.
+    // first), with another editor's in between: a parts edit, and a drawing
+    // setting's change. Both are taken: the second is held back whole until
+    // the first arrives (ws/held.ts), so a drawing setting's deletion of the
+    // old value never lands before the new value.
     const b = client(state, 7070 + r * 100);
     EDITS[3]!(b.doc);
-    for (const [second, add] of [
-      [1, real],
-      [2, other],
-    ] as const) {
+    for (const second of [1, 2, 3, 4]) {
       const a = client(state, 7060 + r * 100 + second);
       EDITS[0]!(a.doc);
       EDITS[second]!(a.doc);
       if (a.edits.length < 2) continue;
       const [u1, ...rest] = a.edits;
-      add(encodeRoomInput(r, 0, [...rest.map((u): Msg => [0, msgUpdate(u)]), ...b.edits.map((u): Msg => [3, msgUpdate(u)]), [0, msgUpdate(u1!)]]));
+      const early = rest.map((u): Msg => [0, msgUpdate(u)]);
+      real(encodeRoomInput(r, 0, [...early, ...b.edits.map((u): Msg => [3, msgUpdate(u)]), [0, msgUpdate(u1!)]]));
+      // The same, the first edit arriving over the same person's other connection.
+      real(encodeRoomInput(r, 0, [...early, [2, msgUpdate(u1!)]]));
+      // The early connection closes before the first edit arrives: what it held goes (its sync step 2 brings it again).
+      real(encodeRoomInput(r, 0, [...early, [0, new Uint8Array()], [2, msgUpdate(u1!)]]));
     }
+    // A value out of range arriving before the edit it follows: refused.
+    BAD_EDITS.forEach((edit, i) => {
+      const a = client(state, 7090 + r * 100 + i);
+      EDITS[0]!(a.doc);
+      edit(a.doc);
+      if (a.edits.length < 2) return;
+      const [u1, ...rest] = a.edits;
+      other(encodeRoomInput(r, 0, [...rest.map((u): Msg => [0, msgUpdate(u)]), [1, msgUpdate(u1!)]]));
+    });
     // A viewer's edit (dropped), and a viewer asking for the layout.
     if (b.edits.length) real(encodeRoomInput(r, 0b10, [[1, msgStep1(empty)], [1, msgUpdate(b.edits[0]!)]]));
     // Values out of range.

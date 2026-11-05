@@ -1,6 +1,8 @@
 // The fuzz targets (src/fuzz, run by scripts/fuzz.mjs) on every input that
 // once broke a property (fuzz/regressions/<target>/) and on their seeds:
-// what real clients send, which must all pass. Runs with the other tests on
+// what real clients send, which must all pass. fuzz/regressions/room-real/
+// holds room inputs of only what real clients send that were once refused:
+// each must be taken whole (no connection closed). Runs with the other tests on
 // each pull request; the fuzzing itself runs in the Fuzz workflow.
 
 import { readdirSync, readFileSync } from 'node:fs';
@@ -37,6 +39,11 @@ describe('fuzz regressions', () => {
       for (const [name, input] of regressions(target)) expect(() => run(input), name).not.toThrow();
     });
   }
+  it('room: every saved real-client input is taken whole', () => {
+    const saved = regressions('room-real');
+    expect(saved.length).toBeGreaterThan(0);
+    for (const [name, input] of saved) expect(() => fuzzRoom(input, { allTaken: true }), name).not.toThrow();
+  });
 });
 
 describe('fuzz seeds (what real clients send)', () => {

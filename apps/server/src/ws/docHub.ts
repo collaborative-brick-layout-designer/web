@@ -21,6 +21,8 @@ import { rollup } from '../metrics/rollup.js';
 import { applyStoredUpdate } from './yjsWork.js';
 import { MAX_PENDING_BYTES, MAX_PENDING_DS_BYTES, dropPending, noteWaitingOnOpen, pendingBytes, pendingDsBytes } from './pending.js';
 import { checkUpdate } from './updateGuard.js';
+import { HeldUpdates } from './held.js';
+import type { Sender } from './handler.js';
 
 /**
  * Largest awareness (presence) message taken from a client. A presence
@@ -63,6 +65,12 @@ export class DocSession {
   readonly clientAwarenessIds = new Map<unknown, Set<number>>();
   /** The attached client that owns each awareness clientID (the first to set it). */
   readonly awarenessOwners = new Map<number, unknown>();
+  /**
+   * Updates held back until the edit before them arrives (held.ts), each
+   * with the connection that sent it: dropped when it detaches, and all
+   * of them when the room unloads.
+   */
+  readonly held = new HeldUpdates<unknown, Sender>();
   /** Set by DocHub.close(); a closed session never persists or re-arms. */
   closed = false;
   private broadcasting = false;
@@ -473,6 +481,7 @@ class DocHub {
   async detach(session: DocSession, client: unknown): Promise<void> {
     if (!session.clients.delete(client)) return;
     session.clientUsers.delete(client);
+    session.held.drop(client);
     session.releaseAwareness(client);
     if (session.closed || session.clients.size > 0) return;
     // Final flush so a server restart doesn't lose the last few seconds.
@@ -515,6 +524,7 @@ class DocHub {
     session.clientUsers.clear();
     session.clientAwarenessIds.clear();
     session.awarenessOwners.clear();
+    session.held.clear();
     for (const client of clients) {
       if (!isWsPeer(client)) continue;
       try {
@@ -539,6 +549,7 @@ class DocHub {
       this.live.delete(session.layoutId);
       this.sessions.delete(session.layoutId);
     }
+    session.held.clear();
     session.discardBatch();
     session.doc.destroy();
     session.awareness.destroy();
