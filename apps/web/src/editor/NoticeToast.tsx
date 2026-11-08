@@ -35,6 +35,19 @@ export function NoticeToast({ lifted = false }: { lifted?: boolean } = {}) {
             </svg>
           )}
           <span>{notice.text}</span>
+          {notice.action && (
+            <button
+              type="button"
+              data-testid="notice-action"
+              onClick={() => {
+                notice.action?.run();
+                dismiss();
+              }}
+              className="shrink-0 rounded-control bg-accent px-3 py-1 font-semibold text-accent-ink hover:bg-accent-hover"
+            >
+              {notice.action.label}
+            </button>
+          )}
           {notice.kind !== 'busy' && (
             <button type="button" onClick={dismiss} aria-label="Close" className="-mr-1 ml-1 rounded-control px-1.5 text-muted hover:bg-soft hover:text-ink">
               ×

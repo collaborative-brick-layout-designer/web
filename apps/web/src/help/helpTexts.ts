@@ -98,6 +98,12 @@ export const HELP_TEXTS = {
     short: 'Show or hide the side panels.',
     more: 'Tick a panel to show it. You can also drag a panel by its handle to move it, or float it over the map.',
   },
+  'toolbar.activeSheet': {
+    title: 'Adding to',
+    short: 'The sheet new parts go on; click it to pick a different sheet.',
+    more: 'This is the active sheet, also marked Active in the Sheets panel. Parts you place or drop go on it. If it is a text, area or ruler sheet, parts go on a parts sheet instead, and you are told which.',
+    learnMoreUrl: '/help#sheets',
+  },
   'tools.rail': {
     title: 'Tools',
     short: 'Pick what a click on the map does.',

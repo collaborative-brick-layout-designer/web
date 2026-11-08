@@ -30,6 +30,7 @@ import {
 import { LayerOptionsDialog } from './LayerOptionsDialog';
 import { confirmDelete } from '../ui/ConfirmDialog';
 import { deleteSheetWording } from './sheetContents';
+import { SHEET_GLYPH } from './activeSheet';
 
 interface Props {
   map: BbmMap;
@@ -37,13 +38,7 @@ interface Props {
   isViewer: boolean;
 }
 
-const KIND_GLYPH: Record<Layer['type'], string> = {
-  grid: '#',
-  brick: '▮',
-  text: 'T',
-  area: '▦',
-  ruler: '─',
-};
+const KIND_GLYPH = SHEET_GLYPH;
 
 /** Number of items on a layer — parts on a parts (brick) layer, cells/areas/rulers on the others. */
 function layerItemCount(layer: Layer): number | null {
@@ -64,6 +59,7 @@ function layerItemCount(layer: Layer): number | null {
 export function LayersPanel({ map, doc, isViewer }: Props) {
   const activeLayerId = useEditorStore((s) => s.activeLayerId);
   const setActiveLayer = useEditorStore((s) => s.setActiveLayer);
+  const flashSheetId = useEditorStore((s) => s.flashSheetId);
 
   // map.layers is in **document order**. The desktop's LayerPanel
   // reverses for display so topmost (last drawn = highest z) is first.
@@ -82,6 +78,7 @@ export function LayersPanel({ map, doc, isViewer }: Props) {
             layer={layer}
             doc={doc}
             isActive={layer.id === activeLayerId}
+            flash={layer.id === flashSheetId}
             isViewer={isViewer}
             onActivate={() => setActiveLayer(layer.id)}
           />
@@ -159,12 +156,14 @@ function LayerRow({
   layer,
   doc,
   isActive,
+  flash,
   isViewer,
   onActivate,
 }: {
   layer: Layer;
   doc: Y.Doc;
   isActive: boolean;
+  flash: boolean;
   isViewer: boolean;
   onActivate: () => void;
 }) {
@@ -226,13 +225,19 @@ function LayerRow({
       title={
         isViewer
           ? undefined
-          : `${isActive && layer.type === 'brick' ? 'Active sheet — new parts are placed here. ' : ''}Double-click for sheet options, F2 to rename`
+          : `${isActive ? (layer.type === 'brick' ? 'Active sheet: new parts are placed here. ' : 'Active sheet. ') : 'Click to make this the active sheet. '}Double-click for sheet options, F2 to rename`
       }
+      aria-current={isActive ? 'true' : undefined}
+      data-active={isActive || undefined}
+      data-flash={flash || undefined}
       className={
         'relative cursor-pointer border-b border-line/60 py-1.5 outline-hidden focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent ' +
+        // The active sheet: a filled band in the accent color with a thick
+        // edge, so it never reads as a hover or a passing pick.
         (isActive
-          ? 'border-l-2 border-l-blue-500 bg-blue-900/30 pl-1.5 pr-2'
-          : 'border-l-2 border-l-transparent pl-1.5 pr-2 hover:bg-soft/60')
+          ? 'border-l-4 border-l-accent bg-accent-soft pl-1 pr-2 '
+          : 'border-l-4 border-l-transparent pl-1 pr-2 hover:bg-soft/60 ') +
+        (flash ? 'animate-pulse ring-2 ring-inset ring-accent' : '')
       }
     >
       <div className="flex items-center gap-2">
@@ -276,11 +281,19 @@ function LayerRow({
           <span
             className={
               'flex-1 truncate text-sm ' +
-              (isActive ? 'font-semibold text-ink ' : '') +
+              (isActive ? 'font-bold text-accent-text ' : '') +
               (layer.visible ? '' : 'text-muted line-through')
             }
           >
             {layer.name || '(untitled)'}
+          </span>
+        )}
+        {isActive && !editing && (
+          <span
+            data-testid="active-sheet-badge"
+            className="shrink-0 rounded-full bg-accent px-1.5 py-px text-[10px] font-bold uppercase tracking-wide text-accent-ink"
+          >
+            Active
           </span>
         )}
         {!editing && itemCount !== null && (

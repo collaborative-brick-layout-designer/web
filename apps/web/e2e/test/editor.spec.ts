@@ -303,10 +303,11 @@ test.describe('editor — layers panel', () => {
     await layersPanel.getByTitle('Add a new sheet').click();
     await page.getByRole('button', { name: 'Area sheet' }).click();
 
-    // The active row is highlighted with a blue left border + background;
+    // The active row is filled with the accent color and badged "Active";
     // the newly-added "Area" row should be the one carrying it.
-    const activeRow = layersPanel.locator('li.border-l-blue-500');
+    const activeRow = layersPanel.locator('li[data-active]');
     await expect(activeRow).toContainText('Area');
+    await expect(activeRow.getByTestId('active-sheet-badge')).toBeVisible();
   });
 
   test('layers panel shows a part count for the default parts (brick) layer', async ({ page }) => {

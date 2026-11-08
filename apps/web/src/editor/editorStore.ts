@@ -62,6 +62,22 @@ export interface Notice {
   id: number;
   text: string;
   kind: NoticeKind;
+  /** A button on the notice that fixes what it says (e.g. "Show sheet"). */
+  action?: NoticeAction;
+}
+
+export interface NoticeAction {
+  label: string;
+  run: () => void;
+}
+
+/** The "→ <sheet>" tag that rides with a part dragged over the map. */
+export interface DropTag {
+  sheet: string;
+  hidden: boolean;
+  /** Viewport position of the pointer. */
+  x: number;
+  y: number;
 }
 
 let noticeSeq = 0;
@@ -274,6 +290,13 @@ export interface EditorState {
    * leaves or drops. Port of MapView::showDropTargetHint (MapView.cpp:1653-1683).
    */
   dropTargetHint: string | null;
+  /** Rides with a part dragged over the map, naming the sheet it will land on. */
+  dropTag: DropTag | null;
+  /**
+   * A sheet the Sheets panel briefly lights up: where a part just went
+   * when that wasn't the sheet the user had picked.
+   */
+  flashSheetId: string | null;
 
   setTool: (t: Tool) => void;
   /** Replace the selection with these bricks (clears rulers / labels / text). */
@@ -321,9 +344,12 @@ export interface EditorState {
    * Pop up a notice. 'busy' stays until replaced; the others clear after
    * `durationMs` (default 6 s).
    */
-  showNotice: (text: string, kind?: NoticeKind, durationMs?: number) => void;
+  showNotice: (text: string, kind?: NoticeKind, durationMs?: number, action?: NoticeAction) => void;
   dismissNotice: () => void;
   setDropTargetHint: (hint: string | null) => void;
+  setDropTag: (tag: DropTag | null) => void;
+  /** Light up a sheet's row in the Sheets panel for a few seconds. */
+  flashSheet: (id: string) => void;
   /**
    * Atomic zoom-around-point. Used by the wheel handler so the world
    * coordinate under the cursor stays put across the zoom step — desktop
@@ -354,6 +380,8 @@ export const useEditorStore = create<EditorState>((set) => ({
   statusMessageTimerId: null,
   notice: null,
   dropTargetHint: null,
+  dropTag: null,
+  flashSheetId: null,
   snapStepStuds: (() => {
     // Off by default, like desktop snapStepStuds (PreferencesDialog.cpp:137).
     const v = localStorage.getItem('cld:snapStepStuds');
@@ -532,9 +560,22 @@ export const useEditorStore = create<EditorState>((set) => ({
   },
   setHudMapBounds: (hudMapWidthStuds, hudMapHeightStuds) => set({ hudMapWidthStuds, hudMapHeightStuds }),
   setDropTargetHint: (dropTargetHint) => set((s) => (s.dropTargetHint === dropTargetHint ? s : { dropTargetHint })),
-  showNotice: (text, kind = 'done', durationMs = 6000) => {
+  setDropTag: (dropTag) =>
+    set((s) =>
+      s.dropTag === dropTag ||
+      (s.dropTag && dropTag && s.dropTag.sheet === dropTag.sheet && s.dropTag.hidden === dropTag.hidden && s.dropTag.x === dropTag.x && s.dropTag.y === dropTag.y)
+        ? s
+        : { dropTag },
+    ),
+  flashSheet: (id) => {
+    set({ flashSheetId: id });
+    setTimeout(() => {
+      if (useEditorStore.getState().flashSheetId === id) useEditorStore.setState({ flashSheetId: null });
+    }, 4000);
+  },
+  showNotice: (text, kind = 'done', durationMs = 6000, action) => {
     const id = ++noticeSeq;
-    set({ notice: { id, text, kind } });
+    set({ notice: { id, text, kind, ...(action ? { action } : {}) } });
     if (kind !== 'busy') {
       setTimeout(() => {
         if (useEditorStore.getState().notice?.id === id) useEditorStore.setState({ notice: null });
