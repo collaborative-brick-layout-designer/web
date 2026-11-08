@@ -117,8 +117,11 @@ import {
   setVenue,
   makeId,
   makeSetsOfModules,
+  setLayerVisible,
   type ModuleBatch,
 } from './mutations';
+import { ActiveSheetControl } from './ActiveSheetControl';
+import { placementTarget, SHEET_KIND, sheetName } from './activeSheet';
 import { brickDrag } from './brickDrag';
 import { cloneGroups, expandSet, expandToGroups, findLooseSets, findSetModules, setsAgainNotice, groupChain, selectedSet, setAnchorOrder, subpartOf, ungroupState } from './sets';
 import { applySetUpdate, copyPlacedSets, findSetUpdates, linksByAnchor, placedSetLink, trackedSet, updateForSelection, writePlacedSets, type SetUpdate } from './setUpdates';
@@ -160,6 +163,7 @@ import { applyViewSheets, moduleNamesShown, pictureGrid, setModuleNamesSource, v
 import { ViewsPanel, PictureIcon } from './ViewsPanel';
 import { downloadAllViews } from './sharePicture';
 import { NoticeToast } from './NoticeToast';
+import { DropSheetTag } from './DropSheetTag';
 import { writeBbm, type SavedView, type SidecarModule } from '@cld/bbm';
 import { LOCAL_ORIGIN } from './useLayoutDoc';
 import { hiddenPartNotice } from './hiddenParts';
@@ -745,12 +749,17 @@ function Editor({ layoutId, docState, moduleMode }: { layoutId: string; docState
     );
   }
 
+  // The Parts panel names the sheet its parts go on: "Parts → Tracks".
+  const partsTarget = placementTarget(docMap?.layers ?? [], activeLayerId).target;
+  const panelTitle = (panelId: string) =>
+    panelId === 'parts' && partsTarget ? `Parts → ${sheetName(partsTarget)}` : (PANEL_TITLES[panelId] ?? panelId);
+
   function renderPanel(panelId: string, dockZone: 'left' | 'right'): React.ReactNode {
     if (!doc) return null;
     const zone = dock.zoneOf(panelId);
     const onMove = (id: string, z: DockZone) => dock.setZone(id, z);
     const onReorder = (fromId: string, toId: string) => dock.reorderPanel(dockZone, fromId, toId);
-    const title = PANEL_TITLES[panelId] ?? panelId;
+    const title = panelTitle(panelId);
     return (
       <PanelHost panelId={panelId} title={title} zone={zone} onMove={onMove} onReorder={onReorder}>
         {panelBody(panelId)}
@@ -1156,6 +1165,7 @@ function Editor({ layoutId, docState, moduleMode }: { layoutId: string; docState
           >
             Redo
           </button>
+          <ActiveSheetControl doc={doc} />
           {!isViewer && (
             <HeaderEditButtons
               saveNow={saveNow}
@@ -1356,7 +1366,7 @@ function Editor({ layoutId, docState, moduleMode }: { layoutId: string; docState
           <FloatingPanel
             key={id}
             panelId={id}
-            title={PANEL_TITLES[id] ?? id}
+            title={panelTitle(id)}
             pos={pos}
             onMove={(pid, z) => dock.setZone(pid, z)}
             onPosChange={dock.setFloatPos}
@@ -1441,6 +1451,7 @@ function Editor({ layoutId, docState, moduleMode }: { layoutId: string; docState
       {/* Status bar — port of MainWindow.cpp:861-1014 status widgets.
           Spans every column. Shows mouse coords / selection count / zoom. */}
       <NoticeToast lifted={touchEditing || touchTablet} />
+      <DropSheetTag />
       {openedFile && !loading && docMap && catalog.data && (
         <OpenedSummaryCard
           name={openedFile}
@@ -2430,6 +2441,52 @@ function Canvas({
     return firstBrick?.id ?? ensureBrickLayer(doc);
   }
 
+  /**
+   * Say where new parts went when it isn't plain from the "Adding to"
+   * control: onto a hidden sheet (with a button to show it), or onto a
+   * parts sheet other than the picked one because that one can't hold
+   * parts. The sheet that got them lights up in the Sheets panel.
+   * `pickedId` is the sheet that was active before placing.
+   */
+  function announcePlacement(layerIds: readonly string[], pickedId: string | null, what: string, one = true) {
+    const layers = projectDoc(doc)?.layers ?? [];
+    const { showNotice, flashSheet } = useEditorStore.getState();
+    const went = layerIds.map((id) => layers.find((l) => l.id === id)).filter((l) => l !== undefined);
+    if (went.length === 0) return;
+    const names = went.map((l) => `“${sheetName(l)}”`).join(', ');
+    const hidden = went.filter((l) => !l.visible);
+    if (hidden.length > 0) {
+      for (const l of hidden) flashSheet(l.id);
+      const hiddenNames = hidden.map((l) => `“${sheetName(l)}”`).join(', ');
+      showNotice(
+        went.length === 1
+          ? `${what} went on ${names}, which is hidden, so you can’t see ${one ? 'it' : 'them'}.`
+          : `${what} went on ${names}. ${hiddenNames} ${hidden.length === 1 ? 'is' : 'are'} hidden, so you can’t see all of them.`,
+        'error',
+        12000,
+        {
+          label: hidden.length === 1 ? 'Show sheet' : 'Show sheets',
+          run: () => {
+            for (const l of hidden) setLayerVisible(doc, l.id, true);
+          },
+        },
+      );
+      return;
+    }
+    const picked = pickedId ? layers.find((l) => l.id === pickedId) : undefined;
+    if (picked && !layerIds.includes(picked.id)) {
+      for (const l of went) flashSheet(l.id);
+      const pickedKind = picked.type === 'brick' ? '' : `, a ${SHEET_KIND[picked.type]} sheet, which can’t hold parts`;
+      showNotice(
+        `${what} went on ${names}, not “${sheetName(picked)}”${pickedKind}.${
+          useEditorStore.getState().activeLayerId === went[0]!.id ? ` ${names} is the active sheet now.` : ''
+        }`,
+        'done',
+        8000,
+      );
+    }
+  }
+
   // Push map bounding-box into the store so the StatusBar can show it
   // without prop-drilling. Runs whenever the map changes.
   const setHudMapBounds = useEditorStore((s) => s.setHudMapBounds);
@@ -2654,6 +2711,14 @@ function Canvas({
         });
         return;
       }
+      // The "→ <sheet>" tag that rides with the part.
+      const { target: dropSheet } = placementTarget(map?.layers ?? [], activeLayerId);
+      useEditorStore.getState().setDropTag({
+        sheet: dropSheet ? sheetName(dropSheet) : 'a new parts sheet',
+        hidden: dropSheet ? !dropSheet.visible : false,
+        x: e.clientX,
+        y: e.clientY,
+      });
       const key = readPartKey(dt);
       // dragover on Firefox doesn't expose getData payloads — fall back
       // to the most-recently-stored key from a previous dragover.
@@ -2685,6 +2750,7 @@ function Canvas({
       placeSnapRef.current = new SnapSession();
       moduleSnapRef.current = new SnapSession();
       useEditorStore.getState().setDropTargetHint(null);
+      useEditorStore.getState().setDropTag(null);
     }
 
     function onDrop(e: DragEvent) {
@@ -2701,6 +2767,7 @@ function Canvas({
       moduleSnapRef.current = new SnapSession();
       const bypass = e.altKey;
       useEditorStore.getState().setDropTargetHint(null);
+      useEditorStore.getState().setDropTag(null);
       const dragged = moduleDragRef.current;
       moduleDragRef.current = null;
 
@@ -3660,7 +3727,7 @@ function Canvas({
    * placed, whether there was anything to paste, and whether the browser
    * let it read the system clipboard.
    */
-  async function pasteAtCursor(at?: { x: number; y: number }): Promise<{ pasted: number; found: boolean; system: SystemClipboard }> {
+  async function pasteAtCursor(at?: { x: number; y: number }): Promise<{ pasted: number; found: boolean; system: SystemClipboard; hiddenSheet?: boolean }> {
     const { content: read, system } = await readClipboardStatus();
     const clipped = read?.entries;
     if (!clipped || clipped.length === 0 || !map) return { pasted: 0, found: false, system };
@@ -3683,11 +3750,13 @@ function Canvas({
     }
 
     const newIds: string[] = [];
+    const pastedOn: string[] = [];
     // One undo step: the parts, and the module copy when a whole module was copied.
     doc.transact(() => {
     for (const name of layerOrder) {
       const targetLayerId = findOrCreateBrickLayerByName(name);
       if (!targetLayerId) continue;
+      if (!pastedOn.includes(targetLayerId)) pastedOn.push(targetLayerId);
       const layerEntries = byLayerName.get(name)!;
       const copied = cloneGroups(
         layerEntries.flatMap((e) => e.groups ?? []),
@@ -3708,7 +3777,19 @@ function Canvas({
     }, LOCAL_ORIGIN);
     absorbIntoEditedModule(doc, newIds);
     if (newIds.length > 0) setSelection(newIds);
-    return { pasted: newIds.length, found: true, system };
+    // A paste keeps each part's own sheet (by name), not the active one: say where they went.
+    let hiddenSheet = false;
+    if (newIds.length > 0) {
+      const layers = projectDoc(doc)?.layers ?? [];
+      const on = pastedOn.map((id) => layers.find((l) => l.id === id)).filter((l) => l !== undefined);
+      hiddenSheet = on.some((l) => !l.visible);
+      if (hiddenSheet) announcePlacement(pastedOn, activeLayerId, newIds.length === 1 ? 'The pasted part' : 'The pasted parts', newIds.length === 1);
+      else {
+        for (const l of on) useEditorStore.getState().flashSheet(l.id);
+        useEditorStore.getState().showStatusMessage(`Pasted ${newIds.length === 1 ? '1 part' : `${newIds.length} parts`} → ${on.map((l) => sheetName(l)).join(', ')}`, 4000);
+      }
+    }
+    return { pasted: newIds.length, found: true, system, hiddenSheet };
   }
 
   /**
@@ -3723,8 +3804,8 @@ function Canvas({
     const parts = (n: number) => (n === 1 ? '1 part' : `${n} parts`);
     if (what === 'paste') {
       const target = at ?? viewCentreStuds({ width, height });
-      const { pasted, found, system } = await pasteAtCursor(target);
-      if (pasted > 0) notice(`Pasted ${parts(pasted)}.`, 'done', 4000);
+      const { pasted, found, system, hiddenSheet } = await pasteAtCursor(target);
+      if (pasted > 0 && !hiddenSheet) notice(`Pasted ${parts(pasted)}.`, 'done', 4000);
       else if (!found) {
         notice(
           system === 'blocked'
@@ -3924,6 +4005,7 @@ function Canvas({
         : { centreX: studX, centreY: studY, snappedToConnection: false, newOrientation: null };
     }
 
+    const pickedId = activeLayerId;
     const layerId = resolveBrickLayerForPlacement();
     if (activeLayerId !== layerId) setActiveLayer(layerId);
 
@@ -3957,6 +4039,7 @@ function Canvas({
     // Auto-select the placed brick so chain-placing snaps off it.
     // Port of MapView.cpp:1394-1408.
     setSelection([newId]);
+    announcePlacement([layerId], pickedId, 'Your part');
   }
 
   /**
@@ -4012,6 +4095,7 @@ function Canvas({
     snapOpts: { session?: SnapSession; bypass?: boolean; final?: boolean } = {},
   ) {
     if (group.subparts.length === 0) return;
+    const pickedId = activeLayerId;
     const layerId = resolveBrickLayerForPlacement();
     if (activeLayerId !== layerId) setActiveLayer(layerId);
 
@@ -4051,7 +4135,8 @@ function Canvas({
     recomputeConnectivity(doc, linkCatalog);
     absorbIntoEditedModule(doc, newIds);
     if (newIds.length > 0) setSelection(newIds);
-    useEditorStore.getState().showStatusMessage(`Placed set: ${setName} (${newIds.length} parts)`, 3000);
+    useEditorStore.getState().showStatusMessage(`Placed set: ${setName} (${newIds.length} parts) on “${sheetName(projectDoc(doc)?.layers.find((l) => l.id === layerId))}”`, 3000);
+    if (newIds.length > 0) announcePlacement([layerId], pickedId, 'The set', false);
   }
 
   /** Update placed custom sets to their set's current version, where each sits now: one undo step. */
