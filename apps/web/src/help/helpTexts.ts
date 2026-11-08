@@ -200,7 +200,7 @@ export const HELP_TEXTS = {
   'set.moving': {
     title: 'Moving or copying a set to a club',
     short: 'Your own custom parts in a set go to the club with it.',
-    more: 'Everyone in the club can then place the set with all its parts. Moving takes your parts with it, except any that another of your sets uses: those stay yours, and the club gets its own copy. Copying gives the club its own copy of each part, and yours stay as they are. Either way, if the club already has a part with the same number, the set uses the club’s.',
+    more: 'Everyone in the club can then place the set with all its parts. Moving takes your parts with it, except any that another of your sets uses: those stay yours, and the club gets its own copy; copying gives the club its own copy of each part, and yours stay as they are. Either way, if the club already has a part with the same number, the set uses the club’s.',
   },
   'set.updates': {
     title: 'Set updates',
