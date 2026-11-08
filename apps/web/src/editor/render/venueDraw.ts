@@ -120,3 +120,35 @@ export function dimensionGeometry(d: Pick<VenueDimension, 'from' | 'to'>): {
 
 /** Text shown for an estimated value. */
 export const estimatedText = (s: string): string => `${s} (est.)`;
+
+/**
+ * A venue color as drawn on a dark canvas (the Venue Designer in the dark
+ * theme): a dark color gets the same hue with its lightness mirrored, so
+ * walls, outlines and text read light on dark; light colors stay. Alpha is
+ * kept. Desktop rendering/VenueDraw.cpp onDarkCanvas() is the same.
+ */
+export function onDarkCanvas(color: string): string {
+  const m = /^rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)\s*(?:,\s*([\d.]+)\s*)?\)$/.exec(color.trim());
+  if (!m) return color;
+  const [r, g, b] = [Number(m[1]) / 255, Number(m[2]) / 255, Number(m[3]) / 255];
+  const max = Math.max(r, g, b), min = Math.min(r, g, b);
+  const l = (max + min) / 2;
+  if (l >= 0.5) return color;
+  const d = max - min;
+  const s = d === 0 ? 0 : d / (1 - Math.abs(2 * l - 1));
+  let h = 0;
+  if (d !== 0) {
+    if (max === r) h = ((g - b) / d) % 6;
+    else if (max === g) h = (b - r) / d + 2;
+    else h = (r - g) / d + 4;
+  }
+  // Back to rgb with lightness 1 - l.
+  const L = 1 - l;
+  const c = (1 - Math.abs(2 * L - 1)) * s;
+  const x = c * (1 - Math.abs((h % 2) - 1));
+  const k = L - c / 2;
+  const hi = Math.floor(((h % 6) + 6) % 6);
+  const [r1, g1, b1] = ([[c, x, 0], [x, c, 0], [0, c, x], [0, x, c], [x, 0, c], [c, 0, x]] as const)[hi]!;
+  const to = (v: number) => Math.round((v + k) * 255);
+  return m[4] !== undefined ? `rgba(${to(r1)},${to(g1)},${to(b1)},${m[4]})` : `rgb(${to(r1)},${to(g1)},${to(b1)})`;
+}

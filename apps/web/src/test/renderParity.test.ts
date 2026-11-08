@@ -197,7 +197,8 @@ describe('render parity: selection', () => {
 
 import VENUE from '../../../../packages/bbm/tests/fixtures/render-parity/venue-labels.json';
 import type { VenueEdge } from '@cld/bbm';
-import { GRID_FADE } from '../venues/designer/DesignerCanvas';
+import { DESIGNER_CANVAS, GRID_FADE } from '../venues/designer/DesignerCanvas';
+import { onDarkCanvas } from '../editor/render/venueDraw';
 import { VENUE_LABEL, VENUE_LABEL_THEME, pillsOverlap, uprightAngle, venueEdgeLabels } from '../editor/render/venueLabels';
 
 describe('render parity: venue wall labels', () => {
@@ -227,6 +228,15 @@ describe('render parity: venue wall labels', () => {
     expect(VENUE_LABEL).toEqual(VENUE.pill);
     expect(VENUE_LABEL_THEME).toEqual(VENUE.theme);
     expect(GRID_FADE).toBe(VENUE.gridFade);
+  });
+
+  it('themes the Venue Designer canvas as the desktop does', () => {
+    const { about: _about, ...byTheme } = VENUE.canvas;
+    expect(DESIGNER_CANVAS).toEqual(byTheme);
+  });
+
+  it.each(VENUE.darkInk.cases)('draws %s as %s on the dark canvas', (from, to) => {
+    expect(onDarkCanvas(from!)).toBe(to);
   });
 
   it('reads upright: left to right, bottom to top on a vertical wall, never upside down', () => {
