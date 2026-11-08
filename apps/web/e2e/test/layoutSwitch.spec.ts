@@ -23,7 +23,7 @@ async function onServer(page: Page, id: string): Promise<number> {
 }
 
 async function placePart(page: Page): Promise<void> {
-  await page.getByPlaceholder(/fuzzy filter/i).first().fill('narrow gauge track straight 4 x 16');
+  await page.getByPlaceholder('Search parts (name or number)').first().fill('narrow gauge track straight 4 x 16');
   await page.locator(`[title*="(${PART})"]`).first().dblclick();
 }
 

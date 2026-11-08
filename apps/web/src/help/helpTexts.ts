@@ -23,7 +23,7 @@ export const HELP_TEXTS = {
   'panel.parts': {
     title: 'Parts',
     short: 'All the pieces you can build with.',
-    more: 'Search by name or number, or pick a group like track or plates. Drag a part onto the map, or click it to drop it in the middle.',
+    more: 'Search by name or number, or pick a group like track or plates. The letters you type may have gaps: "plt2" finds "plate2x4". Drag a part onto the map, or click it to drop it in the middle.',
     learnMoreUrl: '/help#getting-started',
   },
   'panel.sheets': {

@@ -50,7 +50,7 @@ function openOnce(cookieHeader: string): Promise<number> {
 it('one person using up their opens leaves the others on the same address alone', async () => {
   const a = await loginAs(app, 'a@example.com');
   const b = await loginAs(app, 'b@example.com');
-  for (let i = 0; i < 30; i++) expect(await openOnce(a.cookie)).toBe(200);
+  for (let i = 0; i < 60; i++) expect(await openOnce(a.cookie)).toBe(200);
   expect(await openOnce(a.cookie)).toBe(429);
   expect(await openOnce(b.cookie)).toBe(200);
 });
@@ -59,7 +59,7 @@ it("the page-load beacon is counted per person too", async () => {
   const a = await loginAs(app, 'a@example.com');
   const b = await loginAs(app, 'b@example.com');
   const beacon = (cookie: string) => app.inject({ method: 'POST', url: '/api/metrics/client', headers: { cookie }, payload: { display: 'browser' } });
-  for (let i = 0; i < 20; i++) expect((await beacon(a.cookie)).statusCode).toBe(204);
+  for (let i = 0; i < 60; i++) expect((await beacon(a.cookie)).statusCode).toBe(204);
   expect((await beacon(a.cookie)).statusCode).toBe(429);
   expect((await beacon(b.cookie)).statusCode).toBe(204);
 });

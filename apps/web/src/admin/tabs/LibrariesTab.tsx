@@ -9,15 +9,86 @@ import { Loading, Td, Th } from './shared';
 const KNOWN_SOURCES = [
   {
     id: 'official',
-    label: 'Official LEGO parts (bluebrick.lswproject.com)',
-    hint: 'Lego, Baseplate, Train, Town, …',
+    label: 'BlueBrick packs (Town, Train, Castle, BrickTracks, TrixBrix, …)',
+    hint: 'Town, Train, Castle, Space, Duplo, Vehicle, BrickTracks and TrixBrix packs',
   },
   {
     id: 'nonlego',
-    label: 'Non-LEGO parts (BrickTracks, 4DBrix, TrixBrix, …)',
-    hint: 'Community packs from the same BlueBrick host',
+    label: 'Other toy brands (Plarail)',
+    hint: 'Packs for toys that are not LEGO, such as Plarail',
   },
 ] as const;
+
+function invalidatePartQueries(qc: ReturnType<typeof useQueryClient>) {
+  qc.invalidateQueries({ queryKey: ['admin-part-libraries'] });
+  qc.invalidateQueries({ queryKey: ['parts-catalog'] });
+  qc.invalidateQueries({ queryKey: ['custom-parts'] });
+  qc.invalidateQueries({ queryKey: ['org-part-libraries'] });
+}
+
+/** "Get the parts library": downloads BlueBrickParts from GitHub onto the server. */
+export function useGetPartsLibrary() {
+  const qc = useQueryClient();
+  const [status, setStatus] = useState<'idle' | 'downloading' | 'done' | 'err'>('idle');
+  const [err, setErr] = useState('');
+  async function run() {
+    setStatus('downloading');
+    setErr('');
+    try {
+      await api.admin.downloadPartLibrary({
+        name: 'BlueBrickParts (default)',
+        slug: 'bluebrickparts-default',
+        sourceUrl: 'https://github.com/Lswbanban/BlueBrickParts/archive/refs/heads/master.zip',
+        defaultEnabled: true,
+      });
+      invalidatePartQueries(qc);
+      setStatus('done');
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'download failed');
+      setStatus('err');
+    }
+  }
+  return { status, err, run };
+}
+
+/** The Admin dashboard's warning when the server has no parts at all. */
+export function PartsSetupCard() {
+  const libs = useQuery({ queryKey: ['admin-part-libraries'], queryFn: api.admin.partLibraries, retry: false });
+  const get = useGetPartsLibrary();
+  if (!libs.data) return null;
+  const registered = libs.data.libraries;
+  const baseRow = registered.find((l) => l.slug === 'bluebrickparts');
+  const total = registered.filter((l) => l.slug !== 'bluebrickparts').reduce((n, l) => n + l.partCount, 0)
+    + Math.max(baseRow?.partCount ?? 0, libs.data.onDiskBaseParts ?? 0);
+  if (total > 0 && get.status !== 'done') return null;
+  return (
+    <section data-testid="parts-setup-card" className="space-y-2 rounded-lg border border-amber-500/50 bg-panel p-4 text-sm">
+      <h2 className="font-semibold">Parts</h2>
+      {get.status === 'done' ? (
+        <p className="text-emerald-400">The parts library is installed. Layouts can show their parts now.</p>
+      ) : (
+        <>
+          <p>
+            <strong>{registered.length} {registered.length === 1 ? 'library' : 'libraries'} · 0 parts.</strong>{' '}
+            Layouts will show every part as missing until this server has a parts library.
+          </p>
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              onClick={() => void get.run()}
+              disabled={get.status === 'downloading'}
+              className="min-h-11 rounded-lg bg-accent-hover px-3 text-sm font-medium text-accent-ink hover:bg-accent disabled:opacity-50"
+            >
+              {get.status === 'downloading' ? 'Getting the parts library…' : 'Get the parts library'}
+            </button>
+            <a href="/admin?tab=libraries" className="text-accent-text hover:underline">Open Part libraries</a>
+          </div>
+          {get.status === 'err' && <p className="text-danger">{get.err}</p>}
+        </>
+      )}
+    </section>
+  );
+}
 
 export function PartLibrariesTab() {
   const qc = useQueryClient();
@@ -31,11 +102,13 @@ export function PartLibrariesTab() {
   // ── Base library ──────────────────────────────────────────────────────────
   const [baseStatus, setBaseStatus] = useState<'idle' | 'installing' | 'done' | 'err'>('idle');
   const [baseErr, setBaseErr] = useState('');
-  const baseInstalled = installedSlugs.has('bluebrickparts');
+  // A base library registered with no parts (an old server let that happen)
+  // doesn't count, so the download stays on offer.
+  const baseInstalled = (libs.data?.libraries ?? []).some((l) => l.slug === 'bluebrickparts' && l.partCount > 0);
   const baseDownloaded = installedSlugs.has('bluebrickparts-default');
+  const onDiskBaseParts = libs.data?.onDiskBaseParts ?? 0;
 
-  const [dlBaseStatus, setDlBaseStatus] = useState<'idle' | 'downloading' | 'done' | 'err'>('idle');
-  const [dlBaseErr, setDlBaseErr] = useState('');
+  const { status: dlBaseStatus, err: dlBaseErr, run: downloadDefaultLibrary } = useGetPartsLibrary();
 
   async function installBase() {
     setBaseStatus('installing');
@@ -47,24 +120,6 @@ export function PartLibrariesTab() {
     } catch (e) {
       setBaseErr(e instanceof Error ? e.message : 'failed');
       setBaseStatus('err');
-    }
-  }
-
-  async function downloadDefaultLibrary() {
-    setDlBaseStatus('downloading');
-    setDlBaseErr('');
-    try {
-      await api.admin.downloadPartLibrary({
-        name: 'BlueBrickParts (default)',
-        slug: 'bluebrickparts-default',
-        sourceUrl: 'https://github.com/Lswbanban/BlueBrickParts/archive/refs/heads/master.zip',
-        defaultEnabled: true,
-      });
-      invalidateLibraries();
-      setDlBaseStatus('done');
-    } catch (e) {
-      setDlBaseErr(e instanceof Error ? e.message : 'download failed');
-      setDlBaseStatus('err');
     }
   }
 
@@ -198,10 +253,7 @@ export function PartLibrariesTab() {
 
   // ── Reload parts cache ───────────────────────────────────────────────────
   function invalidateLibraries() {
-    qc.invalidateQueries({ queryKey: ['admin-part-libraries'] });
-    qc.invalidateQueries({ queryKey: ['parts-catalog'] });
-    qc.invalidateQueries({ queryKey: ['custom-parts'] });
-    qc.invalidateQueries({ queryKey: ['org-part-libraries'] });
+    invalidatePartQueries(qc);
   }
 
   const reloadParts = useMutation({
@@ -233,13 +285,14 @@ export function PartLibrariesTab() {
       {/* ── Base library ── */}
       <section className="rounded-lg border border-line p-4 space-y-4">
 
-        {/* Register on-disk library */}
+        {/* Register on-disk library: only when PARTS_DIR really holds parts */}
+        {(baseInstalled || onDiskBaseParts > 0) && (
         <div className="flex flex-col items-start gap-3 sm:flex-row sm:justify-between sm:gap-4">
           <div>
             <h2 className="text-sm font-semibold text-neutral-300">BlueBrickParts base library</h2>
             <p className="mt-1 text-xs text-muted">
               If the parts submodule is already on disk at <code className="text-muted">PARTS_DIR</code>,
-              this registers it so orgs can enable/disable it. No download needed.
+              this registers it so clubs can enable/disable it. No download needed.
             </p>
           </div>
           {baseInstalled ? (
@@ -256,19 +309,20 @@ export function PartLibrariesTab() {
             </button>
           )}
         </div>
+        )}
         {baseStatus === 'err' && <p className="text-xs text-danger">{baseErr}</p>}
 
         {/* Download from GitHub — only shown when the on-disk submodule isn't already registered */}
         {!baseInstalled && (
           <>
-            <div className="flex flex-col items-start gap-3 sm:flex-row sm:justify-between sm:gap-4 border-t border-line pt-4">
+            <div className={`flex flex-col items-start gap-3 sm:flex-row sm:justify-between sm:gap-4${onDiskBaseParts > 0 ? ' border-t border-line pt-4' : ''}`}>
               <div>
                 <h2 className="text-sm font-semibold text-neutral-300">Download BlueBrickParts from GitHub</h2>
                 <p className="mt-1 text-xs text-muted">
                   Downloads the latest{' '}
                   <span className="text-muted">Lswbanban/BlueBrickParts</span> archive (~27 MB),
                   extracts it to <code className="break-all text-muted">PARTS_DIR/libraries/bluebrickparts-default/</code>,
-                  and enables it for all orgs by default.
+                  and enables it for all clubs by default.
                 </p>
               </div>
               {baseDownloaded ? (
@@ -281,7 +335,7 @@ export function PartLibrariesTab() {
                   disabled={dlBaseStatus === 'downloading'}
                   className="shrink-0 rounded-lg bg-accent-hover px-3 py-1.5 text-xs font-medium text-accent-ink hover:bg-accent disabled:opacity-50"
                 >
-                  {dlBaseStatus === 'downloading' ? 'Downloading…' : 'Download default library'}
+                  {dlBaseStatus === 'downloading' ? 'Getting the parts library…' : 'Get the parts library'}
                 </button>
               )}
             </div>
@@ -384,7 +438,7 @@ export function PartLibrariesTab() {
                     onChange={(e) => setDefaultEnabled(e.target.checked)}
                     className="accent-accent"
                   />
-                  Enable for all orgs by default
+                  Enable for all clubs by default
                 </label>
                 <button
                   onClick={handleDownloadSelected}
@@ -461,7 +515,7 @@ export function PartLibrariesTab() {
                 onChange={(e) => setManualForm((f) => ({ ...f, defaultEnabled: e.target.checked }))}
                 className="accent-accent"
               />
-              Enable for all orgs by default
+              Enable for all clubs by default
             </label>
           </div>
           {manualErr && <p className="text-xs text-danger">{manualErr}</p>}
@@ -522,7 +576,7 @@ export function PartLibrariesTab() {
                         disabled={lib.locked}
                         onChange={(e) => !lib.locked && patchLib.mutate({ id: lib.id, body: { defaultEnabled: e.target.checked } })}
                         className="accent-accent disabled:opacity-40"
-                        title={lib.locked ? 'Always enabled — cannot be changed' : 'Enable for all orgs by default'}
+                        title={lib.locked ? 'Always enabled — cannot be changed' : 'Enable for all clubs by default'}
                       />
                     </Td>
                     <Td className="max-w-[16rem] truncate text-muted">

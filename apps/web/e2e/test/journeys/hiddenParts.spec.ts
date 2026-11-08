@@ -57,7 +57,7 @@ test('parts only used inside sets are hidden from the Parts panel and never plac
   const layout = (await (await page.request.post('/api/layouts', { data: { title: 'Hidden parts' } })).json()) as { id: string };
   await page.goto(`/editor/${layout.id}`);
   await expect(page.locator('canvas').first()).toBeVisible({ timeout: 15000 });
-  const filter = page.getByPlaceholder(/fuzzy filter/i).first();
+  const filter = page.getByPlaceholder('Search parts (name or number)').first();
   const tile = (key: string) => page.locator('aside li button').filter({ hasText: key });
   await filter.fill(String(ts));
   await expect(tile(FLEX)).toBeVisible({ timeout: 15000 });
@@ -85,7 +85,7 @@ test('parts only used inside sets are hidden from the Parts panel and never plac
   await page.getByLabel(/Show hidden parts/).uncheck();
 
   // ── "Show its parts" on the set opens them. ──
-  await page.getByPlaceholder(/fuzzy filter/i).first().fill(String(ts));
+  await page.getByPlaceholder('Search parts (name or number)').first().fill(String(ts));
   await tile(FLEX).click({ button: 'right' });
   await page.getByRole('button', { name: 'Show its parts' }).click();
   await expect(page.getByTestId('open-set')).toContainText(`Parts in the set “${FLEX}”`);

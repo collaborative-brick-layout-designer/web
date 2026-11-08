@@ -385,6 +385,16 @@ describe('the welcome card', () => {
     expect(prefsSet.at(-1)).toEqual({ toursSeen: ['welcome'] });
   });
 
+  it('shows its three choices as the same card, only the suggested one marked', () => {
+    renderApp('/', [], home());
+    const tile = (label: string) => screen.getByRole('button', { name: new RegExp(label) }).className;
+    for (const label of [WELCOME.actions.layout.label, WELCOME.actions.club.label, WELCOME.actions.tour.label]) {
+      expect(tile(label)).toContain('bg-panel');
+    }
+    expect(tile(WELCOME.actions.layout.label)).toContain('border-accent');
+    expect(tile(WELCOME.actions.tour.label)).not.toContain('border-accent');
+  });
+
   it('is not shown once seen, or before the settings load', () => {
     renderApp('/', ['welcome'], home());
     expect(screen.queryByTestId('welcome')).toBeNull();

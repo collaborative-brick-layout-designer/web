@@ -51,7 +51,7 @@ test('a placed set says Update available when its set changes, and updates in pl
   await expect(page.locator('html')).toHaveAttribute('data-live', 'open', { timeout: 15000 });
 
   // ── Sam places the yard: no update to offer. ──
-  await page.getByPlaceholder(/fuzzy filter/i).first().fill(YARD);
+  await page.getByPlaceholder('Search parts (name or number)').first().fill(YARD);
   const tile = page.locator('aside li button[draggable="true"]').filter({ hasText: YARD }).first();
   await expect(tile).toBeVisible({ timeout: 15000 });
   await tile.focus();
@@ -137,7 +137,7 @@ test('a set inside a set: a change to the inner set offers an update for the out
   await expect(page.locator('html')).toHaveAttribute('data-live', 'open', { timeout: 15000 });
 
   // ── Sam places the depot: Yard's two parts and a lamp. ──
-  await page.getByPlaceholder(/fuzzy filter/i).first().fill(depot);
+  await page.getByPlaceholder('Search parts (name or number)').first().fill(depot);
   const tile = page.locator('aside li button[draggable="true"]').filter({ hasText: depot }).first();
   await expect(tile).toBeVisible({ timeout: 15000 });
   await tile.focus();

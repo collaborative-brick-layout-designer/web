@@ -274,7 +274,8 @@ describe('admin insights — data', () => {
     const { cookie: c } = await loginAs(app, 'pwa@example.com');
     const res = await app.inject({ method: 'POST', url: '/api/metrics/client', headers: { cookie: c }, payload: { display: 'standalone' } });
     expect(res.statusCode).toBe(204);
-    await app.inject({ method: 'POST', url: '/api/metrics/client', payload: { display: 'standalone' } });
+    const signedOut = await app.inject({ method: 'POST', url: '/api/metrics/client', payload: { display: 'standalone' } });
+    expect(signedOut.statusCode).toBe(202);
     await app.inject({ method: 'POST', url: '/api/metrics/client', headers: { cookie: c }, payload: { display: 'bogus' } });
     rollup.flush();
     const rows = db.select().from(schema.dailyStats).where(eq(schema.dailyStats.metric, 'display')).all();

@@ -148,7 +148,7 @@ test('a new member signs up and makes, saves and shares a first layout', async (
     .toBe(4);
 
   // ── Place a part; move it right; rotate it. Each lands on the server. ──
-  await page.getByPlaceholder(/fuzzy filter/i).first().fill('narrow gauge track straight 4 x 16');
+  await page.getByPlaceholder('Search parts (name or number)').first().fill('narrow gauge track straight 4 x 16');
   await page.locator(`[title*="(${PART})"]`).first().dblclick();
   await expect(page.getByTestId('save-status')).toHaveText('Saved', { timeout: 15000 });
   await expect.poll(() => savedPart(page, id), { timeout: 15000 }).not.toBeNull();

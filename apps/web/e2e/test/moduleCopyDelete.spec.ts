@@ -33,7 +33,7 @@ test('a picked module duplicates and pastes as a module copy; Delete deletes its
   await page.goto(`/editor/${id}`);
   await expect(page.locator('canvas').first()).toBeVisible({ timeout: 15000 });
   for (let i = 0; i < 2; i++) {
-    await page.getByPlaceholder(/fuzzy filter/i).first().fill('narrow gauge track straight 4 x 16');
+    await page.getByPlaceholder('Search parts (name or number)').first().fill('narrow gauge track straight 4 x 16');
     await page.locator(`[title*="(${PART})"]`).first().dblclick();
   }
   await expect.poll(() => brickCount(page)).toBe(2);

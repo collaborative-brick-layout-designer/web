@@ -3,7 +3,7 @@
 // says so.
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { installState, isAppleMobile, isMobileDevice, listenForInstall, resetInstallForTests } from '../install';
+import { installState, isAppleMobile, isMobileDevice, listenForInstall, reportDisplayMode, resetInstallForTests } from '../install';
 
 import manifestText from '../../../public/manifest.webmanifest?raw';
 import indexHtml from '../../../index.html?raw';
@@ -104,5 +104,39 @@ describe('install the app', () => {
     const html = indexHtml;
     expect(html).toContain('rel="manifest" href="/manifest.webmanifest"');
     expect(html).toContain('rel="apple-touch-icon"');
+  });
+});
+
+describe('the once-a-day display beacon', () => {
+  function beaconWindow(status: number) {
+    const store = new Map<string, string>();
+    const fetch = vi.fn(async () => ({ status }) as Response);
+    const win = Object.assign(fakeWindow(), {
+      fetch,
+      localStorage: {
+        getItem: (k: string) => store.get(k) ?? null,
+        setItem: (k: string, v: string) => void store.set(k, v),
+      },
+    }) as unknown as Window;
+    return { win, fetch };
+  }
+  const settle = () => new Promise((r) => setTimeout(r, 0));
+
+  it('sends once a day after it was counted, so page loads never hit the rate limit', async () => {
+    const { win, fetch } = beaconWindow(204);
+    for (let i = 0; i < 5; i++) {
+      reportDisplayMode(win);
+      await settle();
+    }
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('asks again on the next load while signed out (not counted)', async () => {
+    const { win, fetch } = beaconWindow(202);
+    reportDisplayMode(win);
+    await settle();
+    reportDisplayMode(win);
+    await settle();
+    expect(fetch).toHaveBeenCalledTimes(2);
   });
 });

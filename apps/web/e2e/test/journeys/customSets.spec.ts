@@ -30,7 +30,7 @@ test('save a selection as a set, place it, rename it and delete it', async ({ pa
   const { id } = (await res.json()) as { id: string };
   await page.goto(`/editor/${id}`);
   await expect(page.locator('canvas').first()).toBeVisible({ timeout: 15000 });
-  const filter = page.getByPlaceholder(/fuzzy filter/i).first();
+  const filter = page.getByPlaceholder('Search parts (name or number)').first();
   for (let i = 0; i < 2; i++) {
     await filter.fill('narrow gauge track straight 4 x 16');
     await page.locator(`[title*="(${PART})"]`).first().dblclick();

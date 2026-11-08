@@ -31,10 +31,12 @@ export function fitView(
   height: number,
   zoomRange: { min: number; max: number },
   insets: ViewInsets = DESKTOP_INSETS,
+  /** Scene px added round the bounds; a phone passes 0 and keeps its air in `insets`. */
+  marginScenePx: number = MARGIN_SCENE_PX,
 ): { zoom: number; panX: number; panY: number } | null {
   if (!bounds) return null;
-  const w = bounds.width * PX_PER_STUD + 2 * MARGIN_SCENE_PX;
-  const h = bounds.height * PX_PER_STUD + 2 * MARGIN_SCENE_PX;
+  const w = bounds.width * PX_PER_STUD + 2 * marginScenePx;
+  const h = bounds.height * PX_PER_STUD + 2 * marginScenePx;
   const vw = width - insets.left - insets.right;
   const vh = height - insets.top - insets.bottom;
   if (!(w > 0 && h > 0 && vw > 0 && vh > 0)) return null;

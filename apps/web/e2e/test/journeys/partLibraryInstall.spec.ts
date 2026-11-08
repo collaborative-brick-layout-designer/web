@@ -44,7 +44,7 @@ test('an installed part library is in open editors right away, pictures and all'
   const id = ((await res.json()) as { id: string }).id;
   await user.goto(`/editor/${id}`);
   await expect(user.locator('canvas').first()).toBeVisible({ timeout: 15000 });
-  await user.getByPlaceholder(/Fuzzy filter/).fill(KEY);
+  await user.getByPlaceholder('Search parts (name or number)').fill(KEY);
   const tile = user.locator('aside li button[draggable="true"]').filter({ hasText: KEY });
   await expect(tile).toHaveCount(0);
 

@@ -39,7 +39,7 @@ test('offline: Make a module closes at once and reaches the server when back onl
   await page.goto(`/editor/${id}`);
   await expect(page.locator('canvas').first()).toBeVisible({ timeout: 15000 });
   for (let i = 0; i < 2; i++) {
-    await page.getByPlaceholder(/fuzzy filter/i).first().fill('narrow gauge track straight 4 x 16');
+    await page.getByPlaceholder('Search parts (name or number)').first().fill('narrow gauge track straight 4 x 16');
     await page.locator(`[title*="(${PART})"]`).first().dblclick();
   }
   await expect.poll(() => brickCount(page)).toBe(2);
@@ -56,7 +56,7 @@ test('offline: Make a module closes at once and reaches the server when back onl
   // Make and save: made here; the library copy says plainly it needs the Wi-Fi.
   await page.mouse.click(1000, 700);
   await page.keyboard.press('Escape');
-  await page.getByPlaceholder(/fuzzy filter/i).first().fill('narrow gauge track straight 4 x 16');
+  await page.getByPlaceholder('Search parts (name or number)').first().fill('narrow gauge track straight 4 x 16');
   await page.locator(`[title*="(${PART})"]`).first().dblclick();
   await expect.poll(() => brickCount(page)).toBe(3);
   await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
