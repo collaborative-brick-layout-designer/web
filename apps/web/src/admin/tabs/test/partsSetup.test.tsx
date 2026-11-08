@@ -27,7 +27,7 @@ vi.mock('../../../api', () => ({
   },
 }));
 
-import { PartLibrariesTab, PartsSetupCard } from '../LibrariesTab';
+import { PartLibrariesTab, PartsSetupCard, slugFromName } from '../LibrariesTab';
 
 const wrap = (ui: React.ReactNode) => render(<QueryClientProvider client={new QueryClient()}>{ui}</QueryClientProvider>);
 
@@ -68,5 +68,53 @@ describe('parts setup', () => {
     state.onDiskBaseParts = 900;
     wrap(<PartLibrariesTab />);
     expect(await screen.findByRole('button', { name: 'Register on-disk library' })).toBeTruthy();
+  });
+});
+
+describe('Part libraries for a club admin who is not technical', () => {
+  beforeEach(() => {
+    cleanup();
+    state.libraries = [];
+    state.onDiskBaseParts = 0;
+  });
+
+  it('leads with one Get the parts library button and keeps the rest under Advanced', async () => {
+    wrap(<PartLibrariesTab />);
+    const card = await screen.findByTestId('parts-library-card');
+    expect(card.querySelector('button')?.textContent).toBe('Get the parts library');
+    const advanced = screen.getByTestId('libraries-advanced');
+    expect(advanced.tagName).toBe('DETAILS');
+    expect((advanced as HTMLDetailsElement).open).toBe(false);
+    // The words a developer would use are only under Advanced, and it says clubs.
+    for (const word of ['Slug', 'orgs', 'Custom URL', 'Manual install']) {
+      expect(document.body.textContent).not.toContain(word);
+    }
+    expect(advanced.textContent).toContain('Install a pack from a zip');
+  });
+
+  it('fills the folder name from the pack name until someone edits it', async () => {
+    wrap(<PartLibrariesTab />);
+    const name = await screen.findByLabelText('Pack name');
+    fireEvent.change(name, { target: { value: 'Town Extras 2!' } });
+    const folder = screen.getByLabelText(/^Folder name/) as HTMLInputElement;
+    expect(folder.value).toBe('town-extras-2');
+    fireEvent.change(folder, { target: { value: 'my-town' } });
+    fireEvent.change(name, { target: { value: 'Town Extras 3' } });
+    expect(folder.value).toBe('my-town');
+  });
+
+  it('says the library is installed once it is', async () => {
+    state.libraries = [lib('bluebrickparts-default', 1200)];
+    wrap(<PartLibrariesTab />);
+    const card = await screen.findByTestId('parts-library-card');
+    await waitFor(() => expect(card.textContent).toContain('1,200 parts in 1 library'));
+    expect(card.querySelector('button')).toBeNull();
+  });
+});
+
+describe('slugFromName', () => {
+  it('makes a folder name', () => {
+    expect(slugFromName('  My Parts Pack ')).toBe('my-parts-pack');
+    expect(slugFromName('Ünïcode & co')).toBe('n-code-co');
   });
 });
