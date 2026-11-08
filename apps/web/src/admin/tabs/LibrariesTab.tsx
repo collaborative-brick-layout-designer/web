@@ -90,6 +90,11 @@ export function PartsSetupCard() {
   );
 }
 
+/** A folder name from a pack name: lower case, letters, digits and dashes. */
+export function slugFromName(name: string): string {
+  return name.toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/-{2,}/g, '-').replace(/^-|-$/g, '');
+}
+
 export function PartLibrariesTab() {
   const qc = useQueryClient();
   const libs = useQuery({
@@ -107,6 +112,7 @@ export function PartLibrariesTab() {
   const baseInstalled = (libs.data?.libraries ?? []).some((l) => l.slug === 'bluebrickparts' && l.partCount > 0);
   const baseDownloaded = installedSlugs.has('bluebrickparts-default');
   const onDiskBaseParts = libs.data?.onDiskBaseParts ?? 0;
+  const totalParts = (libs.data?.libraries ?? []).reduce((n, l) => n + l.partCount, 0);
 
   const { status: dlBaseStatus, err: dlBaseErr, run: downloadDefaultLibrary } = useGetPartsLibrary();
 
@@ -223,25 +229,28 @@ export function PartLibrariesTab() {
   const [manualMode, setManualMode] = useState<'url' | 'upload'>('url');
   const [manualInstalling, setManualInstalling] = useState(false);
   const [manualErr, setManualErr] = useState('');
+  // The folder name follows the pack name until someone edits it.
+  const [slugTouched, setSlugTouched] = useState(false);
 
   async function handleManualInstall(e: React.FormEvent) {
     e.preventDefault();
     setManualErr('');
     const name = manualForm.name.trim();
     const slug = manualForm.slug.trim();
-    if (!name || !slug) { setManualErr('Name and slug are required'); return; }
+    if (!name || !slug) { setManualErr('Give the pack a name.'); return; }
     setManualInstalling(true);
     try {
       if (manualMode === 'url') {
-        if (!manualForm.sourceUrl.trim()) { setManualErr('Source URL required'); return; }
+        if (!manualForm.sourceUrl.trim()) { setManualErr('Paste the zip’s web address.'); return; }
         await api.admin.installPartLibrary({ name, slug, sourceUrl: manualForm.sourceUrl.trim(), defaultEnabled: manualForm.defaultEnabled });
       } else {
         const zipFile = zipRef.current?.files?.[0];
-        if (!zipFile) { setManualErr('Zip file required'); return; }
+        if (!zipFile) { setManualErr('Pick a zip file.'); return; }
         const zipBase64 = btoa(String.fromCharCode(...new Uint8Array(await zipFile.arrayBuffer())));
         await api.admin.installPartLibrary({ name, slug, zipBase64, defaultEnabled: manualForm.defaultEnabled });
       }
       setManualForm({ name: '', slug: '', sourceUrl: '', defaultEnabled: false });
+      setSlugTouched(false);
       if (zipRef.current) zipRef.current.value = '';
       invalidateLibraries();
     } catch (err: unknown) {
@@ -282,80 +291,45 @@ export function PartLibrariesTab() {
   return (
     <div className="space-y-8">
 
-      {/* ── Base library ── */}
-      <section className="rounded-lg border border-line p-4 space-y-4">
-
-        {/* Register on-disk library: only when PARTS_DIR really holds parts */}
-        {(baseInstalled || onDiskBaseParts > 0) && (
-        <div className="flex flex-col items-start gap-3 sm:flex-row sm:justify-between sm:gap-4">
-          <div>
-            <h2 className="text-sm font-semibold text-neutral-300">BlueBrickParts base library</h2>
-            <p className="mt-1 text-xs text-muted">
-              If the parts submodule is already on disk at <code className="text-muted">PARTS_DIR</code>,
-              this registers it so clubs can enable/disable it. No download needed.
+      {/* ── The parts library: one button for a new server ── */}
+      <section data-testid="parts-library-card" className="space-y-3 rounded-lg border border-line p-4">
+        <h2 className="text-base font-semibold">Parts library</h2>
+        {baseInstalled || baseDownloaded ? (
+          <div className="flex flex-wrap items-center gap-3">
+            <span className="rounded-lg bg-emerald-900/30 px-2 py-1 text-xs text-emerald-400">Installed</span>
+            <p className="text-sm text-muted">
+              The parts library is installed. This server has {totalParts.toLocaleString()} parts in{' '}
+              {libs.data?.libraries.length === 1 ? '1 library' : `${libs.data?.libraries.length ?? 0} libraries`}.
             </p>
           </div>
-          {baseInstalled ? (
-            <span className="shrink-0 rounded-lg bg-emerald-900/30 px-2 py-1 text-xs text-emerald-400">
-              Installed
-            </span>
-          ) : (
-            <button
-              onClick={installBase}
-              disabled={baseStatus === 'installing'}
-              className="shrink-0 rounded-lg bg-neutral-700 px-3 py-1.5 text-xs font-medium text-ink hover:bg-neutral-600 disabled:opacity-50"
-            >
-              {baseStatus === 'installing' ? 'Registering…' : 'Register on-disk library'}
-            </button>
-          )}
-        </div>
-        )}
-        {baseStatus === 'err' && <p className="text-xs text-danger">{baseErr}</p>}
-
-        {/* Download from GitHub — only shown when the on-disk submodule isn't already registered */}
-        {!baseInstalled && (
+        ) : (
           <>
-            <div className={`flex flex-col items-start gap-3 sm:flex-row sm:justify-between sm:gap-4${onDiskBaseParts > 0 ? ' border-t border-line pt-4' : ''}`}>
-              <div>
-                <h2 className="text-sm font-semibold text-neutral-300">Download BlueBrickParts from GitHub</h2>
-                <p className="mt-1 text-xs text-muted">
-                  Downloads the latest{' '}
-                  <span className="text-muted">Lswbanban/BlueBrickParts</span> archive (~27 MB),
-                  extracts it to <code className="break-all text-muted">PARTS_DIR/libraries/bluebrickparts-default/</code>,
-                  and enables it for all clubs by default.
-                </p>
-              </div>
-              {baseDownloaded ? (
-                <span className="shrink-0 rounded-lg bg-emerald-900/30 px-2 py-1 text-xs text-emerald-400">
-                  Downloaded
-                </span>
-              ) : (
-                <button
-                  onClick={downloadDefaultLibrary}
-                  disabled={dlBaseStatus === 'downloading'}
-                  className="shrink-0 rounded-lg bg-accent-hover px-3 py-1.5 text-xs font-medium text-accent-ink hover:bg-accent disabled:opacity-50"
-                >
-                  {dlBaseStatus === 'downloading' ? 'Getting the parts library…' : 'Get the parts library'}
-                </button>
-              )}
-            </div>
-            {dlBaseStatus === 'err' && <p className="text-xs text-danger">{dlBaseErr}</p>}
-            {dlBaseStatus === 'done' && <p className="text-xs text-emerald-400">Downloaded and installed successfully.</p>}
+            <p className="text-sm text-muted">
+              Layouts need the BlueBrick parts library to show their parts. This downloads it from GitHub
+              (about 27 MB) onto this server and turns it on for every club.
+            </p>
+            <button
+              type="button"
+              onClick={() => void downloadDefaultLibrary()}
+              disabled={dlBaseStatus === 'downloading'}
+              className="min-h-11 rounded-lg bg-accent-hover px-4 text-sm font-semibold text-accent-ink hover:bg-accent disabled:opacity-50"
+            >
+              {dlBaseStatus === 'downloading' ? 'Getting the parts library…' : 'Get the parts library'}
+            </button>
           </>
         )}
-
+        {dlBaseStatus === 'err' && <p className="text-xs text-danger">{dlBaseErr}</p>}
+        {dlBaseStatus === 'done' && <p className="text-xs text-emerald-400">The parts library is installed.</p>}
       </section>
 
-      {/* ── Download Center ── */}
+      {/* ── More part packs (the Download Center) ── */}
       <section>
-        <h2 className="mb-1 text-sm font-semibold text-neutral-300">Download Center</h2>
+        <h2 className="mb-1 text-sm font-semibold text-neutral-300">More part packs</h2>
         <p className="mb-3 text-xs text-muted">
-          Search the BlueBrick community package servers for additional part libraries (same sources as
-          the desktop app). The server downloads and extracts the zip — no browser upload needed.
+          Add packs from the BlueBrick servers, the same ones the desktop app uses. Pick where to look, then Search.
         </p>
 
         <div className="space-y-2 rounded-lg border border-line p-4">
-          {/* Source selection */}
           <div className="space-y-1">
             {KNOWN_SOURCES.map((src) => (
               <label key={src.id} className="flex items-center gap-2 text-xs text-neutral-300">
@@ -369,22 +343,9 @@ export function PartLibrariesTab() {
                 <span className="text-neutral-600">— {src.hint}</span>
               </label>
             ))}
-            <label className="flex items-center gap-2 text-xs text-neutral-300">
-              <input
-                type="checkbox"
-                checked={selectedSources.has('custom')}
-                onChange={() => toggleSource('custom')}
-                className="accent-accent"
-              />
-              <span>Custom URL</span>
-              <input
-                value={customUrl}
-                onChange={(e) => setCustomUrl(e.target.value)}
-                disabled={!selectedSources.has('custom')}
-                placeholder="https://example.com/parts/"
-                className="ml-1 flex-1 rounded-lg border border-border bg-panel px-2 py-0.5 text-xs disabled:opacity-40"
-              />
-            </label>
+            {selectedSources.has('custom') && customUrl.trim() && (
+              <p className="text-xs text-muted">Also searching {customUrl.trim()} (set under Advanced).</p>
+            )}
           </div>
 
           <div className="flex items-center gap-3 pt-1">
@@ -397,7 +358,7 @@ export function PartLibrariesTab() {
             </button>
             {searchStatus === 'done' && (
               <span className="text-xs text-muted">
-                {candidates.length} package(s) found
+                {candidates.length === 1 ? '1 pack found' : `${candidates.length} packs found`}
                 {candidates.filter((c) => c.installed).length > 0 &&
                   ` · ${candidates.filter((c) => c.installed).length} already installed`}
               </span>
@@ -438,14 +399,14 @@ export function PartLibrariesTab() {
                     onChange={(e) => setDefaultEnabled(e.target.checked)}
                     className="accent-accent"
                   />
-                  Enable for all clubs by default
+                  Turn on for every club
                 </label>
                 <button
                   onClick={handleDownloadSelected}
                   disabled={!anyChecked || anyDownloading}
                   className="rounded-lg bg-accent-hover px-3 py-1.5 text-xs font-medium text-accent-ink hover:bg-accent disabled:opacity-50"
                 >
-                  {anyDownloading ? 'Installing…' : 'Download & Install selected'}
+                  {anyDownloading ? 'Installing…' : 'Install the picked packs'}
                 </button>
               </div>
             </div>
@@ -453,81 +414,143 @@ export function PartLibrariesTab() {
         </div>
       </section>
 
-      {/* ── Manual install ── */}
-      <section>
-        <h2 className="mb-1 text-sm font-semibold text-neutral-300">Manual install</h2>
-        <p className="mb-3 text-xs text-muted">
-          Install from a direct zip URL or upload a local file. Use this for private or unlisted library zips.
-        </p>
-        <div className="mb-3 flex gap-2">
-          {(['url', 'upload'] as const).map((mode) => (
-            <button
-              key={mode}
-              onClick={() => setManualMode(mode)}
-              className={`rounded-lg px-3 py-1 text-xs ${manualMode === mode ? 'bg-accent-hover text-accent-ink' : 'border border-border text-muted hover:bg-soft'}`}
-            >
-              {mode === 'url' ? 'From URL' : 'Upload zip'}
-            </button>
-          ))}
-        </div>
-        <form onSubmit={handleManualInstall} className="space-y-3 rounded-lg border border-line p-4">
-          <div className="grid grid-cols-2 gap-3">
-            <label className="flex flex-col gap-1 text-xs text-muted">
-              Library name
-              <input
-                value={manualForm.name}
-                onChange={(e) => setManualForm((f) => ({ ...f, name: e.target.value }))}
-                className="rounded-lg border border-border bg-panel px-2 py-1 text-ink"
-                placeholder="My Parts Pack"
-                required
-              />
-            </label>
-            <label className="flex flex-col gap-1 text-xs text-muted">
-              Slug (unique, URL-safe)
-              <input
-                value={manualForm.slug}
-                onChange={(e) => setManualForm((f) => ({ ...f, slug: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-') }))}
-                className="rounded-lg border border-border bg-panel px-2 py-1 text-ink"
-                placeholder="my-parts-pack"
-                required
-              />
-            </label>
-            {manualMode === 'url' ? (
-              <label className="col-span-2 flex flex-col gap-1 text-xs text-muted">
-                Direct zip URL
-                <input
-                  value={manualForm.sourceUrl}
-                  onChange={(e) => setManualForm((f) => ({ ...f, sourceUrl: e.target.value }))}
-                  className="rounded-lg border border-border bg-panel px-2 py-1 text-ink"
-                  placeholder="https://example.com/MyParts.zip"
-                />
-              </label>
-            ) : (
-              <label className="col-span-2 flex flex-col gap-1 text-xs text-muted">
-                Zip file
-                <input ref={zipRef} type="file" accept=".zip,application/zip" required className="text-neutral-300" />
-              </label>
-            )}
-            <label className="col-span-2 flex items-center gap-2 text-xs text-muted">
+      {/* ── Advanced: for server admins who know the setup ── */}
+      <details data-testid="libraries-advanced" className="rounded-lg border border-line p-4">
+        <summary className="cursor-pointer text-sm font-semibold text-neutral-300">Advanced</summary>
+        <div className="mt-4 space-y-6">
+
+          {/* Register the parts folder already on the server's disk */}
+          {(baseInstalled || onDiskBaseParts > 0) && (
+            <div className="flex flex-col items-start gap-3 sm:flex-row sm:justify-between sm:gap-4">
+              <div>
+                <h3 className="text-sm font-semibold text-neutral-300">Parts already on the server</h3>
+                <p className="mt-1 text-xs text-muted">
+                  The server&apos;s parts folder (<code className="text-muted">PARTS_DIR</code>) holds {onDiskBaseParts.toLocaleString()} parts.
+                  Register them so clubs can use them; nothing is downloaded.
+                </p>
+              </div>
+              {baseInstalled ? (
+                <span className="shrink-0 rounded-lg bg-emerald-900/30 px-2 py-1 text-xs text-emerald-400">Registered</span>
+              ) : (
+                <button
+                  onClick={installBase}
+                  disabled={baseStatus === 'installing'}
+                  className="shrink-0 rounded-lg bg-neutral-700 px-3 py-1.5 text-xs font-medium text-ink hover:bg-neutral-600 disabled:opacity-50"
+                >
+                  {baseStatus === 'installing' ? 'Registering…' : 'Register on-disk library'}
+                </button>
+              )}
+            </div>
+          )}
+          {baseStatus === 'err' && <p className="text-xs text-danger">{baseErr}</p>}
+
+          {/* Another package server */}
+          <div>
+            <h3 className="text-sm font-semibold text-neutral-300">Another package server</h3>
+            <p className="mt-1 text-xs text-muted">The address of a BlueBrick package list. More part packs then searches it too.</p>
+            <label className="mt-2 flex items-center gap-2 text-xs text-neutral-300">
               <input
                 type="checkbox"
-                checked={manualForm.defaultEnabled}
-                onChange={(e) => setManualForm((f) => ({ ...f, defaultEnabled: e.target.checked }))}
+                checked={selectedSources.has('custom')}
+                onChange={() => toggleSource('custom')}
                 className="accent-accent"
               />
-              Enable for all clubs by default
+              <span>Search it</span>
+              <input
+                value={customUrl}
+                onChange={(e) => setCustomUrl(e.target.value)}
+                disabled={!selectedSources.has('custom')}
+                placeholder="https://example.com/parts/"
+                aria-label="Package server address"
+                className="ml-1 flex-1 rounded-lg border border-border bg-panel px-2 py-0.5 text-xs disabled:opacity-40"
+              />
             </label>
           </div>
-          {manualErr && <p className="text-xs text-danger">{manualErr}</p>}
-          <button
-            type="submit"
-            disabled={manualInstalling}
-            className="rounded-lg bg-accent-hover px-3 py-1.5 text-xs font-medium text-accent-ink hover:bg-accent disabled:opacity-50"
-          >
-            {manualInstalling ? 'Installing…' : 'Install'}
-          </button>
-        </form>
-      </section>
+
+          {/* Install a zip by hand */}
+          <div>
+            <h3 className="mb-1 text-sm font-semibold text-neutral-300">Install a pack from a zip</h3>
+            <p className="mb-3 text-xs text-muted">
+              From a zip&apos;s web address or a file on this computer, for packs that aren&apos;t on a package server.
+            </p>
+            <div className="mb-3 flex gap-2">
+              {(['url', 'upload'] as const).map((mode) => (
+                <button
+                  key={mode}
+                  type="button"
+                  onClick={() => setManualMode(mode)}
+                  className={`rounded-lg px-3 py-1 text-xs ${manualMode === mode ? 'bg-accent-hover text-accent-ink' : 'border border-border text-muted hover:bg-soft'}`}
+                >
+                  {mode === 'url' ? 'From a web address' : 'Upload a zip'}
+                </button>
+              ))}
+            </div>
+            <form onSubmit={handleManualInstall} className="space-y-3 rounded-lg border border-line p-4">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <label className="flex flex-col gap-1 text-xs text-muted">
+                  Pack name
+                  <input
+                    value={manualForm.name}
+                    onChange={(e) => {
+                      const name = e.target.value;
+                      setManualForm((f) => ({ ...f, name, slug: slugTouched ? f.slug : slugFromName(name) }));
+                    }}
+                    className="rounded-lg border border-border bg-panel px-2 py-1 text-ink"
+                    placeholder="My Parts Pack"
+                    required
+                  />
+                </label>
+                <label className="flex flex-col gap-1 text-xs text-muted">
+                  Folder name (filled in from the name)
+                  <input
+                    value={manualForm.slug}
+                    onChange={(e) => {
+                      setSlugTouched(true);
+                      setManualForm((f) => ({ ...f, slug: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-') }));
+                    }}
+                    className="rounded-lg border border-border bg-panel px-2 py-1 text-ink"
+                    placeholder="my-parts-pack"
+                    required
+                  />
+                </label>
+                {manualMode === 'url' ? (
+                  <label className="flex flex-col gap-1 text-xs text-muted sm:col-span-2">
+                    Zip&apos;s web address
+                    <input
+                      value={manualForm.sourceUrl}
+                      onChange={(e) => setManualForm((f) => ({ ...f, sourceUrl: e.target.value }))}
+                      className="rounded-lg border border-border bg-panel px-2 py-1 text-ink"
+                      placeholder="https://example.com/MyParts.zip"
+                    />
+                  </label>
+                ) : (
+                  <label className="flex flex-col gap-1 text-xs text-muted sm:col-span-2">
+                    Zip file
+                    <input ref={zipRef} type="file" accept=".zip,application/zip" required className="text-neutral-300" />
+                  </label>
+                )}
+                <label className="flex items-center gap-2 text-xs text-muted sm:col-span-2">
+                  <input
+                    type="checkbox"
+                    checked={manualForm.defaultEnabled}
+                    onChange={(e) => setManualForm((f) => ({ ...f, defaultEnabled: e.target.checked }))}
+                    className="accent-accent"
+                  />
+                  Turn on for every club
+                </label>
+              </div>
+              {manualErr && <p className="text-xs text-danger">{manualErr}</p>}
+              <button
+                type="submit"
+                disabled={manualInstalling}
+                className="rounded-lg bg-accent-hover px-3 py-1.5 text-xs font-medium text-accent-ink hover:bg-accent disabled:opacity-50"
+              >
+                {manualInstalling ? 'Installing…' : 'Install'}
+              </button>
+            </form>
+          </div>
+        </div>
+      </details>
 
       {/* ── Installed list ── */}
       <section>
@@ -553,7 +576,7 @@ export function PartLibrariesTab() {
             <table className="w-full text-xs">
               <thead className="bg-panel text-left text-muted">
                 <tr>
-                  <Th>Name</Th><Th>Slug</Th><Th>Parts</Th><Th>Default on</Th><Th>Source</Th><Th>Path on disk</Th><Th>Installed</Th><Th align="right">Actions</Th>
+                  <Th>Name</Th><Th>Folder</Th><Th>Parts</Th><Th>Default on</Th><Th>Source</Th><Th>Path on disk</Th><Th>Installed</Th><Th align="right">Actions</Th>
                 </tr>
               </thead>
               <tbody>

@@ -53,9 +53,12 @@ test('an installed part library is in open editors right away, pictures and all'
     // The admin installs the library from a zip.
     await page.goto('/admin');
     await adminSection(page, 'libraries');
-    await page.getByRole('button', { name: 'Upload zip' }).click();
-    await page.getByLabel('Library name').fill(`Rails ${ts}`);
-    await page.getByLabel('Slug (unique, URL-safe)').fill(SLUG);
+    // A zip by hand is under Advanced; the folder name fills in from the name.
+    await page.getByTestId('libraries-advanced').getByText('Advanced', { exact: true }).click();
+    await page.getByRole('button', { name: 'Upload a zip' }).click();
+    await page.getByLabel('Pack name').fill(`Rails ${ts}`);
+    await expect(page.getByLabel(/^Folder name/)).toHaveValue(`rails-${ts}`);
+    await page.getByLabel(/^Folder name/).fill(SLUG);
     await page.getByLabel('Zip file').setInputFiles({
       name: 'rails.zip',
       mimeType: 'application/zip',
