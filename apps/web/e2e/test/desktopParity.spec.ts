@@ -1665,3 +1665,23 @@ test.describe('detaching a ruler (BlueBrick Detach)', () => {
     await other.close();
   });
 });
+
+test.describe('canvas layers', () => {
+  // Konva warned "Recommended maximum number of layers is 3-5" on every
+  // editor load with 6; the module outlines now share the drag layer.
+  test('the editor builds at most 5 Konva layers, and Konva says nothing about it', async ({ page }) => {
+    const warnings: string[] = [];
+    page.on('console', (m) => {
+      if (/maximum number of layers/i.test(m.text())) warnings.push(m.text());
+    });
+    const id = await createLayout(page);
+    await openEditor(page, id);
+    const layers = await page.evaluate(() => {
+      const st = (window as unknown as { Konva: { stages: { getLayers: () => { name: () => string }[] }[] } }).Konva.stages[0]!;
+      return st.getLayers().map((l) => l.name());
+    });
+    expect(layers.length).toBeLessThanOrEqual(5);
+    expect(layers).toContain('drag-layer');
+    expect(warnings).toEqual([]);
+  });
+});
