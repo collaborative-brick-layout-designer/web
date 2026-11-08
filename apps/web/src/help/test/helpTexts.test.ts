@@ -79,3 +79,12 @@ describe('help catalogue', () => {
     for (const key of WEB_ONLY_HELP_KEYS) expect(HELP_KEYS as readonly string[], key).not.toContain(key);
   });
 });
+
+describe('one source for both apps', () => {
+  it('reads every shared entry from help-texts.json, the file the desktop app has word for word', async () => {
+    const json = (await import('../help-texts.json')).default as { _about: string; entries: Record<string, HelpEntry> };
+    expect(json._about).toContain('src/ui/help/help-texts.json');
+    expect(HELP_TEXTS).toEqual(json.entries);
+    expect(Object.keys(json.entries)).toEqual(HELP_KEYS);
+  });
+});
