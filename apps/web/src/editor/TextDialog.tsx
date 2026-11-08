@@ -107,7 +107,7 @@ export function TextDialog({ initial, onClose, onCommit, onDelete }: Props) {
           </div>
           <label className="self-center">Color:</label>
           <ColorAlphaInput label="Text color" value={colorArgb} onChange={(v) => setColorArgb(v.toUpperCase())} />
-          <label className="self-center">Rotation (°):</label>
+          <label className="self-center">Angle (°):</label>
           <input
             type="number"
             value={rotation}

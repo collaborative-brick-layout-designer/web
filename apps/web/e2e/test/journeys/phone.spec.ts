@@ -91,7 +91,7 @@ test('a member uses and edits their layout on a phone at the show', async ({ bro
   await expect.poll(() => brickCount(page)).toBe(1);
   const before = await firstRotation(page);
   await human(page);
-  await page.getByTestId('touch-bar').getByRole('button', { name: 'Rotate right' }).tap();
+  await page.getByTestId('touch-bar').getByRole('button', { name: 'Turn right' }).tap();
   await expect.poll(() => firstRotation(page)).not.toBe(before);
   await human(page);
   await page.getByTestId('touch-bar').getByRole('button', { name: 'Delete' }).tap();

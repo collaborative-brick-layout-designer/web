@@ -196,7 +196,7 @@ export function UserDetailPanel({ id, onBack }: { id: string; onBack: () => void
 
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             {[
-              { label: 'Orgs', value: detail.data.stats.orgs },
+              { label: 'Clubs', value: detail.data.stats.orgs },
               { label: 'Layouts', value: detail.data.stats.layouts },
               { label: 'Layout size', value: formatBytes(detail.data.stats.layoutSizeBytes) },
               { label: 'Active sessions', value: detail.data.stats.activeSessions },
@@ -211,7 +211,7 @@ export function UserDetailPanel({ id, onBack }: { id: string; onBack: () => void
           <div>
             <h3 className="text-sm font-semibold text-neutral-300">Clubs</h3>
             {detail.data.orgMemberships.length === 0 ? (
-              <p className="mt-1 text-sm text-muted">Not a member of any org.</p>
+              <p className="mt-1 text-sm text-muted">Not a member of any club.</p>
             ) : (
               <ul className="mt-1 divide-y divide-line rounded-lg border border-line">
                 {detail.data.orgMemberships.map((m) => (

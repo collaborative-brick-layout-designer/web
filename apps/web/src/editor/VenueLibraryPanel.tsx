@@ -120,7 +120,7 @@ export function VenueLibraryPanel({ doc, isViewer }: Props) {
             title={v.name}
           >
             {v.name}
-            {v.ownerOrgId && <span className="ml-1 text-muted">(org)</span>}
+            {v.ownerOrgId && <span className="ml-1 text-muted">(club)</span>}
           </div>
         ))}
       </div>

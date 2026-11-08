@@ -193,8 +193,8 @@ export function TouchActionBar({ actions, onAddPart, onPaste, onTools, onSheets,
           {oneText && onEditText && <BarButton label="Edit text" onClick={onEditText} testId="edit-text"><Pencil /></BarButton>}
           {parts > 0 && (
             <>
-              <BarButton label="Rotate left" short="Left" onClick={() => actions.rotate(false)}><RotLeft /></BarButton>
-              <BarButton label="Rotate right" short="Right" onClick={() => actions.rotate(true)}><RotRight /></BarButton>
+              <BarButton label="Turn left" short="Left" onClick={() => actions.rotate(false)}><RotLeft /></BarButton>
+              <BarButton label="Turn right" short="Right" onClick={() => actions.rotate(true)}><RotRight /></BarButton>
               <BarButton label="Duplicate" onClick={() => actions.duplicate(true)}><Copy /></BarButton>
               {onModule && <BarButton label="Module" onClick={onModule} testId="touch-module"><ModuleIcon /></BarButton>}
               {onMore && <BarButton label="More actions" short="Actions" onClick={onMore} testId="touch-more"><Dots /></BarButton>}

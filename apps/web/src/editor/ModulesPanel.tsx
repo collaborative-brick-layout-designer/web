@@ -301,7 +301,7 @@ function ModuleRow({
               aria-expanded={rotateOpen}
               onClick={() => setRotateOpen((o) => !o)}
             >
-              Rotate ▸
+              Turn ▸
             </button>
             <div className={`absolute left-full top-0 min-w-[100px] rounded-lg border border-border bg-panel py-1 shadow-lg ${module.pinned ? '' : 'group-hover:block'} ${rotateOpen && !module.pinned ? 'block' : 'hidden'}`}>
               {([-90, -45, 45, 90, 180] as const).map((deg) => (

@@ -188,9 +188,9 @@ export function PreferencesDialog({ onClose }: Props) {
                 </select>
               </div>
               <div className={rowCls}>
-                <span className={labelCls}>Default rotation step</span>
+                <span className={labelCls}>Default turn step</span>
                 <select
-                  aria-label="Default rotation step"
+                  aria-label="Default turn step"
                   value={rotationStepDegrees}
                   onChange={(e) => setRotationStep(Number(e.target.value))}
                   className="rounded-lg border border-border bg-soft px-2 py-1 text-xs"

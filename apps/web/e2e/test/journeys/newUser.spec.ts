@@ -156,7 +156,7 @@ test('a new member signs up and makes, saves and shares a first layout', async (
   await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
   for (let i = 0; i < 4; i++) await page.keyboard.press('ArrowRight');
   await expect.poll(async () => (await savedPart(page, id))!.x, { timeout: 15000 }).toBeGreaterThan(placed.x);
-  await page.getByRole('button', { name: 'Rotate CW' }).click();
+  await page.getByRole('button', { name: 'Turn right' }).click();
   await expect.poll(async () => (await savedPart(page, id))!.angle, { timeout: 15000 }).not.toBe(placed.angle);
   await page.keyboard.press('Control+s');
   await expect(page.getByTestId('save-status')).toHaveText('Saved');

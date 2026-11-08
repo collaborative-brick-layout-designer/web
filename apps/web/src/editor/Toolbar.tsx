@@ -16,7 +16,7 @@ const TOOLS: { id: Tool; label: string; hint: string; shortcut: string | null; i
   { id: 'rulerCircular', label: 'Circle', hint: 'Measure with a circle', shortcut: null, icon: <><circle cx="12" cy="12" r="8" /><path d="M12 12h8" /></> },
   { id: 'venueOutline', label: 'Venue', hint: 'Draw the venue walls', shortcut: null, icon: <path d="M4 20V8l8-5 8 5v12z" /> },
   { id: 'venueObstacle', label: 'Obstacle', hint: 'Mark something in the venue to avoid', shortcut: null, icon: <><rect x="5" y="5" width="14" height="14" rx="2" /><path d="M5 5l14 14" /></> },
-  { id: 'rotate', label: 'Rotate', hint: 'Turn pieces', shortcut: null, icon: <><path d="M20 12a8 8 0 11-3-6.2" /><path d="M20 4v5h-5" /></> },
+  { id: 'rotate', label: 'Turn', hint: 'Turn pieces', shortcut: null, icon: <><path d="M20 12a8 8 0 11-3-6.2" /><path d="M20 4v5h-5" /></> },
   { id: 'delete', label: 'Delete', hint: 'Click pieces to remove them', shortcut: null, icon: <path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3" /> },
 ];
 

@@ -195,7 +195,7 @@ export function AddAnchoredLabelDialog({ doc, defaultTargetId, initialLabel, vie
           </div>
 
           <div className={rowCls}>
-            <span className={labelCls}>Rotation (°)</span>
+            <span className={labelCls}>Angle (°)</span>
             <input type="number" min={-360} max={360} value={rotation} onChange={(e) => setRotation(parseFloat(e.target.value) || 0)} className={inputCls} />
           </div>
 
