@@ -11,13 +11,16 @@ It is also the server for the
 and reads and writes the same files (`.bld-layout`, and BlueBrick's
 `.bbm`). Self-hosted as one Docker container.
 
-![The editor with a club show layout: tables, track and labels, the parts library on the right](docs/screenshots/editor.png)
-*The editor: a club show layout on its tables, with the parts library and sheets beside it.*
+![The editor with a town layout: track, roads, buildings and labels, the parts library and sheets on the right](docs/screenshots/editor-dark.png)
+[View in light mode](docs/screenshots/editor-light.png)
+*The editor: a town layout with track, roads and buildings, the parts library and the sheets beside it.*
 
-![The Venue tab: the hall's walls, doors, stairs and obstacles around a layout](docs/screenshots/venue.png)
-*Venues: draw the hall, and get warned when track comes too close to a wall or a walkway.*
+![The venue designer: the hall's walls, doors, stairs and obstacles](docs/screenshots/venue-dark.png)
+[View in light mode](docs/screenshots/venue-light.png)
+*Venues: draw the hall, then get warned when track comes too close to a wall or a walkway.*
 
-![The home page: your layouts and venues](docs/screenshots/home.png)
+![The home page: your layouts and venues](docs/screenshots/home-dark.png)
+[View in light mode](docs/screenshots/home-light.png)
 *Home: your layouts and venues, and a short tour for new builders.*
 
 ---
