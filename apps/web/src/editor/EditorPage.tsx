@@ -4525,7 +4525,7 @@ function Canvas({
             ? <VenueOverlay venue={readSidecarFromDoc(doc)?.venue ?? null} labelFontPx={venueLabelPx} />
             : <VenueOverlay venue={readSidecarFromDoc(doc)?.venue ?? null} labelFontPx={venueLabelPx} onDoubleClick={onOpenVenueProps} />}
         </Group>
-        <AreaLayers map={areaShift ? shiftArea(shown, areaShift) : shown} />
+        <AreaLayers map={areaShift ? shiftArea(shown, areaShift) : shown} isViewer={isViewer} />
         {showElectricCircuits && map && (
           <ElectricCircuitLayer map={shown} partsByKey={partsByKey} />
         )}
@@ -4563,6 +4563,7 @@ function Canvas({
           />
           <RulerLayers
             map={shown}
+            isViewer={isViewer}
             partsByKey={partsByKey}
             selectedRulerIds={selectedRulerIds}
             handleRulerId={selection.length === 0 && annoCount(annoSelection) === 1 ? selectedRulerId : null}

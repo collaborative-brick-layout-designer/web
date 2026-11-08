@@ -45,6 +45,8 @@ import { boundsOf, canDragPart, moduleByPart, outsideEdit, outsideOutline, pinne
 import { enterModuleEdit, leaveModuleEdit, takeOutOfModule, tellPinned } from '../moduleActions';
 import { askConfirm } from '../../ui/ConfirmDialog';
 import { useYjsSnapshot } from '../useYjsSnapshot';
+import { SHEET_FADE } from './sheetFade';
+import { useSheetFade } from './useSheetFade';
 
 /**
  * The picked rulers and labels a drag shifts along: not those fixed to a
@@ -158,6 +160,7 @@ export const BrickLayer = memo(function BrickLayer({ map, doc, isViewer = false,
   // (thousands of per-glyph subscriptions each ran on every store write,
   // e.g. the per-frame HUD mouse update).
   const selection = useEditorStore((s) => s.selection);
+  const fade = useSheetFade(isViewer);
   const view = useEditorStore(
     useShallow((s) => ({
       tool: s.tool,
@@ -237,7 +240,7 @@ export const BrickLayer = memo(function BrickLayer({ map, doc, isViewer = false,
         const hullColor = hullColorToCss(hull.hullColor);
         const showElevation = (!isViewer && view.showBrickElevation) || layer.displayBrickElevation;
         return (
-          <Group key={layer.id}>
+          <Group key={layer.id} name={SHEET_FADE} opacity={fade(layer.id)}>
             {/* The sheet's own order, like BlueBrick (an altitude edit sorts the sheet: editBrick). */}
             {layer.bricks.map((brick) => {
               const lower = brick.partNumber.toLowerCase();

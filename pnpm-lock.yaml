@@ -135,7 +135,7 @@ importers:
         specifier: 0.31.11
         version: 0.31.11
       esbuild:
-        specifier: 0.28.2
+        specifier: '>=0.25.0'
         version: 0.28.2
       tsx:
         specifier: 4.23.15

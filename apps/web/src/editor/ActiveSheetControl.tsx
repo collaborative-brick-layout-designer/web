@@ -1,6 +1,7 @@
 // "Adding to: <sheet> ▾" in the edit toolbar: always says which sheet new
 // parts go on, and switches it. Reads the live doc, so a rename, a delete,
-// an undo or a collaborator's edit shows at once.
+// an undo or a collaborator's edit shows at once. The menu also holds
+// "Fade other sheets while editing" (render/sheetFade.ts).
 
 import { useEffect, useState } from 'react';
 import type * as Y from 'yjs';
@@ -16,6 +17,8 @@ export function ActiveSheetControl({ doc }: { doc: Y.Doc }) {
   const map = useDocMap(doc);
   const activeLayerId = useEditorStore((s) => s.activeLayerId);
   const setActiveLayer = useEditorStore((s) => s.setActiveLayer);
+  const fadeOthers = useEditorStore((s) => s.fadeOtherSheets);
+  const setFadeOthers = useEditorStore((s) => s.setFadeOtherSheets);
   const [anchor, setAnchor] = useState<React.CSSProperties | null>(null);
 
   useEffect(() => {
@@ -99,6 +102,20 @@ export function ActiveSheetControl({ doc }: { doc: Y.Doc }) {
                 </li>
               );
             })}
+            <li role="none" className="mt-1 flex items-center gap-1 border-t border-border px-3 pt-1">
+              <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 py-1 pointer-coarse:min-h-11">
+                <input
+                  type="checkbox"
+                  role="menuitemcheckbox"
+                  data-testid="fade-other-sheets"
+                  checked={fadeOthers}
+                  onChange={(e) => setFadeOthers(e.target.checked)}
+                  className="accent-accent"
+                />
+                <span>Fade other sheets while editing</span>
+              </label>
+              <HelpButton helpKey="sheets.fadeOthers" />
+            </li>
           </ul>
         </>
       )}

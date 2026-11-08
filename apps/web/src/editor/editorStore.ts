@@ -221,6 +221,13 @@ export interface EditorState {
   selectionTint: string;
   /** Show module name labels on canvas (`view/moduleNames`). */
   showModuleNames: boolean;
+  /**
+   * Draw every sheet but the active one faded (`cld:fadeOtherSheets`, off by
+   * default). A viewer preference only: never in the layout, never synced,
+   * and exports draw without it (exportRender.ts).
+   */
+  fadeOtherSheets: boolean;
+  setFadeOtherSheets: (v: boolean) => void;
   /** View → Status Bar: on by default, for this session only, like desktop (MainWindowMenus.cpp:524-527). */
   showStatusBar: boolean;
   setShowStatusBar: (v: boolean) => void;
@@ -423,6 +430,7 @@ export const useEditorStore = create<EditorState>((set) => ({
   // One toggle for module names and frames, on by default (desktop
   // view/moduleNames, SceneBuilderSidecar.cpp:233-236).
   showModuleNames: localStorage.getItem('cld:showModuleNames') !== 'false',
+  fadeOtherSheets: localStorage.getItem('cld:fadeOtherSheets') === 'true',
   showStatusBar: true,
   setShowStatusBar: (v) => set({ showStatusBar: v }),
   useBudgetLimitation: localStorage.getItem('cld:useBudgetLimitation') === 'true',
@@ -505,6 +513,10 @@ export const useEditorStore = create<EditorState>((set) => ({
   setShowModuleNames: (v) => {
     localStorage.setItem('cld:showModuleNames', String(v));
     set({ showModuleNames: v });
+  },
+  setFadeOtherSheets: (v) => {
+    localStorage.setItem('cld:fadeOtherSheets', String(v));
+    set({ fadeOtherSheets: v });
   },
   setUseBudgetLimitation: (v) => {
     localStorage.setItem('cld:useBudgetLimitation', String(v));
