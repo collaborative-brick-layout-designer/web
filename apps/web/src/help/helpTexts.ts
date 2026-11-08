@@ -200,7 +200,7 @@ export const HELP_TEXTS = {
   'set.moving': {
     title: 'Moving or copying a set to a club',
     short: 'Your own custom parts in a set go to the club with it.',
-    more: 'Everyone in the club can then place the set with all its parts. Moving takes your parts along, except one that another of your sets uses, which stays yours while the club gets its own copy; copying gives the club its own copy of each, and yours stay as they are. Either way, a part number the club already has is left to the club’s part.',
+    more: 'Everyone in the club can then place the set with all its parts. Moving takes your parts with it, except any that another of your sets uses: those stay yours, and the club gets its own copy. Copying gives the club its own copy of each part, and yours stay as they are. Either way, if the club already has a part with the same number, the set uses the club’s.',
   },
   'set.updates': {
     title: 'Set updates',
@@ -384,7 +384,7 @@ export const HELP_TEXTS = {
   'owners.filter': {
     title: 'Whose things',
     short: 'Show everything you can use, only your own, or one club’s.',
-    more: 'Your own things and your clubs’ things sit in one list, each marked with who owns it. Pick a club to see just its things; new things are saved there too unless you choose otherwise.',
+    more: 'Your own things and your clubs’ things sit in one list, each marked with who owns it. Pick a club to see just its things; new things are saved there too unless you choose otherwise. With a club picked, you can also see who is in it and the roles they hold.',
   },
 
   // Joining a club
@@ -439,14 +439,14 @@ export const HELP_TEXTS = {
   },
   'catalog.clubCollections': {
     title: 'Your clubs’ collections',
-    short: 'Collections your clubs made: every member sees them, and people whose roles may send to the catalog change them.',
+    short: 'Collections your clubs made: every member sees them, and members with the Send to the catalog permission change them.',
     more: 'A club can keep a collection to itself, like its show standards, or share it with everyone in the catalog under the club’s name. Pinned ones come first.',
     learnMoreUrl: '/help#collections',
   },
   'club.trusted': {
     title: 'Trusted club',
     short: 'A trusted club checks what it shares itself, instead of the site’s moderators.',
-    more: 'Members whose roles may send to the catalog review it: what they share under the club’s name goes public at once, and what other members share waits in the club’s own review. The site’s moderators can still see and take down anything, and can stop trusting a club.',
+    more: 'Members with the Send to the catalog permission review it: what they share under the club’s name goes public at once, and what other members share waits in the club’s own review. The site’s moderators can still see and take down anything, and can stop trusting a club.',
     learnMoreUrl: '/help#collections',
   },
   'collection.audience': {
