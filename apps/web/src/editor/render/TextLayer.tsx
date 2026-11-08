@@ -25,7 +25,8 @@ import { useEditorStore } from '../editorStore';
 import { textReadable } from '../textLegibility';
 import { TEXT_GLOW } from './selectionStyle';
 import { tapGuard } from '../touchGesture';
-import { SHEET_FADE, SHEET_FULL_OPACITY, useSheetFade } from './sheetFade';
+import { SHEET_FADE, SHEET_FULL_OPACITY } from './sheetFade';
+import { useSheetFade } from './useSheetFade';
 
 /** A line's width in the bundled font, as Konva measures it. */
 let measureCtx: CanvasRenderingContext2D | null = null;

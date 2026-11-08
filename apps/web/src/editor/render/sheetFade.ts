@@ -3,9 +3,8 @@
 // fadeOtherSheets, kept in this browser only): never written to the layout,
 // never synced. Each sheet's group is named SHEET_FADE so an export can
 // draw it at full strength (renderMapToCanvas), whatever the setting says.
-
-import { useCallback } from 'react';
-import { useEditorStore } from '../editorStore';
+// No store import here: exportRender.ts uses this outside the browser too
+// (useSheetFade.ts has the hook).
 
 /** Konva node name on each sheet's group that the fade dims. */
 export const SHEET_FADE = 'sheet-fade';
@@ -22,11 +21,4 @@ export const FADED_SHEET_OPACITY = 0.35;
 /** The opacity a sheet's group draws at; 1 unless fading is on and it isn't the active sheet. */
 export function sheetFadeOpacity(layerId: string, fadeOn: boolean, activeLayerId: string | null): number {
   return fadeOn && activeLayerId !== null && layerId !== activeLayerId ? FADED_SHEET_OPACITY : 1;
-}
-
-/** The fade for each sheet, live as the setting or the active sheet changes. Off for a viewer, who isn't editing. */
-export function useSheetFade(isViewer = false): (layerId: string) => number {
-  const fadeOn = useEditorStore((s) => s.fadeOtherSheets) && !isViewer;
-  const activeLayerId = useEditorStore((s) => s.activeLayerId);
-  return useCallback((layerId: string) => sheetFadeOpacity(layerId, fadeOn, activeLayerId), [fadeOn, activeLayerId]);
 }

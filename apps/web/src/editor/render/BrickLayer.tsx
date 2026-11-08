@@ -45,7 +45,8 @@ import { boundsOf, canDragPart, moduleByPart, outsideEdit, outsideOutline, pinne
 import { enterModuleEdit, leaveModuleEdit, takeOutOfModule, tellPinned } from '../moduleActions';
 import { askConfirm } from '../../ui/ConfirmDialog';
 import { useYjsSnapshot } from '../useYjsSnapshot';
-import { SHEET_FADE, useSheetFade } from './sheetFade';
+import { SHEET_FADE } from './sheetFade';
+import { useSheetFade } from './useSheetFade';
 
 /**
  * The picked rulers and labels a drag shifts along: not those fixed to a

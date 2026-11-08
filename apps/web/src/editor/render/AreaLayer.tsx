@@ -10,7 +10,8 @@
 import { Group, Rect } from 'react-konva';
 import type { BbmMap, LayerArea } from '@cld/model';
 import { studToPx } from './coords';
-import { SHEET_FADE, useSheetFade } from './sheetFade';
+import { SHEET_FADE } from './sheetFade';
+import { useSheetFade } from './useSheetFade';
 
 /** `isViewer`: a viewer isn't editing, so the other sheets never fade. */
 export function AreaLayers({ map, isViewer = false }: { map: BbmMap; isViewer?: boolean }) {

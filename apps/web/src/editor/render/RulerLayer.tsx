@@ -46,7 +46,8 @@ import type { PartWire } from '../../api';
 import { usePosedMap } from '../liveDragPose';
 import { SELECTION, rulerHaloWidth } from './selectionStyle';
 import { coarsePointer } from '../useViewportSize';
-import { SHEET_FADE, SHEET_FULL_OPACITY, useSheetFade } from './sheetFade';
+import { SHEET_FADE, SHEET_FULL_OPACITY } from './sheetFade';
+import { useSheetFade } from './useSheetFade';
 
 interface Props {
   map: BbmMap;
