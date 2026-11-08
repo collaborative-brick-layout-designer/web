@@ -292,7 +292,7 @@ function creditLabel(credit: Credit | null | undefined): string | null {
 /** Panels a module has no use for (it has no venue and no saved views). */
 const NOT_IN_MODULES = new Set(['views', 'venuelibrary', 'modules']);
 /** The sheets shown as one moving picture while the view moves (viewBitmap.ts), bottom first. */
-const VIEW_BITMAP_LAYERS = ['background-layer', 'parts-layer', 'module-layer'];
+const VIEW_BITMAP_LAYERS = ['background-layer', 'parts-layer', DRAG_LAYER]; // the drag layer holds the module outlines
 /** One empty module list, so a layout without modules doesn't hand the map's layers a new one on every render (and frame of a pan). */
 const NO_MODULES: NonNullable<NonNullable<ReturnType<typeof readSidecarFromDoc>>['modules']> = [];
 
@@ -4610,15 +4610,16 @@ function Canvas({
         </Group>
       </KonvaLayer>
 
-      {/* Module outlines and names: a layer of their own, so a drag that
-          moves them every frame (liveDragPose.ts) redraws only them, not
-          every part on the map. */}
-      <KonvaLayer name="module-layer" listening={false} perfectDrawEnabled={false}>
-        <ModuleOverlay map={shown} modules={readSidecarFromDoc(doc)?.modules ?? NO_MODULES} />
+      {/* Module outlines and names, and the parts being dragged: one layer
+          (Konva wants 5 at most), off the parts layer, so a drag that moves
+          them every frame (liveDragPose.ts) redraws only them, not every
+          part on the map. The dragged parts move in above the outlines
+          (BrickLayer's liftForDrag appends them). */}
+      <KonvaLayer name={DRAG_LAYER} perfectDrawEnabled={false}>
+        <Group name="module-overlay" listening={false}>
+          <ModuleOverlay map={shown} modules={readSidecarFromDoc(doc)?.modules ?? NO_MODULES} />
+        </Group>
       </KonvaLayer>
-      {/* The parts being dragged move here for the drag (BrickLayer), so
-          only they are drawn again every frame. */}
-      <KonvaLayer name={DRAG_LAYER} perfectDrawEnabled={false} />
 
       {/* Bend handles' rings, above every part (the dragged ones too), on a
           layer of their own that redraws as their parts move. */}
