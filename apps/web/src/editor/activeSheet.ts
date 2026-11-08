@@ -46,3 +46,15 @@ export function placementTarget<L extends SheetLike>(layers: readonly L[], activ
   if (active?.type === 'brick') return { active, target: active, redirected: false };
   return { active, target: layers.find((l) => l.type === 'brick'), redirected: active !== undefined };
 }
+
+/**
+ * The sheet a layout opens on, the same rule as the desktop app: the sheet
+ * the file saved as selected when it holds parts, else the topmost parts
+ * sheet (layers run bottom to top). Null when there is no parts sheet.
+ */
+export function startingSheetId<L extends Pick<Layer, 'id' | 'type'>>(layers: readonly L[], selectedLayerIndex: number | null | undefined): string | null {
+  const saved = selectedLayerIndex != null ? layers[selectedLayerIndex] : undefined;
+  if (saved?.type === 'brick') return saved.id;
+  for (let i = layers.length - 1; i >= 0; i--) if (layers[i]!.type === 'brick') return layers[i]!.id;
+  return null;
+}

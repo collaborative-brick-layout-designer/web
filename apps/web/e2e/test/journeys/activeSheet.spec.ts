@@ -115,3 +115,19 @@ test('the sheet new parts go on is named everywhere, and surprises are explained
   await allSay(page, 'Tables');
   await expect.poll(() => serverSheets(page, id), { timeout: 15000 }).toEqual({ Tables: 3, Parts: 0 });
 });
+
+// Both apps open a file on the same sheet: the one saved as selected when it
+// takes parts, else the topmost parts sheet. Fordyce was saved with "rulers"
+// selected, so it opens adding to "Tracks" (the desktop does the same).
+test('a file opens on its saved sheet, or the topmost parts sheet', async ({ page }) => {
+  const { readFileSync } = await import('node:fs');
+  const { fileURLToPath } = await import('node:url');
+  const bbm = readFileSync(fileURLToPath(new URL('../../../../../packages/bbm/tests/fixtures/fordyce-2026.bbm', import.meta.url)), 'utf-8');
+  await signIn(page, `j-start-sheet-${ts}@example.com`, 'Start Sam');
+  for (const [saved, expected] of [[4, 'Tracks'], [1, 'Tables']] as const) {
+    const data = { title: `Fordyce ${saved}`, bbm: bbm.replace('<SelectedLayerIndex>4</SelectedLayerIndex>', `<SelectedLayerIndex>${saved}</SelectedLayerIndex>`) };
+    const { id } = (await (await page.request.post('/api/layouts', { data })).json()) as { id: string };
+    await page.goto(`/editor/${id}`);
+    await expect(page.getByTestId('active-sheet-name')).toHaveText(expected, { timeout: 15000 });
+  }
+});
