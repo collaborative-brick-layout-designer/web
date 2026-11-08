@@ -201,7 +201,8 @@ export const PartsPanel = memo(function PartsPanel({
         <input
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
-          placeholder='Fuzzy filter — e.g. "plt2" matches "plate2x4"'
+          placeholder="Search parts (name or number)"
+          aria-label="Search parts (name or number)"
           className="w-full rounded-lg border border-border bg-soft px-2 py-1 text-xs"
         />
         {openSet && (

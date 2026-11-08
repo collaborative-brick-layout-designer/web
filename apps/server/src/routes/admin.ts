@@ -667,7 +667,11 @@ export async function adminRoutes(app: FastifyInstance): Promise<void> {
       installedAt: r.installedAt instanceof Date ? r.installedAt.getTime() : r.installedAt,
       updatedAt: r.updatedAt instanceof Date ? r.updatedAt.getTime() : r.updatedAt,
       diskPath: r.slug === 'bluebrickparts' ? env.partsDir : join(env.partsDir, 'libraries', r.slug),
-    })) };
+    })),
+    // How many parts sit in PARTS_DIR itself (not its libraries/ folder), so
+    // the page only offers "Register on-disk library" when there is one.
+    onDiskBaseParts: await countBaseXmls(resolve(env.partsDir)).catch(() => 0),
+    };
   });
 
   interface InstallLibraryBody {
@@ -848,10 +852,15 @@ export async function adminRoutes(app: FastifyInstance): Promise<void> {
     const { env } = await import('../env.js');
     let partCount: number;
     try {
-      partCount = await countXmls(resolve(env.partsDir));
+      partCount = await countBaseXmls(resolve(env.partsDir));
     } catch {
       // No base library on disk was a bare 500.
       return reply.code(409).send({ error: 'parts_dir_missing', message: 'The server has no base parts library folder (PARTS_DIR) to register.' });
+    }
+    // An empty folder would register a locked library with no parts, which
+    // also hides "Get the parts library", so every layout shows missing parts.
+    if (partCount === 0) {
+      return reply.code(409).send({ error: 'parts_dir_empty', message: 'There are no parts on the server yet. Use "Get the parts library" instead.' });
     }
 
     const id = randomUUID();
@@ -1484,18 +1493,26 @@ export async function extractZip(buf: Buffer, destDir: string): Promise<void> {
   }
 }
 
-async function countXmls(dir: string): Promise<number> {
+async function countXmls(dir: string, skipTopLevel?: string): Promise<number> {
   let n = 0;
   async function walk(d: string) {
     const entries = await readdir(d, { withFileTypes: true });
     for (const e of entries) {
       const full = join(d, e.name);
-      if (e.isDirectory()) await walk(full);
+      if (e.isDirectory()) {
+        if (d === dir && e.name === skipTopLevel) continue;
+        await walk(full);
+      }
       else if (extname(e.name).toLowerCase() === '.xml') n++;
     }
   }
   await walk(dir);
   return n;
+}
+
+/** Parts in the base library at PARTS_DIR, leaving out installed libraries. */
+function countBaseXmls(partsDir: string): Promise<number> {
+  return countXmls(partsDir, 'libraries');
 }
 
 /**

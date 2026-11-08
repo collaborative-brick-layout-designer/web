@@ -39,7 +39,7 @@ test.describe('connection snapping', () => {
     await page.goto(`/editor/${id}`);
     await expect(page.locator('canvas').first()).toBeVisible({ timeout: 15000 });
     await page.waitForTimeout(1000);
-    await page.getByPlaceholder(/Fuzzy filter/).fill('2865.8');
+    await page.getByPlaceholder('Search parts (name or number)').fill('2865.8');
     const tile = page.locator('aside li button[draggable="true"]').filter({ has: page.locator('img') }).first();
     const box = (await page.locator('.konvajs-content').first().boundingBox())!;
     const cx = box.x + box.width / 2;

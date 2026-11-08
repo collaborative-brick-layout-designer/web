@@ -2866,6 +2866,10 @@ function Canvas({
   // hasn't panned or zoomed, so a new canvas size (phone rotated, browser
   // bars shown or hidden) fits again.
   const lastAutoFitRef = useRef<{ zoom: number; panX: number; panY: number } | null>(null);
+  // Whether the grid draws its 1, 2, 3… row numbers (the scale card keeps clear of them on a phone).
+  const showGridHud = useEditorStore((s) => s.showGrid);
+  const hudGrid = showGridHud && map ? (drawnGridLayer(map.layers) as import('@cld/model').LayerGrid | undefined) : undefined;
+  const rowNumbersShown = !!(hudGrid && hudGrid.visible && hudGrid.displayCellIndex);
   function fitToContent(): boolean {
     if (!map) return false;
     // The fit takes in the grid's A, B, C… / 1, 2, 3… labels too, so
@@ -2875,7 +2879,7 @@ function Canvas({
     const sidecar = readSidecarFromDoc(doc);
     // Module names sit outside their frames; keep them on screen too.
     const bounds = withGridLabels(unionStudRects(contentBoundsStuds(map, sidecar), moduleNameBoxes(map, sidecar)) ?? null, grid);
-    const fit = fitView(bounds, width, height, { min: MIN_ZOOM, max: MAX_ZOOM }, phone ? (width > height ? PHONE_LANDSCAPE_FIT_INSETS : PHONE_FIT_INSETS) : undefined);
+    const fit = fitView(bounds, width, height, { min: MIN_ZOOM, max: MAX_ZOOM }, phone ? (width > height ? PHONE_LANDSCAPE_FIT_INSETS : PHONE_FIT_INSETS) : undefined, phone ? 0 : undefined);
     if (!fit) return false;
     useEditorStore.setState(fit);
     lastAutoFitRef.current = fit;
@@ -4322,7 +4326,7 @@ function Canvas({
         activeViewId: view.id,
       });
       const region = viewRegionStuds(view, map, readSidecarFromDoc(doc));
-      const fit = fitView(region, width, height, { min: MIN_ZOOM, max: MAX_ZOOM }, phone ? (width > height ? PHONE_LANDSCAPE_FIT_INSETS : PHONE_FIT_INSETS) : undefined);
+      const fit = fitView(region, width, height, { min: MIN_ZOOM, max: MAX_ZOOM }, phone ? (width > height ? PHONE_LANDSCAPE_FIT_INSETS : PHONE_FIT_INSETS) : undefined, phone ? 0 : undefined);
       if (fit) useEditorStore.setState(fit);
     },
     showViewFilter: (view) =>
@@ -4869,7 +4873,7 @@ function Canvas({
           onModuleLook={(id) => setLookModuleId(id)}
         />
       )}
-      <ScaleBarHud zoom={zoom} />
+      <ScaleBarHud zoom={zoom} right={phone && rowNumbersShown} />
       {budgetBox && <BudgetReachedDialog onClose={() => setBudgetBox(false)} />}
     </>
   );
@@ -4877,18 +4881,19 @@ function Canvas({
 
 /**
  * Screen space the phone fit keeps clear: a little air at the edges and
- * room for the scale card in the bottom-left corner.
+ * room for the scale card at the bottom. No scene margin on top of it, so
+ * the layout fills the width (Town corner sat at 70% with the old margin).
  */
-const PHONE_FIT_INSETS: ViewInsets = { top: 12, right: 12, bottom: 64, left: 12 };
+const PHONE_FIT_INSETS: ViewInsets = { top: 8, right: 8, bottom: 64, left: 8 };
 /** Sideways the layout is height-bound and centred, clear of the card anyway. */
-const PHONE_LANDSCAPE_FIT_INSETS: ViewInsets = { top: 10, right: 12, bottom: 10, left: 12 };
+const PHONE_LANDSCAPE_FIT_INSETS: ViewInsets = { top: 8, right: 8, bottom: 8, left: 8 };
 
 /**
  * Scale-bar HUD pinned to the lower-left corner of the canvas, like
  * desktop (MapViewPaint.cpp:195-243): a white pill with a bar of a
  * track-friendly stud count, labelled "N studs" above and mm / m below.
  */
-function ScaleBarHud({ zoom }: { zoom: number }) {
+function ScaleBarHud({ zoom, right = false }: { zoom: number; right?: boolean }) {
   const bar = scaleBar(zoom * 8); // 8 px per stud at zoom 1
   if (!bar) return null;
   // Fixed colors, not theme tokens: the card sits on the map, whose
@@ -4902,7 +4907,9 @@ function ScaleBarHud({ zoom }: { zoom: number }) {
         userSelect: 'none',
         width: bar.px + 24,
         color: '#1e2124',
-        left: 'max(0.5rem, env(safe-area-inset-left))',
+        // On a phone the grid's row numbers fill the left edge after Fit, so
+        // the card moves to the lower right, clear of them.
+        ...(right ? { right: 'max(0.5rem, env(safe-area-inset-right))' } : { left: 'max(0.5rem, env(safe-area-inset-left))' }),
         // Above the touch bar while editing by touch.
         bottom: 'calc(0.5rem + var(--touch-bar-h, 0px))',
       }}

@@ -113,4 +113,22 @@ describe('installing a part library on a fresh server', () => {
     expect(removed.statusCode).toBe(200);
     expect((await catalogKeys()).has('rail.1')).toBe(false);
   });
+
+  it('registers the base library only when PARTS_DIR has parts, not counting installed libraries', async () => {
+    const zip = storedZip({ 'RAIL.1.xml': PART_XML, 'RAIL.1.gif': GIF });
+    await app.inject({ method: 'POST', url: '/api/admin/part-libraries', headers: { cookie: admin }, payload: { name: 'Rails', slug: 'rails', zipBase64: zip.toString('base64') } });
+
+    let list = (await app.inject({ method: 'GET', url: '/api/admin/part-libraries', headers: { cookie: admin } })).json() as { onDiskBaseParts: number };
+    expect(list.onDiskBaseParts).toBe(1);
+
+    // A Docker install: nothing in PARTS_DIR but the libraries folder.
+    rmSync(join(dir, 'parts'), { recursive: true, force: true });
+    list = (await app.inject({ method: 'GET', url: '/api/admin/part-libraries', headers: { cookie: admin } })).json() as { onDiskBaseParts: number };
+    expect(list.onDiskBaseParts).toBe(0);
+    const empty = await app.inject({ method: 'POST', url: '/api/admin/part-libraries/install-base', headers: { cookie: admin } });
+    expect(empty.statusCode).toBe(409);
+    expect((empty.json() as { error: string }).error).toBe('parts_dir_empty');
+    const rows = await db.select().from(schema.partLibraries).where(eq(schema.partLibraries.slug, 'bluebrickparts'));
+    expect(rows).toHaveLength(0);
+  });
 });

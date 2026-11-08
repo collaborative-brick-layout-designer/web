@@ -719,7 +719,7 @@ test.describe('pivot geometry', () => {
     expect(part.hullPts.length).toBeGreaterThan(0);
     expect(part.spriteSize).toBeTruthy();
 
-    await page.getByPlaceholder(/Fuzzy filter/).fill('2861.8');
+    await page.getByPlaceholder('Search parts (name or number)').fill('2861.8');
     await page.locator('aside li button[draggable="true"]', { hasText: /./ }).filter({ has: page.locator('img') }).first().dblclick();
 
     const brick = async () => {
@@ -750,7 +750,7 @@ test.describe('chained placement', () => {
   test('double-clicking a track tile three times builds a straight run, each piece on the last one\'s free end', async ({ page }) => {
     const id = await createLayout(page);
     await openEditor(page, id);
-    await page.getByPlaceholder(/Fuzzy filter/).fill('2865.8');
+    await page.getByPlaceholder('Search parts (name or number)').fill('2865.8');
     const tile = page.locator('aside li button[draggable="true"]').filter({ has: page.locator('img') }).first();
     await expect(tile).toHaveAttribute('title', /2865\.8/);
 
@@ -789,7 +789,7 @@ test.describe('placing a set', () => {
   test('a set lands as one BlueBrick group named after it, its pieces linked and picked whole', async ({ page }) => {
     const id = await createLayout(page);
     await openEditor(page, id);
-    await page.getByPlaceholder(/Fuzzy filter/).fill('rail_yard_left_turn');
+    await page.getByPlaceholder('Search parts (name or number)').fill('rail_yard_left_turn');
     const tile = page.locator('aside li button[draggable="true"]').filter({ hasText: /Rail yard/ }).first();
     await expect(tile).toBeVisible({ timeout: 10000 });
     // Enter on the focused tile adds it, like a double-click (PartsBrowser.cpp:145).
@@ -844,7 +844,7 @@ test.describe('connection points', () => {
       });
 
     // A placed piece is selected: its two free ends show.
-    await page.getByPlaceholder(/Fuzzy filter/).fill('2865.8');
+    await page.getByPlaceholder('Search parts (name or number)').fill('2865.8');
     await page.locator('aside li button[draggable="true"]').filter({ has: page.locator('img') }).first().dblclick();
     await expect(page.locator('footer')).toContainText('selected: 1');
     await expect.poll(dots).toBe(2);
@@ -1063,7 +1063,7 @@ test.describe('selection while snapping', () => {
   test('the dragged brick\'s outline turns green while a connection snap is live', async ({ page }) => {
     const id = await createLayout(page);
     await openEditor(page, id);
-    await page.getByPlaceholder(/Fuzzy filter/).fill('2865.8');
+    await page.getByPlaceholder('Search parts (name or number)').fill('2865.8');
     const tile = page.locator('aside li button[draggable="true"]').filter({ has: page.locator('img') }).first();
     const box = (await page.locator('.konvajs-content').first().boundingBox())!;
     const cx = box.x + box.width / 2;
@@ -1116,7 +1116,7 @@ test.describe('context menu paste', () => {
   test('Paste and Add Text Here are for empty space; Paste only once something is copied', async ({ page }) => {
     const id = await createLayout(page);
     await openEditor(page, id);
-    await page.getByPlaceholder(/Fuzzy filter/).fill('2865.8');
+    await page.getByPlaceholder('Search parts (name or number)').fill('2865.8');
     await page.locator('aside li button[draggable="true"]').filter({ has: page.locator('img') }).first().dblclick();
     await expect(page.locator('footer')).toContainText('selected: 1');
     const box = (await page.locator('.konvajs-content').first().boundingBox())!;
@@ -1550,7 +1550,7 @@ test.describe('Use as Model (BlueBrick)', () => {
     }, { x: 40, y: 37.35 });
     await page.mouse.click(at.x, at.y, { button: 'right' });
     await page.locator('button', { hasText: /^Use as Model$/ }).click();
-    await expect(page.getByPlaceholder(/Fuzzy filter/)).toHaveValue(/^2865\.8$/i);
+    await expect(page.getByPlaceholder('Search parts (name or number)')).toHaveValue(/^2865\.8$/i);
     const tile = page.locator('[data-part-key]', { hasText: /./ }).and(page.locator('[aria-pressed="true"]'));
     await expect(tile).toHaveCount(1);
     await expect(tile).toHaveAttribute('data-part-key', /^2865\.8$/i);

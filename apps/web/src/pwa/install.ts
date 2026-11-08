@@ -110,14 +110,24 @@ export function resetInstallForTests(): void {
   snapshot = null;
 }
 
+const REPORTED_KEY = 'cld-display-reported';
+
 /**
- * Tell the server, once per page load, whether this copy runs as the
+ * Tell the server, once a day per browser, whether this copy runs as the
  * installed app or in a browser tab. The server counts it per person
  * per day for the admin dashboard (aggregate only; signed-out loads are
  * ignored). Failures don't matter.
  */
 export function reportDisplayMode(win: Window = window): void {
   const display = runningInstalled(win) ? 'standalone' : 'browser';
+  // The server counts each person once a day, so a browser that has said it
+  // today stays quiet: one beacon per page load ran into the rate limit.
+  const stamp = `${new Date().toISOString().slice(0, 10)}:${display}`;
+  try {
+    if (win.localStorage.getItem(REPORTED_KEY) === stamp) return;
+  } catch {
+    /* storage blocked: send it anyway */
+  }
   try {
     void win
       .fetch('/api/metrics/client', {
@@ -126,6 +136,16 @@ export function reportDisplayMode(win: Window = window): void {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ display }),
         keepalive: true,
+      })
+      .then((res) => {
+        // 204 means it was counted (signed in); a signed-out load (202)
+        // tries again next time.
+        if (res.status !== 204) return;
+        try {
+          win.localStorage.setItem(REPORTED_KEY, stamp);
+        } catch {
+          /* storage blocked */
+        }
       })
       .catch(() => undefined);
   } catch {

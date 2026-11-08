@@ -1104,7 +1104,7 @@ export const api = {
       get<{ events: AdminAuditEvent[]; total: number; limit: number; offset: number }>(
         `/api/admin/audit?${listParams(q)}`,
       ),
-    partLibraries: () => get<{ libraries: PartLibrary[] }>('/api/admin/part-libraries'),
+    partLibraries: () => get<{ libraries: PartLibrary[]; onDiskBaseParts?: number }>('/api/admin/part-libraries'),
     searchPartLibraries: (source: string) =>
       get<{ packages: RemotePackage[]; indexUrl: string }>(
         `/api/admin/part-libraries/search?source=${encodeURIComponent(source)}`,

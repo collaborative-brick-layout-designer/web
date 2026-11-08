@@ -89,7 +89,7 @@ test('a placed set moves whole: dragged by any of its parts, nudged, turned, und
   await expect(page.locator('canvas').first()).toBeVisible({ timeout: 15000 });
 
   // ── Place a set of four parts from the library. ──
-  await page.getByPlaceholder(/Fuzzy filter/).fill('Single_Crossover_Left');
+  await page.getByPlaceholder('Search parts (name or number)').fill('Single_Crossover_Left');
   const tile = page.locator('aside li button[draggable="true"]').filter({ hasText: /Single Crossover Left/ }).first();
   await expect(tile).toBeVisible({ timeout: 15000 });
   await tile.focus();
@@ -207,7 +207,7 @@ test('turning a set with R in the middle of a drag turns every part of it, and i
   const { id } = (await res.json()) as { id: string };
   await page.goto(`/editor/${id}`);
   await expect(page.locator('canvas').first()).toBeVisible({ timeout: 15000 });
-  await page.getByPlaceholder(/Fuzzy filter/).fill('Single_Crossover_Left');
+  await page.getByPlaceholder('Search parts (name or number)').fill('Single_Crossover_Left');
   const tile = page.locator('aside li button[draggable="true"]').filter({ hasText: /Single Crossover Left/ }).first();
   await expect(tile).toBeVisible({ timeout: 15000 });
   await tile.focus();

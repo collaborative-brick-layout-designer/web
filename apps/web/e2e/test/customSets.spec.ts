@@ -62,7 +62,7 @@ test('a set of your own parts shows as a Set and places as one group', async ({ 
   const id = ((await res.json()) as { id: string }).id;
   await page.goto(`/editor/${id}`);
   await expect(page.locator('canvas').first()).toBeVisible({ timeout: 15000 });
-  await page.getByPlaceholder(/Fuzzy filter/).fill(`${KEY}.whole`);
+  await page.getByPlaceholder('Search parts (name or number)').fill(`${KEY}.whole`);
   const tile = page.locator('aside li button[draggable="true"]').filter({ hasText: KEY }).first();
   await expect(tile).toBeVisible({ timeout: 10000 });
   await tile.focus();

@@ -189,6 +189,12 @@ for (const phone of PHONES) {
       expect(card.y + card.height).toBeLessThanOrEqual(canvas.y + canvas.height);
       expect(card.y + card.height).toBeLessThanOrEqual(vp.height);
       expect(card.x + card.width).toBeLessThanOrEqual(vp.width);
+      // ...and it covers none of the grid's letters or row numbers.
+      for (const l of s.labels) {
+        const x1 = canvas.x + l.x1, x2 = canvas.x + l.x2, y1 = canvas.y + l.y1, y2 = canvas.y + l.y2;
+        const overlaps = x2 > card.x && x1 < card.x + card.width && y2 > card.y && y1 < card.y + card.height;
+        expect(overlaps, `scale card over grid label ${l.text}`).toBe(false);
+      }
 
       // View mode (the default, with the switch to Edit for the owner):
       // no Undo / Redo, no edit toolbar.

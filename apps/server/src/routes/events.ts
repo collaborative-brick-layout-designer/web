@@ -44,7 +44,9 @@ export async function eventRoutes(app: FastifyInstance): Promise<void> {
     {
       config: {
         apiToken: API_SCOPES,
-        rateLimit: perPerson(30, '1 minute'),
+        // 60: someone clicking through pages fast in two tabs reopened it
+        // past 30 and filled the console with refusals.
+        rateLimit: perPerson(60, '1 minute'),
       },
     },
     async (req, reply) => {

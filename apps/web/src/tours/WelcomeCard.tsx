@@ -66,10 +66,10 @@ export function WelcomeCard({ name, onLayout }: { name: string | undefined; onLa
         <button
           type="button"
           onClick={choose(() => startTour('editor'))}
-          className={`${tile} border-transparent bg-tour-bg text-tour-ink hover:opacity-95`}
+          className={`${tile} border-line bg-panel hover:bg-soft`}
         >
           <span className="font-display text-lg font-bold">{WELCOME.actions.tour.label}</span>
-          <span className="text-sm text-tour-muted">{WELCOME.actions.tour.text}</span>
+          <span className="text-sm text-muted">{WELCOME.actions.tour.text}</span>
         </button>
       </div>
     </section>

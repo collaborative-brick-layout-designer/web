@@ -750,14 +750,18 @@ export async function adminInsightsRoutes(app: FastifyInstance): Promise<void> {
     '/api/metrics/client',
     // Per person (else per address): a club on one show Wi-Fi shares an
     // address, and refusing their beacons raised "refused requests" alerts.
-    { config: { rateLimit: perPerson(20, '1 minute') } },
+    // The page sends it at most once a day per browser now; 60 still
+    // leaves room for several browsers on one account.
+    { config: { rateLimit: perPerson(60, '1 minute') } },
     async (req, reply) => {
       const user = req.user;
       const display = req.body?.display;
       if (user && (display === 'standalone' || display === 'browser')) {
         rollup.distinct('display', display, user.id);
+        return reply.code(204).send();
       }
-      return reply.code(204).send();
+      // Not counted (signed out or a bad value): the page asks again later.
+      return reply.code(202).send();
     },
   );
 }

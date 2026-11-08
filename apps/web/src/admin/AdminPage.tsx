@@ -26,7 +26,7 @@ import { UsersTab } from './tabs/UsersTab';
 import { OrgsTab } from './tabs/ClubsTab';
 import { LayoutsTab } from './tabs/LayoutsTab';
 import { GlobalPartsTab } from './tabs/PartsTab';
-import { PartLibrariesTab } from './tabs/LibrariesTab';
+import { PartLibrariesTab, PartsSetupCard } from './tabs/LibrariesTab';
 import { AuditTab } from './tabs/AuditTab';
 import { SettingsTab } from './tabs/SettingsTab';
 
@@ -73,6 +73,7 @@ export function AdminPage() {
           {tabs.length > 1 && <h2 className="sr-only">{ADMIN_NAV_LABELS[tab]}</h2>}
           {tab === 'dashboard' && (
             <div className="space-y-6">
+              <PartsSetupCard />
               <PrivacyDashboardCard />
               <Suspense fallback={<Loading />}>
                 <Dashboard />
