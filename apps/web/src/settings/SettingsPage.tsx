@@ -393,8 +393,8 @@ function StepPickers() {
         </select>
       </label>
       <label className="flex flex-col gap-1">
-        <span className="text-[15px] font-semibold">Rotation step</span>
-        <span className="text-sm text-muted">How far one turn rotates a part.</span>
+        <span className="text-[15px] font-semibold">Turn step</span>
+        <span className="text-sm text-muted">How far a part turns each time.</span>
         <select data-testid="settings-rotation-step" value={rot} onChange={(e) => setRot(parseFloat(e.target.value))} className={select}>
           {ROTATION_STEPS.map((v) => (
             <option key={v} value={v}>

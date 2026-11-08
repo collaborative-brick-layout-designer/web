@@ -121,9 +121,9 @@ export function LayersPanel({ map, doc, isViewer }: Props) {
               }}
               disabled={!activeLayerId}
               className="rounded-lg px-2 py-0.5 text-xs hover:bg-red-900/40 disabled:opacity-30 pointer-coarse:min-h-11 pointer-coarse:min-w-11"
-              title="Delete active sheet"
+              title="Remove the active sheet"
             >
-              ✕
+              Remove sheet
             </button>
           </div>
           <div className="flex items-center gap-1">
@@ -382,7 +382,7 @@ function LayerRow({
               deleteLayer(doc, layer.id);
             }}
           >
-            Delete sheet
+            Remove sheet
           </button>
           <hr className="my-1 border-border" />
           <button
@@ -422,7 +422,7 @@ function AddLayerButton({ doc, onAdd }: { doc: Y.Doc; onAdd: (layerId: string) =
         className="rounded-lg px-2 py-0.5 text-xs hover:bg-soft pointer-coarse:min-h-11"
         title="Add a new sheet"
       >
-        + Add sheet
+        Add sheet
       </button>
       {open && (
         <ul

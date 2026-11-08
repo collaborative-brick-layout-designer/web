@@ -188,7 +188,7 @@ for (const phone of [
       [a] = await bricks(page);
 
       // Rotate right, and back with Undo.
-      await bar(page).getByRole('button', { name: 'Rotate right' }).tap();
+      await bar(page).getByRole('button', { name: 'Turn right' }).tap();
       await expect.poll(async () => (await bricks(page))[0]!.rot).not.toBe(a!.rot);
       const turned = (await bricks(page))[0]!.rot;
       await page.getByRole('button', { name: 'Undo' }).tap();
@@ -196,7 +196,7 @@ for (const phone of [
       await page.getByRole('button', { name: 'Redo' }).tap();
       await expect.poll(async () => (await bricks(page))[0]!.rot).toBe(turned);
       // And left again, for an easy straight line.
-      await bar(page).getByRole('button', { name: 'Rotate left' }).tap();
+      await bar(page).getByRole('button', { name: 'Turn left' }).tap();
       await expect.poll(async () => (await bricks(page))[0]!.rot).toBe(a!.rot);
 
       // Duplicate: the copy lands beside it, picked.
@@ -472,7 +472,7 @@ test.describe('labels by touch', () => {
     await finger.tap({ x: at.x, y: at.y });
     await expect(bar(page)).toHaveAttribute('aria-label', '1 picked');
     await expect(bar(page).getByRole('button', { name: 'Edit text' })).toBeVisible();
-    await expect(bar(page).getByRole('button', { name: 'Rotate left' })).toHaveCount(0);
+    await expect(bar(page).getByRole('button', { name: 'Turn left' })).toHaveCount(0);
 
     // A finger on the picked label drags it; the map stays put.
     const x0 = await stageX(page);
@@ -573,7 +573,7 @@ test.describe('touch editing on a tablet', () => {
     // Now the finger drags the part.
     await finger.drag({ x: a!.sx, y: a!.sy }, { x: a!.sx + 60, y: a!.sy + 40 });
     await expect.poll(async () => (await bricks(page))[0]!.x).toBeGreaterThan(a!.x + 1);
-    await bar(page).getByRole('button', { name: 'Rotate right' }).tap();
+    await bar(page).getByRole('button', { name: 'Turn right' }).tap();
     await expect.poll(async () => (await bricks(page))[0]!.rot).not.toBe(a!.rot);
     await shoot(page, 'tablet-edit');
     // With nothing picked, the bar offers the same Add part sheet as a phone.
@@ -601,7 +601,7 @@ test.describe('sheets on a tablet', () => {
     await newLayout(page, 'tablet-sheets');
     const panel = page.locator('aside').filter({ hasText: 'Sheets' }).first();
     await expect(panel).toBeVisible();
-    for (const name of ['+ Add sheet', '▲', '▼', '✕', 'Show all', 'Solo']) {
+    for (const name of ['Add sheet', '▲', '▼', 'Remove sheet', 'Show all', 'Solo']) {
       const r = (await panel.getByRole('button', { name, exact: true }).boundingBox())!;
       expect(r.height, name).toBeGreaterThanOrEqual(43.5);
     }

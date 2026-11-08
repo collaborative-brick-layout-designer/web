@@ -62,7 +62,7 @@ test('a module keeps its sheets, and adding it asks where a missing sheet goes',
   await placePart(page);
   await expect.poll(async () => (await bricks(page)).length).toBe(1);
   const panel = sheetsPanel(page);
-  await panel.getByRole('button', { name: '+ Add sheet' }).click();
+  await panel.getByRole('button', { name: 'Add sheet' }).click();
   await panel.getByRole('button', { name: 'Parts sheet' }).click();
   await panel.getByText('Parts', { exact: true }).click({ button: 'right' });
   await page.getByRole('button', { name: /^Rename…/ }).click();

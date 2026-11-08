@@ -51,7 +51,7 @@ export function OrgsTab() {
         offset={offset}
         limit={limit}
         setOffset={setOffset}
-        placeholder="Search by name or slug…"
+        placeholder="Search by name or web address…"
       />
       {list.isLoading ? (
         <Loading />
@@ -61,7 +61,7 @@ export function OrgsTab() {
             <thead className="bg-panel text-left text-xs uppercase tracking-wider text-muted">
               <tr>
                 <Th>Name</Th>
-                <Th>Slug</Th>
+                <Th>Web address</Th>
                 <Th>Members</Th>
                 <Th align="right">Layouts</Th>
                 <Th align="right">Size</Th>
@@ -165,7 +165,7 @@ export function OrgDetailPanel({ id, onBack }: { id: string; onBack: () => void 
   return (
     <section className="space-y-4">
       <button onClick={onBack} className="text-sm text-accent-text hover:underline">
-        ← Back to orgs
+        ← Back to clubs
       </button>
       {detail.isLoading && <Loading />}
       {detail.data && (
@@ -204,7 +204,7 @@ export function OrgDetailPanel({ id, onBack }: { id: string; onBack: () => void 
           <div>
             <h3 className="text-sm font-semibold text-neutral-300">Layouts</h3>
             {detail.data.layouts.length === 0 ? (
-              <p className="mt-1 text-sm text-muted">No layouts owned by this org.</p>
+              <p className="mt-1 text-sm text-muted">No layouts owned by this club.</p>
             ) : (
               <table className="mt-1 w-full text-sm">
                 <thead className="text-left text-xs uppercase tracking-wider text-muted">

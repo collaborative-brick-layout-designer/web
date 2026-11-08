@@ -5076,11 +5076,11 @@ function CanvasContextMenu({
     entries.push(sep('s0'));
     if (!hasSel) {
       // Text and rulers turn too (BlueBrick RotateText, RotateRulers).
-      entries.push(item('Rotate CCW', onRotateCCW));
-      entries.push(item('Rotate CW', onRotateCW));
+      entries.push(item('Turn left', onRotateCCW));
+      entries.push(item('Turn right', onRotateCW));
       entries.push(sep('s0tx'));
-      entries.push(item('Bring to Front', onBringToFront));
-      entries.push(item('Send to Back', onSendToBack));
+      entries.push(item('Bring to front', onBringToFront));
+      entries.push(item('Send to back', onSendToBack));
       entries.push(sep('s0t'));
     }
   } else if (rulerRef) {
@@ -5098,11 +5098,11 @@ function CanvasContextMenu({
     entries.push(sep('s0'));
     if (!hasSel) {
       // Text and rulers turn too (BlueBrick RotateText, RotateRulers).
-      entries.push(item('Rotate CCW', onRotateCCW));
-      entries.push(item('Rotate CW', onRotateCW));
+      entries.push(item('Turn left', onRotateCCW));
+      entries.push(item('Turn right', onRotateCW));
       entries.push(sep('s0rx'));
-      entries.push(item('Bring to Front', onBringToFront));
-      entries.push(item('Send to Back', onSendToBack));
+      entries.push(item('Bring to front', onBringToFront));
+      entries.push(item('Send to back', onSendToBack));
       entries.push(sep('s0r'));
     }
   } else if (singleSel && onBrick) {
@@ -5114,11 +5114,11 @@ function CanvasContextMenu({
   }
 
   if (hasSel) {
-    entries.push(item('Rotate CCW', onRotateCCW));
-    entries.push(item('Rotate CW', onRotateCW));
+    entries.push(item('Turn left', onRotateCCW));
+    entries.push(item('Turn right', onRotateCW));
     entries.push(sep('s1'));
-    entries.push(item('Bring to Front', onBringToFront));
-    entries.push(item('Send to Back', onSendToBack));
+    entries.push(item('Bring to front', onBringToFront));
+    entries.push(item('Send to back', onSendToBack));
     entries.push(sep('s2'));
     // Parts can go to another part sheet (on top of what's there).
     if (map) {
@@ -5997,8 +5997,8 @@ function RotationPicker() {
   const value = useEditorStore((s) => s.rotationStepDegrees);
   const set = useEditorStore((s) => s.setRotationStep);
   return (
-    <label className="flex items-center gap-1 text-xs text-muted" title="Rotation step (degrees)">
-      <span>Rot</span>
+    <label className="flex items-center gap-1 text-xs text-muted" title="Turn step (degrees)">
+      <span>Turn</span>
       <select
         value={value}
         onChange={(e) => set(parseFloat(e.target.value))}
@@ -6095,17 +6095,17 @@ function HeaderEditButtons({
       </button>
       {/* Rotate + z-order, as on the desktop toolbar (MainWindow.cpp:733-742). */}
       <div className="h-4 w-px bg-neutral-700" />
-      <button onClick={() => act()?.rotate(false)} disabled={!hasSel} title="Rotate CCW (R)" aria-label="Rotate CCW" className={btnCls}>
+      <button onClick={() => act()?.rotate(false)} disabled={!hasSel} title="Turn left (R)" aria-label="Turn left" className={btnCls}>
         ⟲
       </button>
-      <button onClick={() => act()?.rotate(true)} disabled={!hasSel} title="Rotate CW (Shift+R)" aria-label="Rotate CW" className={btnCls}>
+      <button onClick={() => act()?.rotate(true)} disabled={!hasSel} title="Turn right (Shift+R)" aria-label="Turn right" className={btnCls}>
         ⟳
       </button>
-      <button onClick={() => act()?.reorder('back')} disabled={!hasSel} title="Send to Back (Ctrl+Shift+[)" aria-label="Send to Back" className={btnCls + ' whitespace-nowrap'}>
-        To back
+      <button onClick={() => act()?.reorder('back')} disabled={!hasSel} title="Send to back (Ctrl+Shift+[)" aria-label="Send to back" className={btnCls + ' whitespace-nowrap'}>
+        Send to back
       </button>
-      <button onClick={() => act()?.reorder('front')} disabled={!hasSel} title="Bring to Front (Ctrl+Shift+])" aria-label="Bring to Front" className={btnCls + ' whitespace-nowrap'}>
-        To front
+      <button onClick={() => act()?.reorder('front')} disabled={!hasSel} title="Bring to front (Ctrl+Shift+])" aria-label="Bring to front" className={btnCls + ' whitespace-nowrap'}>
+        Bring to front
       </button>
     </>
   );

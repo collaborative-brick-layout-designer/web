@@ -83,7 +83,7 @@ export function EditBrickDialog({ brick, layerId, doc, meta, onClose }: Props) {
           <NumberField value={x} setValue={setX} step={0.5} />
           <label className="self-center">Y (studs):</label>
           <NumberField value={y} setValue={setY} step={0.5} />
-          <label className="self-center">Rotation (°):</label>
+          <label className="self-center">Angle (°):</label>
           <NumberField value={orientation} setValue={setOrientation} step={1} />
           <label className="self-center">Altitude:</label>
           <NumberField value={altitude} setValue={setAltitude} step={1} />

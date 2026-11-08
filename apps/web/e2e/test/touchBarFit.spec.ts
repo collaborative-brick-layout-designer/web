@@ -52,7 +52,7 @@ for (const phone of [{ name: 'Pixel 7', use: pixel7 }, { name: 'iPhone SE', use:
       expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(page.viewportSize()!.width);
       if (phone.name === 'Pixel 7') expect(buttons.at(-1)!.right).toBeLessThanOrEqual(page.viewportSize()!.width);
       // Still named in full for screen readers and tests.
-      await expect(bar.getByRole('button', { name: 'Rotate right' })).toBeVisible();
+      await expect(bar.getByRole('button', { name: 'Turn right' })).toBeVisible();
       await expect(bar.getByRole('button', { name: 'Select area' })).toBeVisible();
 
       // Make a module: the notice is above the bar, and the bar's buttons still work.

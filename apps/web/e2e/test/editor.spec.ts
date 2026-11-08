@@ -74,7 +74,7 @@ test.describe('editor — tool switching', () => {
     await openEditor(page, id);
     // The tool rail marks the active tool with aria-pressed, and the
     // status bar's "Tool: <name>" also reflects the current tool; check both.
-    const rotateBtn = page.getByRole('button', { name: 'Rotate', exact: true });
+    const rotateBtn = page.getByRole('button', { name: 'Turn', exact: true });
     await rotateBtn.click();
     await expect(rotateBtn).toHaveAttribute('aria-pressed', 'true');
     await expect(page.locator('footer')).toContainText('Tool: rotate');
@@ -94,7 +94,7 @@ test.describe('editor — tool switching', () => {
   test('clicking select tool activates it after switching away', async ({ page }) => {
     const id = await loginAndCreateLayout(page);
     await openEditor(page, id);
-    const rotateBtn = page.getByRole('button', { name: 'Rotate', exact: true });
+    const rotateBtn = page.getByRole('button', { name: 'Turn', exact: true });
     const selectBtn = page.getByRole('button', { name: 'Select' });
     await rotateBtn.click();
     await expect(page.locator('footer')).toContainText('Tool: rotate');

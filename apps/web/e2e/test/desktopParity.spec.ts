@@ -155,18 +155,18 @@ test.describe('toolbar and menus', () => {
     const id = await createLayout(page, FORDYCE_BBM);
     await openEditor(page, id);
 
-    const rotateCw = page.getByRole('button', { name: 'Rotate CW' });
+    const rotateCw = page.getByRole('button', { name: 'Turn right' });
     await expect(rotateCw).toBeDisabled();
-    await expect(page.getByRole('button', { name: 'Bring to Front' })).toBeDisabled();
+    await expect(page.getByRole('button', { name: 'Bring to front' })).toBeDisabled();
 
     await page.keyboard.press('Control+a');
     await expect(rotateCw).toBeEnabled();
     await shot(page, 'toolbar-buttons.png');
     await rotateCw.click();
     await expect(page.getByRole('button', { name: 'Undo' })).toBeEnabled();
-    await page.getByRole('button', { name: 'Send to Back' }).click();
-    await page.getByRole('button', { name: 'Rotate CCW' }).click();
-    await page.getByRole('button', { name: 'Bring to Front' }).click();
+    await page.getByRole('button', { name: 'Send to back' }).click();
+    await page.getByRole('button', { name: 'Turn left' }).click();
+    await page.getByRole('button', { name: 'Bring to front' }).click();
   });
 
   test('Map menu zoom entries, Insert Text and Download Layout', async ({ page }) => {
@@ -535,7 +535,7 @@ test.describe('find — modeless', () => {
     await shot(page, 'find-modeless.png');
 
     // The toolbar still works with the panel open (no modal backdrop).
-    await page.getByRole('button', { name: 'Rotate CW' }).click();
+    await page.getByRole('button', { name: 'Turn right' }).click();
     await expect(page.getByRole('button', { name: 'Undo' })).toBeEnabled();
     await expect(find).toBeVisible();
 
@@ -737,7 +737,7 @@ test.describe('pivot geometry', () => {
     expect(placed.h).toBeCloseTo(fp0.size.h, 3);
     const pivot0 = { x: placed.x + placed.w / 2 + fp0.imageOffset.x, y: placed.y + placed.h / 2 + fp0.imageOffset.y };
 
-    await page.getByRole('button', { name: 'Rotate CW' }).click();
+    await page.getByRole('button', { name: 'Turn right' }).click();
     await expect.poll(async () => (await brick())?.o).not.toBe(placed.o);
     const turned = (await brick())!;
     const fp1 = footprint(part, turned.o)!;
@@ -1372,7 +1372,7 @@ test.describe('rotating text (BlueBrick RotateText)', () => {
     await openEditor(page2, id);
 
     await page.mouse.click(centre.x, centre.y, { button: 'right' });
-    await page.locator('button', { hasText: /^Rotate CW$/ }).click();
+    await page.locator('button', { hasText: /^Turn right$/ }).click();
     await expect.poll(async () => num(await cell(), 'Orientation')).toBe(90);
     const after = await cell();
     // It turned in place: same centre, the box stood upright.
@@ -1395,7 +1395,7 @@ test.describe('rotating text (BlueBrick RotateText)', () => {
     await expect.poll(yard).not.toBeNull();
     const at = (await yard())!;
     await page2.mouse.click(box2.x + at.x, box2.y + at.y, { button: 'right' });
-    await page2.locator('button', { hasText: /^Rotate CW$/ }).click();
+    await page2.locator('button', { hasText: /^Turn right$/ }).click();
     await expect.poll(async () => num(await cell(), 'Orientation')).toBe(180);
     await other.close();
   });
@@ -1440,7 +1440,7 @@ test.describe('rotation pivot (BlueBrick RotateItems, RotateBrick)', () => {
     // joined to the flex end, so it flips in place (vanilla rot-one-ccw).
     const at = await toScreen(page, { x: 40, y: 37.35 }); // on a rail
     await page.mouse.click(at.x, at.y, { button: 'right' });
-    await page.locator('button', { hasText: /^Rotate CW$/ }).click();
+    await page.locator('button', { hasText: /^Turn right$/ }).click();
     const oneTurn = parts(ORACLE('rot-one-ccw.bbm'));
     await expect.poll(async () => near(parts(await bbm()), oneTurn, STRAIGHT)).toBe(true);
     // Back as it was, for the second window.

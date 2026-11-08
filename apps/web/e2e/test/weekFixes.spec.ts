@@ -69,7 +69,7 @@ test('text: drag it to move it, and bring it to the front from its menu', async 
   // Right-click a text: its menu has Bring to Front, which puts it last in its sheet.
   const t = await centreOf(page, '.text-cell');
   await page.mouse.click(t.x, t.y, { button: 'right' });
-  await page.locator('[data-ctx-menu]').getByRole('button', { name: 'Bring to Front' }).click();
+  await page.locator('[data-ctx-menu]').getByRole('button', { name: 'Bring to front' }).click();
   await expect.poll(async () => textOrder(await exported(page, id)).join('|')).not.toBe(before.join('|'));
   const afterFront = textOrder(await exported(page, id));
   const moved = afterFront[afterFront.length - 1]!;
@@ -107,7 +107,7 @@ test('rulers: Bring to Front from its right-click menu reorders its sheet', asyn
     .find((p) => p.x > canvas.x + 20 && p.x < canvas.x + canvas.width - 20 && p.y > canvas.y + 20 && p.y < canvas.y + canvas.height - 20);
   test.skip(!r, 'no ruler on screen');
   await page.mouse.click(r!.x, r!.y, { button: 'right' });
-  await page.locator('[data-ctx-menu]').getByRole('button', { name: 'Bring to Front' }).click();
+  await page.locator('[data-ctx-menu]').getByRole('button', { name: 'Bring to front' }).click();
   await expect.poll(async () => ids(await exported(page, id)).join('|')).not.toBe(before.join('|'));
 });
 
