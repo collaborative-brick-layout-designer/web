@@ -30,7 +30,7 @@ import {
 import { LayerOptionsDialog } from './LayerOptionsDialog';
 import { confirmDelete } from '../ui/ConfirmDialog';
 import { deleteSheetWording } from './sheetContents';
-import { SHEET_GLYPH } from './activeSheet';
+import { displaySheetName, renamedSheet, SHEET_GLYPH } from './activeSheet';
 
 interface Props {
   map: BbmMap;
@@ -116,7 +116,7 @@ export function LayersPanel({ map, doc, isViewer }: Props) {
                 const id = activeLayerId;
                 const layer = map.layers.find((l) => l.id === id);
                 if (!layer) return;
-                if (!(await confirmDelete(layer.name, deleteSheetWording(layer, 'You can undo this with Ctrl+Z.')))) return;
+                if (!(await confirmDelete(displaySheetName(layer.name), deleteSheetWording(layer, 'You can undo this with Ctrl+Z.')))) return;
                 deleteLayer(doc, id);
               }}
               disabled={!activeLayerId}
@@ -168,7 +168,7 @@ function LayerRow({
   onActivate: () => void;
 }) {
   const [editing, setEditing] = useState(false);
-  const [draftName, setDraftName] = useState(layer.name);
+  const [draftName, setDraftName] = useState(displaySheetName(layer.name));
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
   const [showOptions, setShowOptions] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -180,7 +180,7 @@ function LayerRow({
   // don't want to clobber the user's in-progress text on every Yjs
   // round-trip.
   useEffect(() => {
-    if (!editing) setDraftName(layer.name);
+    if (!editing) setDraftName(displaySheetName(layer.name));
   }, [layer.name, editing]);
 
   useEffect(() => {
@@ -193,7 +193,7 @@ function LayerRow({
   }, [ctxMenu]);
 
   function startRename() {
-    setDraftName(layer.name);
+    setDraftName(displaySheetName(layer.name));
     setEditing(true);
     setCtxMenu(null);
   }
@@ -264,15 +264,17 @@ function LayerRow({
             onClick={(e) => e.stopPropagation()}
             onKeyDown={(e) => {
               if (e.key === 'Enter') {
-                renameLayer(doc, layer.id, draftName.trim() || layer.name);
+                const next = renamedSheet(layer.name, draftName);
+                if (next) renameLayer(doc, layer.id, next);
                 setEditing(false);
               } else if (e.key === 'Escape') {
-                setDraftName(layer.name);
+                setDraftName(displaySheetName(layer.name));
                 setEditing(false);
               }
             }}
             onBlur={() => {
-              renameLayer(doc, layer.id, draftName.trim() || layer.name);
+              const next = renamedSheet(layer.name, draftName);
+              if (next) renameLayer(doc, layer.id, next);
               setEditing(false);
             }}
             className="flex-1 rounded-lg border border-border bg-soft px-1 py-0.5 text-xs"
@@ -285,7 +287,7 @@ function LayerRow({
               (layer.visible ? '' : 'text-muted line-through')
             }
           >
-            {layer.name || '(untitled)'}
+            {layer.name ? displaySheetName(layer.name) : '(untitled)'}
           </span>
         )}
         {isActive && !editing && (
@@ -376,7 +378,7 @@ function LayerRow({
             className="block w-full px-3 py-1 text-left text-danger hover:bg-neutral-700"
             onClick={async () => {
               setCtxMenu(null);
-              if (!(await confirmDelete(layer.name, deleteSheetWording(layer, 'You can undo this with Ctrl+Z.')))) return;
+              if (!(await confirmDelete(displaySheetName(layer.name), deleteSheetWording(layer, 'You can undo this with Ctrl+Z.')))) return;
               deleteLayer(doc, layer.id);
             }}
           >

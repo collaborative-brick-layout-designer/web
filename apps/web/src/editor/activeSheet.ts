@@ -22,8 +22,26 @@ export const SHEET_KIND: Record<Layer['type'], string> = {
   ruler: 'ruler',
 };
 
+/**
+ * A sheet's name as shown. BlueBrick names new layers "Layer 1", "Layer 2"…;
+ * this app says "sheet", so an untouched default shows as "Sheet 1". The
+ * file keeps "Layer 1" (a .bbm export is byte for byte what was read), and
+ * a name someone typed is shown as typed.
+ */
+export function displaySheetName(name: string): string {
+  const m = /^Layer (\d+)$/.exec(name);
+  return m ? `Sheet ${m[1]}` : name;
+}
+
+/** The new name to save from a rename box, or null when nothing changed (the shown default kept). */
+export function renamedSheet(current: string, typed: string): string | null {
+  const next = typed.trim();
+  if (!next || next === current || next === displaySheetName(current)) return null;
+  return next;
+}
+
 export function sheetName(layer: Pick<Layer, 'name'> | undefined | null): string {
-  return layer?.name || 'unnamed';
+  return layer?.name ? displaySheetName(layer.name) : 'unnamed';
 }
 
 type SheetLike = Pick<Layer, 'id' | 'type' | 'name' | 'visible'>;

@@ -10,6 +10,7 @@ import { useEditorStore } from './editorStore';
 import { addLayer, deleteLayer, moveLayer, renameLayer, setLayerTransparency, setLayerVisible } from './mutations';
 import { confirmDelete } from '../ui/ConfirmDialog';
 import { SHEET_KINDS, deleteSheetWording, sheetContents } from './sheetContents';
+import { displaySheetName, renamedSheet } from './activeSheet';
 
 /** A sheet that slides up from the bottom, over a dimmed map, with a title and Close. */
 export function BottomSheet({ title, onClose, children, footer }: {
@@ -75,7 +76,7 @@ const iconBtn =
   'flex size-11 shrink-0 items-center justify-center rounded-control text-ink hover:bg-soft disabled:opacity-30';
 
 async function askDeleteSheet(doc: Y.Doc, layer: Layer) {
-  if (!(await confirmDelete(layer.name, deleteSheetWording(layer, 'You can undo this with Undo.')))) return;
+  if (!(await confirmDelete(displaySheetName(layer.name), deleteSheetWording(layer, 'You can undo this with Undo.')))) return;
   deleteLayer(doc, layer.id);
   const { activeLayerId, setActiveLayer } = useEditorStore.getState();
   if (activeLayerId === layer.id) setActiveLayer(null);
@@ -91,11 +92,11 @@ function SheetRow({ layer, doc, first, last, active, onMoveHere }: {
   onMoveHere?: (() => void) | undefined;
 }) {
   const [renaming, setRenaming] = useState(false);
-  const [name, setName] = useState(layer.name);
-  const label = layer.name || KIND[layer.type];
+  const [name, setName] = useState(displaySheetName(layer.name));
+  const label = layer.name ? displaySheetName(layer.name) : KIND[layer.type];
   const save = () => {
-    const next = name.trim();
-    if (next && next !== layer.name) renameLayer(doc, layer.id, next);
+    const next = renamedSheet(layer.name, name);
+    if (next) renameLayer(doc, layer.id, next);
     setRenaming(false);
   };
   return (
@@ -176,7 +177,7 @@ function SheetRow({ layer, doc, first, last, active, onMoveHere }: {
             type="button"
             aria-label={`Rename ${label}`}
             onClick={() => {
-              setName(layer.name);
+              setName(displaySheetName(layer.name));
               setRenaming(true);
             }}
             className={iconBtn}

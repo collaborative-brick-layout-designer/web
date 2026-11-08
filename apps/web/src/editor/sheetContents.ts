@@ -5,6 +5,7 @@
 import type { Layer } from '@cld/model';
 import type { LayerKind } from './mutations';
 import type { DeleteWording } from '../ui/ConfirmDialog';
+import { displaySheetName } from './activeSheet';
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
@@ -28,7 +29,7 @@ export function sheetContents(layer: Layer): string {
 export function deleteSheetWording(layer: Layer, undoHow: string): DeleteWording {
   const what = sheetContents(layer);
   return {
-    title: `Delete the sheet “${layer.name || 'untitled'}”?`,
+    title: `Delete the sheet “${layer.name ? displaySheetName(layer.name) : 'untitled'}”?`,
     removes:
       what === 'nothing'
         ? 'The sheet is empty, so only the sheet itself goes.'

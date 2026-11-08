@@ -29,6 +29,7 @@ import { oneSheetName, pickedBySheet } from './moduleSheets';
 import { useDocMap } from './useDocMap';
 import { coarsePointer } from './useViewportSize';
 import { MAX_NAME_LENGTH } from '../ui/RenameDialog';
+import { displaySheetName } from './activeSheet';
 
 const FIELD = 'w-full rounded-lg border border-border bg-soft px-3 py-1.5 text-sm outline-hidden focus:border-accent';
 
@@ -54,7 +55,7 @@ function SheetsNote({ map, members, oneSheet, setOneSheet }: {
           {oneSheet ? (
             <>All its parts go on one sheet: <b>{oneSheetName(sheets)}</b>.</>
           ) : (
-            <>This module uses {sheets.length} sheets: <b>{sheets.map((g) => g.layer.name || 'untitled').join(', ')}</b>.</>
+            <>This module uses {sheets.length} sheets: <b>{sheets.map((g) => (g.layer.name ? displaySheetName(g.layer.name) : 'untitled')).join(', ')}</b>.</>
           )}
         </span>
         <HelpButton helpKey="module.sheets" />

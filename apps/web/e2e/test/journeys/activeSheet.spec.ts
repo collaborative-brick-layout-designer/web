@@ -131,3 +131,34 @@ test('a file opens on its saved sheet, or the topmost parts sheet', async ({ pag
     await expect(page.getByTestId('active-sheet-name')).toHaveText(expected, { timeout: 15000 });
   }
 });
+
+// BlueBrick's untouched "Layer 1" shows as "Sheet 1" everywhere, but the file
+// keeps "Layer 1": the .bbm export is byte for byte what was uploaded, and
+// after the editor showed it (and a rename box was left at "Sheet 1") the
+// export still names it "Layer 1".
+test('a BlueBrick "Layer 1" shows as "Sheet 1", and the .bbm keeps "Layer 1"', async ({ page }) => {
+  const { readFileSync } = await import('node:fs');
+  const { fileURLToPath } = await import('node:url');
+  const bbm = readFileSync(fileURLToPath(new URL('../../../../../packages/bbm/tests/fixtures/fordyce-2026.bbm', import.meta.url)));
+  await signIn(page, `j-sheet-names-${ts}@example.com`, 'Names Nia');
+  const { id } = (await (await page.request.post('/api/layouts', { data: { title: 'Fordyce names', bbm: bbm.toString('utf-8') } })).json()) as { id: string };
+  // Before anyone opens it, the export is byte for byte the upload.
+  const untouched = Buffer.from(await (await page.request.get(`/api/layouts/${id}/export.bbm`)).body());
+  expect(untouched.equals(bbm), 'the export is byte for byte the upload').toBe(true);
+  await page.goto(`/editor/${id}`);
+  const sheets = sheetsPanel(page);
+  const row = sheets.locator('li').filter({ hasText: 'Sheet 1' });
+  await expect(row).toHaveCount(1, { timeout: 15000 });
+  await expect(sheets.getByText('Layer 1', { exact: true })).toHaveCount(0);
+  // Rename, leave the shown name as it is: nothing is saved.
+  await row.click();
+  await page.keyboard.press('F2');
+  const box = sheets.locator('input[value="Sheet 1"]');
+  await expect(box).toBeVisible();
+  await page.keyboard.press('Enter');
+  await page.waitForTimeout(1000);
+  const exported = Buffer.from(await (await page.request.get(`/api/layouts/${id}/export.bbm`)).body());
+  expect(exported.toString('utf-8')).toContain('<Name>Layer 1</Name>');
+  // Showing it as "Sheet 1" (and a rename box left alone) changed nothing in the file.
+  expect(exported.toString('utf-8')).not.toContain('Sheet 1');
+});

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { placementTarget, startingSheetId } from '../activeSheet';
+import { displaySheetName, placementTarget, renamedSheet, sheetName, startingSheetId } from '../activeSheet';
 
 const layers = [
   { id: 'g', type: 'grid' as const, name: 'Grid', visible: true },
@@ -37,5 +37,22 @@ describe('startingSheetId (the same rule as the desktop)', () => {
   });
   it('is null without a parts sheet', () => {
     expect(startingSheetId([layers[0]!, layers[2]!], 0)).toBeNull();
+  });
+});
+
+describe('displaySheetName (BlueBrick\'s default "Layer N")', () => {
+  it('shows an untouched "Layer N" as "Sheet N", and any other name as typed', () => {
+    expect(displaySheetName('Layer 1')).toBe('Sheet 1');
+    expect(displaySheetName('Layer 12')).toBe('Sheet 12');
+    expect(displaySheetName('Layer 1 old')).toBe('Layer 1 old');
+    expect(displaySheetName('layer 1')).toBe('layer 1');
+    expect(displaySheetName('Tracks')).toBe('Tracks');
+    expect(sheetName({ name: 'Layer 3' })).toBe('Sheet 3');
+  });
+  it('a rename box left at the shown default changes nothing', () => {
+    expect(renamedSheet('Layer 1', 'Sheet 1')).toBeNull();
+    expect(renamedSheet('Layer 1', ' Layer 1 ')).toBeNull();
+    expect(renamedSheet('Layer 1', '')).toBeNull();
+    expect(renamedSheet('Layer 1', 'Baseplates')).toBe('Baseplates');
   });
 });
