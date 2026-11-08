@@ -104,6 +104,12 @@ export const HELP_TEXTS = {
     more: 'This is the active sheet, also marked Active in the Sheets panel. Parts you place or drop go on it. If it is a text, area or ruler sheet, parts go on a parts sheet instead, and you are told which.',
     learnMoreUrl: '/help#sheets',
   },
+  'sheets.fadeOthers': {
+    title: 'Fade other sheets',
+    short: 'Draws every sheet but the one you’re adding to faded, so that one stands out.',
+    more: 'The sheet in Adding to stays at full strength, and the fade follows when you pick another. It only changes what you see: pictures, PDFs and shared pictures never show it, and it isn’t saved in the layout or sent to anyone else.',
+    learnMoreUrl: '/help#sheets',
+  },
   'tools.rail': {
     title: 'Tools',
     short: 'Pick what a click on the map does.',

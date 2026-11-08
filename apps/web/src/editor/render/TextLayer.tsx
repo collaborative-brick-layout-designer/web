@@ -25,6 +25,7 @@ import { useEditorStore } from '../editorStore';
 import { textReadable } from '../textLegibility';
 import { TEXT_GLOW } from './selectionStyle';
 import { tapGuard } from '../touchGesture';
+import { SHEET_FADE, SHEET_FULL_OPACITY, useSheetFade } from './sheetFade';
 
 /** A line's width in the bundled font, as Konva measures it. */
 let measureCtx: CanvasRenderingContext2D | null = null;
@@ -79,6 +80,7 @@ export function TextLayers({
   /** Click selects; `additive` = Shift/Ctrl held (toggle). */
   onSelectText?: (key: string, additive: boolean) => void;
 }) {
+  const fade = useSheetFade(isViewer);
   const layers = map.layers.filter((l): l is LayerText => l.type === 'text' && l.visible);
   if (layers.length === 0) return null;
   return (
@@ -86,7 +88,7 @@ export function TextLayers({
       {layers.map((layer) => {
         const opacity = Math.max(0, Math.min(100, layer.transparency)) / 100;
         return (
-          <Group key={layer.id} opacity={opacity}>
+          <Group key={layer.id} name={SHEET_FADE} opacity={opacity * fade(layer.id)} {...{ [SHEET_FULL_OPACITY]: opacity }}>
             {layer.textCells.map((cell, i) => (
               <FittedTextCell
                 key={i}

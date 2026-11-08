@@ -10,23 +10,26 @@
 import { Group, Rect } from 'react-konva';
 import type { BbmMap, LayerArea } from '@cld/model';
 import { studToPx } from './coords';
+import { SHEET_FADE, useSheetFade } from './sheetFade';
 
-export function AreaLayers({ map }: { map: BbmMap }) {
+/** `isViewer`: a viewer isn't editing, so the other sheets never fade. */
+export function AreaLayers({ map, isViewer = false }: { map: BbmMap; isViewer?: boolean }) {
+  const fade = useSheetFade(isViewer);
   const layers = map.layers.filter((l): l is LayerArea => l.type === 'area' && l.visible);
   if (layers.length === 0) return null;
   return (
     <Group>
       {layers.map((layer) => (
-        <SingleAreaLayer key={layer.id} layer={layer} />
+        <SingleAreaLayer key={layer.id} layer={layer} fade={fade(layer.id)} />
       ))}
     </Group>
   );
 }
 
-function SingleAreaLayer({ layer }: { layer: LayerArea }) {
+function SingleAreaLayer({ layer, fade }: { layer: LayerArea; fade: number }) {
   const sizePx = studToPx(layer.areaCellSize);
   return (
-    <Group>
+    <Group name={SHEET_FADE} opacity={fade}>
       {layer.areas.map((cell, i) => {
         const fill = areaCellCss(cell.color, layer.transparency);
         if (!fill) return null;

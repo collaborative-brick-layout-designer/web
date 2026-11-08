@@ -46,9 +46,12 @@ import type { PartWire } from '../../api';
 import { usePosedMap } from '../liveDragPose';
 import { SELECTION, rulerHaloWidth } from './selectionStyle';
 import { coarsePointer } from '../useViewportSize';
+import { SHEET_FADE, SHEET_FULL_OPACITY, useSheetFade } from './sheetFade';
 
 interface Props {
   map: BbmMap;
+  /** A viewer isn't editing, so the other sheets never fade. */
+  isViewer?: boolean;
   /** Catalog, so an attached end sits on the brick's sprite centre (its pivot). */
   partsByKey?: ReadonlyMap<string, PartWire>;
   /** Rulers in the (mixed) selection — drawn with a halo. */
@@ -84,6 +87,7 @@ interface Props {
 
 export function RulerLayers({
   map: committedMap,
+  isViewer = false,
   partsByKey,
   selectedRulerIds,
   handleRulerId = null,
@@ -137,6 +141,7 @@ export function RulerLayers({
     }),
     [],
   );
+  const fade = useSheetFade(isViewer);
 
   if (layers.length === 0) return null;
   return (
@@ -144,7 +149,7 @@ export function RulerLayers({
       {layers.map((layer) => {
         const opacity = Math.max(0, Math.min(100, layer.transparency)) / 100;
         return (
-          <Group key={layer.id} opacity={opacity}>
+          <Group key={layer.id} name={SHEET_FADE} opacity={opacity * fade(layer.id)} {...{ [SHEET_FULL_OPACITY]: opacity }}>
             {layer.rulerItems.map((item) => {
               const sel = !!selectedRulerIds?.has(item.id);
               // `key` must be passed directly to JSX, not spread from a

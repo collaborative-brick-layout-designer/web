@@ -10,6 +10,7 @@ import type { Sidecar } from '@cld/bbm';
 import { colorSpecToCss } from './layerOptions';
 import { cellIndexLabels, parseCellIndexCorner } from './render/gridIndex';
 import { MAP_FONT_STACK } from './render/mapText';
+import { SHEET_FADE, SHEET_FULL_OPACITY } from './render/sheetFade';
 
 /** Konva node name for view-only chrome hidden while exporting. */
 export const EXPORT_HIDE = 'export-hide';
@@ -298,11 +299,31 @@ export function paintGridLines(
 }
 
 /**
+ * Draw every sheet at its own strength, as with "Fade other sheets while
+ * editing" off (render/sheetFade.ts): a picture never shows the fade. Returns
+ * the function that puts the fade back.
+ */
+export function unfadeSheets(stage: Konva.Stage): () => void {
+  const saved: [Konva.Node, number][] = [];
+  for (const n of stage.find(`.${SHEET_FADE}`)) {
+    const full = (n.getAttr(SHEET_FULL_OPACITY) as number | undefined) ?? 1;
+    if (n.opacity() !== full) {
+      saved.push([n, n.opacity()]);
+      n.opacity(full);
+    }
+  }
+  return () => {
+    for (const [n, o] of saved) n.opacity(o);
+  };
+}
+
+/**
  * Render the full map to a canvas: the stage is temporarily reset to
  * 1:1 at the content origin, view-only chrome (nodes named
- * `EXPORT_HIDE` plus the HUD layer) is hidden, and the result is
- * composited over the map background color. Everything is restored
- * before returning. Null for an empty map.
+ * `EXPORT_HIDE` plus the HUD layer) is hidden, every sheet draws at full
+ * strength whatever "Fade other sheets while editing" says (unfadeSheets),
+ * and the result is composited over the map background color. Everything is
+ * restored before returning. Null for an empty map.
  */
 export function renderMapToCanvas(
   stage: Konva.Stage,
@@ -345,6 +366,7 @@ export function renderMapToCanvas(
     layer.visible(false);
     hidden.push(layer);
   }
+  const refade = unfadeSheets(stage);
   let content: HTMLCanvasElement;
   try {
     stage.scale({ x: 1, y: 1 });
@@ -354,6 +376,7 @@ export function renderMapToCanvas(
     stage.scale({ x: saved.sx, y: saved.sy });
     stage.position({ x: saved.x, y: saved.y });
     for (const n of hidden) n.visible(true);
+    refade();
     stage.batchDraw();
   }
 
