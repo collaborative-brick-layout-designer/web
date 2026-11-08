@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { placementTarget } from '../activeSheet';
+import { placementTarget, startingSheetId } from '../activeSheet';
 
 const layers = [
   { id: 'g', type: 'grid' as const, name: 'Grid', visible: true },
@@ -23,5 +23,19 @@ describe('placementTarget', () => {
   it('has no target when there is no parts sheet', () => {
     expect(placementTarget(layers.filter((l) => l.type !== 'brick'), 'g')).toMatchObject({ target: undefined, redirected: true });
     expect(placementTarget(layers, null)).toMatchObject({ active: undefined, redirected: false });
+  });
+});
+
+describe('startingSheetId (the same rule as the desktop)', () => {
+  it('opens on the saved sheet when it holds parts', () => {
+    expect(startingSheetId(layers, 1)).toBe('b1');
+  });
+  it('else on the topmost parts sheet', () => {
+    expect(startingSheetId(layers, 2)).toBe('b2');
+    expect(startingSheetId(layers, 99)).toBe('b2');
+    expect(startingSheetId(layers, null)).toBe('b2');
+  });
+  it('is null without a parts sheet', () => {
+    expect(startingSheetId([layers[0]!, layers[2]!], 0)).toBeNull();
   });
 });

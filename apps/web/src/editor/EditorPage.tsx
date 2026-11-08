@@ -121,7 +121,7 @@ import {
   type ModuleBatch,
 } from './mutations';
 import { ActiveSheetControl } from './ActiveSheetControl';
-import { placementTarget, SHEET_KIND, sheetName } from './activeSheet';
+import { placementTarget, SHEET_KIND, sheetName, startingSheetId } from './activeSheet';
 import { brickDrag } from './brickDrag';
 import { cloneGroups, expandSet, expandToGroups, findLooseSets, findSetModules, setsAgainNotice, groupChain, selectedSet, setAnchorOrder, subpartOf, ungroupState } from './sets';
 import { applySetUpdate, copyPlacedSets, findSetUpdates, linksByAnchor, placedSetLink, trackedSet, updateForSelection, writePlacedSets, type SetUpdate } from './setUpdates';
@@ -642,7 +642,7 @@ function Editor({ layoutId, docState, moduleMode }: { layoutId: string; docState
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [needsBackfill]);
 
-  // The active layer defaults to the first brick layer in the doc, if any.
+  // The active layer starts on the file's saved sheet, or the topmost brick layer.
   // Without an active layer the place tool has nowhere to put bricks.
   const setActiveLayer = useEditorStore((s) => s.setActiveLayer);
   const activeLayerId = useEditorStore((s) => s.activeLayerId);
@@ -666,8 +666,10 @@ function Editor({ layoutId, docState, moduleMode }: { layoutId: string; docState
     try {
       const map = projectDoc(doc);
       if (!map) return;
-      const firstBrick = map.layers.find((l) => l.type === 'brick');
-      if (!firstBrick) return;
+      // The saved sheet when it takes parts, else the topmost parts sheet
+      // (startingSheetId, the desktop's rule too).
+      const start = startingSheetId(map.layers, map.selectedLayerIndex);
+      if (!start) return;
       // If the current activeLayerId still exists in this map (of ANY
       // layer kind — the user may have deliberately activated an area,
       // text, or ruler layer via the Layers panel), keep it. Only pick a
@@ -676,7 +678,7 @@ function Editor({ layoutId, docState, moduleMode }: { layoutId: string; docState
       // first brick layer since tools that place parts need one.
       const current = useEditorStore.getState().activeLayerId;
       const stillValid = current && map.layers.some((l) => l.id === current);
-      if (!stillValid) setActiveLayer(firstBrick.id);
+      if (!stillValid) setActiveLayer(start);
     } catch {
       // Doc isn't fully populated yet (e.g. blank-create layout). Phase 3
       // doesn't seed an empty doc with default layers; the editor shows
