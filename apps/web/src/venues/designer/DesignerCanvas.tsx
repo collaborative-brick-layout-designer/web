@@ -17,11 +17,17 @@ import { bbox, type Pt } from './model';
 import { planOf, type FloorPlan } from './plan';
 import { formatAngle, formatLength, STUDS_PER_INCH } from './units';
 import { coarsePointer } from '../../editor/useViewportSize';
+import { useDarkTheme } from '../../editor/render/useDarkTheme';
 
 const FT = 12 * STUDS_PER_INCH;
 const SELECT = '#2f6fed';
 /** Over the grid inside the room: the canvas white, so the grid fades there. */
 export const GRID_FADE = 'rgba(255,255,255,0.55)';
+/** The canvas by app theme (desktop VenueDesignerView the same; render-parity venue-labels.json "canvas"). */
+export const DESIGNER_CANVAS = {
+  light: { background: 'rgb(255,255,255)', gridMinor: 'rgb(238,240,243)', gridMajor: 'rgb(213,218,225)', gridFade: GRID_FADE },
+  dark: { background: 'rgb(27,30,35)', gridMinor: 'rgb(38,42,49)', gridMajor: 'rgb(54,60,70)', gridFade: 'rgba(27,30,35,0.55)' },
+} as const;
 /** How close the pointer must be to pick or snap, in screen px. */
 const HIT_PX = 8;
 /** The same for a finger, which covers far more than a mouse pointer. */
@@ -146,6 +152,9 @@ export function DesignerCanvas({
   }, []);
 
   const v = useMemo(() => view ?? { scale: 1, x: 0, y: 0 }, [view]);
+  // The canvas follows the app's theme; on dark, the plan's dark colors are drawn light.
+  const dark = useDarkTheme();
+  const canvas = dark ? DESIGNER_CANVAS.dark : DESIGNER_CANVAS.light;
   const toWorld = (sx: number, sy: number): Pt => ({ x: (sx - v.x) / v.scale, y: (sy - v.y) / v.scale });
   // A touch screen (tablet, phone): a finger's reach and big handles.
   const [coarse] = useState(coarsePointer);
@@ -327,7 +336,7 @@ export function DesignerCanvas({
     >
       <Stage width={size.w} height={size.h} onMouseDown={onDown} onMouseMove={onMove} onMouseUp={onUp} onMouseLeave={() => onCursor(null)} onWheel={onWheel} onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd} onTouchCancel={onTouchEnd}>
         <Layer listening={false}>
-          <Rect x={0} y={0} width={size.w} height={size.h} fill="#ffffff" />
+          <Rect x={0} y={0} width={size.w} height={size.h} fill={canvas.background} name="venue-canvas-background" />
           <Group x={v.x} y={v.y} scaleX={v.scale} scaleY={v.scale}>
             {plan && planImg && state.show.plan && (
               <KonvaImage
@@ -340,14 +349,15 @@ export function DesignerCanvas({
               />
             )}
             {grid.map((g, i) => (
-              <Line key={i} points={g.pts} stroke={g.major ? '#d5dae1' : '#eef0f3'} strokeWidth={1} strokeScaleEnabled={false} />
+              <Line key={i} points={g.pts} stroke={g.major ? canvas.gridMajor : canvas.gridMinor} strokeWidth={1} strokeScaleEnabled={false} />
             ))}
             {/* The grid fades a little under the venue. */}
-            {roomFill.length >= 6 && <Line points={roomFill} closed fill={GRID_FADE} listening={false} perfectDrawEnabled={false} />}
+            {roomFill.length >= 6 && <Line points={roomFill} closed fill={canvas.gridFade} listening={false} perfectDrawEnabled={false} />}
             <Group scaleX={1 / px} scaleY={1 / px}>
               <VenueOverlay
                 venue={shown}
                 labelFontPx={(13 / v.scale) * px}
+                darkCanvas={dark}
                 selectedEdge={sel?.kind === 'edge' ? sel.index : null}
                 handles={handles}
                 handleHalfPx={(hs + 2 / v.scale) * px}

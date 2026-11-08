@@ -1377,8 +1377,21 @@ test.describe('rotating text (BlueBrick RotateText)', () => {
     expect(num(after, 'Width')).toBeCloseTo(num(before, 'Height'), 3);
 
     // The second window turns it again: from 90, so it had the first turn live.
+    // Right-click the text where it's drawn (its view fits the grid's
+    // letters too, so it isn't at the centre).
     const box2 = (await page2.locator('.konvajs-content').first().boundingBox())!;
-    await page2.mouse.click(box2.x + box2.width / 2, box2.y + box2.height / 2, { button: 'right' });
+    const yard = () =>
+      page2.evaluate(() => {
+        type N = { className: string; text?: () => string; getClientRect: () => { x: number; y: number; width: number; height: number } };
+        const st = (window as unknown as { Konva?: { stages: { find: (f: (n: N) => boolean) => N[] }[] } }).Konva?.stages[0];
+        const n = st?.find((x) => x.className === 'Text' && x.text?.() === 'Yard')[0];
+        if (!n) return null;
+        const r = n.getClientRect();
+        return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+      });
+    await expect.poll(yard).not.toBeNull();
+    const at = (await yard())!;
+    await page2.mouse.click(box2.x + at.x, box2.y + at.y, { button: 'right' });
     await page2.locator('button', { hasText: /^Rotate CW$/ }).click();
     await expect.poll(async () => num(await cell(), 'Orientation')).toBe(180);
     await other.close();

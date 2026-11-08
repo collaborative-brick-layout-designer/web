@@ -18,7 +18,6 @@
 // (drawing, dimensions dialog). The data round-trips through the
 // sidecar regardless.
 
-import { useEffect, useState } from 'react';
 import { Circle, Group, Line, Rect, Text } from 'react-konva';
 import type { Venue, VenueDimension, VenueNote, VenueObstacle as VenueObstacleT, VenuePower } from '@cld/bbm';
 import { studToPx } from './coords';
@@ -29,6 +28,7 @@ import {
   ESTIMATE_COLOR,
   estimatedText,
   obstacleStyle,
+  onDarkCanvas,
   POWER_COLOR,
   POWER_RADIUS_STUDS,
   powerText,
@@ -38,6 +38,11 @@ import {
 import { VENUE_LABEL, VENUE_LABEL_THEME, venueEdgeLabels, type VenueLabel, type VenueLabelOptions } from './venueLabels';
 import { measureBold } from './ModuleOverlay';
 import { MAP_FONT_STACK } from './mapText';
+import { useDarkTheme } from './useDarkTheme';
+
+/** How a venue color is drawn: as is, or for a dark canvas (onDarkCanvas). */
+type Ink = (color: string) => string;
+const asIs: Ink = (c) => c;
 
 interface Props {
   venue: Venue | null | undefined;
@@ -49,30 +54,33 @@ interface Props {
   handles?: readonly Pt[];
   handleHalfPx?: number;
   pointer?: Pt | null;
+  /** Drawn on a dark canvas (the Venue Designer in the dark theme): dark colors drawn light. */
+  darkCanvas?: boolean;
 }
 
 type Pt = { x: number; y: number };
 
-export function VenueOverlay({ venue, labelFontPx = 28, onDoubleClick, selectedEdge = null, handles = [], handleHalfPx = 0, pointer = null }: Props) {
+export function VenueOverlay({ venue, labelFontPx = 28, onDoubleClick, selectedEdge = null, handles = [], handleHalfPx = 0, pointer = null, darkCanvas = false }: Props) {
   if (!venue || !venue.enabled) return null;
+  const ink = darkCanvas ? onDarkCanvas : asIs;
   const groupProps = onDoubleClick ? { listening: true, onDblClick: onDoubleClick } : { listening: false };
   const labels = { selectedEdge, handles, handleHalfPx, pointer };
   return (
     <Group {...groupProps}>
       {venue.edges.map((edge, i) => (
-        <VenueEdge key={`edge-${i}`} edge={edge} minWalkwayStuds={venue.minWalkwayStuds} />
+        <VenueEdge key={`edge-${i}`} edge={edge} minWalkwayStuds={venue.minWalkwayStuds} ink={ink} />
       ))}
       {venue.obstacles.map((ob, i) => (
-        <VenueObstacle key={`ob-${i}`} obstacle={ob} />
+        <VenueObstacle key={`ob-${i}`} obstacle={ob} ink={ink} />
       ))}
       {(venue.dimensions ?? []).map((d, i) => (
-        <VenueDimensionMark key={`dim-${i}`} dimension={d} fontPx={labelFontPx * 0.8} />
+        <VenueDimensionMark key={`dim-${i}`} dimension={d} fontPx={labelFontPx * 0.8} ink={ink} />
       ))}
       {(venue.power ?? []).map((p, i) => (
-        <VenuePowerMark key={`pow-${i}`} power={p} fontPx={labelFontPx * 0.6} />
+        <VenuePowerMark key={`pow-${i}`} power={p} fontPx={labelFontPx * 0.6} ink={ink} />
       ))}
       {(venue.notes ?? []).map((n, i) => (
-        <VenueNoteMark key={`note-${i}`} note={n} fontPx={labelFontPx * 0.8} />
+        <VenueNoteMark key={`note-${i}`} note={n} fontPx={labelFontPx * 0.8} ink={ink} />
       ))}
       <VenueEdgeLabels venue={venue} fontPx={labelFontPx} labels={labels} />
     </Group>
@@ -142,25 +150,15 @@ function measureLabel(text: string, fontPx: number): number {
   }
 }
 
-/** Whether the app shows its dark theme (html[data-theme]), following changes. */
-function useDarkTheme(): boolean {
-  const read = () => typeof document !== 'undefined' && document.documentElement.dataset.theme === 'dark';
-  const [dark, setDark] = useState(read);
-  useEffect(() => {
-    if (typeof MutationObserver === 'undefined') return;
-    const mo = new MutationObserver(() => setDark(read()));
-    mo.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
-    return () => mo.disconnect();
-  }, []);
-  return dark;
-}
 
 function VenueEdge({
   edge,
   minWalkwayStuds,
+  ink,
 }: {
   edge: Venue['edges'][number];
   minWalkwayStuds: number;
+  ink: Ink;
 }) {
   if (!edge.poly || edge.poly.length < 2) return null;
   const px = studToPx();
@@ -193,7 +191,7 @@ function VenueEdge({
       {showWalk && <WalkwayBand poly={edge.poly} widthStuds={minWalkwayStuds} />}
       <Line
         points={flatPoints}
-        stroke={stroke}
+        stroke={ink(stroke)}
         strokeWidth={strokeWidth}
         strokeScaleEnabled={false}
         {...(dash ? { dash } : {})}
@@ -278,12 +276,13 @@ function Segs({ segs, stroke, width = 1, dash }: { segs: Seg[]; stroke: string; 
   );
 }
 
-function VenueObstacle({ obstacle }: { obstacle: VenueObstacleT }) {
+function VenueObstacle({ obstacle, ink }: { obstacle: VenueObstacleT; ink: Ink }) {
   if (!obstacle.poly || obstacle.poly.length < 3) return null;
   const px = studToPx();
   const flat: number[] = [];
   for (const p of obstacle.poly) flat.push(p.x * px, p.y * px);
-  const style = obstacleStyle(obstacle.kind);
+  const base = obstacleStyle(obstacle.kind);
+  const style = { ...base, stroke: ink(base.stroke), fill: base.fill && ink(base.fill) };
   const stairs = obstacle.kind === 'stairs' ? stairMarks(obstacle) : null;
   return (
     <Group listening={false}>
@@ -298,13 +297,13 @@ function VenueObstacle({ obstacle }: { obstacle: VenueObstacleT }) {
         perfectDrawEnabled={false}
       />
       {stairs && <Segs segs={stairs.treads} stroke={style.stroke} />}
-      {stairs && <Segs segs={stairs.arrow} stroke="rgb(30,30,30)" width={2} />}
+      {stairs && <Segs segs={stairs.arrow} stroke={ink('rgb(30,30,30)')} width={2} />}
       {obstacle.kind === 'elevator' && <Segs segs={elevatorCross(obstacle.poly)} stroke={style.stroke} />}
     </Group>
   );
 }
 
-function VenuePowerMark({ power, fontPx }: { power: VenuePower; fontPx: number }) {
+function VenuePowerMark({ power, fontPx, ink }: { power: VenuePower; fontPx: number; ink: Ink }) {
   const px = studToPx();
   const r = POWER_RADIUS_STUDS * px;
   const text = powerText(power);
@@ -314,8 +313,8 @@ function VenuePowerMark({ power, fontPx }: { power: VenuePower; fontPx: number }
         x={power.x * px}
         y={power.y * px}
         radius={r}
-        fill={power.kind === 'floor' ? POWER_COLOR : 'white'}
-        stroke={POWER_COLOR}
+        fill={power.kind === 'floor' ? ink(POWER_COLOR) : 'white'}
+        stroke={ink(POWER_COLOR)}
         strokeWidth={2}
         strokeScaleEnabled={false}
         listening={false}
@@ -328,7 +327,7 @@ function VenuePowerMark({ power, fontPx }: { power: VenuePower; fontPx: number }
           text={text}
           fontSize={fontPx}
           fontFamily="sans-serif"
-          fill={POWER_COLOR}
+          fill={ink(POWER_COLOR)}
           listening={false}
           perfectDrawEnabled={false}
         />
@@ -337,7 +336,7 @@ function VenuePowerMark({ power, fontPx }: { power: VenuePower; fontPx: number }
   );
 }
 
-function VenueNoteMark({ note, fontPx }: { note: VenueNote; fontPx: number }) {
+function VenueNoteMark({ note, fontPx, ink }: { note: VenueNote; fontPx: number; ink: Ink }) {
   const px = studToPx();
   return (
     <Text
@@ -347,18 +346,18 @@ function VenueNoteMark({ note, fontPx }: { note: VenueNote; fontPx: number }) {
       fontSize={fontPx}
       fontFamily="sans-serif"
       fontStyle={note.estimated ? 'italic' : 'normal'}
-      fill={note.estimated ? ESTIMATE_COLOR : 'rgb(30,30,30)'}
+      fill={ink(note.estimated ? ESTIMATE_COLOR : 'rgb(30,30,30)')}
       listening={false}
       perfectDrawEnabled={false}
     />
   );
 }
 
-function VenueDimensionMark({ dimension, fontPx }: { dimension: VenueDimension; fontPx: number }) {
+function VenueDimensionMark({ dimension, fontPx, ink }: { dimension: VenueDimension; fontPx: number; ink: Ink }) {
   const g = dimensionGeometry(dimension);
   if (!g) return null;
   const px = studToPx();
-  const color = dimension.estimated ? ESTIMATE_COLOR : DIMENSION_COLOR;
+  const color = ink(dimension.estimated ? ESTIMATE_COLOR : DIMENSION_COLOR);
   const dash = dimension.estimated ? [8, 6] : undefined;
   const label = dimension.label ?? '';
   return (

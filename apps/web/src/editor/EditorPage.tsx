@@ -2868,9 +2868,9 @@ function Canvas({
   const lastAutoFitRef = useRef<{ zoom: number; panX: number; panY: number } | null>(null);
   function fitToContent(): boolean {
     if (!map) return false;
-    // The phone fit takes in the grid's A, B, C… / 1, 2, 3… labels too;
-    // desktop keeps BlueBrick's fit.
-    const showGrid = phone && useEditorStore.getState().showGrid;
+    // The fit takes in the grid's A, B, C… / 1, 2, 3… labels too, so
+    // column A and row 1 are never cut off at the top or left.
+    const showGrid = useEditorStore.getState().showGrid;
     const grid = showGrid ? (drawnGridLayer(map.layers) as import('@cld/model').LayerGrid | undefined) : undefined;
     const sidecar = readSidecarFromDoc(doc);
     // Module names sit outside their frames; keep them on screen too.
