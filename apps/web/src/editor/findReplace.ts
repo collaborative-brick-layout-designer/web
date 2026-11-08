@@ -10,6 +10,7 @@ import { editBrick, editTextCell } from './mutations';
 import { LOCAL_ORIGIN } from './useLayoutDoc';
 import type { AnnoSelection } from './editorStore';
 import { textKey } from './mixedSelection';
+import { displaySheetName } from './activeSheet';
 
 export type FindScope = 'part' | 'text';
 
@@ -35,14 +36,14 @@ export function findHits(map: BbmMap, needle: string, scope: FindScope, matchCas
     if (scope === 'part' && layer.type === 'brick') {
       for (const b of layer.bricks) {
         if (cmp(b.partNumber).includes(n)) {
-          out.push({ layerId: layer.id, brickId: b.id, value: b.partNumber, preview: `${b.partNumber}  ·  ${layer.name}` });
+          out.push({ layerId: layer.id, brickId: b.id, value: b.partNumber, preview: `${b.partNumber}  ·  ${displaySheetName(layer.name)}` });
         }
       }
     } else if (scope === 'text' && layer.type === 'text') {
       for (let i = 0; i < layer.textCells.length; i++) {
         const t = layer.textCells[i]!;
         if (cmp(t.text).includes(n)) {
-          out.push({ layerId: layer.id, textIndex: i, value: t.text, preview: `"${t.text}"  ·  ${layer.name}` });
+          out.push({ layerId: layer.id, textIndex: i, value: t.text, preview: `"${t.text}"  ·  ${displaySheetName(layer.name)}` });
         }
       }
     }

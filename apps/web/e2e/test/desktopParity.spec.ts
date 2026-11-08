@@ -1231,9 +1231,9 @@ test.describe('grid origin drag', () => {
     };
     const before = await corner();
 
-    // Make the grid layer ("Layer 1") the active layer.
-    await page.locator('aside').getByText('Layer 1', { exact: true }).click();
-    await expect(page.locator('footer')).toContainText('Sheet: Layer 1');
+    // Make the grid layer (the file's "Layer 1", shown as "Sheet 1") the active layer.
+    await page.locator('aside').getByText('Sheet 1', { exact: true }).click();
+    await expect(page.locator('footer')).toContainText('Sheet: Sheet 1');
 
     const z = await page.evaluate(() => (window as unknown as { Konva: { stages: { scaleX: () => number }[] } }).Konva.stages[0]!.scaleX());
     const cellStuds = Number(/<GridSizeInStud>(\d+)<\/GridSizeInStud>/.exec(FORDYCE_BBM)![1]);

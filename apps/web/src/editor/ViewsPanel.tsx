@@ -11,6 +11,7 @@ import type { StudRect } from './exportRender';
 import { addSavedView, deleteSavedView, makeId, readSavedViews, updateSavedView } from './mutations';
 import { newView } from './savedViews';
 import { confirmDelete } from '../ui/ConfirmDialog';
+import { displaySheetName } from './activeSheet';
 
 export interface ViewsPanelProps {
   doc: Y.Doc;
@@ -313,7 +314,7 @@ function ViewOptions({
           sheets.map((s) => (
             <label key={s.id} className={`${row} pl-6`}>
               <input type="checkbox" className={check} checked={view.sheets!.includes(s.id)} onChange={(e) => toggleSheet(s.id, e.target.checked)} />
-              <span className="truncate">{s.name || 'Sheet'}</span>
+              <span className="truncate">{s.name ? displaySheetName(s.name) : 'Sheet'}</span>
             </label>
           ))}
       </fieldset>

@@ -121,7 +121,7 @@ import {
   type ModuleBatch,
 } from './mutations';
 import { ActiveSheetControl } from './ActiveSheetControl';
-import { placementTarget, SHEET_KIND, sheetName, startingSheetId } from './activeSheet';
+import { displaySheetName, placementTarget, SHEET_KIND, sheetName, startingSheetId } from './activeSheet';
 import { brickDrag } from './brickDrag';
 import { cloneGroups, expandSet, expandToGroups, findLooseSets, findSetModules, setsAgainNotice, groupChain, selectedSet, setAnchorOrder, subpartOf, ungroupState } from './sets';
 import { applySetUpdate, copyPlacedSets, findSetUpdates, linksByAnchor, placedSetLink, trackedSet, updateForSelection, writePlacedSets, type SetUpdate } from './setUpdates';
@@ -771,7 +771,7 @@ function Editor({ layoutId, docState, moduleMode }: { layoutId: string; docState
 
   // Saved views (savedViews.ts) and their pictures.
   const savedViews = readSavedViews(doc);
-  const sheetList = (docMap?.layers ?? []).filter((l) => l.type !== 'grid').map((l) => ({ id: l.id, name: l.name }));
+  const sheetList = (docMap?.layers ?? []).filter((l) => l.type !== 'grid').map((l) => ({ id: l.id, name: displaySheetName(l.name) }));
   const activeView = savedViews.find((v) => v.id === activeViewId) ?? null;
   const showEverything = () => {
     canvasActionsRef.current?.clearView();
@@ -5130,7 +5130,7 @@ function CanvasContextMenu({
           if (l.type !== 'brick' || (from.size === 1 && from.has(l.id))) continue;
           const n = (seen.get(l.name) ?? 0) + 1;
           seen.set(l.name, n);
-          entries.push(item(`Move to sheet “${l.name}”${n > 1 ? ` (${n})` : ''}`, () => onMoveToSheet(l.id)));
+          entries.push(item(`Move to sheet “${displaySheetName(l.name)}”${n > 1 ? ` (${n})` : ''}`, () => onMoveToSheet(l.id)));
         }
         entries.push(item('Move to a new sheet', () => onMoveToSheet(null)));
         entries.push(sep('s2b'));
@@ -5690,7 +5690,7 @@ function StatusBar({ gridSpan, status, venue, budgetLimits, budgetMap, onZoomIn,
           <span title="Active sheet: new parts are placed here">
             Sheet:{' '}
             <span className={activeLayer ? 'text-ink' : 'text-neutral-600'}>
-              {activeLayer ? activeLayer.name || 'unnamed' : 'none'}
+              {activeLayer ? (activeLayer.name ? displaySheetName(activeLayer.name) : 'unnamed') : 'none'}
             </span>
           </span>
           <HelpButton helpKey="status.sheet" />

@@ -20,6 +20,7 @@ import {
   type SheetChoices,
   type UnmatchedSheet,
 } from './moduleSheets';
+import { displaySheetName } from './activeSheet';
 
 export interface SheetQuestion {
   moduleName: string;
@@ -78,7 +79,7 @@ export function sheetQuestion(map: Pick<BbmMap, 'layers'>, batches: readonly Mod
     moduleName,
     sheetCount: moduleSheetNames(batches).length,
     unmatched,
-    sheets: map.layers.filter((l) => l.type === 'brick').reverse().map((l) => ({ id: l.id, name: l.name })),
+    sheets: map.layers.filter((l) => l.type === 'brick').reverse().map((l) => ({ id: l.id, name: displaySheetName(l.name) })),
     picked,
     initial: defaultChoices(unmatched, picked),
   };
