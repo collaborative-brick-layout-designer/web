@@ -38,7 +38,7 @@ test('a new or renamed set is in the Parts panel live and after a reload, withou
   const { id } = (await res.json()) as { id: string };
   await page.goto(`/editor/${id}`);
   await expect(page.locator('canvas').first()).toBeVisible({ timeout: 15000 });
-  const filter = page.getByPlaceholder(/fuzzy filter/i).first();
+  const filter = page.getByPlaceholder('Search parts (name or number)').first();
   await filter.fill('narrow gauge track straight 4 x 16');
   await page.locator(`[title*="(${PART})"]`).first().dblclick();
   await expect(page.locator('footer')).toContainText('1 piece');
@@ -53,7 +53,7 @@ test('a new or renamed set is in the Parts panel live and after a reload, withou
   await expect(dialog).toHaveCount(0);
   const tile = (name: string) => page.locator('aside li button[draggable="true"]').filter({ hasText: name }).first();
   const inParts = async (name: string) => {
-    await page.getByPlaceholder(/fuzzy filter/i).first().fill(name);
+    await page.getByPlaceholder('Search parts (name or number)').first().fill(name);
     await expect(tile(name)).toBeVisible({ timeout: 15000 });
   };
   await inParts(SET);
@@ -74,7 +74,7 @@ test('a new or renamed set is in the Parts panel live and after a reload, withou
   await page.reload();
   await expect(page.locator('canvas').first()).toBeVisible({ timeout: 15000 });
   await inParts(RENAMED);
-  await page.getByPlaceholder(/fuzzy filter/i).first().fill(SET);
+  await page.getByPlaceholder('Search parts (name or number)').first().fill(SET);
   await expect(tile(SET)).toHaveCount(0);
 
   // ── A set sent from somewhere else (the desktop, another tab) while this

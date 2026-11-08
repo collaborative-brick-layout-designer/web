@@ -20,7 +20,7 @@ const sheetsPanel = (page: Page) => page.locator('aside').filter({ has: page.get
 const control = (page: Page) => page.getByTestId('active-sheet-control');
 
 async function placePart(page: Page): Promise<void> {
-  await page.getByPlaceholder(/fuzzy filter/i).first().fill('narrow gauge track straight 4 x 16');
+  await page.getByPlaceholder('Search parts (name or number)').first().fill('narrow gauge track straight 4 x 16');
   await page.locator(`[title*="(${PART})"]`).first().dblclick();
 }
 

@@ -38,7 +38,7 @@ async function as(page: Page, email: string, name: string): Promise<void> {
 }
 
 async function placeOurPart(page: Page): Promise<void> {
-  await page.getByPlaceholder(/fuzzy filter/i).first().fill(NAME);
+  await page.getByPlaceholder('Search parts (name or number)').first().fill(NAME);
   const tile = page.locator(`[title*="${NAME}"]`).first();
   await expect(tile).toBeVisible({ timeout: 15000 });
   await tile.dblclick();

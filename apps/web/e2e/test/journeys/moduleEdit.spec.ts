@@ -76,7 +76,7 @@ test('a module is one piece, opens with Edit module, and its new color reaches t
   await page.goto(`/editor/${id}`);
   await expect(page.locator('canvas').first()).toBeVisible({ timeout: 15000 });
   for (let i = 0; i < 3; i++) {
-    await page.getByPlaceholder(/fuzzy filter/i).first().fill('narrow gauge track straight 4 x 16');
+    await page.getByPlaceholder('Search parts (name or number)').first().fill('narrow gauge track straight 4 x 16');
     await page.locator(`[title*="(${PART})"]`).first().dblclick();
   }
   await expect.poll(async () => (await bricks(page)).length).toBe(3);

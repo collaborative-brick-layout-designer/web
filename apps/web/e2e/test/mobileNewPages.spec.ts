@@ -70,7 +70,7 @@ async function layoutWithStaleSet(browser: Browser, setId: string): Promise<stri
     await page.goto(`/editor/${layout.id}`);
     await expect(page.locator('canvas').first()).toBeVisible({ timeout: 15000 });
     await expect(page.locator('html')).toHaveAttribute('data-live', 'open', { timeout: 15000 });
-    await page.getByPlaceholder(/fuzzy filter/i).first().fill(SET);
+    await page.getByPlaceholder('Search parts (name or number)').first().fill(SET);
     // The tile's name is cut short.
     const tile = page.locator('aside li button[draggable="true"]').filter({ hasText: 'Engine yard with' }).first();
     await expect(tile).toBeVisible({ timeout: 15000 });

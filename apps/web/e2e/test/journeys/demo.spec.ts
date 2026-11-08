@@ -81,7 +81,7 @@ test('an admin turns on the demo, a visitor tries it, Reset now signs them out a
     await visitor.goto(`/editor/${sample!.id}`);
     await expect(visitor.locator('canvas').first()).toBeVisible({ timeout: 15000 });
     await expect.poll(() => brickCount(visitor), { timeout: 15000 }).toBe(original);
-    await visitor.getByPlaceholder(/fuzzy filter/i).first().fill('narrow gauge track straight 4 x 16');
+    await visitor.getByPlaceholder('Search parts (name or number)').first().fill('narrow gauge track straight 4 x 16');
     await visitor.locator(`[title*="(${PART})"]`).first().dblclick();
     await expect.poll(() => brickCount(visitor)).toBe(original + 1);
     await expect.poll(() => savedBricks(visitor, sample!.id), { timeout: 15000 }).toBe(original + 1);

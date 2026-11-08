@@ -28,7 +28,7 @@ function brickCount(page: Page): Promise<number> {
   });
 }
 async function placePart(page: Page) {
-  await page.getByPlaceholder(/fuzzy filter/i).first().fill('narrow gauge track straight 4 x 16');
+  await page.getByPlaceholder('Search parts (name or number)').first().fill('narrow gauge track straight 4 x 16');
   await page.locator(`[title*="(${PART})"]`).first().dblclick();
 }
 async function as(page: Page, email: string, name: string) {
@@ -222,7 +222,7 @@ test('parts: shared straight away, added from the Parts panel; modules inserted 
   await parts.getByRole('button', { name: `Add Home signal ${ts}` }).click();
   await expect(parts.getByText('Added')).toBeVisible();
   await parts.getByRole('button', { name: 'Close' }).click();
-  await page.getByPlaceholder(/fuzzy filter/i).first().fill(`Home signal ${ts}`);
+  await page.getByPlaceholder('Search parts (name or number)').first().fill(`Home signal ${ts}`);
   await expect(page.locator(`[title*="Home signal ${ts}"]`).first()).toBeVisible({ timeout: 15000 });
   // The Coal stage is unpublished; insert a module that is public. Shared
   // again, a moderator's takedown goes back through review (even with

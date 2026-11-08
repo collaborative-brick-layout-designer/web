@@ -146,7 +146,7 @@ const DIALOGS: DialogCase[] = [
   {
     name: 'editor save as set', path: editor, ready: editorReady,
     open: async (p) => {
-      await p.getByPlaceholder(/fuzzy filter/i).first().fill('Engine shed');
+      await p.getByPlaceholder('Search parts (name or number)').first().fill('Engine shed');
       const tile = p.locator('aside li button[draggable="true"]').filter({ hasText: 'Engine shed' }).first();
       await tile.focus();
       await p.keyboard.press('Enter');

@@ -549,7 +549,7 @@ test.describe('touch editing on a tablet', () => {
     await expect(page.getByRole('toolbar', { name: 'Edit', exact: true })).toBeVisible();
     await expect(page.getByTestId('mode-switch')).toHaveCount(0);
     // Place a part from the parts panel.
-    await page.getByPlaceholder(/fuzzy filter/i).first().fill('narrow gauge track straight 4 x 16');
+    await page.getByPlaceholder('Search parts (name or number)').first().fill('narrow gauge track straight 4 x 16');
     await page.locator(`[title*="(${PART})"]`).first().dblclick();
     await expect.poll(() => bricks(page).then((b) => b.length)).toBe(1);
     const finger = await Finger.on(page);

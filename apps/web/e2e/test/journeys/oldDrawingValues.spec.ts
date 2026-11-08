@@ -58,7 +58,7 @@ test('a layout with old drawing values out of range opens and draws normally aft
   await expect(options).toHaveCount(0);
 
   // A part goes on it and stays: the editor works as on any layout.
-  await page.getByPlaceholder(/fuzzy filter/i).first().fill('narrow gauge track straight 4 x 16');
+  await page.getByPlaceholder('Search parts (name or number)').first().fill('narrow gauge track straight 4 x 16');
   await page.locator(`[title*="(${PART})"]`).first().dblclick();
   await expect(page.locator('footer')).toContainText('1 piece');
   await page.waitForTimeout(500);
