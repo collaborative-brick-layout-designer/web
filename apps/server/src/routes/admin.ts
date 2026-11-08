@@ -763,6 +763,8 @@ export async function adminRoutes(app: FastifyInstance): Promise<void> {
       eventType: 'admin_part_library_install',
       payload: { name, slug, partCount, sourceUrl: body.sourceUrl ?? null },
     });
+    // The new library's parts are in the catalog from the next request on.
+    invalidatePartsCache();
     return reply.code(201).send({ id, slug, partCount });
   });
 
@@ -872,6 +874,7 @@ export async function adminRoutes(app: FastifyInstance): Promise<void> {
       eventType: 'admin_part_library_install',
       payload: { name: 'BlueBrickParts (base library)', slug: 'bluebrickparts', partCount },
     });
+    invalidatePartsCache();
     return reply.code(201).send({ id, slug: 'bluebrickparts', partCount });
   });
 
@@ -953,6 +956,7 @@ export async function adminRoutes(app: FastifyInstance): Promise<void> {
         eventType: 'admin_part_library_install',
         payload: { name, slug: dlSlug, partCount, sourceUrl: sourceUrl },
       });
+      invalidatePartsCache();
       return reply.code(201).send({ id, slug: dlSlug, partCount });
     },
   );
@@ -1070,6 +1074,7 @@ export async function adminRoutes(app: FastifyInstance): Promise<void> {
       eventType: 'admin_part_library_delete',
       payload: { name: lib.name, slug: lib.slug },
     });
+    invalidatePartsCache();
     return { ok: true };
   });
 

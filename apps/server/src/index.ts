@@ -21,9 +21,10 @@ import { startWorkers, stopWorkers } from './workers/index.js';
 import { failInterruptedExports } from './privacy/exports.js';
 import { registerErrorHandler } from './utils/errorHandler.js';
 import { requestSerializer } from './utils/logRedact.js';
-import { PARTS_STATIC_OPTIONS, registerSecurityHeaders } from './utils/securityHeaders.js';
+import { registerSecurityHeaders } from './utils/securityHeaders.js';
 import { registerCrossSiteGuard } from './utils/crossSite.js';
 import { registerApiRoutes } from './routes/all.js';
+import { registerPartFiles } from './routes/partsFiles.js';
 import { registerChangeHints } from './events/routeHints.js';
 import { setHintErrorLogger } from './events/audience.js';
 import { stopEvents } from './routes/events.js';
@@ -115,30 +116,9 @@ async function main() {
   setHintErrorLogger((err) => app.log.warn({ err }, 'live hint failed'));
   await registerApiRoutes(app);
 
-  // Serve the BlueBrickParts base library at /parts/*.
-  // The submodule organises files under PARTS_DIR/parts/ so we point there.
-  const partsRoot = resolve(env.partsDir, 'parts');
-  if (existsSync(partsRoot)) {
-    await app.register(fastifyStatic, {
-      root: partsRoot,
-      prefix: '/parts/',
-      ...PARTS_STATIC_OPTIONS,
-    });
-  } else {
-    app.log.warn(`parts library not found at ${partsRoot}; /parts/* disabled`);
-  }
-
-  // Serve downloaded libraries at /parts/libraries/<slug>/*.
-  // Each library is extracted into PARTS_DIR/libraries/<slug>/ and its
-  // sprite paths are prefixed with "libraries/<slug>/" in the catalog.
-  const libsRoot = resolve(env.partsDir, 'libraries');
-  if (existsSync(libsRoot)) {
-    await app.register(fastifyStatic, {
-      root: libsRoot,
-      prefix: '/parts/libraries/',
-      ...PARTS_STATIC_OPTIONS,
-    });
-  }
+  // Serve the part files: the base library at /parts/* and installed
+  // libraries at /parts/libraries/<slug>/* (routes/partsFiles.ts).
+  await registerPartFiles(app, env.partsDir);
 
   // Serve the SPA (built by `apps/web`) from /web/dist when present.
   // In dev, run `pnpm --filter @cld/web dev` separately on :5173 — Vite
