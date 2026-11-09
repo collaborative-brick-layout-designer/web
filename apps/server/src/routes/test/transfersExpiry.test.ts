@@ -142,7 +142,8 @@ describe('transfer preview — expiry edge cases', () => {
     expect(res.statusCode).toBe(200);
     const body = res.json() as { layoutTitle: string; recipientEmail: string };
     expect(body.layoutTitle).toBe('My Cool Layout');
-    expect(body.recipientEmail).toBe('recipient@example.com');
+    // Signed out: masked (only the recipient, signed in, sees it whole).
+    expect(body.recipientEmail).toBe('r…@example.com');
   });
 });
 

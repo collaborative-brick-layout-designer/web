@@ -29,18 +29,11 @@ export function TransferPage() {
     onError: (e: Error) => setError(e.message),
   });
 
+  // The server says whether it's for this account (the address is masked otherwise).
+  const matches = !!preview.data && !!me.data?.user && preview.data.forYou === true;
   useEffect(() => {
-    if (
-      preview.data &&
-      me.data?.user &&
-      me.data.user.email.toLowerCase() === preview.data.recipientEmail.toLowerCase() &&
-      !accept.isPending &&
-      !accept.isSuccess &&
-      !accept.isError
-    ) {
-      accept.mutate();
-    }
-  }, [preview.data, me.data, accept]);
+    if (matches && !accept.isPending && !accept.isSuccess && !accept.isError) accept.mutate();
+  }, [matches, accept]);
 
   if (!params.token) return <Navigate to="/" replace />;
   if (preview.isLoading || me.isLoading) return <Centered>Loading transfer…</Centered>;
@@ -59,8 +52,7 @@ export function TransferPage() {
 
   const t = preview.data!;
   const isSignedIn = !!me.data?.user;
-  const wrongUser =
-    isSignedIn && me.data!.user!.email.toLowerCase() !== t.recipientEmail.toLowerCase();
+  const wrongUser = isSignedIn && !matches;
 
   if (accepted) return <Centered>Transfer accepted. Opening the editor…</Centered>;
 

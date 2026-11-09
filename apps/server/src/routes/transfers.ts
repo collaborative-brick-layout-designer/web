@@ -32,6 +32,7 @@ import { sendInviteEmail } from '../email/sendInvite.js';
 import { env } from '../env.js';
 import { hasVerifiedEmail } from '../auth/users.js';
 import { sameEmail, trimmed } from '../utils/validate.js';
+import { maskEmail } from '../utils/maskEmail.js';
 import { can } from '../access/clubPermissions.js';
 import { publicName } from '../utils/publicName.js';
 import { clearPendingLayoutShares } from '../access/pendingShares.js';
@@ -222,8 +223,13 @@ export async function transferRoutes(app: FastifyInstance): Promise<void> {
       .where(eq(schema.layouts.id, transfer.layoutId))
       .get();
     if (!layout) return reply.code(404).send({ error: 'layout_not_found' });
+    // Whoever holds the link sees a masked address, and whether the
+    // hand-over is for the account they're signed in with (null signed out),
+    // as the invite previews do (invites.ts).
+    const forYou = req.user ? sameEmail(transfer.recipientEmail, req.user.email) : null;
     return {
-      recipientEmail: transfer.recipientEmail,
+      recipientEmail: forYou ? transfer.recipientEmail : maskEmail(transfer.recipientEmail),
+      forYou,
       layoutId: transfer.layoutId,
       layoutTitle: layout.title,
       expiresAt: transfer.expiresAt.getTime(),
