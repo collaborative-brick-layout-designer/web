@@ -254,9 +254,9 @@ paths in a parser (`/etc/crowdsec/parsers/s02-enrich/cld-whitelist.yaml`):
 name: local/cld-app-paths
 description: "Collaborative Brick Layout Designer: the app's own paths may 404 now and then"
 whitelist:
-  reason: "app paths that may answer 401/403/404 in normal use"
+  reason: "app paths that may answer 401/403/404/410 in normal use"
   expression:
-    - evt.Meta.http_status in ['401', '403', '404'] && evt.Meta.http_path matches '^/api/(layouts|modules|venues|orgs|auth/password/verify-email|auth/password/reset|invites|transfers|org-invites)/'
+    - evt.Meta.http_status in ['401', '403', '404', '410'] && evt.Meta.http_path matches '^/api/(layouts|modules|venues|orgs|auth/password/verify-email|auth/password/reset|invites|transfers|org-invites)/'
 ```
 
 Leave `/parts/`, `/api/catalog/` and `/api/public-layouts/` out of it:
