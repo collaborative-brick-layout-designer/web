@@ -4,6 +4,7 @@
 
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import { getSpriteProgress, retryFailedSprites, subscribeSpriteProgress } from './render/spriteCache';
+import { formatBytes, getDownloadProgress, subscribeDownloadProgress } from './layoutDownload';
 
 /** A later batch (one new part, say) only shows its card if it takes this long. */
 export const LATER_BATCH_DELAY_MS = 400;
@@ -23,6 +24,7 @@ export function LoadingCard({
   detail,
   done,
   total,
+  countText,
   centered,
   testId = 'loading-card',
 }: {
@@ -30,13 +32,15 @@ export function LoadingCard({
   detail?: string | undefined;
   done?: number;
   total?: number;
+  /** How far along, in words ("1.2 of 2.2 MB"), in place of "132 of 480". */
+  countText?: string;
   /** In the middle of its box (first open); otherwise near the top. */
   centered?: boolean;
   testId?: string;
 }) {
   const known = total !== undefined && done !== undefined && total > 0;
   const pct = known ? Math.min(100, Math.round((done / total) * 100)) : 0;
-  const count = known ? `${fmt(done)} of ${fmt(total)}` : undefined;
+  const count = countText ?? (known ? `${fmt(done)} of ${fmt(total)}` : undefined);
   return (
     <div
       className={`pointer-events-none absolute inset-x-0 z-20 flex justify-center px-4 ${centered ? 'inset-y-0 items-center' : 'top-14'}`}
@@ -72,11 +76,21 @@ export function LoadingCard({
   );
 }
 
-/** The full-page card while the layout itself is arriving. */
+/** The full-page card while the layout itself is arriving: how much of it, once known. */
 export function OpeningLayoutScreen() {
+  const d = useSyncExternalStore(subscribeDownloadProgress, getDownloadProgress);
+  const total = d?.total ?? null;
+  const countText = d ? (total ? `${formatBytes(Math.min(d.loaded, total))} of ${formatBytes(total)}` : formatBytes(d.loaded)) : undefined;
   return (
     <div className="relative h-screen bg-bg">
-      <LoadingCard title="Opening layout…" detail="Getting the layout from the server." centered testId="opening-layout" />
+      <LoadingCard
+        title="Opening layout…"
+        detail="Getting the layout from the server."
+        centered
+        testId="opening-layout"
+        {...(d && total ? { done: d.loaded, total } : {})}
+        {...(countText ? { countText } : {})}
+      />
     </div>
   );
 }

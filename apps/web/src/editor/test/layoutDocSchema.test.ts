@@ -32,6 +32,7 @@ class FakeProvider {
   emit(event: string, arg: unknown) {
     for (const h of this.handlers.get(event) ?? []) h(arg);
   }
+  connect() {}
   disconnect() {
     this.disconnected = true;
   }

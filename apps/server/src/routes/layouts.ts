@@ -496,7 +496,8 @@ export async function layoutRoutes(app: FastifyInstance) {
   });
 
   // ---- snapshot (binary Y.Doc) --------------------------------------------
-  // The editor reads this on /editor/:id load and writes it back on save.
+  // The editor reads this on /editor/:id load, before its live connection
+  // opens (the connection then sends only what changed since).
   // Bytes are the y-update format; the server is dumb about doc internals.
   app.get<{ Params: { id: string } }>('/api/layouts/:id/snapshot', async (req, reply) => {
     const user = requireUser(req);
@@ -510,11 +511,13 @@ export async function layoutRoutes(app: FastifyInstance) {
       .get();
     if (!layout) return reply.code(404).send({ error: 'not_found' });
 
+    const bytes = Buffer.from(await currentDocBytes(layout.id, layout.docSnapshot as Uint8Array));
     reply.header('Content-Type', 'application/octet-stream');
     reply.header('X-Doc-Version', String(layout.docVersion));
-    return reply.send(
-      Buffer.from(await currentDocBytes(layout.id, layout.docSnapshot as Uint8Array)),
-    );
+    // Its size before any compression on the way, for the editor's
+    // "Opening layout… 1.2 of 2.2 MB" (web/src/editor/layoutDownload.ts).
+    reply.header('X-Doc-Bytes', String(bytes.length));
+    return reply.send(bytes);
   });
 
   // PUT replaces the snapshot wholesale. Phase 4 (realtime) replaces this
