@@ -1,4 +1,4 @@
-import { XMLParser } from 'fast-xml-parser';
+import { XMLParser, XMLValidator } from 'fast-xml-parser';
 import type {
   BbmMap,
   Brick,
@@ -45,7 +45,25 @@ export interface ReadResult {
   warnings: string[];
 }
 
+// A file cut off or damaged part way: the parser reads what it can, so the
+// layout would open with only part of it, and saving would write that over
+// the whole file. Refuse it, as BlueBrick and the desktop do, naming the line.
+function refuseDamaged(xml: string): void {
+  const valid = XMLValidator.validate(xml);
+  if (valid === true) return;
+  const { code, msg, line, col } = valid.err;
+  // Elements still open at the end: the file ends before the layout does.
+  if (code === 'InvalidXml' && msg.startsWith("Invalid '[")) {
+    const lastLine = xml.split('\n').length;
+    throw new Error(
+      `The file is cut off at line ${lastLine}: it ends before the layout does. It may not have finished saving or copying. Nothing was changed.`,
+    );
+  }
+  throw new Error(`The file is damaged at line ${line}, column ${col}, so it can't be opened safely. Nothing was changed.`);
+}
+
 export function readBbm(xml: string): ReadResult {
+  refuseDamaged(xml);
   const tree = parser.parse(xml) as Node;
   const root = required<Node>(tree, 'Map');
   const warnings: string[] = [];

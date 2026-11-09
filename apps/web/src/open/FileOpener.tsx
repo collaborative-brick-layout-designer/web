@@ -78,6 +78,10 @@ export function FileOpener() {
       const ask = (differing: PartDifference[]) => new Promise<PartChoice[] | null>((answer) => setAsking({ differing, answer }));
       for (const l of layouts) {
         try {
+          // A cut-off or damaged .bbm is refused here, saying where, before
+          // the server sees it: it used to open with only part of its parts.
+          const { readBbm } = await import('@cld/bbm/browser');
+          readBbm(l.bbm);
           // The parts a .bld-layout carries that this server lacks become the user's custom parts;
           // the ones it defines differently are asked about first.
           const parts = await takeLayoutParts(l.parts, l.bbm, loadCatalog, ask);

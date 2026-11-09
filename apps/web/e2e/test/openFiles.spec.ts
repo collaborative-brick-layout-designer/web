@@ -2,7 +2,8 @@
 // file dropped on the page (with its overlay) open a layout and say what
 // came in; the editor's Map › File › Open a file… shows the same picker;
 // LDraw, Studio and LDD files get the desktop app's steps, never a dead
-// end. No step may 4xx (the WAF bans bursts of them).
+// end; a cut-off .bbm is refused in the browser, saying where. No step may
+// 4xx (the WAF bans bursts of them).
 
 import { test, expect, type Page } from '@playwright/test';
 import { readFileSync } from 'node:fs';
@@ -111,6 +112,20 @@ test.describe('Open a file', () => {
     await dropFile(page, 'OnEditor.bbm', BBM, { checkOverlay: true });
     await expect(page).not.toHaveURL(new RegExp(`/editor/${id}$`), { timeout: 15000 });
     await expect(page.getByTestId('opened-summary-line')).toContainText('Opened OnEditor.bbm:', { timeout: 15000 });
+    net.expectQuiet();
+  });
+
+  test('a cut-off .bbm is refused, saying where, and nothing is made', async ({ page }) => {
+    const net = watch4xx(page);
+    await page.goto('/');
+    await dropFile(page, 'Cut.bbm', BBM.subarray(0, Math.floor(BBM.length / 2)));
+    const message = page.getByRole('dialog', { name: 'The file couldn’t be opened' });
+    await expect(message).toContainText('Cut.bbm', { timeout: 15000 });
+    await expect(message).toContainText(/cut off at line \d+: it ends before the layout does/);
+    await message.getByRole('button', { name: 'OK' }).click();
+    await expect(page).toHaveURL(/\/$/);
+    const list = (await (await page.request.get('/api/layouts')).json()) as { layouts: { title: string }[] };
+    expect(list.layouts.map((l) => l.title)).not.toContain('Cut');
     net.expectQuiet();
   });
 
