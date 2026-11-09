@@ -56,6 +56,9 @@ const PERSIST_BATCH_MS = 50;
 /** ...up to this many bytes. */
 const PERSIST_BATCH_BYTES = 1024 * 1024;
 
+/** How often live edits move a layout's updatedAt, at most. */
+export const UPDATED_AT_EVERY_MS = 60_000;
+
 export class DocSession {
   readonly doc: Y.Doc;
   readonly awareness: Awareness;
@@ -280,7 +283,17 @@ export class DocSession {
     this.pendingUpdates += 1;
     rollup.distinct('layouts_edited', '', this.layoutId);
     rollup.count('layout_edits', this.layoutId, edits);
+    // "Updated" on the lists follows live edits, at most once a minute
+    // (the snapshot sets it too, but only when the room is saved whole).
+    const now = Date.now();
+    if (now - this.touchedAt >= UPDATED_AT_EVERY_MS) {
+      this.touchedAt = now;
+      await db.update(schema.layouts).set({ updatedAt: new Date(now) }).where(eq(schema.layouts.id, this.layoutId));
+    }
   }
+
+  /** When a live edit last moved the layout's updatedAt (persistUpdate). */
+  private touchedAt = 0;
 
   /**
    * Store a live update. Updates arriving within PERSIST_BATCH_MS of each

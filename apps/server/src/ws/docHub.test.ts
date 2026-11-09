@@ -167,3 +167,35 @@ describe('docHub eviction', () => {
     expect(second).not.toBe(session);
   });
 });
+
+describe('live edits and the layout\'s "updated" time', () => {
+  beforeEach(() => resetDb());
+
+  it('moves updatedAt with live edits, at most once a minute', async () => {
+    const { layoutId } = await makeUserAndLayout();
+    const old = new Date(Date.now() - 3_600_000);
+    await db.update(schema.layouts).set({ updatedAt: old }).where(eq(schema.layouts.id, layoutId));
+    const session = new DocSession(layoutId);
+    const at = async () => (await db.select({ u: schema.layouts.updatedAt }).from(schema.layouts).where(eq(schema.layouts.id, layoutId)).get())!.u.getTime();
+    const edit = () => {
+      const d = new Y.Doc();
+      d.getMap('m').set('k', Math.random());
+      return Y.encodeStateAsUpdate(d);
+    };
+    await session.persistUpdate(edit());
+    const first = await at();
+    expect(first).toBeGreaterThan(old.getTime());
+    // Within the minute: not again.
+    await db.update(schema.layouts).set({ updatedAt: old }).where(eq(schema.layouts.id, layoutId));
+    await session.persistUpdate(edit());
+    expect(await at()).toBe(old.getTime());
+    // A minute later: again.
+    const now = vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 61_000);
+    try {
+      await session.persistUpdate(edit());
+    } finally {
+      now.mockRestore();
+    }
+    expect(await at()).toBeGreaterThan(old.getTime());
+  });
+});

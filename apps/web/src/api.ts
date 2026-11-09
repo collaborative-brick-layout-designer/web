@@ -517,22 +517,6 @@ export class ModuleChangedError extends Error {
   }
 }
 
-async function putBytes(path: string, bytes: Uint8Array): Promise<{ updatedAt: number }> {
-  const res = await reach(fetch(path, {
-    method: 'PUT',
-    credentials: 'include',
-    headers: { 'content-type': 'application/octet-stream' },
-    // TypeScript 7's DOM lib types narrowed BodyInit to require
-    // Uint8Array<ArrayBuffer> specifically, rejecting the more general
-    // Uint8Array (which could theoretically back a SharedArrayBuffer,
-    // though nothing in this codebase ever produces one here).
-    body: bytes as Uint8Array<ArrayBuffer>,
-  }));
-  if (!res.ok) throw new Error(await friendlyErrorMessage(res, 'PUT', path));
-  noteWrite('PUT', path);
-  return res.json() as Promise<{ updatedAt: number }>;
-}
-
 /** Scopes an API token (desktop sign-in) can carry. */
 export type ApiScope =
   | 'layouts:read'
@@ -655,8 +639,6 @@ export const api = {
     exportSidecarUrl: (id: string) => `/api/layouts/${id}/export.bbm.bld`,
     exportZipUrl: (id: string) => `/api/layouts/${id}/export.zip`,
     snapshot: (id: string) => getBytes(`/api/layouts/${id}/snapshot`),
-    saveSnapshot: (id: string, bytes: Uint8Array) =>
-      putBytes(`/api/layouts/${id}/snapshot`, bytes),
     enablePublicShare: (id: string) =>
       post<{ token: string }>(`/api/layouts/${id}/public-share`),
     disablePublicShare: (id: string) =>

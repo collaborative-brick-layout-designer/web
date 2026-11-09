@@ -77,7 +77,6 @@ const ACCESS: Record<string, [Access, Scope, Flags?]> = {
   'GET /api/layouts/:id/export.bbm': ['shared', 'layouts:read'],
   'GET /api/layouts/:id/export.bld-layout': ['shared', 'layouts:read'],
   'GET /api/layouts/:id/snapshot': ['shared', null],
-  'PUT /api/layouts/:id/snapshot': ['owner', null],
   'GET /api/layouts/:id/export.bbm.bld': ['shared', 'layouts:read'],
   'GET /api/layouts/:id/export.bbm.cld': ['shared', 'layouts:read'],
   'GET /api/layouts/:id/export.zip': ['shared', 'layouts:read'],

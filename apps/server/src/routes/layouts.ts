@@ -31,10 +31,8 @@ import { perPerson } from '../utils/rateLimits.js';
 import { backgroundImagePath, layoutFileBytes, smallZip } from '../privacy/exportFiles.js';
 import { attachment, safeFileName } from '../utils/contentDisposition.js';
 import { clampTitle, titleTooLong, trimmed } from '../utils/validate.js';
-import { checkUpdate } from '../ws/updateGuard.js';
-import { checkGridSizes } from '../ws/gridGuard.js';
-import { allowedBackgroundUrl, backgroundImageUrl, dropForeignBackgroundUrl, snapshotBackgroundProblem } from '../ws/backgroundGuard.js';
-import { applyStoredUpdate, snapshotWork } from '../ws/yjsWork.js';
+import { allowedBackgroundUrl, backgroundImageUrl, dropForeignBackgroundUrl } from '../ws/backgroundGuard.js';
+import { applyStoredUpdate } from '../ws/yjsWork.js';
 
 interface CreateLayoutBody {
   title?: string;
@@ -90,9 +88,9 @@ function tooLargeFor(user: { isDemoAccount: boolean }) {
 }
 
 export async function layoutRoutes(app: FastifyInstance) {
-  // Accept raw octet-stream bodies (binary Y.Doc snapshots). Without this,
-  // Fastify rejects PUT /api/layouts/:id/snapshot with 415. The 50MB ceiling
-  // matches the docSnapshot size limit enforced in the handler.
+  // Accept raw octet-stream bodies (binary Y.Doc snapshots: a module's
+  // PUT, a layout's import). Without this Fastify answers 415. The 50MB
+  // ceiling matches the docSnapshot size limit.
   if (!app.hasContentTypeParser('application/octet-stream')) {
     app.addContentTypeParser(
       'application/octet-stream',
@@ -520,80 +518,9 @@ export async function layoutRoutes(app: FastifyInstance) {
     return reply.send(bytes);
   });
 
-  // PUT replaces the snapshot wholesale. Phase 4 (realtime) replaces this
-  // with an incremental y-update protocol over WebSocket; for Phase 3 the
-  // single-user editor just persists the full doc on save.
-  app.put<{ Params: { id: string } }>('/api/layouts/:id/snapshot', async (req, reply) => {
-    const user = requireUser(req);
-    const role = await resolveResourceRole(user.id, 'layout', req.params.id);
-    // No role at all → 404 (existence-leak protection). Has a role but not
-    // editor (e.g. viewer) → 403, because the user already knows the
-    // resource exists.
-    if (role.role === null) return reply.code(404).send({ error: 'not_found' });
-    if (!hasAtLeast(role.role, 'editor')) return reply.code(403).send({ error: 'forbidden' });
-
-    const body = req.body;
-    if (!body || !(body instanceof Buffer || body instanceof Uint8Array)) {
-      return reply.code(400).send({ error: 'expected_binary_body' });
-    }
-    const bytes = body instanceof Buffer ? body : Buffer.from(body);
-    if (bytes.length === 0) return reply.code(400).send({ error: 'empty_snapshot' });
-    if (bytes.length > 50 * 1024 * 1024) {
-      return reply.code(413).send({ error: 'snapshot_too_large' });
-    }
-    // Only a document both apps can read (the live editor's check).
-    if (checkUpdate(bytes) !== null || checkGridSizes(null, bytes) !== null || snapshotWork(bytes) !== null) return reply.code(400).send({ error: 'unreadable_snapshot' });
-    // While the layout is open in the realtime editor, the in-memory doc
-    // is authoritative and its next flush would silently overwrite a
-    // wholesale replacement written here. Refuse instead of losing it.
-    if (docHub.has(req.params.id)) {
-      return reply.code(409).send({ error: 'layout_open_in_editor' });
-    }
-    // The background picture only ever comes from this server (ws/backgroundGuard.ts).
-    const badBackground = await snapshotBackgroundProblem(bytes, req.params.id, async () => {
-      const row = await db.select({ docSnapshot: schema.layouts.docSnapshot }).from(schema.layouts).where(eq(schema.layouts.id, req.params.id)).get();
-      return row ? currentDocBytes(req.params.id, row.docSnapshot as Uint8Array) : null;
-    });
-    if (badBackground !== null) return reply.code(400).send({ error: 'invalid_background_image' });
-    const existing = await db
-      .select({
-        ownerUserId: schema.layouts.ownerUserId,
-        ownerOrgId: schema.layouts.ownerOrgId,
-        bytes: sql<number>`length(${schema.layouts.docSnapshot})`.mapWith(Number),
-      })
-      .from(schema.layouts)
-      .where(eq(schema.layouts.id, req.params.id))
-      .get();
-    if (existing) {
-      const owner: Subject = existing.ownerOrgId ? { kind: 'org', id: existing.ownerOrgId } : { kind: 'user', id: existing.ownerUserId ?? user.id };
-      const refusal = await checkGrowth({ actor: user, owner, add: { bytes: bytes.length - existing.bytes }, uploadBytes: bytes.length });
-      if (refusal) return reply.code(refusal.status).send(refusal.body);
-    }
-
-    const updatedAt = new Date();
-    await db
-      .update(schema.layouts)
-      .set({
-        docSnapshot: bytes,
-        docVersion: (await currentVersion(req.params.id)) + 1,
-        updatedAt,
-      })
-      .where(eq(schema.layouts.id, req.params.id));
-    // A wholesale replacement supersedes any unflushed realtime updates;
-    // replaying them over the new snapshot on next hydrate would merge
-    // stale edits back in.
-    await db
-      .delete(schema.layoutUpdates)
-      .where(
-        and(
-          eq(schema.layoutUpdates.layoutId, req.params.id),
-          eq(schema.layoutUpdates.doc, 'main'),
-        ),
-      );
-    rollup.distinct('layouts_edited', '', req.params.id);
-    rollup.count('layout_edits', req.params.id);
-    return { ok: true, updatedAt: updatedAt.getTime() };
-  });
+  // No PUT /api/layouts/:id/snapshot: it replaced a layout's whole history
+  // and nothing used it (both apps save through the live room). Removed in
+  // the area 2 review (Idea 3).
 
   // ---- export (.bbm.bld sidecar) -------------------------------------------
   // Desktop loads the sidecar only from `<file>.bbm.bld` (SidecarIO.cpp
@@ -1065,15 +992,6 @@ export async function currentDocBytes(layoutId: string, snapshot: Uint8Array): P
   } finally {
     doc.destroy();
   }
-}
-
-async function currentVersion(layoutId: string): Promise<number> {
-  const row = await db
-    .select({ docVersion: schema.layouts.docVersion })
-    .from(schema.layouts)
-    .where(eq(schema.layouts.id, layoutId))
-    .get();
-  return row?.docVersion ?? 0;
 }
 
 /**

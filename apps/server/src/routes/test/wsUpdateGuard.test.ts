@@ -427,8 +427,8 @@ describe('WS update guard', () => {
       app.inject({ method: 'PUT', url, headers: { cookie: cookieStr, 'content-type': 'application/octet-stream' }, payload });
     const nul = setMetaRaw('x', Buffer.from([1, 0x77, 3, 0x61, 0, 0x62]), 8);
     const good = Buffer.from(encodeDoc(createDefaultLayoutDoc()));
-    expect((await put(`/api/layouts/${id}/snapshot`, nul)).json()).toEqual({ error: 'unreadable_snapshot' });
-    expect((await put(`/api/layouts/${id}/snapshot`, good)).statusCode).toBe(200);
+    // (Layouts have no snapshot PUT: they're saved through the live room, which checks the same.)
+    void id;
     const mod = await app.inject({ method: 'POST', url: '/api/modules', headers: { cookie: cookieStr }, payload: { title: 'Siding' } });
     expect(mod.statusCode).toBe(201);
     const modId = (mod.json() as { id: string }).id;
@@ -440,13 +440,11 @@ describe('WS update guard', () => {
     const zeroGrid = createDefaultLayoutDoc();
     for (const l of zeroGrid.getMap<Y.Map<unknown>>('layerData').values()) if (l.get('type') === 'grid') l.set('gridSizeInStud', 0);
     const zero = Buffer.from(encodeDoc(zeroGrid));
-    expect((await put(`/api/layouts/${id}/snapshot`, zero)).json()).toEqual({ error: 'unreadable_snapshot' });
     expect((await put(`/api/modules/${modId}/snapshot`, zero)).json()).toEqual({ error: 'unreadable_snapshot' });
     // …or a grid of a billion sub-divisions (drawingSettings.ts).
     const busyGrid = createDefaultLayoutDoc();
     for (const l of busyGrid.getMap<Y.Map<unknown>>('layerData').values()) if (l.get('type') === 'grid') l.set('subDivisionNumber', 1e9);
     const busy = Buffer.from(encodeDoc(busyGrid));
-    expect((await put(`/api/layouts/${id}/snapshot`, busy)).json()).toEqual({ error: 'unreadable_snapshot' });
     expect((await put(`/api/modules/${modId}/snapshot`, busy)).json()).toEqual({ error: 'unreadable_snapshot' });
   });
 });
