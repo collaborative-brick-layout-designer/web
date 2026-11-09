@@ -44,6 +44,11 @@ function connect(port: number, layoutId: string, cookieStr: string): Promise<Cli
 
 type Entry = { clientID: number; clock: number; state: unknown };
 
+/** A presence state of the shape the apps send, with `extra` on top. */
+function pres(displayName: string, extra: Record<string, unknown> = {}, user: Record<string, unknown> = {}): Record<string, unknown> {
+  return { user: { displayName, ...user }, selection: { brickIds: [] }, lastActivityMs: 1, ...extra };
+}
+
 function awarenessMsg(entries: Entry[]): Uint8Array {
   const inner = encoding.createEncoder();
   encoding.writeVarUint(inner, entries.length);
@@ -120,12 +125,12 @@ describe('WS presence', () => {
     const watcher = await client();
     await sleep(100);
     watcher.msgs.length = 0;
-    v.ws.send(awarenessMsg([{ clientID: 501, clock: 1, state: { user: { name: 'Vee' }, cursor: { x: 1, y: 2 } } }]));
+    v.ws.send(awarenessMsg([{ clientID: 501, clock: 1, state: pres('Vee', { cursor: { x: 1, y: 2 } }) }]));
     await sleep(100);
     const seen = awarenessSeen(watcher.msgs).filter((e) => e.clientID === 501);
-    expect(seen.at(-1)?.state).toEqual({ user: { name: 'Vee', id: viewer.id }, cursor: { x: 1, y: 2 } });
+    expect(seen.at(-1)?.state).toEqual(pres('Vee', { cursor: { x: 1, y: 2 } }, { id: viewer.id }));
     // A forged id is replaced too.
-    v.ws.send(awarenessMsg([{ clientID: 501, clock: 2, state: { user: { id: owner.id, name: 'Vee' } } }]));
+    v.ws.send(awarenessMsg([{ clientID: 501, clock: 2, state: pres('Vee', {}, { id: owner.id }) }]));
     await sleep(100);
     expect((states().get(501) as { user: { id: string } }).user.id).toBe(viewer.id);
     // And it goes when the viewer leaves.
@@ -142,14 +147,14 @@ describe('WS presence', () => {
     const watcher = await client();
     await sleep(100);
     const ALICE = 4242;
-    alice.ws.send(awarenessMsg([{ clientID: ALICE, clock: 1, state: { user: { id: owner.id, name: 'Alice' }, cursor: { x: 1 } } }]));
+    alice.ws.send(awarenessMsg([{ clientID: ALICE, clock: 1, state: pres('Alice', { cursor: { x: 1 } }, { id: owner.id }) }]));
     await sleep(100);
     watcher.msgs.length = 0;
-    other.ws.send(awarenessMsg([{ clientID: ALICE, clock: 2, state: { user: { name: 'Alice (2)' }, cursor: { x: 999 } } }]));
+    other.ws.send(awarenessMsg([{ clientID: ALICE, clock: 2, state: pres('Alice (2)', { cursor: { x: 999 } }) }]));
     other.ws.send(awarenessMsg([{ clientID: ALICE, clock: 3, state: null }]));
     await sleep(150);
     expect(awarenessSeen(watcher.msgs).filter((e) => e.clientID === ALICE)).toEqual([]);
-    expect(states().get(ALICE)).toEqual({ user: { id: owner.id, name: 'Alice' }, cursor: { x: 1 } });
+    expect(states().get(ALICE)).toEqual(pres('Alice', { cursor: { x: 1 } }, { id: owner.id }));
     other.ws.close();
     await other.closed;
     await sleep(100);
@@ -166,7 +171,7 @@ describe('WS presence', () => {
     await sleep(100);
     const serverId = docHub.peek(layoutId)!.awareness.clientID;
     const before = states().get(serverId);
-    c.ws.send(awarenessMsg([{ clientID: serverId, clock: 99, state: { user: { name: 'x' } } }]));
+    c.ws.send(awarenessMsg([{ clientID: serverId, clock: 99, state: pres('x') }]));
     await sleep(100);
     expect(states().get(serverId)).toEqual(before);
   });
@@ -174,14 +179,14 @@ describe('WS presence', () => {
   it('the same person reconnecting keeps their presence', async () => {
     const first = await client();
     await sleep(100);
-    first.ws.send(awarenessMsg([{ clientID: 77, clock: 1, state: { user: { name: 'A' } } }]));
+    first.ws.send(awarenessMsg([{ clientID: 77, clock: 1, state: pres('A') }]));
     await sleep(100);
     // A reconnect: the new connection is open before the old one closes.
     const second = await client();
     await sleep(50);
-    second.ws.send(awarenessMsg([{ clientID: 77, clock: 2, state: { user: { name: 'A' }, cursor: { x: 5 } } }]));
+    second.ws.send(awarenessMsg([{ clientID: 77, clock: 2, state: pres('A', { cursor: { x: 5 } }) }]));
     await sleep(100);
-    expect(states().get(77)).toEqual({ user: { name: 'A', id: owner.id }, cursor: { x: 5 } });
+    expect(states().get(77)).toEqual(pres('A', { cursor: { x: 5 } }, { id: owner.id }));
     first.ws.close();
     await first.closed;
     await sleep(100);
@@ -194,8 +199,8 @@ describe('WS presence', () => {
     const peer = await client();
     await sleep(100);
     peer.msgs.length = 0;
-    v.ws.send(awarenessMsg([{ clientID: 1, clock: 1, state: { blob: 'x'.repeat(MAX_AWARENESS_BYTES) } }]));
-    v.ws.send(awarenessMsg(Array.from({ length: 20_000 }, (_, i) => ({ clientID: 10_000 + i, clock: 1, state: { u: i } }))));
+    v.ws.send(awarenessMsg([{ clientID: 1, clock: 1, state: pres('big', { blob: 'x'.repeat(MAX_AWARENESS_BYTES) }) }]));
+    v.ws.send(awarenessMsg(Array.from({ length: 5_000 }, (_, i) => ({ clientID: 10_000 + i, clock: 1, state: pres(`u${i}`) }))));
     await sleep(300);
     expect(states().has(1)).toBe(false);
     const mine = [...states().keys()].filter((id) => id >= 10_000 && id < 30_000);
@@ -204,6 +209,31 @@ describe('WS presence', () => {
     const joiner = await client();
     await sleep(200);
     expect(awarenessSeen(joiner.msgs).length).toBeLessThanOrEqual(MAX_AWARENESS_IDS + 2);
+  });
+
+  it("drops presence that isn't a person's (a tab still opening the layout sends {})", async () => {
+    const c = await client();
+    const watcher = await client();
+    await sleep(100);
+    watcher.msgs.length = 0;
+    const bad: unknown[] = [
+      {},
+      { user: { id: 'x' } },
+      { user: { displayName: 'No selection' }, lastActivityMs: 1 },
+      { user: { displayName: 'No time' }, selection: { brickIds: [] } },
+      { user: { displayName: 7 }, selection: { brickIds: [] }, lastActivityMs: 1 },
+      { user: { displayName: 'Bad ids' }, selection: { brickIds: 'all' }, lastActivityMs: 1 },
+      [],
+      'x',
+    ];
+    c.ws.send(awarenessMsg(bad.map((state, i) => ({ clientID: 600 + i, clock: 1, state }))));
+    await sleep(150);
+    expect(awarenessSeen(watcher.msgs)).toEqual([]);
+    for (let i = 0; i < bad.length; i++) expect(states().has(600 + i)).toBe(false);
+    // Nor do they use up the connection's presence entries.
+    c.ws.send(awarenessMsg([1, 2, 3, 4].map((n) => ({ clientID: 700 + n, clock: 1, state: pres(`ok${n}`) }))));
+    await sleep(150);
+    expect([1, 2, 3, 4].every((n) => states().has(700 + n))).toBe(true);
   });
 
   it('passes the presence of someone who selected every part of a large layout', async () => {

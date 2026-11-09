@@ -35,6 +35,22 @@ export const MAX_AWARENESS_BYTES = 1024 * 1024;
 /** Awareness clientIDs one connection may own (an app uses one per layout it has open). */
 export const MAX_AWARENESS_IDS = 4;
 
+/**
+ * Whether a presence entry has the shape both apps draw: a name, a
+ * selection and when it last moved. Anything else (an empty `{}` from a tab
+ * still opening the layout, or a made-up one) is dropped: drawing it crashed
+ * every web editor in the room.
+ */
+export function isPresenceState(state: unknown): boolean {
+  if (state === null || typeof state !== 'object' || Array.isArray(state)) return false;
+  const s = state as Record<string, unknown>;
+  const user = s.user as Record<string, unknown> | null | undefined;
+  if (user === null || typeof user !== 'object' || Array.isArray(user) || typeof user.displayName !== 'string') return false;
+  const selection = s.selection as Record<string, unknown> | null | undefined;
+  if (selection === null || typeof selection !== 'object' || Array.isArray(selection) || !Array.isArray(selection.brickIds)) return false;
+  return typeof s.lastActivityMs === 'number' && Number.isFinite(s.lastActivityMs);
+}
+
 /** Live updates this close together are stored as one layout_updates row (DocSession.queuePersist)... */
 const PERSIST_BATCH_MS = 50;
 /** ...up to this many bytes. */
@@ -137,13 +153,15 @@ export class DocSession {
    *   - at most MAX_AWARENESS_IDS clientIDs per connection, and never the
    *     server's own;
    *   - `user.id` is always the signed-in user's, whatever was sent;
-   *   - a removal (state null) only of an entry it owns.
+   *   - a removal (state null) only of an entry it owns;
+   *   - only states with the shape the apps draw (isPresenceState).
    * The caller drops messages over MAX_AWARENESS_BYTES. Throws on a
-   * message that can't be read (the handler drops it).
+   * message that can't be read (the handler drops it). Returns how many
+   * entries were taken.
    */
-  applyClientAwareness(client: unknown, bytes: Uint8Array): void {
+  applyClientAwareness(client: unknown, bytes: Uint8Array): number {
     const userId = this.clientUsers.get(client);
-    if (userId === undefined) return;
+    if (userId === undefined) return 0;
     const dec = decoding.createDecoder(bytes);
     const enc = encoding.createEncoder();
     const kept: [number, number, string][] = [];
@@ -162,7 +180,7 @@ export class DocSession {
         kept.push([clientId, clock, 'null']);
         continue;
       }
-      if (typeof state !== 'object' || Array.isArray(state)) continue;
+      if (!isPresenceState(state)) continue;
       if (!mine) {
         if ((owned?.size ?? 0) >= MAX_AWARENESS_IDS) continue;
         // Claim it (or take it over from this person's earlier connection).
@@ -172,10 +190,10 @@ export class DocSession {
         owned.add(clientId);
       }
       const s = state as Record<string, unknown>;
-      const user = s.user !== null && typeof s.user === 'object' && !Array.isArray(s.user) ? (s.user as Record<string, unknown>) : {};
+      const user = s.user as Record<string, unknown>;
       kept.push([clientId, clock, JSON.stringify({ ...s, user: { ...user, id: userId } })]);
     }
-    if (kept.length === 0) return;
+    if (kept.length === 0) return 0;
     encoding.writeVarUint(enc, kept.length);
     for (const [clientId, clock, json] of kept) {
       encoding.writeVarUint(enc, clientId);
@@ -183,6 +201,7 @@ export class DocSession {
       encoding.writeVarString(enc, json);
     }
     applyAwarenessUpdate(this.awareness, encoding.toUint8Array(enc), client);
+    return kept.length;
   }
 
   /** Forget what a client owned (it disconnected). Returns the clientIDs it still owned. */

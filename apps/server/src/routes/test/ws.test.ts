@@ -426,7 +426,7 @@ describe('WS /ws/layout/:id — awareness broadcast', () => {
     // ws2 sends a fresh awareness update.
     const doc2 = new Y.Doc();
     const awareness2 = new awarenessProtocol.Awareness(doc2);
-    awareness2.setLocalState({ user: { id: editorUserId, name: 'Peer' } });
+    awareness2.setLocalState({ user: { id: editorUserId, displayName: 'Peer' }, selection: { brickIds: [] }, lastActivityMs: Date.now() });
     const awarenessBytes = awarenessProtocol.encodeAwarenessUpdate(awareness2, [doc2.clientID]);
     const enc = encoding.createEncoder();
     encoding.writeVarUint(enc, MESSAGE_AWARENESS);
