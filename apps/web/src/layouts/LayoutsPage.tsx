@@ -25,6 +25,8 @@ import { CustomPartsSection } from '../parts/CustomPartsSection';
 import { AddToCollectionDialog } from '../catalog/AddToCollection';
 import { HomeCollections } from '../catalog/Collections';
 import { WelcomeCard } from '../tours/WelcomeCard';
+import { WELCOME_ID } from '../tours/tours';
+import { usePreferences } from '../theme/PrefsProvider';
 import { lastLayoutToReopen } from './reopenLast';
 import { useEditorStore } from '../editor/editorStore';
 import { ModuleThumb } from '../modules/ModuleThumb';
@@ -44,12 +46,17 @@ export function LayoutsPage() {
   const modules = useQuery({ queryKey: ['modules'], queryFn: api.modules.list });
   const orgsQuery = useQuery({ queryKey: ['orgs'], queryFn: api.orgs.list });
   const orgs = orgsQuery.data?.orgs;
+  // The welcome card offers Join a club until it's put away; after that, a small card does.
+  const prefs = usePreferences();
   // All · Mine · each club; the last pick is remembered per person, and ?owner=<club> from a club page.
   const [filter, setFilter] = useOwnerFilter(orgs, me.data?.user?.id);
   // "Start layout" on a venue links here with ?newLayoutVenue=<id>[&owner=<club slug>].
   const [params, setParams] = useSearchParams();
   const startVenue = params.get('newLayoutVenue');
-  const [showCreate, setShowCreate] = useState(startVenue !== null);
+  // The editor's New layout (?new=1) opens the dialog; its Open another
+  // layout (?open=1) shows the list to pick from.
+  const [showCreate, setShowCreate] = useState(startVenue !== null || params.get('new') === '1');
+  const pickAnother = params.get('open') === '1';
   // A venue's Start layout links back to this same page, so the page is
   // already open: open the dialog whenever the link arrives, not just on load.
   useEffect(() => {
@@ -101,6 +108,14 @@ export function LayoutsPage() {
     if (listsReady && location.hash === '#parts') document.getElementById('parts')?.scrollIntoView({ block: 'start' });
   }, [listsReady, location.hash]);
 
+  // Open another layout: the list, in view, with a word on what to do.
+  useEffect(() => {
+    if (!pickAnother || list.isLoading) return;
+    const h = document.getElementById('layouts-heading');
+    h?.scrollIntoView({ block: 'start' });
+    h?.focus({ preventScroll: true });
+  }, [pickAnother, list.isLoading]);
+
   if (list.isLoading) return <p className="text-muted">Loading layouts…</p>;
 
   const myUserId = me.data?.user?.id;
@@ -115,6 +130,16 @@ export function LayoutsPage() {
     <section className="space-y-8">
       <WelcomeCard name={me.data?.user?.displayName} onLayout={() => setShowCreate(true)} />
 
+      {!hasClubs && orgsQuery.isSuccess && prefs.ready && prefs.prefs.toursSeen.includes(WELCOME_ID) && (
+        <div data-tour="clubs.join" data-testid="join-club-card" className="flex flex-wrap items-center justify-between gap-3 rounded-card border border-line bg-panel px-4 py-3">
+          <p className="text-sm text-muted">
+            <span className="font-semibold text-ink">Not in a club yet?</span> A club admin can send you an invite link, or you can start your own club.
+          </p>
+          <Link to="/orgs" className="tap-target rounded-lg border border-border px-3 py-1.5 text-sm font-semibold hover:bg-soft">
+            Join a club
+          </Link>
+        </div>
+      )}
       {hasClubs && orgs && (
         <div className="space-y-2" data-tour="owners.filter">
           <div className="flex flex-wrap items-center gap-2">
@@ -135,7 +160,7 @@ export function LayoutsPage() {
 
       <div className="space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className="text-2xl font-bold">Layouts</h2>
+          <h2 id="layouts-heading" tabIndex={-1} className="text-2xl font-bold outline-hidden">Layouts</h2>
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
@@ -153,6 +178,11 @@ export function LayoutsPage() {
             </button>
           </div>
         </div>
+        {pickAnother && (
+          <p data-testid="pick-another" role="status" className="rounded-lg border border-accent bg-accent-soft px-3 py-2 text-sm text-ink">
+            Pick a layout below to open it, or use <b>Open a file…</b> to bring one in.
+          </p>
+        )}
         <p className="flex items-start gap-1 text-sm text-muted" data-testid="open-formats">
           <span>{OPEN_FORMATS_LINE} You can also drop a file anywhere on this page.</span>
           <HelpButton helpKey="open.formats" />

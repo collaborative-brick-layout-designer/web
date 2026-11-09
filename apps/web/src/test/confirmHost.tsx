@@ -57,7 +57,8 @@ export function autoConfirm(...answers: Answer[]): { titles: string[]; texts: st
     const a = answers[Math.min(i++, answers.length - 1)] ?? true;
     const buttons = Array.from(d.querySelectorAll('button'));
     if (a === false) {
-      fireEvent.click(buttons.find((b) => b.textContent === 'Cancel')!);
+      // Cancel is the first button, whatever it says ("Stay", "Go back").
+      fireEvent.click(buttons[0]!);
       return;
     }
     const typed = d.querySelector<HTMLInputElement>('input');

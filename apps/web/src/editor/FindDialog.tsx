@@ -10,8 +10,12 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type * as Y from 'yjs';
 import type { BbmMap } from '@cld/model';
+import { useQuery } from '@tanstack/react-query';
+import { api, spriteUrlFor } from '../api';
 import { useEditorStore } from './editorStore';
-import { findHits, hitsSelection, replaceHits, type FindHit, type FindScope } from './findReplace';
+import { findHits, hitsSelection, replaceHits, unknownReplacements, type FindHit, type FindScope } from './findReplace';
+import { indexParts } from './partIndex';
+import { askConfirm } from '../ui/ConfirmDialog';
 
 interface Props {
   map: BbmMap;
@@ -80,13 +84,16 @@ export function FindDialog({ map, doc, onClose }: Props) {
   const setMixedSelection = useEditorStore((s) => s.setMixedSelection);
   const [needle, setNeedle] = useState('');
   const [replacement, setReplacement] = useState('');
-  // Desktop opens on "Text content", listed first (FindDialog.cpp:36-38).
-  const [scope, setScope] = useState<FindScope>('text');
+  // Parts first: what people look for most (desktop opens on text,
+  // FindDialog.cpp:36-38).
+  const [scope, setScope] = useState<FindScope>('part');
+  const catalog = useQuery({ queryKey: ['parts-catalog'], queryFn: api.parts.catalog, staleTime: 5 * 60 * 1000 });
+  const parts = useMemo(() => indexParts(catalog.data?.parts), [catalog.data]);
   const [matchCase, setMatchCase] = useState(false);
   // Index of the current match — the one "Replace" acts on.
   const [current, setCurrent] = useState(0);
 
-  const hits = useMemo(() => findHits(map, needle, scope, matchCase), [map, needle, scope, matchCase]);
+  const hits = useMemo(() => findHits(map, needle, scope, matchCase, parts), [map, needle, scope, matchCase, parts]);
   const cur = hits.length > 0 ? Math.min(current, hits.length - 1) : -1;
 
   // Live selection of every match, re-run when the query or the match set
@@ -113,18 +120,35 @@ export function FindDialog({ map, doc, onClose }: Props) {
   }
 
   function report(count: number) {
-    useEditorStore.getState().showNotice(`Replaced ${count} part${count === 1 ? '' : 's'}`);
+    const what = scope === 'part' ? (count === 1 ? 'part' : 'parts') : count === 1 ? 'text' : 'texts';
+    useEditorStore.getState().showNotice(count === 0 ? 'Nothing changed.' : `Replaced ${count} ${what}.`, count === 0 ? 'error' : 'done');
   }
 
-  function replaceCurrent() {
+  /** A part number the library doesn't have shows as a red ✕: ask before putting it on the map. */
+  async function partsKnownOrOk(which: readonly FindHit[]): Promise<boolean> {
+    if (scope !== 'part' || !catalog.data) return true;
+    const unknown = unknownReplacements(which, needle, replacement, matchCase, parts);
+    if (unknown.length === 0) return true;
+    const list = unknown.slice(0, 3).map((u) => `“${u}”`).join(', ') + (unknown.length > 3 ? ` and ${unknown.length - 3} more` : '');
+    return askConfirm({
+      title: unknown.length === 1 ? `${list} isn’t in the parts library` : 'These aren’t in the parts library',
+      removes: `${unknown.length === 1 ? '' : `${list}. `}A part that isn’t in the parts library shows on the map as a red ✕, and can’t be counted or snapped.`,
+      keeps: 'Check the part number, or pick one from the list under Replace.',
+      confirmLabel: 'Replace anyway',
+      cancelLabel: 'Go back',
+    });
+  }
+
+  async function replaceCurrent() {
     const h = hits[cur];
-    if (!h) return;
+    if (!h || !(await partsKnownOrOk([h]))) return;
     report(replaceHits(doc, [h], needle, replacement, matchCase));
     // The replaced item usually drops out of the list, so the same index
     // now points at the next match.
   }
 
-  function replaceAll() {
+  async function replaceAll() {
+    if (!(await partsKnownOrOk(hits))) return;
     report(replaceHits(doc, hits, needle, replacement, matchCase));
     setCurrent(0);
   }
@@ -151,8 +175,8 @@ export function FindDialog({ map, doc, onClose }: Props) {
             onChange={(e) => { setScope(e.target.value as FindScope); setCurrent(0); }}
             className="rounded-lg border border-border bg-soft px-2 py-1"
           >
-            <option value="text">Text content</option>
-            <option value="part">Part number</option>
+            <option value="part">Parts (name or number)</option>
+            <option value="text">Text on the map</option>
           </select>
           <label className="flex items-center gap-1">
             <input
@@ -166,8 +190,9 @@ export function FindDialog({ map, doc, onClose }: Props) {
 
         {/* Find row */}
         <div className="mt-3 flex items-center gap-2">
-          <span className="w-16 text-right text-xs text-muted">Find</span>
+          <label htmlFor="find-needle" className="w-16 text-right text-xs text-muted">Find</label>
           <input
+            id="find-needle"
             autoFocus
             value={needle}
             onChange={(e) => { setNeedle(e.target.value); setCurrent(0); }}
@@ -178,15 +203,17 @@ export function FindDialog({ map, doc, onClose }: Props) {
 
         {/* Replace row */}
         <div className="mt-2 flex flex-wrap items-center gap-2">
-          <span className="w-16 text-right text-xs text-muted">Replace</span>
+          <label htmlFor="find-replacement" className="w-16 text-right text-xs text-muted">Replace</label>
           <input
+            id="find-replacement"
             value={replacement}
             onChange={(e) => setReplacement(e.target.value)}
-            placeholder={scope === 'part' ? 'New part-number text…' : 'Replacement…'}
+            list={scope === 'part' ? 'find-part-numbers' : undefined}
+            placeholder={scope === 'part' ? 'The new part’s number…' : 'New text…'}
             className="flex-1 rounded-lg border border-border bg-soft px-2 py-1 text-sm"
           />
           <button
-            onClick={replaceCurrent}
+            onClick={() => void replaceCurrent()}
             disabled={cur < 0}
             title="Replace the current (highlighted) match"
             className="rounded-lg border border-border px-3 py-1 text-xs hover:bg-soft disabled:opacity-40"
@@ -194,7 +221,7 @@ export function FindDialog({ map, doc, onClose }: Props) {
             Replace
           </button>
           <button
-            onClick={replaceAll}
+            onClick={() => void replaceAll()}
             disabled={!needle.trim() || hits.length === 0}
             className="rounded-lg bg-accent px-3 py-1 text-xs text-accent-ink hover:bg-accent-hover disabled:opacity-40"
           >
@@ -224,7 +251,10 @@ export function FindDialog({ map, doc, onClose }: Props) {
                       (i === cur ? 'bg-blue-950/60 text-ink' : '')
                     }
                   >
-                    {h.preview}
+                    <span className="flex items-center gap-2">
+                      {h.brickId !== undefined && <PartPicture part={parts.get(h.value.toLowerCase())} />}
+                      <span className="min-w-0 truncate">{h.preview}</span>
+                    </span>
                   </button>
                 </li>
               ))}
@@ -232,6 +262,13 @@ export function FindDialog({ map, doc, onClose }: Props) {
           )}
         </div>
 
+        {scope === 'part' && (
+          <datalist id="find-part-numbers">
+            {(catalog.data?.parts ?? []).filter((p) => !p.notListed).map((p) => (
+              <option key={p.key} value={p.key}>{p.description}</option>
+            ))}
+          </datalist>
+        )}
         <div className="mt-3 flex items-center justify-between text-xs text-muted">
           <span>{hits.length} match{hits.length === 1 ? '' : 'es'}</span>
           <button
@@ -244,4 +281,11 @@ export function FindDialog({ map, doc, onClose }: Props) {
       </div>
     </div>
   );
+}
+
+/** A small picture of the part in the results, or nothing when the library doesn't have it. */
+function PartPicture({ part }: { part: import('../api').PartWire | undefined }) {
+  const url = part ? spriteUrlFor(part) : '';
+  if (!url) return <span aria-hidden className="inline-block size-6 shrink-0 text-center text-danger">✕</span>;
+  return <img src={url} alt="" loading="lazy" className="size-6 shrink-0 object-contain" />;
 }

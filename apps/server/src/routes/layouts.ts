@@ -231,7 +231,8 @@ export async function layoutRoutes(app: FastifyInstance) {
         const parsed = readBbm(body.bbm);
         // If no title was provided, derive one from the .bbm metadata —
         // either the LUG/Event line or fall back to default.
-        if (!trimmed(body.title) && parsed.map.event) title = clampTitle(parsed.map.event);
+        // BlueBrick's own "Unknown Event" (a map nobody named) isn't a title.
+        if (!trimmed(body.title) && parsed.map.event && parsed.map.event.trim() !== 'Unknown Event') title = clampTitle(parsed.map.event);
         doc = seedFromBbm(parsed.map);
       } catch (e) {
         return reply.code(400).send({ error: 'bbm_parse_failed', detail: (e as Error).message });

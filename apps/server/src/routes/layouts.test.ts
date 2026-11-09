@@ -160,6 +160,16 @@ describe('layout routes', () => {
     expect(refused.statusCode).toBe(404);
   });
 
+  it('names an untitled layout after the .bbm event, but not BlueBrick\'s "Unknown Event"', async () => {
+    const cookieStr = await registerAndLogin(app, 'nina@example.com');
+    const fordyce = await app.inject({ method: 'POST', url: '/api/layouts', headers: { cookie: cookieStr }, payload: { bbm: FORDYCE_BBM } });
+    expect((fordyce.json() as { title: string }).title).toBe('Fordyce 2026');
+    const unnamed = readFileSync(resolve(FIXTURES, 'tight-corner.bbm'), 'utf8');
+    const res = await app.inject({ method: 'POST', url: '/api/layouts', headers: { cookie: cookieStr }, payload: { bbm: unnamed } });
+    expect(res.statusCode).toBe(201);
+    expect((res.json() as { title: string }).title).not.toBe('Unknown Event');
+  });
+
   it('rejects garbage .bbm payloads with 400', async () => {
     const cookieStr = await registerAndLogin(app, 'carol@example.com');
     const res = await app.inject({

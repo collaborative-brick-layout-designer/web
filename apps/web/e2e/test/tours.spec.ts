@@ -98,8 +98,18 @@ test('Settings starts a tour, and Show tours again brings the welcome back', asy
   await page.goto('/settings');
   await page.getByRole('group', { name: 'Take a tour' }).getByRole('button', { name: 'Clubs' }).click();
   await expect(page).toHaveURL(/\/$/);
-  await expect(card(page)).toHaveAccessibleName(tour('clubs').steps[0]!.title);
-  await card(page).getByRole('button', { name: 'Skip' }).click();
+  // In no club yet: the tour leaves out "Mine and my clubs'" (nothing to
+  // point at), and its last step outlines the Home page's Join a club card.
+  const forClubless = tour('clubs').steps.filter((st) => !(st as { needsClub?: boolean }).needsClub);
+  expect(forClubless.length).toBe(tour('clubs').steps.length - 1);
+  await expect(card(page)).toHaveAccessibleName(forClubless[0]!.title);
+  for (let i = 1; i < forClubless.length; i++) {
+    await card(page).getByRole('button', { name: 'Next' }).click();
+    await expect(card(page)).toHaveAccessibleName(forClubless[i]!.title);
+  }
+  await expect(page.getByTestId('join-club-card')).toBeVisible();
+  await expect(page.getByTestId('tour-highlight')).toBeVisible();
+  await card(page).getByRole('button', { name: 'Done' }).click();
   await expect.poll(() => prefs(page)).toContain('clubs');
   await page.goto('/settings');
   await page.getByRole('button', { name: 'Show tours again' }).click();

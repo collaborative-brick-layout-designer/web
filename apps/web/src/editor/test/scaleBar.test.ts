@@ -18,6 +18,10 @@ describe('scaleBar', () => {
     expect(scaleBar(0.4)).toMatchObject({ studs: 256, secondary: '2.05 m' });
   });
 
+  it('says "1 stud", not "1 studs", zoomed right in', () => {
+    expect(scaleBar(120)).toMatchObject({ studs: 1, primary: '1 stud', secondary: '8 mm' });
+  });
+
   it('the bar width is the step at the current zoom', () => {
     const b = scaleBar(3)!;
     expect(b.px).toBe(b.studs * 3);

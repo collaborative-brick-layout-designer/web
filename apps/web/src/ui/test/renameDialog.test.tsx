@@ -21,7 +21,7 @@ describe('renaming a layout', () => {
   });
 
   it('won’t save an empty name, and keeps the box open on a failure', async () => {
-    const onSave = vi.fn(() => Promise.reject(new Error('offline')));
+    const onSave = vi.fn(() => Promise.reject(new Error('')));
     const onClose = vi.fn();
     const view = render(<RenameDialog heading="Rename layout" current="Yard" onSave={onSave} onClose={onClose} />);
     const input = view.getByRole('textbox');
@@ -31,6 +31,14 @@ describe('renaming a layout', () => {
     fireEvent.click(view.getByRole('button', { name: 'Rename' }));
     await waitFor(() => expect(view.getByText(/Couldn’t rename it/)).toBeTruthy());
     expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('says why when the save gives a reason', async () => {
+    const onSave = vi.fn(() => Promise.reject(new Error('There’s already a venue called “Hall”.')));
+    const view = render(<RenameDialog heading="Rename venue" current="Gym" onSave={onSave} onClose={vi.fn()} />);
+    fireEvent.change(view.getByRole('textbox'), { target: { value: 'Hall' } });
+    fireEvent.click(view.getByRole('button', { name: 'Rename' }));
+    await waitFor(() => expect(view.getByText('There’s already a venue called “Hall”.')).toBeTruthy());
   });
 
   it('the layout name menu offers Rename… only when it may be renamed', () => {

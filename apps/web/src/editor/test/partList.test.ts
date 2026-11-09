@@ -128,6 +128,14 @@ describe('CSV formula defusing', () => {
     const csv = partListCsv(buildPartList(map, parts, { limits: new Map([['3811.1', 0]]) }), true).split('\n');
     expect(csv[1]).toBe('3811,1,Blue,Baseplate 32 x 32,0,1,200');
   });
+
+  it('usage of 1,000 % and more has no thousands comma, so the row keeps its seven columns', () => {
+    const map = { author: '', lug: '', event: '', comment: '', date: { day: 1, month: 1, year: 2026 },
+      layers: [{ type: 'brick', name: '', visible: true, bricks: Array.from({ length: 26 }, () => ({ partNumber: '3811.1' })) }] } as unknown as BbmMap;
+    const csv = partListCsv(buildPartList(map, parts, { limits: new Map([['3811.1', 1]]) }), true).split('\n');
+    expect(csv[1]).toBe('3811,26,Blue,Baseplate 32 x 32,1,25,2600');
+    expect(csv[1]!.split(',')).toHaveLength(7);
+  });
 });
 
 describe('HTML', () => {

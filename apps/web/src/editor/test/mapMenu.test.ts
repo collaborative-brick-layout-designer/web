@@ -118,7 +118,7 @@ describe('Map menu', () => {
   it('shows shortcuts beside the label, not in it', () => {
     const { menu } = setup();
     expect(find(menu, 'Find…')).toMatchObject({ label: 'Find…', shortcut: 'Ctrl+F' });
-    expect(find(menu, 'Insert', 'Text…')).toMatchObject({ shortcut: 'Ctrl+T' });
+    expect(find(menu, 'Insert', 'Text…')).toMatchObject({ shortcut: 'T' });
     expect(find(menu, 'Insert', 'Anchored label…')).toMatchObject({ shortcut: 'Ctrl+L' });
     expect(find(menu, 'View', 'Fit to view')).toMatchObject({ shortcut: 'F' });
     expect(find(menu, 'Preferences…')).toMatchObject({ shortcut: 'Ctrl+,' });

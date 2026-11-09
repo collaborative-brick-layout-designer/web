@@ -36,8 +36,11 @@ export const PartsPanel = memo(function PartsPanel({
   budgetLimits,
   map,
   canUploadPart = false,
+  mapEmpty = false,
 }: {
   onPlacePart: (part: PartWire) => void;
+  /** Nothing on the map yet: one click on a part adds it (later, a click picks and a double-click adds). */
+  mapEmpty?: boolean;
   /** Offer "Upload part…" (signed in, not a demo account). */
   canUploadPart?: boolean;
   /** The layout's budget; without limits there is no budget to show or filter by. */
@@ -171,6 +174,10 @@ export const PartsPanel = memo(function PartsPanel({
   }, [data, filter, category, hasBudget, showOnlyBudgeted, budgetLimits, defaultInfinite, inOpenSet, showHidden, selectedTile]);
 
   /** Place a part from the list: never one that is only used inside sets. */
+  // A click that added the part (empty map): the double-click it may be
+  // the start of doesn't add a second one. Tied to the one gesture (the
+  // click's count), so a later double-click still adds.
+  const clickPlaced = useRef(false);
   function place(p: PartWire) {
     if (p.notListed) {
       useEditorStore.getState().showNotice(hiddenPartNotice(p), 'error', 7000);
@@ -281,8 +288,20 @@ export const PartsPanel = memo(function PartsPanel({
                   aria-pressed={selectedTile === p.key}
                   data-part-key={p.key}
                   data-hidden-part={p.notListed ? 'true' : undefined}
-                  onClick={() => setSelectedTile(p.key)}
-                  onDoubleClick={() => place(p)}
+                  onClick={(e) => {
+                    setSelectedTile(p.key);
+                    // The first click of a gesture (detail 1); the second of a double-click adds nothing.
+                    if (e.detail > 1) return;
+                    clickPlaced.current = mapEmpty && !p.notListed;
+                    if (clickPlaced.current) place(p);
+                  }}
+                  onDoubleClick={() => {
+                    if (clickPlaced.current) {
+                      clickPlaced.current = false;
+                      return;
+                    }
+                    place(p);
+                  }}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') {
                       e.preventDefault();

@@ -8,7 +8,7 @@ import { docToBbm, readSidecarFromDoc } from '@cld/ydoc';
 import type { PartWire } from '../api';
 import { layoutFileDownload, layoutSourceHere, type LayoutImage } from '../layoutFile';
 import { layoutPartFiles } from '../layoutParts';
-import { noticeDownloaded } from './editorStore';
+import { noticeDownloaded, useEditorStore } from './editorStore';
 import { sameOriginImageUrl } from './background';
 
 export function saveFile(file: { filename: string; type: string; data: Uint8Array }): void {
@@ -68,7 +68,7 @@ export async function downloadLocalLayout(
     );
     return true;
   } catch (e) {
-    window.alert(`Could not build the layout file: ${(e as Error).message}`);
+    useEditorStore.getState().showNotice(`Couldn’t make the layout file: ${(e as Error).message}`, 'error', 10000);
     return false;
   }
 }

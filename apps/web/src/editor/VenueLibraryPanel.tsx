@@ -1,8 +1,9 @@
 // Venue Library panel — port of VenueLibraryPanel.cpp: lists saved venues
 // from the server; the selected one shows its details and can be loaded
-// into the layout, renamed (refused onto another saved venue's name,
-// VenueLibraryPanel.cpp:244-255) or deleted; "Save Current Venue" saves
-// the layout's venue, asking before overwriting one with the same name.
+// into the layout ("Use in this layout"), renamed (refused onto another
+// saved venue's name, VenueLibraryPanel.cpp:244-255) or deleted; "Save this
+// layout's venue" saves it, asking before overwriting one with the same
+// name. A layout with no venue yet gets a "Draw your venue" card.
 
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -16,13 +17,25 @@ import { askOverwrite, saveVenueToLibrary, venueDetail, venueNamed } from './ven
 import { VenueSaveLibraryDialog } from './VenueSaveLibraryDialog';
 import { confirmDelete, toastDeleted } from '../ui/ConfirmDialog';
 import { VENUE_DELETE_WORDING } from '../ui/deleteWording';
+import { RenameDialog } from '../ui/RenameDialog';
+import { useYjsSnapshot } from './useYjsSnapshot';
 
 interface Props {
   doc: Y.Doc;
   isViewer: boolean;
+  /** The ways to make the layout's venue, for the "Draw your venue" card. */
+  onDrawOutline?: () => void;
+  onDimensions?: () => void;
+  onDesigner?: () => void;
 }
 
-export function VenueLibraryPanel({ doc, isViewer }: Props) {
+const notice = (text: string, kind: 'done' | 'error' = 'error') => useEditorStore.getState().showNotice(text, kind, kind === 'error' ? 8000 : 6000);
+
+export function VenueLibraryPanel({ doc, isViewer, onDrawOutline, onDimensions, onDesigner }: Props) {
+  // The card follows the layout's venue as it's drawn or cleared.
+  useYjsSnapshot(doc.getMap('meta') as unknown as Y.AbstractType<unknown>);
+  const hasVenue = !!readSidecarFromDoc(doc)?.venue;
+  const [renaming, setRenaming] = useState<{ id: string; name: string; ownerOrgId: string | null } | null>(null);
   const qc = useQueryClient();
   const [filter, setFilter] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -53,7 +66,6 @@ export function VenueLibraryPanel({ doc, isViewer }: Props) {
   const rename = useMutation({
     mutationFn: ({ id, name }: { id: string; name: string }) => api.venues.rename(id, name),
     onSuccess: () => refresh(),
-    onError: (e) => alert(`Could not rename the venue: ${(e as Error).message}`),
   });
 
   const venues = list.data?.venues ?? [];
@@ -64,34 +76,56 @@ export function VenueLibraryPanel({ doc, isViewer }: Props) {
     try {
       const { data } = await api.venues.get(id);
       setVenue(doc, data as Venue);
-    } catch {
-      alert('Failed to load venue from library.');
+      notice('The venue is in this layout now.', 'done');
+    } catch (e) {
+      notice(`Couldn’t use that venue: ${(e as Error).message}`);
     }
   }
 
-  function onRename(v: { id: string; name: string; ownerOrgId: string | null }) {
-    const next = prompt('New name:', v.name)?.trim();
-    if (!next || next === v.name) return;
-    if (venueNamed(venues, next, v.ownerOrgId, v.id)) {
-      alert(`"${next}" already exists.`);
-      return;
-    }
-    rename.mutate({ id: v.id, name: next });
+  async function saveRename(v: { id: string; name: string; ownerOrgId: string | null }, next: string) {
+    // Refused onto another saved venue's name (VenueLibraryPanel.cpp:244-255).
+    if (venueNamed(venues, next, v.ownerOrgId, v.id)) throw new Error(`There’s already a venue called “${next}”.`);
+    await rename.mutateAsync({ id: v.id, name: next });
   }
 
   function onSaveCurrent() {
     const venue = readSidecarFromDoc(doc)?.venue;
     if (!venue) {
-      alert('There is no venue on the current project.');
+      notice('This layout has no venue yet. Draw one first.');
       return;
     }
     setSaving(venue);
   }
 
-  const btn = 'rounded-lg border border-border px-2 py-0.5 hover:bg-neutral-700 disabled:opacity-40';
+  const btn = 'rounded-lg border border-border px-2 py-0.5 hover:bg-soft disabled:opacity-40';
 
   return (
     <div className="flex h-full flex-col overflow-y-auto text-xs">
+      {!isViewer && !hasVenue && (
+        <div data-testid="draw-venue-card" className="space-y-1.5 border-b border-line bg-soft/60 p-2 text-sm">
+          <p className="text-xs text-muted">
+            <span className="font-semibold text-ink">Draw your venue:</span> the hall your layout has to fit in. Parts too close to its walls are pointed out.
+          </p>
+          <div className="flex flex-wrap gap-1.5">
+            {onDesigner && (
+              <button type="button" className="rounded-lg bg-accent px-2.5 py-1 text-xs font-semibold text-accent-ink hover:bg-accent-hover" onClick={onDesigner}>
+                Open the venue designer
+              </button>
+            )}
+            {onDrawOutline && (
+              <button type="button" className={btn} onClick={onDrawOutline}>
+                Draw on the map
+              </button>
+            )}
+            {onDimensions && (
+              <button type="button" className={btn} onClick={onDimensions}>
+                Type in the sizes…
+              </button>
+            )}
+          </div>
+          {venues.length > 0 && <p className="text-xs text-muted">Or pick a saved venue below and choose Use in this layout.</p>}
+        </div>
+      )}
       <div className="border-b border-line p-2">
         <input
           placeholder="Filter venues…"
@@ -132,12 +166,12 @@ export function VenueLibraryPanel({ doc, isViewer }: Props) {
           </p>
           <div className="flex flex-wrap gap-1">
             <button className={btn} disabled={!current} onClick={() => current && void load(current.id)}>
-              Load into Project
+              Use in this layout
             </button>
-            <button className={btn} onClick={onSaveCurrent}>
-              Save Current Venue
+            <button className={btn} disabled={!hasVenue} title={hasVenue ? undefined : 'This layout has no venue yet'} onClick={onSaveCurrent}>
+              Save this layout’s venue…
             </button>
-            <button className={btn} disabled={!current} onClick={() => current && onRename(current)}>
+            <button className={btn} disabled={!current} onClick={() => current && setRenaming(current)}>
               Rename…
             </button>
             <button
@@ -169,10 +203,13 @@ export function VenueLibraryPanel({ doc, isViewer }: Props) {
                 useEditorStore.getState().showNotice('Venue saved to the Venue library.');
                 return refresh();
               })
-              .catch((e) => alert(`Failed to save venue to library: ${(e as Error).message}`));
+              .catch((e) => notice(`Couldn’t save the venue: ${(e as Error).message}`));
           }}
           onClose={() => setSaving(null)}
         />
+      )}
+      {renaming && (
+        <RenameDialog heading="Rename venue" current={renaming.name} onSave={(name) => saveRename(renaming, name)} onClose={() => setRenaming(null)} />
       )}
     </div>
   );

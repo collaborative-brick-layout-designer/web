@@ -30,7 +30,7 @@ export function scaleBar(pxPerStud: number): ScaleBar | null {
   return {
     studs,
     px: studs * pxPerStud,
-    primary: `${studs} studs`,
+    primary: `${studs} ${studs === 1 ? 'stud' : 'studs'}`,
     secondary: mm >= 1000 ? `${(mm / 1000).toFixed(2)} m` : `${mm} mm`,
   };
 }

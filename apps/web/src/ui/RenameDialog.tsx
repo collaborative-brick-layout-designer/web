@@ -37,8 +37,9 @@ export function RenameDialog({
     try {
       await onSave(trimmed);
       onClose();
-    } catch {
-      setError('Couldn’t rename it. Check your connection and try again.');
+    } catch (e) {
+      // The reason when there is one ("There’s already a venue called …").
+      setError(e instanceof Error && e.message ? e.message : 'Couldn’t rename it. Check your connection and try again.');
       setBusy(false);
     }
   };

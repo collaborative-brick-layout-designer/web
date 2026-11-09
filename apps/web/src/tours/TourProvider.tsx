@@ -11,7 +11,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { api } from '../api';
 import { usePreferences } from '../theme/PrefsProvider';
-import { forDevice, getTour, markSeen, stepCount, TOUR_BUTTONS, type Tour } from './tours';
+import { forClubless, forDevice, getTour, markSeen, stepCount, TOUR_BUTTONS, type Tour } from './tours';
 import { LAST_LAYOUT_KEY } from '../layouts/reopenLast';
 
 /** Phones get the shorter tours (same breakpoint as the editor's phone viewer). */
@@ -71,11 +71,11 @@ export function TourProvider({ children }: { children: ReactNode }) {
   const focusBefore = useRef<HTMLElement | null>(null);
   const startTour = useCallback(
     (id: string) => {
-      const tour = getTour(forDevice(id, isPhoneScreen()));
-      if (!tour) return;
+      const found = getTour(forDevice(id, isPhoneScreen()));
+      if (!found) return;
       focusBefore.current = document.activeElement as HTMLElement | null;
       void goWhereTourIs(
-        tour,
+        found,
         location.pathname,
         navigate,
         async () => (await api.layouts.list()).layouts,
@@ -86,7 +86,13 @@ export function TourProvider({ children }: { children: ReactNode }) {
         },
       )
         .catch(() => undefined)
-        .then(() => setActive({ tour, step: 0 }));
+        // Someone in no club skips the steps about their clubs' things.
+        .then(async () => {
+          if (!found.steps.some((s) => s.needsClub)) return found;
+          const orgs = await qc.fetchQuery({ queryKey: ['orgs'], queryFn: api.orgs.list, staleTime: 30_000 }).catch(() => null);
+          return forClubless(found, (orgs?.orgs?.length ?? 1) > 0);
+        })
+        .then((tour) => setActive({ tour, step: 0 }));
     },
     [location.pathname, navigate, qc],
   );

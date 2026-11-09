@@ -16,6 +16,8 @@ export interface TourStep {
   text: string;
   /** Only in these apps; every app when left out. */
   apps?: ('web' | 'desktop')[];
+  /** Only for someone in a club (it points at what only club members have). */
+  needsClub?: boolean;
 }
 
 export interface Tour {
@@ -36,6 +38,11 @@ export const TOUR_BUTTONS = catalogue.buttons;
 
 export function getTour(id: string): Tour | undefined {
   return TOURS.find((t) => t.id === id);
+}
+
+/** The tour without the steps that need a club, for someone in none. */
+export function forClubless(tour: Tour, inAClub: boolean): Tour {
+  return inAClub ? tour : { ...tour, steps: tour.steps.filter((s) => !s.needsClub) };
 }
 
 /** The tours offered on this screen size. */

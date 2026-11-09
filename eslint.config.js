@@ -42,6 +42,9 @@ export default tseslint.config(
     rules: {
       'react-hooks/rules-of-hooks': 'error',
       'react-hooks/exhaustive-deps': 'warn',
+      // The app's own notices and questions (showNotice, showToast,
+      // askConfirm, RenameDialog), never the browser's alert boxes.
+      'no-alert': 'error',
     },
   },
 );

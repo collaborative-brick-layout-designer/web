@@ -40,8 +40,18 @@ export function renamedSheet(current: string, typed: string): string | null {
   return next;
 }
 
-export function sheetName(layer: Pick<Layer, 'name'> | undefined | null): string {
-  return layer?.name ? displaySheetName(layer.name) : 'unnamed';
+/** What a sheet with no name is called: its kind ("Grid"), not "(untitled)". */
+export const UNNAMED_SHEET: Record<Layer['type'], string> = {
+  grid: 'Grid',
+  brick: 'Parts',
+  text: 'Text',
+  area: 'Area',
+  ruler: 'Rulers',
+};
+
+export function sheetName(layer: (Pick<Layer, 'name'> & Partial<Pick<Layer, 'type'>>) | undefined | null): string {
+  if (layer?.name) return displaySheetName(layer.name);
+  return layer?.type ? UNNAMED_SHEET[layer.type] : 'unnamed';
 }
 
 type SheetLike = Pick<Layer, 'id' | 'type' | 'name' | 'visible'>;

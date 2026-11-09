@@ -125,7 +125,7 @@ export function LayerOptionsDialog({ layer, doc, onClose }: Props) {
               className={inputCls}
             />
           </label>
-          {number('Transparency (%)', form.transparency, 0, 100, (v) => set('transparency', v))}
+          {number('Opacity (%)', form.transparency, 0, 100, (v) => set('transparency', v))}
           {check('Visible', form.visible, (v) => set('visible', v))}
           {check('Display selection hulls', form.hullVisible, (v) => set('hullVisible', v))}
           {color('Hull color', form.hullArgb, (v) => set('hullArgb', v))}

@@ -30,7 +30,7 @@ import {
 import { LayerOptionsDialog } from './LayerOptionsDialog';
 import { confirmDelete } from '../ui/ConfirmDialog';
 import { deleteSheetWording } from './sheetContents';
-import { displaySheetName, renamedSheet, SHEET_GLYPH } from './activeSheet';
+import { displaySheetName, renamedSheet, sheetName, SHEET_GLYPH } from './activeSheet';
 
 interface Props {
   map: BbmMap;
@@ -168,6 +168,7 @@ function LayerRow({
   onActivate: () => void;
 }) {
   const [editing, setEditing] = useState(false);
+  const shownName = sheetName(layer);
   const [draftName, setDraftName] = useState(displaySheetName(layer.name));
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
   const [showOptions, setShowOptions] = useState(false);
@@ -252,7 +253,8 @@ function LayerRow({
             disabled={isViewer}
             onClick={(e) => e.stopPropagation()}
             onChange={(e) => setLayerVisible(doc, layer.id, e.target.checked)}
-            title="Visible"
+            title="Show this sheet"
+            aria-label={`Show ${shownName}`}
             className="cursor-pointer"
           />
         </label>
@@ -287,7 +289,7 @@ function LayerRow({
               (layer.visible ? '' : 'text-muted line-through')
             }
           >
-            {layer.name ? displaySheetName(layer.name) : '(untitled)'}
+            {shownName}
           </span>
         )}
         {isActive && !editing && (
@@ -317,7 +319,8 @@ function LayerRow({
           disabled={isViewer}
           onClick={(e) => e.stopPropagation()}
           onChange={(e) => setLayerTransparency(doc, layer.id, parseInt(e.target.value, 10))}
-          title="Transparency (0% transparent → 100% opaque)"
+          title="Opacity: 100% is solid, lower lets what's under the sheet show through"
+          aria-label={`Opacity of ${shownName}`}
           className="flex-1 accent-accent pointer-coarse:h-11"
         />
         <span className="w-7 text-right tabular-nums">{layer.transparency}%</span>

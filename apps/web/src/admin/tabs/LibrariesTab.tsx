@@ -194,12 +194,23 @@ export function PartLibrariesTab() {
         prev.map((c) => c.sourceUrl === pkg.sourceUrl ? { ...c, installing: true, err: '' } : c),
       );
       try {
-        await api.admin.downloadPartLibrary({
+        const body = {
           name: pkg.version ? `${pkg.name} (v${pkg.version})` : pkg.name,
           slug,
           sourceUrl: pkg.sourceUrl,
           defaultEnabled,
-        });
+        };
+        // Too many in a row: wait as long as the server says, then carry on.
+        for (let attempt = 0; ; attempt++) {
+          try {
+            await api.admin.downloadPartLibrary(body);
+            break;
+          } catch (e) {
+            const wait = attempt < 3 ? waitFromTooMany(e) : null;
+            if (wait === null) throw e;
+            await new Promise((r) => setTimeout(r, wait));
+          }
+        }
         setCandidates((prev) =>
           prev.map((c) =>
             c.sourceUrl === pkg.sourceUrl
@@ -658,6 +669,14 @@ export function PartLibrariesTab() {
       </section>
     </div>
   );
+}
+
+/** How long to wait (ms) when `e` is the server's "Too many tries. Please wait 30 seconds…"; null for any other error. */
+export function waitFromTooMany(e: unknown): number | null {
+  const m = e instanceof Error ? /^Too many tries\. Please wait (?:(\d+) (second|minute)s?|a little)/.exec(e.message) : null;
+  if (!m) return null;
+  if (!m[1]) return 30_000;
+  return Number(m[1]) * (m[2] === 'minute' ? 60_000 : 1000) + 500;
 }
 
 // ---------------------------------------------------------------------------

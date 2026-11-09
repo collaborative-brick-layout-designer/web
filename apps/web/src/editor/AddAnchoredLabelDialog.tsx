@@ -40,7 +40,9 @@ export function AddAnchoredLabelDialog({ doc, defaultTargetId, initialLabel, vie
   const isEdit = !!initialLabel;
   const initStyle = (initialLabel?.font.style ?? '').toLowerCase();
   const [text, setText] = useState(initialLabel?.text ?? '');
-  const [fontFamily, setFontFamily] = useState<string>(initialLabel?.font.family ?? DEFAULT_LABEL_FONT.family);
+  // Every label draws in the app's map font (render/mapText.ts), so there's
+  // no font to pick here; the family the file names is kept as it is.
+  const fontFamily = initialLabel?.font.family ?? DEFAULT_LABEL_FONT.family;
   const [fontSize, setFontSize] = useState<number>(initialLabel?.font.size ?? DEFAULT_LABEL_FONT.size);
   const [isBold, setIsBold] = useState(initStyle.includes('bold'));
   const [isItalic, setIsItalic] = useState(initStyle.includes('italic'));
@@ -94,11 +96,11 @@ export function AddAnchoredLabelDialog({ doc, defaultTargetId, initialLabel, vie
     <div
       role="dialog" aria-label="Anchored label"
       aria-modal="true"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+      className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/60 p-4"
       onClick={onClose}
     >
       <div
-        className="w-md rounded-lg border border-border bg-panel p-5 shadow-xl"
+        className="w-full max-w-md rounded-lg border border-border bg-panel p-5 shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-4 flex items-center gap-2">
@@ -108,8 +110,9 @@ export function AddAnchoredLabelDialog({ doc, defaultTargetId, initialLabel, vie
 
         <div className="flex flex-col gap-0.5">
           <div className={rowCls}>
-            <span className={labelCls}>Text</span>
+            <label htmlFor="label-text" className={labelCls}>Text</label>
             <input
+              id="label-text"
               type="text"
               autoFocus
               value={text}
@@ -120,13 +123,8 @@ export function AddAnchoredLabelDialog({ doc, defaultTargetId, initialLabel, vie
           </div>
 
           <div className={rowCls}>
-            <span className={labelCls}>Font family</span>
-            <input type="text" value={fontFamily} onChange={(e) => setFontFamily(e.target.value)} className={inputCls} />
-          </div>
-
-          <div className={rowCls}>
-            <span className={labelCls}>Size (pt)</span>
-            <input type="number" min={1} max={200} step={0.25} value={fontSize} onChange={(e) => setFontSize(Math.max(1, parseFloat(e.target.value) || DEFAULT_LABEL_FONT.size))} className={inputCls} />
+            <label htmlFor="label-size" className={labelCls}>Size (pt)</label>
+            <input id="label-size" type="number" min={1} max={200} step={0.25} value={fontSize} onChange={(e) => setFontSize(Math.max(1, parseFloat(e.target.value) || DEFAULT_LABEL_FONT.size))} className={inputCls} />
           </div>
 
           <div className={rowCls}>
@@ -144,8 +142,9 @@ export function AddAnchoredLabelDialog({ doc, defaultTargetId, initialLabel, vie
           </div>
 
           <div className={rowCls}>
-            <span className={labelCls}>Color</span>
+            <label htmlFor="label-color" className={labelCls}>Color</label>
             <input
+              id="label-color"
               type="color"
               value={rgb}
               onChange={(e) => {
@@ -157,8 +156,9 @@ export function AddAnchoredLabelDialog({ doc, defaultTargetId, initialLabel, vie
           </div>
 
           <div className={rowCls}>
-            <span className={labelCls}>Anchor</span>
+            <label htmlFor="label-anchor" className={labelCls}>Where it sits</label>
             <select
+              id="label-anchor"
               value={kind}
               onChange={(e) => {
                 const k = Number(e.target.value) as AnchoredLabel['kind'];
@@ -172,37 +172,50 @@ export function AddAnchoredLabelDialog({ doc, defaultTargetId, initialLabel, vie
               }}
               className={inputCls}
             >
-              <option value={0}>World (fixed position)</option>
-              <option value={1}>Brick (follows a brick)</option>
-              {initialLabel?.kind === 2 && <option value={2}>Group (world position)</option>}
-              {initialLabel?.kind === 3 && <option value={3}>Module (world position)</option>}
+              <option value={0}>At a spot on the map</option>
+              <option value={1}>On a part (moves with it)</option>
+              {initialLabel?.kind === 2 && <option value={2}>On a group</option>}
+              {initialLabel?.kind === 3 && <option value={3}>On a module</option>}
             </select>
           </div>
 
           {kind === 1 && (
             <div className={rowCls}>
-              <span className={labelCls}>Brick ID</span>
-              <input type="text" value={targetId} onChange={(e) => setTargetId(e.target.value)} placeholder="paste brick id…" className={inputCls} />
+              <label htmlFor="label-part" className={labelCls}>The part’s ID</label>
+              <input id="label-part" type="text" value={targetId} onChange={(e) => setTargetId(e.target.value)} placeholder="Pick a part first, then add the label" className={inputCls} />
             </div>
           )}
 
           <div className={rowCls}>
-            <span className={labelCls}>Offset X / Y (studs)</span>
+            <span className={labelCls}>{kind === 1 ? 'From the part, across / down (studs)' : 'Across / down (studs)'}</span>
             <div className="flex flex-1 gap-2">
-              <input type="number" value={offsetX} onChange={(e) => setOffsetX(parseFloat(e.target.value) || 0)} className={`${inputCls} w-0`} />
-              <input type="number" value={offsetY} onChange={(e) => setOffsetY(parseFloat(e.target.value) || 0)} className={`${inputCls} w-0`} />
+              <input type="number" aria-label={kind === 1 ? 'Studs across from the part' : 'Studs across'} value={offsetX} onChange={(e) => setOffsetX(parseFloat(e.target.value) || 0)} className={`${inputCls} w-0`} />
+              <input type="number" aria-label={kind === 1 ? 'Studs down from the part' : 'Studs down'} value={offsetY} onChange={(e) => setOffsetY(parseFloat(e.target.value) || 0)} className={`${inputCls} w-0`} />
             </div>
           </div>
 
           <div className={rowCls}>
-            <span className={labelCls}>Angle (°)</span>
-            <input type="number" min={-360} max={360} value={rotation} onChange={(e) => setRotation(parseFloat(e.target.value) || 0)} className={inputCls} />
+            <label htmlFor="label-angle" className={labelCls}>Angle (°)</label>
+            <input id="label-angle" type="number" min={-360} max={360} value={rotation} onChange={(e) => setRotation(parseFloat(e.target.value) || 0)} className={inputCls} />
           </div>
 
           <div className={rowCls}>
-            <span className={labelCls}>Min zoom (0 = always)</span>
-            <input type="number" min={0} max={8} step={0.1} value={minZoom} onChange={(e) => setMinZoom(parseFloat(e.target.value) || 0)} className={inputCls} />
+            <label htmlFor="label-zoom" className={labelCls}>Show from zoom (%)</label>
+            <input
+              id="label-zoom"
+              type="number"
+              min={0}
+              max={800}
+              step={10}
+              value={Math.round(minZoom * 100)}
+              onChange={(e) => setMinZoom((parseFloat(e.target.value) || 0) / 100)}
+              aria-describedby="label-zoom-hint"
+              className={inputCls}
+            />
           </div>
+          <p id="label-zoom-hint" className="pl-40 text-[11px] text-muted">
+            0 shows it at every zoom; 50 hides it when you zoom out below half size.
+          </p>
         </div>
 
         <div className="mt-5 flex justify-end gap-2">

@@ -14,7 +14,7 @@ import { CatalogBadge, ShareToCatalogDialog, UpdateAvailable, useCatalogStatus }
 import { UploadPartDialog } from './UploadPartDialog';
 import { AddToCollectionDialog } from '../catalog/AddToCollection';
 import { atLeast } from '../orgs/clubRoles';
-import { askConfirm, confirmDelete, toastDeleted } from '../ui/ConfirmDialog';
+import { askConfirm, confirmDelete, showToast, toastDeleted } from '../ui/ConfirmDialog';
 import { PartPicture } from './PartPicture';
 import { CUSTOM_PART_DELETE_WORDING, SET_DELETE_WORDING } from '../ui/deleteWording';
 import { RenameDialog } from '../ui/RenameDialog';
@@ -67,7 +67,7 @@ export function CustomPartsSection({
       qc.invalidateQueries({ queryKey: ['custom-parts'] });
       qc.invalidateQueries({ queryKey: ['parts-catalog'] });
     },
-    onError: (e: Error) => alert(`Could not delete the part: ${e.message}`),
+    onError: (e: Error) => showToast(`Couldn’t delete the part: ${e.message}`),
   });
   // Which of them are only used inside sets (<NotListedInLibrary>), from the parts catalog.
   const partsCatalog = useQuery({ queryKey: ['parts-catalog'], queryFn: api.parts.catalog, staleTime: 60_000 });
@@ -75,7 +75,7 @@ export function CustomPartsSection({
   const listing = useMutation({
     mutationFn: ({ id, notListed }: { id: string; notListed: boolean }) => api.customParts.setListing(id, notListed),
     onSuccess: () => Promise.all([qc.invalidateQueries({ queryKey: ['custom-parts'] }), qc.invalidateQueries({ queryKey: ['parts-catalog'] })]),
-    onError: (e: Error) => alert(`Could not change that: ${e.message}`),
+    onError: (e: Error) => showToast(`Couldn’t change that: ${e.message}`),
   });
   const list = (parts.data?.parts ?? [])
     .filter((p) => matchesOwnerFilter(p, filter, myUserId, orgs))

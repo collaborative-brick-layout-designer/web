@@ -95,7 +95,7 @@ test.describe('anchored labels — default placement', () => {
     // Select exactly one brick through Find (clicking a match selects it).
     await page.keyboard.press('Control+f');
     const find = page.getByRole('dialog');
-    await find.getByRole('combobox').selectOption('part');
+    await find.getByLabel('Find in').selectOption('part');
     await find.getByPlaceholder('Search…').fill('3857.0');
     await find.locator('ul button').first().click();
     await find.getByRole('button', { name: 'Close' }).click();
@@ -122,10 +122,11 @@ test.describe('find & replace — part numbers', () => {
 
     await page.keyboard.press('Control+f');
     const dialog = page.getByRole('dialog');
-    await dialog.getByRole('combobox').selectOption('part');
+    await dialog.getByLabel('Find in').selectOption('part');
     await dialog.getByPlaceholder('Search…').fill('3857.0');
     await expect(dialog).toContainText('72 matches');
-    await dialog.getByPlaceholder('New part-number text…').fill('3857.5');
+    // A part the library has (3857.2), so it isn't asked about.
+    await dialog.getByPlaceholder('The new part’s number…').fill('3857.2');
     await shot(page, 'find-replace.png');
 
     await dialog.getByRole('button', { name: 'Replace', exact: true }).click();
@@ -137,14 +138,14 @@ test.describe('find & replace — part numbers', () => {
     await expect(dialog).toContainText('No matches.');
 
     const bbm = () => page.request.get(`/api/layouts/${id}/export.bbm`).then((r) => r.text());
-    await expect.poll(async () => countPart(await bbm(), '3857.5')).toBe(72);
+    await expect.poll(async () => countPart(await bbm(), '3857.2')).toBe(72);
     expect(countPart(await bbm(), '3857.0')).toBe(0);
 
     await dialog.getByRole('button', { name: 'Close' }).click();
     await page.getByRole('button', { name: 'Undo' }).click();
     // Undo reverts the whole Replace all (71 bricks) in one step.
     await expect.poll(async () => countPart(await bbm(), '3857.0')).toBe(71);
-    expect(countPart(await bbm(), '3857.5')).toBe(1);
+    expect(countPart(await bbm(), '3857.2')).toBe(1);
   });
 });
 
@@ -216,7 +217,7 @@ test.describe('toolbar and menus', () => {
 
     const download = page.waitForEvent('download');
     await page.getByRole('button', { name: 'Export JPEG' }).click();
-    expect((await download).suggestedFilename()).toBe('Parity_Test.jpg');
+    expect((await download).suggestedFilename()).toBe('Parity Test.jpg');
   });
 });
 
@@ -371,7 +372,7 @@ test.describe('insert text', () => {
     expect(c.y).toBeCloseTo(centre.y, 1);
   });
 
-  test('Ctrl+T puts Arial 12 black text at the view centre on a Labels layer, whatever the mouse', async ({ page }) => {
+  test('T puts Arial 12 black text at the view centre on a Labels layer, whatever the mouse', async ({ page }) => {
     const id = await createLayout(page);
     await openEditor(page, id);
     // The stage is the visible canvas area (header, rail, docks and status bar taken off).
@@ -384,7 +385,7 @@ test.describe('insert text', () => {
     const box = (await page.locator('.konvajs-content').first().boundingBox())!;
     await page.mouse.move(box.x + 40, box.y + 40);
 
-    await page.keyboard.press('Control+t');
+    await page.keyboard.press('t');
     const dialog = page.getByRole('dialog');
     await dialog.locator('input[type="text"], textarea').first().fill('Yard');
     await dialog.getByRole('button', { name: 'OK' }).click();
@@ -420,8 +421,11 @@ test.describe('venue library', () => {
     const renamed = `${name} (main)`;
     await page.getByRole('option', { name }).click();
     await expect(page.getByTestId('venue-detail')).toContainText('0 wall seg · 0 door · 0 obstacle');
-    page.once('dialog', (d) => void d.accept(renamed));
     await page.getByRole('button', { name: 'Rename…' }).click();
+    const box = page.getByRole('dialog', { name: 'Rename venue' });
+    await box.getByRole('textbox').fill(renamed);
+    await box.getByRole('button', { name: 'Rename' }).click();
+    await expect(box).toHaveCount(0);
     await expect(page.getByText(renamed, { exact: true })).toBeVisible();
     await expect(page.getByText(name, { exact: true })).toHaveCount(0);
     await shot(page, 'venue-rename.png');
@@ -525,7 +529,7 @@ test.describe('find — modeless', () => {
 
     await page.keyboard.press('Control+f');
     const find = page.getByRole('dialog', { name: 'Find & Replace' });
-    await find.getByRole('combobox').selectOption('part');
+    await find.getByLabel('Find in').selectOption('part');
     await find.getByPlaceholder('Search…').fill('3857.0');
     // No click on a result: typing alone selects all 72 matches.
     await expect(page.locator('footer')).toContainText('selected: 72');
@@ -653,7 +657,7 @@ test.describe('use budget limitation', () => {
     // Select one 3857.0 through Find, then duplicate it.
     await page.keyboard.press('Control+f');
     const find = page.getByRole('dialog', { name: 'Find & Replace' });
-    await find.getByRole('combobox').selectOption('part');
+    await find.getByLabel('Find in').selectOption('part');
     await find.getByPlaceholder('Search…').fill('3857.0');
     await find.locator('ul button').first().click();
     await find.getByRole('button', { name: 'Close' }).click();
@@ -763,12 +767,15 @@ test.describe('chained placement', () => {
         links: [...m[0].matchAll(/<LinkedTo>([^<]+)<\/LinkedTo>/g)].length,
       }));
     };
-    // A single click only picks the tile (desktop places on activation).
+    // On an empty map one click adds the first piece (both apps); after that a
+    // single click only picks the tile, and a double-click adds the next.
     await tile.click();
     await expect(tile).toHaveAttribute('aria-pressed', 'true');
+    await expect.poll(async () => (await bricks()).length).toBe(1);
+    await tile.click();
     await page.waitForTimeout(500);
-    expect(await bricks()).toHaveLength(0);
-    for (let n = 1; n <= 3; n++) {
+    expect(await bricks()).toHaveLength(1);
+    for (let n = 2; n <= 3; n++) {
       await tile.dblclick();
       await expect.poll(async () => (await bricks()).length).toBe(n);
     }
@@ -976,14 +983,9 @@ test.describe('venue obstacles', () => {
       await mapMenu(page, 'Venue', 'Add obstacle…');
     };
 
-    let message = '';
-    page.once('dialog', (d) => {
-      message = d.message();
-      void d.accept();
-    });
     await drawObstacle();
-    await expect.poll(() => message).toBe('Draw the venue outline first.');
-    await expect(footer).toContainText('Tool: select');
+    await expect(page.getByTestId('notice')).toContainText('Draw the venue’s outline first');
+    await expect(footer).toContainText('Tool: Select');
 
     // Draw an outline, then the obstacle tool is allowed.
     await mapMenu(page, 'Venue', 'Draw outline…');
@@ -997,7 +999,7 @@ test.describe('venue obstacles', () => {
 
     await drawObstacle();
     await expect(footer).toContainText('Click points to outline an obstacle.');
-    await expect(footer).toContainText('Tool: venueObstacle');
+    await expect(footer).toContainText('Tool: Obstacle');
   });
 });
 
@@ -1348,8 +1350,8 @@ test.describe('rotating text (BlueBrick RotateText)', () => {
     await openEditor(page, id);
     const box = (await page.locator('.konvajs-content').first().boundingBox())!;
     const centre = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
-    // Ctrl+T puts the text at the view centre.
-    await page.keyboard.press('Control+t');
+    // T puts the text at the view centre.
+    await page.keyboard.press('t');
     const dialog = page.getByRole('dialog');
     await dialog.locator('input[type="text"], textarea').first().fill('Yard');
     await dialog.getByRole('button', { name: 'OK' }).click();

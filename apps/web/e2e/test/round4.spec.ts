@@ -56,7 +56,7 @@ test.describe('Duplicate', () => {
 
     await page.keyboard.press('Control+f');
     const find = page.getByRole('dialog', { name: 'Find & Replace' });
-    await find.getByRole('combobox').selectOption('part');
+    await find.getByLabel('Find in').selectOption('part');
     await find.getByPlaceholder('Search…').fill('3857.0');
     await find.locator('ul button').first().click();
     await find.getByRole('button', { name: 'Close' }).click();

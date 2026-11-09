@@ -27,7 +27,14 @@ export interface ConfirmOptions {
   typeName?: string;
   /** Ask for a short text (a reason) as well. */
   reason?: { label: string; required?: boolean };
+  /** The Cancel button's words ("Stay"). */
+  cancelLabel?: string;
+  /** A third answer, between Cancel and the confirm button (askChoice). */
+  other?: { label: string; danger?: boolean };
 }
+
+/** What a dialog answers when its `other` button is pressed. */
+const OTHER = '\u0001other';
 
 interface Pending {
   opts: ConfirmOptions;
@@ -71,6 +78,12 @@ export async function askConfirm(opts: ConfirmOptions): Promise<boolean> {
   return (await open(opts)) !== null;
 }
 
+/** Three ways out: the confirm button, the `other` button, or null for Cancel (Esc, a tap outside). */
+export async function askChoice(opts: ConfirmOptions & { other: NonNullable<ConfirmOptions['other']> }): Promise<'confirm' | 'other' | null> {
+  const a = await open(opts);
+  return a === null ? null : a === OTHER ? 'other' : 'confirm';
+}
+
 /** With a text box: the text, or null when cancelled. */
 export function askReason(opts: ConfirmOptions & { reason: NonNullable<ConfirmOptions['reason']> }): Promise<string | null> {
   return open(opts);
@@ -110,13 +123,30 @@ export function confirmDelete(name: string, w: DeleteWording = {}): Promise<bool
   return askConfirm(deleteOptions(name, w));
 }
 
-/** Leaving the editor while changes haven't reached the server. */
+/**
+ * Leaving a layout while changes haven't reached the server. Going
+ * elsewhere in the app keeps sending them (useLayoutDoc finishSending);
+ * nothing is kept once the tab closes, and the words say so.
+ */
 export function askLeaveUnsaved(): Promise<boolean> {
   return askConfirm({
-    title: 'Leave with unsaved changes?',
-    removes: 'Some changes may not have reached the server yet.',
-    keeps: 'They’re kept on this device and sync when the connection returns.',
+    title: 'Leave before your changes reach the server?',
+    removes: 'Some changes haven’t reached the server yet.',
+    keeps: 'They keep sending while this tab stays open, and arrive when the connection is back. If you close the tab before then, they’re lost.',
     confirmLabel: 'Leave anyway',
+    cancelLabel: 'Stay',
+  });
+}
+
+/** Leaving the module editor with changes not saved: save them, drop them, or stay. */
+export function askLeaveUnsavedModule(): Promise<'confirm' | 'other' | null> {
+  return askChoice({
+    title: 'Save your module before you leave?',
+    removes: 'Your changes to this module aren’t saved yet. If you leave without saving, they’re lost.',
+    confirmLabel: 'Save and leave',
+    danger: false,
+    other: { label: 'Leave without saving', danger: true },
+    cancelLabel: 'Stay',
   });
 }
 
@@ -237,8 +267,19 @@ export function ConfirmDialog({ opts, onAnswer }: { opts: ConfirmOptions; onAnsw
             onClick={() => onAnswer(null)}
             className="tap-target min-h-11 rounded-lg border border-border px-4 py-2 hover:bg-soft pointer-fine:min-h-9"
           >
-            Cancel
+            {opts.cancelLabel ?? 'Cancel'}
           </button>
+          {opts.other && (
+            <button
+              type="button"
+              onClick={() => onAnswer(OTHER)}
+              className={`tap-target min-h-11 rounded-lg border px-4 py-2 font-semibold pointer-fine:min-h-9 ${
+                opts.other.danger ? 'border-danger text-danger hover:bg-soft' : 'border-border hover:bg-soft'
+              }`}
+            >
+              {opts.other.label}
+            </button>
+          )}
           <button
             type="button"
             disabled={!ok}

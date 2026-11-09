@@ -224,7 +224,7 @@ export function PreferencesDialog({ onClose }: Props) {
                 { label: 'Always show connection points', value: alwaysShowConnections, set: setAlwaysShowConnections },
                 { label: 'Show module names and frames', value: showModuleNames, set: setShowModuleNames },
                 { label: 'Show electric circuits', value: showElectricCircuits, set: setShowElectricCircuits },
-                { label: 'Export watermark', value: showExportWatermark, set: setShowExportWatermark },
+                { label: 'Add the author, club and event to exported pictures', value: showExportWatermark, set: setShowExportWatermark },
               ].map(({ label, value, set }) => (
                 <label key={label} className={checkRowCls}>
                   <input

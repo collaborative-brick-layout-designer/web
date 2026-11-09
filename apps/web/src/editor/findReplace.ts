@@ -6,6 +6,7 @@
 
 import type * as Y from 'yjs';
 import type { BbmMap } from '@cld/model';
+import type { PartWire } from '../api';
 import { editBrick, editTextCell } from './mutations';
 import { LOCAL_ORIGIN } from './useLayoutDoc';
 import type { AnnoSelection } from './editorStore';
@@ -23,10 +24,19 @@ export interface FindHit {
   /** The searched field's current value (part number or cell text). */
   value: string;
   preview: string;
+  /** A part's name from the library (part hits), when it has one. */
+  name?: string;
 }
 
-/** Every brick (part scope) or text cell (text scope) whose field contains `needle`, in layer order. */
-export function findHits(map: BbmMap, needle: string, scope: FindScope, matchCase: boolean): FindHit[] {
+/** The library entry for a part number (catalog key, bare number or old name: partIndex.ts). */
+export type PartLookup = ReadonlyMap<string, PartWire>;
+
+/**
+ * Every brick (part scope) or text cell (text scope) whose field contains
+ * `needle`, in layer order. With the library, a part matches by its name
+ * too ("straight" finds 2865.8, "9V Straight Track").
+ */
+export function findHits(map: BbmMap, needle: string, scope: FindScope, matchCase: boolean, parts?: PartLookup): FindHit[] {
   const n0 = needle.trim();
   if (!n0) return [];
   const cmp = matchCase ? (s: string) => s : (s: string) => s.toLowerCase();
@@ -35,8 +45,15 @@ export function findHits(map: BbmMap, needle: string, scope: FindScope, matchCas
   for (const layer of map.layers) {
     if (scope === 'part' && layer.type === 'brick') {
       for (const b of layer.bricks) {
-        if (cmp(b.partNumber).includes(n)) {
-          out.push({ layerId: layer.id, brickId: b.id, value: b.partNumber, preview: `${b.partNumber}  ·  ${displaySheetName(layer.name)}` });
+        const name = parts?.get(b.partNumber.toLowerCase())?.description || undefined;
+        if (cmp(b.partNumber).includes(n) || (name !== undefined && cmp(name).includes(n))) {
+          out.push({
+            layerId: layer.id,
+            brickId: b.id,
+            value: b.partNumber,
+            preview: `${name ? `${name} (${b.partNumber})` : b.partNumber}  ·  ${displaySheetName(layer.name)}`,
+            ...(name ? { name } : {}),
+          });
         }
       }
     } else if (scope === 'text' && layer.type === 'text') {
@@ -78,6 +95,32 @@ export function replaceInString(hay: string, needle: string, replacement: string
 }
 
 /**
+ * What a hit becomes: the matched text replaced inside it, or, for a part
+ * found by its name (the number doesn't hold the text), the whole part
+ * number. Null when nothing would change.
+ */
+export function replacedValue(h: FindHit, needle: string, replacement: string, matchCase: boolean): string | null {
+  const n = needle.trim();
+  if (!n) return null;
+  const inValue = matchCase ? h.value.includes(n) : h.value.toLowerCase().includes(n.toLowerCase());
+  const next = h.brickId !== undefined && !inValue ? replacement.trim() : replaceInString(h.value, n, replacement, matchCase);
+  if (next === h.value) return null;
+  if (h.brickId !== undefined && !next.trim()) return null; // never blank a part number
+  return next;
+}
+
+/** The new part numbers `hits` would get that the library doesn't have (each once). */
+export function unknownReplacements(hits: readonly FindHit[], needle: string, replacement: string, matchCase: boolean, parts: PartLookup): string[] {
+  const out = new Set<string>();
+  for (const h of hits) {
+    if (h.brickId === undefined) continue;
+    const next = replacedValue(h, needle, replacement, matchCase);
+    if (next !== null && !parts.has(next.toLowerCase())) out.add(next);
+  }
+  return [...out];
+}
+
+/**
  * Apply the replacement to `hits` in one transaction (one undo step).
  * Part hits rewrite the brick's part number in place, keeping its
  * position and orientation (desktop `EditBrickCommand`); text hits
@@ -90,15 +133,13 @@ export function replaceHits(
   replacement: string,
   matchCase: boolean,
 ): number {
-  const n = needle.trim();
-  if (!n) return 0;
+  if (!needle.trim()) return 0;
   let count = 0;
   doc.transact(() => {
     for (const h of hits) {
-      const next = replaceInString(h.value, n, replacement, matchCase);
-      if (next === h.value) continue;
+      const next = replacedValue(h, needle, replacement, matchCase);
+      if (next === null) continue;
       if (h.brickId !== undefined) {
-        if (!next.trim()) continue; // never blank a part number
         editBrick(doc, h.layerId, h.brickId, { partNumber: next });
       } else if (h.textIndex !== undefined) {
         editTextCell(doc, h.layerId, h.textIndex, next);

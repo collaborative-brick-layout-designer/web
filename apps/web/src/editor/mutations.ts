@@ -789,18 +789,24 @@ export function moveArea(doc: Y.Doc, layerId: string, dx: number, dy: number): v
   }, LOCAL_ORIGIN);
 }
 
-export function ensureAreaLayer(doc: Y.Doc, defaultCellSizeStuds = AREA_CELL_SIZE_DEFAULT): string {
-  const layerOrder = doc.getArray<string>('layers');
+/** The topmost shown area sheet (the one Paint and Erase work on), or null. */
+export function shownAreaLayer(doc: Y.Doc): string | null {
   const layerData = doc.getMap<Y.Map<unknown>>('layerData');
   // Walk in reverse order: topmost first (desktop convention).
-  const ids = layerOrder.toArray();
+  const ids = doc.getArray<string>('layers').toArray();
   for (let i = ids.length - 1; i >= 0; i--) {
     const id = ids[i]!;
     const l = layerData.get(id);
-    if (l instanceof Y.Map && l.get('type') === 'area' && l.get('visible') !== false) {
-      return id;
-    }
+    if (l instanceof Y.Map && l.get('type') === 'area' && l.get('visible') !== false) return id;
   }
+  return null;
+}
+
+export function ensureAreaLayer(doc: Y.Doc, defaultCellSizeStuds = AREA_CELL_SIZE_DEFAULT): string {
+  const layerOrder = doc.getArray<string>('layers');
+  const layerData = doc.getMap<Y.Map<unknown>>('layerData');
+  const shown = shownAreaLayer(doc);
+  if (shown) return shown;
   // None — create one.
   const id = makeId();
   doc.transact(() => {
@@ -1035,15 +1041,30 @@ export function moveGridOrigin(doc: Y.Doc, layerId: string, dx: number, dy: numb
  * The first ruler layer, or a new one named "Rulers" at the top — where
  * desktop's ruler tools put a new ruler (MapView.cpp:818-829).
  */
-export function ensureRulerLayer(doc: Y.Doc): string {
+/**
+ * The sheet of this kind new things go on: the active sheet when it's of
+ * this kind and shown, else the first shown one, else the first hidden one
+ * (the caller says so: announcePlacement). Null when there's none.
+ */
+export function sheetForNew(doc: Y.Doc, type: 'ruler' | 'text', activeId?: string | null): string | null {
+  const layerData = doc.getMap<Y.Map<unknown>>('layerData');
+  const ofType = doc
+    .getArray<string>('layers')
+    .toArray()
+    .filter((id) => {
+      const l = layerData.get(id);
+      return l instanceof Y.Map && l.get('type') === type;
+    });
+  const shown = (id: string) => layerData.get(id)?.get('visible') !== false;
+  if (activeId && ofType.includes(activeId) && shown(activeId)) return activeId;
+  return ofType.find(shown) ?? ofType[0] ?? null;
+}
+
+export function ensureRulerLayer(doc: Y.Doc, activeId?: string | null): string {
   const layerOrder = doc.getArray<string>('layers');
   const layerData = doc.getMap<Y.Map<unknown>>('layerData');
-  const ids = layerOrder.toArray();
-  for (let i = 0; i < ids.length; i++) {
-    const id = ids[i]!;
-    const l = layerData.get(id);
-    if (l instanceof Y.Map && l.get('type') === 'ruler') return id;
-  }
+  const found = sheetForNew(doc, 'ruler', activeId);
+  if (found) return found;
   const id = makeId();
   doc.transact(() => {
     const yLayer = new Y.Map<unknown>();
@@ -1490,15 +1511,11 @@ export interface AddTextSpec {
  * The first text layer, or a new one named "Labels" at the top — where
  * desktop's Insert Text puts a cell (MapView::addTextAtScenePos).
  */
-export function ensureTextLayer(doc: Y.Doc): string {
+export function ensureTextLayer(doc: Y.Doc, activeId?: string | null): string {
   const layerOrder = doc.getArray<string>('layers');
   const layerData = doc.getMap<Y.Map<unknown>>('layerData');
-  const ids = layerOrder.toArray();
-  for (let i = 0; i < ids.length; i++) {
-    const id = ids[i]!;
-    const l = layerData.get(id);
-    if (l instanceof Y.Map && l.get('type') === 'text') return id;
-  }
+  const found = sheetForNew(doc, 'text', activeId);
+  if (found) return found;
   const id = makeId();
   doc.transact(() => {
     const yLayer = new Y.Map<unknown>();

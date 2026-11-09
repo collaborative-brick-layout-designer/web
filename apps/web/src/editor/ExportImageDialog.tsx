@@ -19,11 +19,12 @@
 
 import { useState } from 'react';
 import { flushSync } from 'react-dom';
-import { MAX_CANVAS_SIDE, aspectHeight, type StudRect } from './exportRender';
+import { MAX_CANVAS_SIDE, aboutSize, aspectHeight, defaultExportSize, estimateImageBytes, type StudRect } from './exportRender';
 import { useEditorStore, noticeDownloaded } from './editorStore';
 import { buildImagePdf, dataUrlBytes, pdfPageLayout, printPixelRatio, printTiles } from './printLayout';
 import { loadExportSettings, saveExportSettings } from './exportSettings';
 import { HelpButton } from '../help/HelpButton';
+import { sanitizeFilename } from '../bbmFiles';
 import { useEscape } from './useEscape';
 
 export interface ExportHandle {
@@ -97,12 +98,14 @@ export function ExportImageDialog({ layoutTitle, exportImageRef, onClose }: Prop
   const [scene] = useState(() => exportImageRef.current?.sceneSize() ?? null);
   // Settings from the last export, like desktop's QSettings export/*.
   const [saved] = useState(loadExportSettings);
+  // A first export starts at 2x, or 4,000 px on the longest side when
+  // that's smaller (defaultExportSize).
   const [width, setWidth] = useState(() =>
-    saved ? Math.min(MAX_CANVAS_SIDE, saved.width) : scene ? Math.min(MAX_CANVAS_SIDE, scene.width * 2) : 1600,
+    saved ? Math.min(MAX_CANVAS_SIDE, saved.width) : scene ? defaultExportSize(scene).width : 1600,
   );
   const [keepAspect, setKeepAspect] = useState(saved?.keepAspect ?? true);
   const [customHeight, setCustomHeight] = useState(() =>
-    saved ? Math.min(MAX_CANVAS_SIDE, saved.height) : scene ? Math.min(MAX_CANVAS_SIDE, scene.height * 2) : 1200,
+    saved ? Math.min(MAX_CANVAS_SIDE, saved.height) : scene ? defaultExportSize(scene).height : 1200,
   );
   const [format, setFormat] = useState<'png' | 'jpeg'>(saved?.format ?? 'png');
   const [quality, setQuality] = useState(saved?.quality ?? 90);
@@ -325,6 +328,11 @@ export function ExportImageDialog({ layoutTitle, exportImageRef, onClose }: Prop
               {!sizeValid && (
                 <p className="text-[10px] text-danger">Width and height must be 1–{MAX_CANVAS_SIDE} px.</p>
               )}
+              {sizeValid && (
+                <p className="text-xs text-muted" data-testid="image-estimate">
+                  The file will be {aboutSize(estimateImageBytes(width, height, format, quality))}.
+                </p>
+              )}
               <label className="flex items-center justify-between gap-2">
                 <span className="text-xs text-muted">Format</span>
                 <select
@@ -375,7 +383,7 @@ export function ExportImageDialog({ layoutTitle, exportImageRef, onClose }: Prop
                   checked={watermark}
                   onChange={(e) => setWatermark(e.target.checked)}
                 />
-                Embed general-info watermark
+                Add the author, club and event in the corner
               </label>
               <label className="flex items-center gap-2 text-xs text-muted">
                 <input type="checkbox" checked={electric} onChange={(e) => setElectric(e.target.checked)} />
@@ -470,8 +478,9 @@ export function ExportImageDialog({ layoutTitle, exportImageRef, onClose }: Prop
   );
 }
 
+/** The layout's name as a file name: spaces and letters like é kept, only what no file name may hold replaced. */
 function safeTitle(title: string): string {
-  return title.replace(/[^a-z0-9_-]/gi, '_') || 'layout';
+  return sanitizeFilename(title);
 }
 
 /** Print window: one physical-size page per tile. */

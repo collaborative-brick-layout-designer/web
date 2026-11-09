@@ -206,7 +206,7 @@ function ModuleRow({
                 📌
               </span>
             )}
-            {editingId === module.id && <span className="ml-1 text-xs text-accent">editing</span>}
+            {editingId === module.id && <span className="ml-1 text-xs text-accent-text">editing</span>}
             <span className="ml-2 text-neutral-600">
               {module.members.length} part{module.members.length !== 1 ? 's' : ''}
               {module.sourceFile && !libraryLine && !/^[0-9a-f-]{36}$/.test(module.sourceFile) ? ` — ${module.sourceFile.split(/[\\/]/).pop()}` : ''}

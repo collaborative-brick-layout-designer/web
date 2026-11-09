@@ -58,7 +58,7 @@ export function WelcomeCard({ name, onLayout }: { name: string | undefined; onLa
           <span className="text-sm text-muted">{WELCOME.actions.layout.text}</span>
         </button>
         {!inAClub && (
-          <button type="button" onClick={choose(() => navigate('/orgs'))} className={`${tile} border-line bg-panel hover:bg-soft`}>
+          <button type="button" data-tour="clubs.join" onClick={choose(() => navigate('/orgs'))} className={`${tile} border-line bg-panel hover:bg-soft`}>
             <span className="font-display text-lg font-bold">{WELCOME.actions.club.label}</span>
             <span className="text-sm text-muted">{WELCOME.actions.club.text}</span>
           </button>

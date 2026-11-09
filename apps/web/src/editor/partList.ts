@@ -185,8 +185,9 @@ export function partListCsv(groups: readonly PartListGroup[], hasBudget: boolean
     const c = cells(r, isTotal, hasBudget);
     c[3] = c[3]!.replaceAll(',', ' ');
     c[0] = c[0]!.replaceAll(',', ' ');
-    // Just the number, as BlueBrick.
-    if (hasBudget && (isTotal || r.usage >= 0)) c[6] = c[6]!.slice(11, -1);
+    // Just the number, as BlueBrick, without the thousands comma
+    // ("2,600" would split into two columns).
+    if (hasBudget && (isTotal || r.usage >= 0)) c[6] = c[6]!.slice(11, -1).replaceAll(',', '');
     // Otherwise BlueBrick's bytes, but a name a spreadsheet would run as a
     // formula ("=HYPERLINK(…)", "+1", "@SUM", "-cmd") gets a leading '.
     return c.map(defuseFormula).join(',') + '\n';

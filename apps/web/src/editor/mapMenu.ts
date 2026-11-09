@@ -78,6 +78,11 @@ export function modKey(platform: string = typeof navigator === 'undefined' ? '' 
   return /Mac|iPhone|iPad/.test(platform) ? '⌘' : 'Ctrl';
 }
 
+/** Alt on Windows / Linux, Option on a Mac. */
+export function altKey(platform: string = typeof navigator === 'undefined' ? '' : navigator.platform): string {
+  return /Mac|iPhone|iPad/.test(platform) ? 'Option' : 'Alt';
+}
+
 export function mapMenuEntries(a: MapMenuActions, t: MapMenuToggles, mod = modKey()): MenuEntry<MapMenuContext>[] {
   const sep: MenuEntry<MapMenuContext> = { kind: 'separator' };
   return [
@@ -95,7 +100,8 @@ export function mapMenuEntries(a: MapMenuActions, t: MapMenuToggles, mod = modKe
     sep,
     {
       kind: 'submenu', id: 'insert', label: 'Insert', items: [
-        { kind: 'item', id: 'insert-text', label: 'Text…', shortcut: `${mod}+T`, onSelect: a.insertText },
+        // Plain T: the browser keeps Ctrl+T (a new tab) for itself.
+        { kind: 'item', id: 'insert-text', label: 'Text…', shortcut: 'T', onSelect: a.insertText },
         { kind: 'item', id: 'insert-label', label: 'Anchored label…', shortcut: `${mod}+L`, onSelect: a.insertLabel },
       ],
     },
