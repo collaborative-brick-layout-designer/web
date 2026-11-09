@@ -94,7 +94,7 @@ async function everyRoute(who: Who): Promise<{ route: string; status: number; bo
   await add('module', call(who, 'POST', `/api/modules/${(mod.json() as { id: string }).id}/invites`, { email: `m${n}@example.com`, role: 'editor' }));
   await add('part', call(who, 'POST', `/api/custom-parts/${(part.json() as { id: string }).id}/invites`, { email: `p${n}@example.com`, role: 'editor' }));
   await add('club', call(who, 'POST', `/api/orgs/${slug}/invites`, { email: `c${n}@example.com`, role: 'member' }));
-  const inviteId = (out.at(-1)!.body as { id: string }).id;
+  const inviteId = String(out.at(-1)!.body.id);
   await add('club resend', call(who, 'POST', `/api/orgs/${slug}/invites/${inviteId}/resend`, {}));
   await add('hand-over', call(who, 'POST', `/api/layouts/${layoutId}/transfer`, { recipientEmail: `t${n}@example.com` }));
   return out;
