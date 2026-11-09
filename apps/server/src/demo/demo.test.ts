@@ -16,7 +16,7 @@ import { registerApiRoutes } from '../routes/all.js';
 import { registerChangeHints } from '../events/routeHints.js';
 import { closeAll } from '../events/hub.js';
 import { DEMO_DISPLAY_NAME, DEMO_USER_ID, demoResetDue, demoStatus, isDemoUser, nextDemoReset } from './demoAccount.js';
-import { DEMO_SAMPLES } from './reset.js';
+import { DEMO_SAMPLE_IDS, DEMO_SAMPLES, uuidV5 } from './reset.js';
 import { demoTick } from '../workers/index.js';
 import { getPlatformSettings } from '../auth/platformSettings.js';
 
@@ -203,7 +203,8 @@ describe('a reset', () => {
     expect(res.json()).toMatchObject({ ok: true, items: 3 });
 
     expect(titles(DEMO_USER_ID)).toEqual([DEMO_SAMPLES.layout.title]);
-    expect((owned(schema.layouts, DEMO_USER_ID)[0] as { id: string }).id).not.toBe(sample.id);
+    // The same id as before the reset: links to the sample keep working.
+    expect((owned(schema.layouts, DEMO_USER_ID)[0] as { id: string }).id).toBe(sample.id);
     expect((owned(schema.modules, DEMO_USER_ID) as { title: string }[]).map((m) => m.title)).toEqual([DEMO_SAMPLES.module.title]);
     expect(owned(schema.venueLibrary, DEMO_USER_ID)).toHaveLength(1);
     expect(owned(schema.customParts, DEMO_USER_ID)).toHaveLength(0);
@@ -218,6 +219,37 @@ describe('a reset', () => {
     const list = (await call({ url: '/api/layouts', cookie: await tryDemo() })).json() as { layouts: { title: string }[] };
     expect(list.layouts.map((l) => l.title)).toEqual([DEMO_SAMPLES.layout.title]);
     expect((await getPlatformSettings()).demoLastResetAt).not.toBeNull();
+  });
+
+  it('keeps every sample under the same id, reset after reset, with its content back to the sample', async () => {
+    await setDemo({ demoEnabled: true });
+    await tryDemo();
+    const ids = () => ({
+      layout: (owned(schema.layouts, DEMO_USER_ID) as { id: string }[]).map((l) => l.id),
+      module: (owned(schema.modules, DEMO_USER_ID) as { id: string }[]).map((l) => l.id),
+      venue: (owned(schema.venueLibrary, DEMO_USER_ID) as { id: string }[]).map((l) => l.id),
+    });
+    expect(ids()).toEqual({ layout: [DEMO_SAMPLE_IDS.layout], module: [DEMO_SAMPLE_IDS.module], venue: [DEMO_SAMPLE_IDS.venue] });
+    const fresh = db.select().from(schema.layouts).where(eq(schema.layouts.id, DEMO_SAMPLE_IDS.layout)).get()!;
+    // A visitor's changes: live edits waiting, a new title, someone it's shared with.
+    db.update(schema.layouts).set({ title: 'Changed' }).where(eq(schema.layouts.id, DEMO_SAMPLE_IDS.layout)).run();
+    db.insert(schema.layoutUpdates).values({ layoutId: DEMO_SAMPLE_IDS.layout, doc: 'main', updateBytes: Buffer.from([0]), createdAt: new Date() }).run();
+    db.insert(schema.layoutCollaborators).values({ layoutId: DEMO_SAMPLE_IDS.layout, userId: alice.id, role: 'viewer', addedAt: new Date() }).run();
+    for (let i = 0; i < 2; i++) {
+      expect((await resetNow()).statusCode).toBe(200);
+      expect(ids()).toEqual({ layout: [DEMO_SAMPLE_IDS.layout], module: [DEMO_SAMPLE_IDS.module], venue: [DEMO_SAMPLE_IDS.venue] });
+    }
+    const after = db.select().from(schema.layouts).where(eq(schema.layouts.id, DEMO_SAMPLE_IDS.layout)).get()!;
+    expect(after.title).toBe(DEMO_SAMPLES.layout.title);
+    expect(Buffer.from(after.docSnapshot as Uint8Array).equals(Buffer.from(fresh.docSnapshot as Uint8Array))).toBe(true);
+    expect(db.select().from(schema.layoutUpdates).where(eq(schema.layoutUpdates.layoutId, DEMO_SAMPLE_IDS.layout)).all()).toEqual([]);
+    expect(db.select().from(schema.layoutCollaborators).where(eq(schema.layoutCollaborators.layoutId, DEMO_SAMPLE_IDS.layout)).all()).toEqual([]);
+  });
+
+  it('makes its ids as UUIDv5 (RFC 4122)', () => {
+    // The RFC's own example: "www.example.com" in the DNS namespace.
+    expect(uuidV5('www.example.com', '6ba7b810-9dad-11d1-80b4-00c04fd430c8')).toBe('2ed6657d-e927-568b-95e1-2665a8aea6a2');
+    expect(DEMO_SAMPLE_IDS.layout).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
   });
 
   it('tells the demo visitors and admins at once, and nobody else', async () => {
