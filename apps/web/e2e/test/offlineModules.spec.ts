@@ -73,7 +73,7 @@ test('offline: Make a module closes at once and reaches the server when back onl
   await page.getByLabel('Modules', { exact: true }).check();
   await page.mouse.click(1000, 700);
   await page.getByText(`Siding ${ts}`, { exact: true }).click({ button: 'right' });
-  await page.getByRole('button', { name: 'Save to Module library…' }).click();
+  await page.getByRole('menuitem', { name: 'Save to Module library…' }).click();
   const save = page.getByRole('dialog', { name: `Save “Siding ${ts}” to the Module library` });
   await save.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(save).toContainText("You're offline. Check the Wi-Fi and try again.", { timeout: 10000 });

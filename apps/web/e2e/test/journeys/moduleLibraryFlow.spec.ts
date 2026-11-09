@@ -81,7 +81,7 @@ async function moduleRow(page: Page) {
 async function moduleMenu(page: Page, entry: string | RegExp) {
   const row = await moduleRow(page);
   await row.getByRole('button', { name: `More for ${NAME}` }).click();
-  await page.getByRole('button', { name: entry }).click();
+  await page.getByRole('menuitem', { name: entry }).click();
 }
 
 test('make a module, save it to the Module library, and keep the copies in step both ways', async ({ page }) => {

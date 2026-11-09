@@ -124,7 +124,7 @@ test.describe('module versions', () => {
     await page.getByLabel('Modules', { exact: true }).check();
     await page.mouse.click(400, 400);
     await page.getByRole('button', { name: 'More for Loop' }).click();
-    await page.getByRole('button', { name: 'Save to Module library…' }).click();
+    await page.getByRole('menuitem', { name: 'Save to Module library…' }).click();
     const dialog = page.getByRole('dialog', { name: 'Save “Loop” to the Module library' });
     await dialog.getByLabel(/New version of a module in the Module library/).check();
     await dialog.getByRole('radiogroup', { name: 'Module to update' }).getByText('Passing loop').click();

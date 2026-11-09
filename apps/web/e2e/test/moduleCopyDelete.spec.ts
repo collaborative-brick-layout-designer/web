@@ -65,7 +65,7 @@ test('a picked module duplicates and pastes as a module copy; Delete deletes its
   await page.getByLabel('Modules', { exact: true }).check();
   await page.mouse.click(400, 400);
   await page.getByText('Siding', { exact: true }).click({ button: 'right' });
-  await page.getByRole('button', { name: 'Delete', exact: true }).last().click();
+  await page.getByRole('menuitem', { name: 'Delete', exact: true }).last().click();
   await expect(page.getByTestId('confirm-dialog')).toContainText('its 2 parts leave the map');
   await confirmInDialog(page);
   await expect.poll(() => brickCount(page)).toBe(4);

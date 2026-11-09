@@ -65,7 +65,7 @@ test('a new or renamed set is in the Parts panel live and after a reload, withou
 
   // ── Rename it, then reload: it's there under the new name. ──
   await tile(SET).click({ button: 'right' });
-  await page.getByRole('button', { name: 'Rename set…' }).click();
+  await page.getByRole('menuitem', { name: 'Rename set…' }).click();
   const rename = page.getByRole('dialog', { name: 'Rename set' });
   await rename.getByLabel('Name').fill(RENAMED);
   await rename.getByRole('button', { name: 'Rename' }).click();

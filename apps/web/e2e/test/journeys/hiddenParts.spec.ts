@@ -87,7 +87,7 @@ test('parts only used inside sets are hidden from the Parts panel and never plac
   // ── "Show its parts" on the set opens them. ──
   await page.getByPlaceholder('Search parts (name or number)').first().fill(String(ts));
   await tile(FLEX).click({ button: 'right' });
-  await page.getByRole('button', { name: 'Show its parts' }).click();
+  await page.getByRole('menuitem', { name: 'Show its parts' }).click();
   await expect(page.getByTestId('open-set')).toContainText(`Parts in the set “${FLEX}”`);
   await expect(tile(HALF_A)).toBeVisible();
   await expect(tile(HALF_B)).toBeVisible();

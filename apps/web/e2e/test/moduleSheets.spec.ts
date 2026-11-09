@@ -65,7 +65,7 @@ test('a module keeps its sheets, and adding it asks where a missing sheet goes',
   await panel.getByRole('button', { name: 'Add sheet' }).click();
   await panel.getByRole('button', { name: 'Parts sheet' }).click();
   await panel.getByText('Parts', { exact: true }).click({ button: 'right' });
-  await page.getByRole('button', { name: /^Rename…/ }).click();
+  await page.getByRole('menuitem', { name: /^Rename…/ }).click();
   await panel.locator('input:not([type])').fill('Buildings');
   await page.keyboard.press('Enter');
   await expect(panel.getByText('Buildings', { exact: true })).toBeVisible();

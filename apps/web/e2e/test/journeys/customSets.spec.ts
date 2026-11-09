@@ -72,7 +72,7 @@ test('save a selection as a set, place it, rename it and delete it', async ({ pa
 
   // ── Rename it from the Parts panel. ──
   await tile.click({ button: 'right' });
-  await page.getByRole('button', { name: 'Rename set…' }).click();
+  await page.getByRole('menuitem', { name: 'Rename set…' }).click();
   const rename = page.getByRole('dialog', { name: 'Rename set' });
   await rename.getByLabel('Name').fill(RENAMED);
   await rename.getByRole('button', { name: 'Rename' }).click();
@@ -84,7 +84,7 @@ test('save a selection as a set, place it, rename it and delete it', async ({ pa
 
   // ── Delete it: the layouts that use it keep their parts. ──
   await renamed.click({ button: 'right' });
-  await page.getByRole('button', { name: 'Delete set…' }).click();
+  await page.getByRole('menuitem', { name: 'Delete set…' }).click();
   const confirm = page.getByTestId('confirm-dialog');
   await expect(confirm).toContainText('Layouts that use it keep the parts it put down.');
   await confirm.getByRole('button').last().click();
