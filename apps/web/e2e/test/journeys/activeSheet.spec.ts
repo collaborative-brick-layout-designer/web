@@ -10,7 +10,7 @@
 // SHOTS_DIR=<dir> also saves screenshots.
 
 import { test, expect, type Page } from '@playwright/test';
-import { signIn } from '../../helpers';
+import { signIn, mapMenu } from '../../helpers';
 
 const ts = Date.now();
 const PART = 'ts_narrowgauge_straight.8';
@@ -130,6 +130,39 @@ test('a file opens on its saved sheet, or the topmost parts sheet', async ({ pag
     await page.goto(`/editor/${id}`);
     await expect(page.getByTestId('active-sheet-name')).toHaveText(expected, { timeout: 15000 });
   }
+});
+
+// Opening a file never changes it. Fordyce opens adding to "Tracks", but its
+// saved sheet stays "rulers": Download As .bbm and the server's export are
+// byte for byte what was uploaded. The sheet you pick is yours only (never
+// written into the layout), so the file still keeps its own after a pick.
+test('opening a file never changes it, even after picking a sheet', async ({ page }) => {
+  test.setTimeout(120_000);
+  const { readFileSync } = await import('node:fs');
+  const { fileURLToPath } = await import('node:url');
+  const bbm = readFileSync(fileURLToPath(new URL('../../../../../packages/bbm/tests/fixtures/fordyce-2026.bbm', import.meta.url)), 'utf-8');
+  expect(bbm).toContain('<SelectedLayerIndex>4</SelectedLayerIndex>');
+  await signIn(page, `j-open-unchanged-${ts}@example.com`, 'Open Olu');
+  const { id } = (await (await page.request.post('/api/layouts', { data: { title: 'Fordyce unchanged', bbm } })).json()) as { id: string };
+  await page.goto(`/editor/${id}`);
+  await expect(page.getByTestId('active-sheet-name')).toHaveText('Tracks', { timeout: 15000 });
+  const downloadBbm = async (): Promise<string> => {
+    await mapMenu(page, 'Download & export', 'Download as…');
+    const as = page.getByRole('dialog', { name: 'Download As' });
+    await as.getByLabel('BlueBrick map (.bbm)').check();
+    const dl = page.waitForEvent('download');
+    await as.getByRole('button', { name: 'Download', exact: true }).click();
+    const { readFile } = await import('node:fs/promises');
+    return readFile((await (await dl).path())!, 'utf-8');
+  };
+  const serverBbm = async () => (await page.request.get(`/api/layouts/${id}/export.bbm`)).text();
+  expect(await downloadBbm()).toBe(bbm);
+  expect(await serverBbm()).toBe(bbm);
+  // Pick "Tables": new parts go there, and the file is still the same.
+  await pickSheet(page, 'Tables');
+  await expect(page.getByTestId('active-sheet-name')).toHaveText('Tables');
+  expect(await downloadBbm()).toBe(bbm);
+  expect(await serverBbm()).toBe(bbm);
 });
 
 // BlueBrick's untouched "Layer 1" shows as "Sheet 1" everywhere, but the file
