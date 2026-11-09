@@ -122,6 +122,7 @@ export function TouchDrawBar() {
       role="toolbar"
       aria-label={ruler ? 'Measuring' : 'Painting areas'}
       data-testid="touch-draw-bar"
+      data-keep-clear
       className="absolute inset-x-0 bottom-0 z-10 border-t border-line bg-panel/95 px-2 pt-1 shadow-pop backdrop-blur"
       style={{ paddingLeft: 'max(0.5rem, env(safe-area-inset-left))', paddingRight: 'max(0.5rem, env(safe-area-inset-right))', paddingBottom: 'max(0.25rem, env(safe-area-inset-bottom))' }}
       data-no-gesture

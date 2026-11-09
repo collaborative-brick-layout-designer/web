@@ -897,6 +897,7 @@ function Editor({ layoutId, docState, moduleMode }: { layoutId: string; docState
       {moduleMode ? (
         <header
           data-testid="editor-header"
+          data-keep-clear
           className="flex min-h-14 flex-wrap items-center gap-x-3 gap-y-1 border-b border-line bg-panel px-3 py-1.5 pt-[max(0.375rem,env(safe-area-inset-top))] sm:px-4"
           style={{ gridColumn: '1 / -1' }}
         >
@@ -970,6 +971,7 @@ function Editor({ layoutId, docState, moduleMode }: { layoutId: string; docState
           // the save state and the buttons share the second row, so the
           // title never runs into the pills.
           data-testid="editor-header"
+          data-keep-clear
           className="flex flex-col gap-1 border-b border-line bg-panel px-3 pb-1.5 pt-[max(0.375rem,env(safe-area-inset-top))] sm:flex-row sm:items-center sm:gap-3 sm:pt-1.5"
           // (A phone on its side has the room for one row.)
           style={{ gridColumn: '1 / -1' }}
@@ -1076,6 +1078,7 @@ function Editor({ layoutId, docState, moduleMode }: { layoutId: string; docState
         </header>
       ) : (
       <header
+        data-keep-clear
         // A tablet held upright (768-1023 px) has no room for three columns:
         // the task tabs get a row of their own under the name and buttons.
         className="grid min-h-14 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 border-b border-line bg-panel px-4 py-1.5 lg:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]"
@@ -1146,6 +1149,8 @@ function Editor({ layoutId, docState, moduleMode }: { layoutId: string; docState
       <div
         role="toolbar"
         aria-label="Edit"
+        // Floating panels (Find) stay clear of it.
+        data-keep-clear
         // Wraps onto a second row on a narrower screen rather than hiding
         // controls off the side.
         className="flex min-h-[42px] min-w-0 flex-wrap items-center gap-x-2 gap-y-1 border-b border-line bg-panel px-3 py-1"
