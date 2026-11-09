@@ -86,7 +86,7 @@ describe('FileOpener', () => {
     const sidecar = JSON.stringify({ schemaVersion: 2, bbmHashSha256: '', futureField: { x: 1 } });
     act(() => void window.dispatchEvent(dragEvent('drop', [new File([BBM], 'Yard.bbm'), new File([sidecar], 'Yard.bbm.bld')])));
     await waitFor(() => expect(screen.getByTestId('editor').textContent).toContain('/editor/new-1'));
-    expect(apiMock.create).toHaveBeenCalledWith({ bbm: BBM, sidecar });
+    expect(apiMock.create).toHaveBeenCalledWith({ title: 'Yard', bbm: BBM, sidecar });
     expect(screen.getByTestId('editor').textContent).toContain(JSON.stringify(NEWER_SIDECAR_WARNING).slice(1, -1));
   });
 
