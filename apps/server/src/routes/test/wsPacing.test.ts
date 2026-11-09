@@ -138,7 +138,7 @@ describe('WS pacing', () => {
         for (let i = bricks.length - 1000; i < bricks.length; i++) bricks.get(i).set('displayArea', { x: step, y: i, width: 8, height: 8 });
       });
       if (performance.now() >= nextPresence) {
-        peer.ws.send(awarenessMsg(doc.clientID, clock++, { user: { id: owner.id }, cursor: { x: step, y: 0 }, selection: { brickIds: selected } }));
+        peer.ws.send(awarenessMsg(doc.clientID, clock++, { user: { id: owner.id, displayName: 'Owner' }, cursor: { x: step, y: 0 }, selection: { brickIds: selected }, lastActivityMs: Date.now() }));
         nextPresence += 50;
       }
       await sleep(33);

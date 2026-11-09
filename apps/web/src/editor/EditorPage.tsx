@@ -1,4 +1,5 @@
 import { Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { EditorErrorBoundary } from './EditorErrorBoundary';
 import { lazyRetry, preloadLazy } from '../ui/lazyRetry';
 import { RenameDialog } from '../ui/RenameDialog';
 import { flushSync } from 'react-dom';
@@ -250,12 +251,20 @@ function LayoutEditor({ layoutId }: { layoutId: string }) {
   // (The same query the editor reads its role from.)
   const meta = useQuery({ queryKey: ['layout', layoutId], queryFn: () => api.layouts.get(layoutId) });
   const docState = useLayoutDoc(layoutId, meta.data ? meta.data.role !== 'viewer' : undefined);
-  return <Editor layoutId={layoutId} docState={docState} moduleMode={false} />;
+  return (
+    <EditorErrorBoundary what="layout" layoutId={layoutId} docState={docState}>
+      <Editor layoutId={layoutId} docState={docState} moduleMode={false} />
+    </EditorErrorBoundary>
+  );
 }
 
 function ModuleEditor({ moduleId }: { moduleId: string }) {
   const docState = useModuleDoc(moduleId);
-  return <Editor layoutId={moduleId} docState={docState} moduleMode />;
+  return (
+    <EditorErrorBoundary what="module" layoutId={moduleId} docState={docState}>
+      <Editor layoutId={moduleId} docState={docState} moduleMode />
+    </EditorErrorBoundary>
+  );
 }
 
 /** A module's details in the shape the editor reads a layout's. */

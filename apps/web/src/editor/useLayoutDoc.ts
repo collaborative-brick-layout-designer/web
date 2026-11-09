@@ -19,7 +19,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import * as Y from 'yjs';
 import { WebsocketProvider } from 'y-websocket';
-import type { Awareness } from 'y-protocols/awareness';
+import { Awareness } from 'y-protocols/awareness';
 import { canReadDoc, removeDuplicateItems, repairSidecarCache } from '@cld/ydoc';
 import { keepRefusedCopy, type RefusedWhy } from './refusedCopies';
 import { announceSignInEnded } from '../demo/demoVisitor';
@@ -172,6 +172,18 @@ function finishSending(layoutId: string, provider: WebsocketProvider, doc: Y.Doc
   provider.on('connection-close', onClose);
 }
 
+/**
+ * The presence this tab shares, empty (null) until the layout has opened
+ * here: y-protocols starts it as `{}`, which others can't draw (a tab still
+ * opening a big layout used to blank everyone's editor), and re-sends it
+ * every 15 s. usePublishAwareness fills it once the layout is open.
+ */
+export function newLivePresence(doc: Y.Doc): Awareness {
+  const awareness = new Awareness(doc);
+  awareness.setLocalState(null);
+  return awareness;
+}
+
 /** Build the WS URL relative to the current page (so dev + prod both work). */
 function wsUrlBase(): string {
   if (typeof window === 'undefined') return '';
@@ -247,6 +259,7 @@ export function useLayoutDoc(layoutId: string, canEdit?: boolean): LayoutDocStat
     const provider = new WebsocketProvider(`${wsUrlBase()}/ws/layout`, layoutId, fresh, {
       // params: we rely on the session cookie for auth; nothing else.
       connect: true,
+      awareness: newLivePresence(fresh),
     });
     providerRef.current = provider;
 

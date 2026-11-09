@@ -62,5 +62,39 @@ export function deterministicColor(userId: string, layoutId: string): string {
   return COLOR_PALETTE[Math.abs(h) % COLOR_PALETTE.length] ?? '#888888';
 }
 
+const isObject = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object' && !Array.isArray(v);
+
+/**
+ * Someone else's presence as the editor draws it, or null when it isn't a
+ * person's (no name, selection or last-activity time: a tab still opening
+ * the layout, an older app, or a made-up entry). Every field is checked and
+ * copied, so drawing it can't throw: one bad entry used to blank the editor
+ * for everyone in the layout.
+ */
+export function readPeerPresence(raw: unknown): AwarenessState | null {
+  if (!isObject(raw) || !isObject(raw.user) || !isObject(raw.selection)) return null;
+  const { user, selection } = raw;
+  if (typeof user.displayName !== 'string' || !Array.isArray(selection.brickIds)) return null;
+  if (typeof raw.lastActivityMs !== 'number' || !Number.isFinite(raw.lastActivityMs)) return null;
+  const c = raw.cursor;
+  const cursor: AwarenessCursor | null =
+    isObject(c) && typeof c.x === 'number' && Number.isFinite(c.x) && typeof c.y === 'number' && Number.isFinite(c.y)
+      ? { x: c.x, y: c.y, layerId: typeof c.layerId === 'string' ? c.layerId : null }
+      : null;
+  return {
+    user: {
+      id: typeof user.id === 'string' ? user.id : '',
+      displayName: user.displayName,
+      avatarUrl: typeof user.avatarUrl === 'string' ? user.avatarUrl : null,
+      color: typeof user.color === 'string' && /^#[0-9a-f]{3,8}$/i.test(user.color) ? user.color : '#888888',
+    },
+    cursor,
+    selection: { brickIds: selection.brickIds.filter((id): id is string => typeof id === 'string') },
+    tool: typeof raw.tool === 'string' ? raw.tool : 'select',
+    editingModule: typeof raw.editingModule === 'string' ? raw.editingModule : null,
+    lastActivityMs: raw.lastActivityMs,
+  };
+}
+
 /** Idle threshold (ms). After this much inactivity a peer's dot turns grey. */
 export const IDLE_MS = 5 * 60 * 1000;

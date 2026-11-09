@@ -13,6 +13,7 @@ import type { Awareness } from 'y-protocols/awareness';
 import { useEditorStore } from './editorStore';
 import {
   deterministicColor,
+  readPeerPresence,
   IDLE_MS,
   type AwarenessCursor,
   type AwarenessState,
@@ -176,8 +177,9 @@ export function useRemotePeers(awareness: Awareness | null): {
     const peers: { clientId: number; state: AwarenessState; isIdle: boolean }[] = [];
     for (const [clientId, raw] of awareness.getStates()) {
       if (clientId === awareness.clientID) continue;
-      const state = raw as AwarenessState | undefined;
-      if (!state || !state.user) continue;
+      // Not a person's presence (a tab still opening the layout sends {}): skipped.
+      const state = readPeerPresence(raw);
+      if (!state) continue;
       peers.push({
         clientId,
         state,
