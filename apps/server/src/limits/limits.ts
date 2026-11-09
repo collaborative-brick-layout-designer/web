@@ -144,8 +144,8 @@ export function enforcementSource(): EnforcementSource {
 
 /**
  * Whether usage limits refuse anything right now. Off means use is still
- * counted and shown, but nothing is refused (no limit_reached, no 429, no
- * read-only suspension). Read live: the admin's switch takes effect at
+ * counted and shown, but nothing is refused (no limit_reached, no 429).
+ * Read-only (a suspension) doesn't depend on it: it always holds. Read live: the admin's switch takes effect at
  * once (its change clears the cache), no restart.
  */
 export async function limitsEnforced(now: number = Date.now()): Promise<boolean> {
@@ -405,9 +405,9 @@ export async function checkGrowth(opts: {
   /** Size of a single uploaded file or body. */
   uploadBytes?: number;
 }): Promise<Refusal | null> {
-  if (!(await limitsEnforced())) return null; // counted and shown, never refused
   const { actor, owner } = opts;
   const add = opts.add ?? {};
+  // Read-only comes first and holds whether or not limits are enforced.
   const actorOv = overrideFor('user', actor.id);
   if (actorOv.suspended) {
     return { status: 403, body: { error: 'suspended', message: 'Your account is read-only for now. Ask the site admin why.' } };
@@ -418,6 +418,7 @@ export async function checkGrowth(opts: {
   if (owner.kind === 'user' && owner.id !== actor.id && isSuspended('user', owner.id)) {
     return { status: 403, body: { error: 'suspended', message: 'That account is read-only for now.' } };
   }
+  if (!(await limitsEnforced())) return null; // counted and shown, never refused
 
   if (add.clubs) {
     if (!actor.emailVerified) {

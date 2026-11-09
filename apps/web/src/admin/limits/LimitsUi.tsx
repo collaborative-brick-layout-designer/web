@@ -8,6 +8,7 @@ import { Card, LineChart, SERIES_STYLE } from '../insights/charts';
 import { formatBytes, formatDate } from '../insights/format';
 import { describeEvent, formatLimit, limitsApi, toInput, toStored, type AbuseRow, type GlobalLimit, type LimitUnit, type SubjectLimit } from './limitsApi';
 import { api } from '../../api';
+import { HelpButton } from '../../help/HelpButton';
 
 // ---------------------------------------------------------------------------
 // Heavy use: top people and clubs
@@ -259,9 +260,12 @@ export function SubjectLimitsPanel({ kind, id }: { kind: 'user' | 'org'; id: str
     <div className="space-y-4">
       <style>{SERIES_STYLE}</style>
       <section aria-labelledby={`ro-${id}`} className="rounded-xl border border-line bg-panel p-4">
-        <h3 id={`ro-${id}`} className="text-sm font-semibold text-ink">
-          {d.override.suspended ? '🔒 Read-only' : 'Read-only'}
-        </h3>
+        <div className="flex items-center gap-1">
+          <h3 id={`ro-${id}`} className="text-sm font-semibold text-ink">
+            {d.override.suspended ? '🔒 Read-only' : 'Read-only'}
+          </h3>
+          <HelpButton helpKey="admin.readOnly" target={`[aria-labelledby="ro-${id}"]`} />
+        </div>
         {d.override.suspended ? (
           <>
             <p className="mt-1 text-sm text-ink">
@@ -279,7 +283,7 @@ export function SubjectLimitsPanel({ kind, id }: { kind: 'user' | 'org'; id: str
         ) : (
           <>
             <p className="mt-1 text-sm text-muted">
-              Make {kind === 'user' ? 'this account' : 'this club'} read-only while you look into something. Nothing is deleted; it can be lifted any time.
+              Make {kind === 'user' ? 'this account' : 'this club'} read-only while you look into something. Nothing is deleted; it can be lifted any time. It holds even while usage limits are off.
             </p>
             <div className="mt-2 flex flex-wrap items-center gap-2">
               <label className="sr-only" htmlFor={`reason-${id}`}>
@@ -519,7 +523,7 @@ function GlobalRow({ l, value, onChange }: { l: GlobalLimit; value: string; onCh
 
 /**
  * "Enforce usage limits": on refuses growth past a limit; off still counts
- * use (Heavy use) but refuses nothing. Takes effect at once. The server's
+ * use (Heavy use) but refuses no limit. Read-only holds either way. Takes effect at once. The server's
  * LIMITS_ENFORCE, when set, wins, and the switch says so.
  */
 function EnforceSwitch({ enforced, setting, source }: { enforced: boolean; setting: boolean; source: 'setting' | 'forced-on' | 'forced-off' }) {
@@ -536,7 +540,7 @@ function EnforceSwitch({ enforced, setting, source }: { enforced: boolean; setti
         <p className="text-muted" role="status" data-testid={enforced ? 'limits-on' : 'limits-off'}>
           {enforced
             ? 'On: growth past a limit is refused with a plain message. People can always open and delete their things.'
-            : 'Off: use is counted and shown on the Heavy use tab, but nothing is refused.'}
+            : 'Off: use is counted and shown on the Heavy use tab, but no limit is refused. Read-only accounts and clubs stay read-only.'}
         </p>
         {forced && (
           <p className="mt-1 text-muted" data-testid="limits-forced">
