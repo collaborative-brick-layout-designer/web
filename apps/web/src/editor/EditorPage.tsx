@@ -4716,7 +4716,7 @@ function Canvas({
         {rulerDraft && <RulerDraftPreview draft={rulerDraft} />}
         <TouchRulerStart zoom={zoom} />
         {venueDraft && <VenueDraftPreview draft={venueDraft} />}
-        <RemoteCursors awareness={awareness} map={map} />
+        <RemoteCursors awareness={awareness} map={map} zoom={zoom} />
       </KonvaLayer>
     </Stage>
   );

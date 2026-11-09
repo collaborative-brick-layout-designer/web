@@ -1,10 +1,11 @@
 import type { Awareness } from 'y-protocols/awareness';
-import { useRemotePeers } from './useAwareness';
+import { onePerPerson, useRemotePeers } from './useAwareness';
 import { HelpButton } from '../help/HelpButton';
 
 /** Shows everyone connected to the layout. Renders nothing if alone. */
 export function PresencePanel({ awareness }: { awareness: Awareness | null }) {
-  const peers = useRemotePeers(awareness);
+  // One avatar per person, however many tabs they have open.
+  const peers = onePerPerson(useRemotePeers(awareness));
   if (peers.length === 0) return null;
   return (
     <div className="flex items-center gap-2">

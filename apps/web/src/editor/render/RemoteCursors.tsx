@@ -14,9 +14,12 @@ import { usePosedMap } from '../liveDragPose';
 export function RemoteCursors({
   awareness,
   map: committedMap,
+  zoom = 1,
 }: {
   awareness: Awareness | null;
   map: BbmMap;
+  /** The map's zoom: cursors and outlines keep their size on screen at any zoom, as on the desktop. */
+  zoom?: number;
 }) {
   // The parts being dragged where they are now (liveDragPose.ts), so this
   // follows the drag every frame, not only the drop.
@@ -35,6 +38,8 @@ export function RemoteCursors({
     return index;
   }, [map]);
   if (!awareness || peers.length === 0) return null;
+  // One screen pixel, in map pixels.
+  const px = 1 / (zoom > 0 ? zoom : 1);
 
   return (
     <Group>
@@ -49,12 +54,13 @@ export function RemoteCursors({
             return (
               <Rect
                 key={id}
-                x={studToPx(brick.displayArea.x) - 1}
-                y={studToPx(brick.displayArea.y) - 1}
-                width={studToPx(brick.displayArea.width) + 2}
-                height={studToPx(brick.displayArea.height) + 2}
+                x={studToPx(brick.displayArea.x) - px}
+                y={studToPx(brick.displayArea.y) - px}
+                width={studToPx(brick.displayArea.width) + 2 * px}
+                height={studToPx(brick.displayArea.height) + 2 * px}
                 stroke={state.user.color}
                 strokeWidth={2}
+                strokeScaleEnabled={false}
                 opacity={0.6}
                 listening={false}
               />
@@ -69,7 +75,7 @@ export function RemoteCursors({
               ? state.user.displayName.slice(0, MAX_LABEL_CHARS - 1) + '…'
               : state.user.displayName;
             return (
-              <Group x={studToPx(state.cursor.x)} y={studToPx(state.cursor.y)}>
+              <Group name="remote-cursor" x={studToPx(state.cursor.x)} y={studToPx(state.cursor.y)} scaleX={px} scaleY={px}>
                 {/* Arrow shape: pointer triangle. */}
                 <Line
                   points={[0, 0, 0, 16, 4, 12, 9, 22, 11, 21, 7, 11, 12, 11]}

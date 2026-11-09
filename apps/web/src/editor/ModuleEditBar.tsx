@@ -8,7 +8,7 @@ import type * as Y from 'yjs';
 import type { Awareness } from 'y-protocols/awareness';
 import { readSidecarFromDoc } from '@cld/ydoc';
 import { useEditorStore } from './editorStore';
-import { useRemotePeers } from './useAwareness';
+import { onePerPerson, useRemotePeers } from './useAwareness';
 import { hereTooText } from './moduleEdit';
 import { leaveModuleEdit } from './moduleActions';
 import { HelpButton } from '../help/HelpButton';
@@ -28,7 +28,7 @@ export function ModuleEditBar({ doc, awareness }: { doc: Y.Doc; awareness: Aware
   const hidden = uses.filter((u) => !u.visible);
   const pickedId = map ? pickedPartsSheet(map, activeLayerId) : null;
   const picked = map?.layers.find((l) => l.id === pickedId);
-  const others = hereTooText(peers.filter((p) => p.state.editingModule === editingId).map((p) => p.state.user.displayName));
+  const others = hereTooText(onePerPerson(peers).filter((p) => p.state.editingModule === editingId).map((p) => p.state.user.displayName));
   return (
     <div
       role="status"

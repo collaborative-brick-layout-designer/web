@@ -10,8 +10,12 @@
 //   - identity (id, displayName, avatarUrl, color)
 //   - idle flag (5min no movement → grey dot)
 //
+// (Colors: presenceColors.ts.)
+//
 // The shape must round-trip through structuredClone (Yjs requires it),
 // so plain JSON-able objects only.
+
+import { PRESENCE_PALETTE, firstChoice } from './presenceColors';
 
 export interface AwarenessUser {
   id: string;
@@ -39,27 +43,13 @@ export interface AwarenessState {
   lastActivityMs: number;
 }
 
-const COLOR_PALETTE = [
-  '#f87171', // red
-  '#fb923c', // orange
-  '#facc15', // yellow
-  '#4ade80', // green
-  '#22d3ee', // cyan
-  '#60a5fa', // blue
-  '#a78bfa', // violet
-  '#f472b6', // pink
-];
-
 /**
- * Deterministic color for a user-on-a-layout. Plan §4.5 calls this
- * out: same user always gets the same color for the same map, so
- * peers don't visually swap mid-session.
+ * A person's own color on a layout, what they send as `user.color` (their
+ * first choice, presenceColors.ts). What everyone is drawn in is worked out
+ * from the people here (presenceColors), so two people don't share one.
  */
 export function deterministicColor(userId: string, layoutId: string): string {
-  const seed = `${userId}:${layoutId}`;
-  let h = 0;
-  for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) | 0;
-  return COLOR_PALETTE[Math.abs(h) % COLOR_PALETTE.length] ?? '#888888';
+  return PRESENCE_PALETTE[firstChoice(userId, layoutId)] ?? '#888888';
 }
 
 const isObject = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object' && !Array.isArray(v);

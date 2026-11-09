@@ -20,6 +20,7 @@ import {
   type AwarenessUser,
 } from './awareness';
 import type { Me } from '../api';
+import { presenceColors } from './presenceColors';
 
 interface UsePublishOpts {
   awareness: Awareness | null;
@@ -139,8 +140,12 @@ export function usePublishAwareness({ awareness, me, layoutId }: UsePublishOpts)
 }
 
 /**
- * Subscribe to remote peers' awareness and return a tick-stable list.
- * Excludes the local clientID. Sorted by displayName for UI consistency.
+ * Subscribe to remote peers' awareness and return a tick-stable list:
+ * everyone else here, not this tab and not this person in another tab or
+ * app. Sorted by displayName for UI consistency. Each is drawn in the color
+ * every app works out from the people here (presenceColors), so two people
+ * don't share one. A person in two tabs is two entries (two cursors):
+ * onePerPerson() makes them one.
  */
 export function useRemotePeers(awareness: Awareness | null): {
   clientId: number;
@@ -155,7 +160,8 @@ export function useRemotePeers(awareness: Awareness | null): {
     const self = awareness.clientID;
     const onChange = (changes: { added: number[]; updated: number[]; removed: number[] }) => {
       const touchesPeer =
-        changes.added.some((c) => c !== self) ||
+        // (Our own first presence: who "us" is, to leave out.)
+        changes.added.length > 0 ||
         changes.updated.some((c) => c !== self) ||
         changes.removed.some((c) => c !== self);
       if (touchesPeer) setTick((t) => t + 1);
@@ -174,22 +180,57 @@ export function useRemotePeers(awareness: Awareness | null): {
   return useMemo(() => {
     if (!awareness) return [];
     const now = Date.now();
+    const selfId = readSelfId(awareness.getLocalState());
     const peers: { clientId: number; state: AwarenessState; isIdle: boolean }[] = [];
     for (const [clientId, raw] of awareness.getStates()) {
       if (clientId === awareness.clientID) continue;
       // Not a person's presence (a tab still opening the layout sends {}): skipped.
       const state = readPeerPresence(raw);
       if (!state) continue;
+      // This person in another tab or app: not someone else.
+      if (selfId && state.user.id === selfId) continue;
       peers.push({
         clientId,
         state,
         isIdle: now - state.lastActivityMs > IDLE_MS,
       });
     }
+    const colors = presenceColors([...(selfId ? [selfId] : []), ...peers.map((p) => p.state.user.id)], layoutKey(awareness));
+    for (const p of peers) {
+      const c = colors.get(p.state.user.id);
+      if (c && p.state.user.id) p.state = { ...p.state, user: { ...p.state.user, color: c } };
+    }
     peers.sort((a, b) => a.state.user.displayName.localeCompare(b.state.user.displayName));
     void tick;
     return peers;
   }, [awareness, tick]);
+}
+
+function readSelfId(local: unknown): string | null {
+  const user = (local as { user?: { id?: unknown } } | null)?.user;
+  return typeof user?.id === 'string' && user.id ? user.id : null;
+}
+
+/** The layout a presence is for (newLivePresence notes it), for the colors. */
+const presenceLayouts = new WeakMap<Awareness, string>();
+
+export function notePresenceLayout(awareness: Awareness, layoutId: string): void {
+  presenceLayouts.set(awareness, layoutId);
+}
+
+function layoutKey(awareness: Awareness): string {
+  return presenceLayouts.get(awareness) ?? '';
+}
+
+/** One entry per person (someone in two tabs is one), the most recently active. */
+export function onePerPerson<T extends { state: AwarenessState }>(peers: readonly T[]): T[] {
+  const best = new Map<string, T>();
+  for (const p of peers) {
+    const key = p.state.user.id || `#${p.state.user.displayName}`;
+    const had = best.get(key);
+    if (!had || p.state.lastActivityMs > had.state.lastActivityMs) best.set(key, p);
+  }
+  return peers.filter((p) => best.get(p.state.user.id || `#${p.state.user.displayName}`) === p);
 }
 
 /**
