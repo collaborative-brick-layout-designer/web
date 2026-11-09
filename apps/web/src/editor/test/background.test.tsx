@@ -4,7 +4,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { createDefaultLayoutDoc, docToBbm, writeSidecarCache } from '@cld/ydoc';
-import { writeBbm } from '@cld/bbm';
+import { readBbm, writeBbm } from '@cld/bbm';
 import { argbSpec, backgroundImageRectPx, hexAlpha, sameOriginImageUrl } from '../background';
 import { localLayoutContents } from '../localLayoutFile';
 import { BackgroundColorDialog } from '../BackgroundColorDialog';
@@ -43,6 +43,18 @@ describe('background color alpha', () => {
     const map = docToBbm(doc);
     expect(map.backgroundColor).toEqual({ kind: 'argb', argb: '64102030' });
     expect(writeBbm(map)).toMatch(/<BackgroundColor>\s*<IsKnownColor>false<\/IsKnownColor>\s*<Name>64102030<\/Name>/);
+  });
+
+  it('a nearly clear color is written as BlueBrick names it, without leading zeros', () => {
+    const doc = createDefaultLayoutDoc();
+    render(<BackgroundColorDialog current={docToBbm(doc).backgroundColor} doc={doc} onClose={() => {}} />);
+    fireEvent.change(document.querySelector('input[type="color"]')!, { target: { value: '#ff0000' } });
+    fireEvent.change(screen.getByLabelText('Alpha'), { target: { value: '5' } });
+    fireEvent.click(screen.getByRole('button', { name: 'OK' }));
+    const xml = writeBbm(docToBbm(doc));
+    expect(xml).toMatch(/<BackgroundColor>\s*<IsKnownColor>false<\/IsKnownColor>\s*<Name>5ff0000<\/Name>/);
+    // Read back, it keeps its alpha instead of turning opaque.
+    expect(hexAlpha(readBbm(xml).map.backgroundColor)).toEqual({ hex: '#ff0000', alpha: 5 });
   });
 });
 
