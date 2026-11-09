@@ -11,6 +11,7 @@ import type * as Y from 'yjs';
 import type { Venue } from '@cld/bbm';
 import { api } from '../api';
 import { setVenue } from './mutations';
+import { normalizeVenue } from './venueFile';
 import { readSidecarFromDoc } from '@cld/ydoc';
 import { useEditorStore } from './editorStore';
 import { askOverwrite, saveVenueToLibrary, venueDetail, venueNamed } from './venueLibrary';
@@ -75,7 +76,8 @@ export function VenueLibraryPanel({ doc, isViewer, onDrawOutline, onDimensions, 
   async function load(id: string) {
     try {
       const { data } = await api.venues.get(id);
-      setVenue(doc, data as Venue);
+      // Read the way a venue file is (every field checked, defaults filled), never as it came.
+      setVenue(doc, normalizeVenue(data));
       notice('The venue is in this layout now.', 'done');
     } catch (e) {
       notice(`Couldn’t use that venue: ${(e as Error).message}`);

@@ -13,6 +13,7 @@ import { readBbm, readSidecar, writeBbm, writeSidecar, type Sidecar } from '@cld
 import { hashBbmBytes } from '@cld/bbm/hash';
 import { createDefaultLayoutDoc, decodeDoc, encodeDoc, exportBbmFromDoc, exportSidecarFromDoc, readSidecarCache, seedFromBbm, seedFromSidecar, writeSidecarCache } from '@cld/ydoc';
 import { db, schema } from '../db/index.js';
+import { writeAuditEvent } from '../audit/writeAuditEvent.js';
 import { requireUser } from '../auth/cookie.js';
 import { isDemoUser } from '../demo/demoAccount.js';
 import { hasAtLeast, resolveResourceRole } from '../access/resolveResourceRole.js';
@@ -318,10 +319,22 @@ export async function layoutRoutes(app: FastifyInstance) {
     if (role.role === null) return reply.code(404).send({ error: 'not_found' });
     if (!hasAtLeast(role.role, 'owner')) return reply.code(403).send({ error: 'forbidden' });
 
+    const gone = await db
+      .select({ title: schema.layouts.title, ownerUserId: schema.layouts.ownerUserId, ownerOrgId: schema.layouts.ownerOrgId })
+      .from(schema.layouts)
+      .where(eq(schema.layouts.id, req.params.id))
+      .get();
     await db.delete(schema.layouts).where(eq(schema.layouts.id, req.params.id));
     // Shut any open editor sockets; otherwise their next update hits a
     // foreign-key failure against the deleted row.
     await docHub.close(req.params.id);
+    // Who deleted what, as Admin › Layouts' delete does (admin_layout_delete).
+    await writeAuditEvent({
+      layoutId: req.params.id,
+      userId: user.id,
+      eventType: 'delete',
+      payload: { title: gone?.title ?? null, ownerUserId: gone?.ownerUserId ?? null, ownerOrgId: gone?.ownerOrgId ?? null },
+    });
     return { ok: true };
   });
 

@@ -440,6 +440,24 @@ class DocHub {
     }
   }
 
+  /**
+   * Save every open layout now (the server is stopping): the last changes
+   * reach the database even if nobody has left the room yet.
+   */
+  async flushAll(): Promise<number> {
+    let n = 0;
+    for (const session of this.live.values()) {
+      if (session.closed) continue;
+      try {
+        await session.flushSnapshot();
+        n += 1;
+      } catch (err) {
+        console.error(`[docHub] couldn't save layout ${session.layoutId} while stopping`, err);
+      }
+    }
+    return n;
+  }
+
   /** How many layouts are open in the live editor right now. */
   liveRoomCount(): number {
     let n = 0;

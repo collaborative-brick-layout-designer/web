@@ -20,16 +20,11 @@
 // Tests skip the whole worker stack (NODE_ENV=test).
 
 import { eq, and } from 'drizzle-orm';
-import { existsSync, mkdirSync, readdirSync, unlinkSync } from 'node:fs';
-import { resolve } from 'node:path';
-import { createGzip } from 'node:zlib';
-import { createWriteStream } from 'node:fs';
-import { pipeline } from 'node:stream/promises';
-import { Readable } from 'node:stream';
 import * as Y from 'yjs';
 import { db, schema, sqlite } from '../db/index.js';
 import { env } from '../env.js';
-import { classifyBackups } from './retention.js';
+import { imagesDirFor, runBackup } from './backup.js';
+import { setCompactionSkipped } from './compactionReport.js';
 import { backgroundJobs } from './jobs.js';
 import { docHub } from '../ws/docHub.js';
 import { applyStoredUpdate } from '../ws/yjsWork.js';
@@ -136,14 +131,31 @@ export async function dailyCompaction(): Promise<void> {
     .from(schema.layoutUpdates)
     .where(eq(schema.layoutUpdates.doc, 'main'));
   let compacted = 0;
+  const skipped: string[] = [];
   for (const { id } of pending) {
     if (docHub.has(id)) continue;
+    // One layout that can't be read never stops the rest (each is tried on its own).
+    try {
+      if (await compactOne(id)) compacted += 1;
+    } catch (err) {
+      skipped.push(id);
+      console.error(`[dailyCompaction] layout ${id} skipped: its saved copy can't be read`, err);
+    }
+  }
+  setCompactionSkipped(skipped);
+  if (compacted > 0) {
+    console.log(`[dailyCompaction] compacted ${compacted} layouts`);
+  }
+}
+
+async function compactOne(id: string): Promise<boolean> {
+  {
     const layout = await db
       .select({ id: schema.layouts.id, snapshot: schema.layouts.docSnapshot })
       .from(schema.layouts)
       .where(eq(schema.layouts.id, id))
       .get();
-    if (!layout) continue;
+    if (!layout) return false;
     const updates = await db
       .select({ updateBytes: schema.layoutUpdates.updateBytes })
       .from(schema.layoutUpdates)
@@ -153,10 +165,15 @@ export async function dailyCompaction(): Promise<void> {
           eq(schema.layoutUpdates.doc, 'main'),
         ),
       );
-    if (updates.length === 0) continue;
+    if (updates.length === 0) return false;
 
     const doc = new Y.Doc();
-    Y.applyUpdate(doc, layout.snapshot as Uint8Array);
+    try {
+      Y.applyUpdate(doc, layout.snapshot as Uint8Array);
+    } catch (err) {
+      doc.destroy();
+      throw err;
+    }
     // Corrupt or too costly to apply (ws/yjsWork.ts): skipped.
     for (const u of updates) applyStoredUpdate(doc, u.updateBytes as Uint8Array, `layout ${layout.id}`);
     const fresh = Y.encodeStateAsUpdate(doc);
@@ -173,10 +190,7 @@ export async function dailyCompaction(): Promise<void> {
         ),
       );
     doc.destroy();
-    compacted += 1;
-  }
-  if (compacted > 0) {
-    console.log(`[dailyCompaction] compacted ${compacted} layouts`);
+    return true;
   }
 }
 
@@ -185,62 +199,9 @@ export async function dailyCompaction(): Promise<void> {
 // ---------------------------------------------------------------------------
 
 async function backupWorker(): Promise<void> {
-  const dir = env.backupsDir;
-  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-
-  // VACUUM INTO produces a consistent .sqlite file even with concurrent
-  // writers (better-sqlite3's WAL mode handles this). The output is
-  // bigger than the live DB because no WAL checkpoint is needed first.
-  const tag = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
-  const tmpPath = resolve(dir, `cbld-${tag}.sqlite.tmp`);
-  const finalPath = resolve(dir, `cbld-${tag}.sqlite.gz`);
-
-  if (existsSync(finalPath)) return; // already ran today
-
-  if (existsSync(tmpPath)) unlinkSync(tmpPath);
-  // VACUUM INTO requires a path literal; use a prepared statement with
-  // a parameter binding so we don't have to manually escape.
-  sqlite.prepare('VACUUM INTO ?').run(tmpPath);
-
-  // Gzip + cleanup.
-  const { createReadStream } = await import('node:fs');
-  // @types/node 26's PipelineSource requires an async iterator matching
-  // ReadableStream's exactOptionalPropertyTypes-aware shape, which even
-  // Node's own `Readable`/`WriteStream` classes don't structurally
-  // satisfy in these types — a type-declaration gap, not a real
-  // behavior mismatch (these are genuinely valid pipeline streams at
-  // runtime). Casting `pipeline` itself to a permissive signature keeps
-  // the escape hatch to one line without TS reinterpreting the
-  // argument list against the wrong overload.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const pipelineAny = pipeline as (...streams: any[]) => Promise<void>;
-  await pipelineAny(createReadStream(tmpPath), createGzip(), createWriteStream(finalPath));
-  unlinkSync(tmpPath);
-
-  applyRetentionPolicy(dir);
+  // workers/backup.ts: an online copy (the server keeps answering), written
+  // whole or not at all, with the background pictures beside it.
+  await runBackup({ dir: env.backupsDir, sqlite, imagesDir: imagesDirFor(env.dbPath), log: (l) => console.log(l) });
 }
 
-/**
- * Retention buckets (PLAN.md §4.6):
- *   - daily:   keep last 7 days
- *   - weekly:  keep one snapshot per ISO week for the last 3 weeks
- *   - monthly: keep one snapshot per calendar month for the last 12
- *
- * Anything older OR not matching one of those buckets is deleted.
- * Snapshots within a week/month are deduped by keeping the YOUNGEST.
- */
-function applyRetentionPolicy(dir: string): void {
-  const files = readdirSync(dir);
-  const { delete: toDelete } = classifyBackups(files, Date.now());
-  for (const file of toDelete) {
-    try {
-      unlinkSync(resolve(dir, file));
-    } catch {
-      /* best-effort */
-    }
-  }
-}
 
-// `Readable` is imported above only because TS will tree-shake it
-// otherwise; the gzip pipeline uses it transitively.
-void Readable;

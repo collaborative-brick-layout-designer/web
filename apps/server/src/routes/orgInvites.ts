@@ -83,11 +83,13 @@ export async function orgInviteRoutes(app: FastifyInstance): Promise<void> {
         return reply.code(410).send({ error: 'invite_expired' });
       }
       const org = await db
-        .select({ name: schema.orgs.name, slug: schema.orgs.slug })
+        .select({ name: schema.orgs.name, slug: schema.orgs.slug, deletionDueAt: schema.orgs.deletionDueAt })
         .from(schema.orgs)
         .where(eq(schema.orgs.id, invite.orgId))
         .get();
       if (!org) return reply.code(404).send({ error: 'org_not_found' });
+      // Kept, not thrown away: if the club is restored, the invite works again.
+      if (org.deletionDueAt) return reply.code(409).send({ error: 'club_being_deleted' });
 
       // Whoever holds the link sees a masked address, and whether the
       // invite is for the account they're signed in with.
@@ -133,6 +135,11 @@ export async function orgInviteRoutes(app: FastifyInstance): Promise<void> {
       if (!(await hasVerifiedEmail(user))) {
         return reply.code(403).send({ error: 'email_not_verified' });
       }
+      // A club waiting to be deleted has no members, so the inviter's
+      // authority can't be checked: say so and keep the invite (a restored
+      // club's invites work again) rather than throwing it away.
+      const club = await db.select({ deletionDueAt: schema.orgs.deletionDueAt }).from(schema.orgs).where(eq(schema.orgs.id, invite.orgId)).get();
+      if (club?.deletionDueAt) return reply.code(409).send({ error: 'club_being_deleted' });
 
       // The invite carries its inviter's authority. If they have since
       // been demoted (below what the invite grants) or removed from the

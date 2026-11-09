@@ -136,6 +136,7 @@ export const deviceCodes = sqliteTable(
   },
   (t) => ({
     expiresIdx: index('device_codes_expires_at_idx').on(t.expiresAt),
+    userIdx: index('device_codes_user_id_idx').on(t.userId),
   }),
 );
 
@@ -150,6 +151,7 @@ export const oauthAccounts = sqliteTable(
   },
   (t) => ({
     pk: primaryKey({ columns: [t.provider, t.providerUserId] }),
+    userIdx: index('oauth_accounts_user_id_idx').on(t.userId),
   }),
 );
 
@@ -165,7 +167,9 @@ export const emailVerifications = sqliteTable('email_verifications', {
   token: text('token').notNull().unique(),
   expiresAt: integer('expires_at', { mode: 'timestamp_ms' }).notNull(),
   createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
-});
+}, (t) => ({
+  userIdx: index('email_verifications_user_id_idx').on(t.userId),
+}));
 
 /**
  * "Forgot password?" links (0041). One-time: the row is deleted when it's
@@ -432,7 +436,9 @@ export const orgInvites = sqliteTable('org_invites', {
   token: text('token').notNull().unique(),
   expiresAt: integer('expires_at', { mode: 'timestamp_ms' }).notNull(),
   acceptedAt: integer('accepted_at', { mode: 'timestamp_ms' }),
-});
+}, (t) => ({
+  orgIdx: index('org_invites_org_id_idx').on(t.orgId),
+}));
 
 // Asks to join a club whose admins approve newcomers. One per person per
 // club; approving or declining deletes it (the audit log keeps the record).
@@ -514,6 +520,7 @@ export const layouts = sqliteTable(
     // owner_user_id / owner_org_id is a full table scan.
     ownerUserIdx: index('layouts_owner_user_id_idx').on(t.ownerUserId),
     ownerOrgIdx: index('layouts_owner_org_id_idx').on(t.ownerOrgId),
+    createdByIdx: index('layouts_created_by_idx').on(t.createdBy),
   }),
 );
 
@@ -552,7 +559,9 @@ export const layoutInvites = sqliteTable('layout_invites', {
    * `share` row names the sender for those.
    */
   invitedBy: text('invited_by').references(() => users.id, { onDelete: 'cascade' }),
-});
+}, (t) => ({
+  layoutIdx: index('layout_invites_layout_id_idx').on(t.layoutId),
+}));
 
 // User → user layout transfers (Phase 6 / PLAN.md §3.5). When the new
 // owner is a user (not an org), the transfer requires the recipient to
@@ -577,7 +586,9 @@ export const layoutTransfers = sqliteTable('layout_transfers', {
   expiresAt: integer('expires_at', { mode: 'timestamp_ms' }).notNull(),
   acceptedAt: integer('accepted_at', { mode: 'timestamp_ms' }),
   createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
-});
+}, (t) => ({
+  layoutIdx: index('layout_transfers_layout_id_idx').on(t.layoutId),
+}));
 
 // Phase 4 will fill this with y-update binary records between snapshots.
 // We declare it now so the migration sticks once and Phase 4 doesn't need
@@ -644,6 +655,7 @@ export const auditEvents = sqliteTable(
       t.resourceId,
       t.createdAt,
     ),
+    userIdx: index('audit_events_user_id_idx').on(t.userId),
   }),
 );
 
@@ -702,6 +714,7 @@ export const customParts = sqliteTable(
     createdIdx: index('custom_parts_created_at_idx').on(t.createdAt),
     ownerUserIdx: index('custom_parts_owner_user_id_idx').on(t.ownerUserId),
     ownerOrgIdx: index('custom_parts_owner_org_id_idx').on(t.ownerOrgId),
+    createdByIdx: index('custom_parts_created_by_idx').on(t.createdBy),
   }),
 );
 
@@ -823,6 +836,7 @@ export const modules = sqliteTable(
     createdIdx: index('modules_created_at_idx').on(t.createdAt),
     ownerUserIdx: index('modules_owner_user_id_idx').on(t.ownerUserId),
     ownerOrgIdx: index('modules_owner_org_id_idx').on(t.ownerOrgId),
+    createdByIdx: index('modules_created_by_idx').on(t.createdBy),
   }),
 );
 
@@ -846,6 +860,7 @@ export const moduleVersions = sqliteTable(
   },
   (t) => ({
     moduleVersionIdx: uniqueIndex('module_versions_module_version_idx').on(t.moduleId, t.version),
+    authorIdx: index('module_versions_author_id_idx').on(t.authorId),
   }),
 );
 
@@ -909,7 +924,9 @@ export const moduleTransfers = sqliteTable('module_transfers', {
   expiresAt: integer('expires_at', { mode: 'timestamp_ms' }).notNull(),
   acceptedAt: integer('accepted_at', { mode: 'timestamp_ms' }),
   createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
-});
+}, (t) => ({
+  moduleIdx: index('module_transfers_module_id_idx').on(t.moduleId),
+}));
 
 // ---------------------------------------------------------------------------
 // Part libraries — system-installed, org-selectable.
@@ -998,7 +1015,10 @@ export const venueLibrary = sqliteTable('venue_library', {
   /** The venue this one was copied from (no FK), as on layouts. */
   copiedFromId: text('copied_from_id'),
   createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
-});
+}, (t) => ({
+  ownerUserIdx: index('venue_library_owner_user_id_idx').on(t.ownerUserId),
+  ownerOrgIdx: index('venue_library_owner_org_id_idx').on(t.ownerOrgId),
+}));
 export type VenueLibraryEntry = typeof venueLibrary.$inferSelect;
 
 /**
@@ -1142,6 +1162,8 @@ export const catalogItems = sqliteTable(
     statusIdx: index('catalog_items_status_idx').on(t.kind, t.status),
     /** Moderation's lists of what's published or unpublished, a page at a time, newest first. */
     statusUpdatedIdx: index('catalog_items_status_updated_idx').on(t.status, t.updatedAt),
+    ownerUserIdx: index('catalog_items_owner_user_id_idx').on(t.ownerUserId),
+    ownerOrgIdx: index('catalog_items_owner_org_id_idx').on(t.ownerOrgId),
   }),
 );
 

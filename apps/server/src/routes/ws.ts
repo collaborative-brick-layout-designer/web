@@ -24,7 +24,7 @@
 import type { FastifyInstance } from 'fastify';
 import websocket from '@fastify/websocket';
 import { docHub } from '../ws/docHub.js';
-import { attachWsHandlers } from '../ws/handler.js';
+import { attachWsHandlers, earlyMessages } from '../ws/handler.js';
 import { hasAtLeast, resolveResourceRole } from '../access/resolveResourceRole.js';
 import { SESSION_COOKIE, sessionIdForToken } from '../auth/session.js';
 import { onCredentialRevoked } from '../auth/revocation.js';
@@ -144,6 +144,9 @@ export async function wsRoutes(app: FastifyInstance): Promise<void> {
     },
     async (socket, req) => {
       const ws = socket;
+      // Kept from the first moment (before any await below), so what the
+      // client sends while access is checked and the layout loads isn't lost.
+      const early = earlyMessages(ws);
       try {
         if (!req.user) {
           ws.close(1008, 'unauthorized');
@@ -197,7 +200,7 @@ export async function wsRoutes(app: FastifyInstance): Promise<void> {
         const readOnly = !!req.user.restrictedAt || (token !== null && !hasScope(token.scopes, 'layouts:write'));
         let detach: () => Promise<void>;
         try {
-          detach = await attachWsHandlers(ws, layoutId, userId, role.role!, { credential, readOnly, client: req.headers['user-agent'] });
+          detach = await attachWsHandlers(ws, layoutId, userId, role.role!, { credential, readOnly, client: req.headers['user-agent'], early });
         } catch (err) {
           const n = (userConnections.get(userId) ?? 1) - 1;
           if (n <= 0) userConnections.delete(userId);

@@ -24,6 +24,7 @@ import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
 import Database from 'better-sqlite3';
+import { refuseWhileRunning } from './serverLock.js';
 import { CLAMP_FIX_ID, clampDrawingValues, summaryLines, type FixedItem } from './clampDrawingValues.js';
 import { fixRecorded, recordFix } from './dataFixes.js';
 
@@ -104,6 +105,13 @@ export function main(argv = process.argv.slice(2)): number {
   if (!values.db) {
     process.stderr.write(USAGE);
     return 2;
+  }
+  if (values.apply) {
+    const running = refuseWhileRunning(values.db);
+    if (running) {
+      process.stderr.write(running);
+      return 4;
+    }
   }
   let sqlite: Database.Database;
   try {

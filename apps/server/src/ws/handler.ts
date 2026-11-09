@@ -89,6 +89,45 @@ export interface WsAuth {
   readOnly?: boolean;
   /** Who is on the other end, for the audit log: the User-Agent. */
   client?: string | undefined;
+  /**
+   * What the client sent before this was wired (the route checks access and
+   * loads the layout first): handled in order, right after (earlyMessages).
+   */
+  early?: EarlyMessages | undefined;
+}
+
+/** Messages a socket sent before its handler was ready, kept in order (a client sends sync step 1 on open). */
+export interface EarlyMessages {
+  /** Stops keeping them and hands them over. */
+  take(): Buffer[];
+}
+
+/** At most this many early messages (or bytes) are kept; past it the connection is told to slow down. */
+const EARLY_MAX_MESSAGES = 256;
+const EARLY_MAX_BYTES = 8 * 1024 * 1024;
+
+/**
+ * Keep what `ws` sends from now until `take()`: wired before any await, so
+ * a message sent while access is checked and the layout loads isn't lost.
+ */
+export function earlyMessages(ws: WebSocket): EarlyMessages {
+  const kept: Buffer[] = [];
+  let bytes = 0;
+  const onMessage = (data: Buffer) => {
+    bytes += data.length;
+    if (kept.length >= EARLY_MAX_MESSAGES || bytes > EARLY_MAX_BYTES) {
+      ws.close(CLOSE_SLOW_DOWN, SLOW_DOWN_REASON);
+      return;
+    }
+    kept.push(data);
+  };
+  ws.on('message', onMessage);
+  return {
+    take() {
+      ws.off('message', onMessage);
+      return kept.splice(0);
+    },
+  };
 }
 
 /** Where a refused or flagged update came from, for the log and the audit. */
@@ -161,9 +200,10 @@ export async function attachWsHandlers(
   // 3. Doc and awareness updates (persist + fan-out) are handled by the
   //    session's single listeners.
 
-  // 4. Wire up message handling.
+  // 4. Wire up message handling: what came early first, in order, then the rest.
   let currentRole = cap(role);
-  ws.on('message', (data: Buffer) => {
+  const early = auth.early?.take() ?? [];
+  const onMessage = (data: Buffer) => {
     // Nothing more is read from a connection being closed (what follows a
     // refused update, a revoked sign-in's last messages).
     if (ws.readyState !== ws.OPEN) return;
@@ -180,7 +220,9 @@ export async function attachWsHandlers(
       // Drop malformed messages silently — Yjs protocol errors should
       // never propagate to the client.
     }
-  });
+  };
+  ws.on('message', onMessage);
+  for (const data of early) onMessage(data);
 
   // 5. Access checks: every revalidateMs, and at once when a route changes
   //    who may open this layout (ws/liveAccess.ts). A removed user is

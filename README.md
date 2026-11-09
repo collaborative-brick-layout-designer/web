@@ -165,8 +165,10 @@ docker compose up -d
 ```
 
 Database migrations run by themselves when the server starts, before it
-accepts requests. They only move forward, so take a backup before a big
-upgrade (see below). Running from source, `pnpm --filter @cld/server db:migrate`
+accepts requests. They only move forward, so before it runs any, the server
+copies the database as it was to `BACKUPS_DIR` as
+`cbld-pre-<migration>.sqlite` (the last two are kept). Still take your own
+backup before a big upgrade (see below). Running from source, `pnpm --filter @cld/server db:migrate`
 applies them by hand, and `pnpm --filter @cld/server db:generate` makes a new
 one after a change to `apps/server/src/db/schema.ts`.
 
@@ -266,17 +268,43 @@ probing.
 ### Backups
 
 Every night the server writes a consistent copy of the database to
-`BACKUPS_DIR` as `cbld-YYYY-MM-DD.sqlite.gz` and keeps 7 daily, 3 weekly and
-12 monthly copies. Turn it off or on in Admin › Site settings › Background
-jobs (or force it with `BACKUPS_ENABLED`).
+`BACKUPS_DIR` as `cbld-YYYY-MM-DD.sqlite.gz`, and the layouts' background
+pictures beside it as `cbld-YYYY-MM-DD.bgimages.tar.gz`. It keeps 7 daily,
+3 weekly and 12 monthly copies. Turn it off or on in Admin › Site settings ›
+Background jobs (or force it with `BACKUPS_ENABLED`).
 
-These copies hold the database only. Back up the `/data` volume (for the
-background pictures) and `/parts` (for uploaded parts) with your usual tools
-too, and keep a copy somewhere else.
+The copy is made while the server keeps working (SQLite's online backup),
+and each file is written under a `.tmp` name and renamed only once it's
+complete, so a restart part-way never leaves a broken backup: the next run
+removes the `.tmp` and makes the day's backup again. On `docker compose
+stop` (SIGTERM) or Ctrl+C the server saves every open layout before it exits.
+
+Back up `/parts` (uploaded parts) with your usual tools too, and keep a
+copy of everything somewhere else.
+
+To restore the pictures: `tar -xzf cbld-2026-10-01.bgimages.tar.gz -C /data/bgimages`.
 
 To restore: stop the container, unzip a backup over the database
 (`gunzip -c cbld-2026-10-01.sqlite.gz > /data/cbld.sqlite`, and delete any
 `cbld.sqlite-wal` and `cbld.sqlite-shm` beside it), then start it again.
+
+### Repair tools
+
+Two tools mend layouts from a backup, for the rare case they're needed
+(both in the Docker image, run from `/app/apps/server`):
+
+- `node dist/ops/unmergeLayoutsCli.js --db <live.sqlite> --reference <backup.sqlite> --layouts <id>,<id>`
+  separates layouts whose contents got merged into each other.
+- `node dist/ops/restoreDeletedBricksCli.js --db <live.sqlite> --reference <backup.sqlite> --layouts <id>,<id>`
+  brings back parts that were deleted by mistake.
+
+Without `--apply` they only read, print what they would change and a
+fingerprint of that plan. To write it, **stop the server**, then run again
+with `--apply --expect <fingerprint>`. They refuse to write while the
+server runs on that database (it holds `<database>.server` while it runs),
+because an open layout would overwrite the repair when it next saves.
+`clampDrawingValuesCli.js` (the `CBLD_DATA_FIX` fix below) works the same
+way.
 
 ### Background jobs and logs
 
@@ -356,7 +384,7 @@ when they fall behind.
 | `DAILY_COMPACTION_ENABLED` | unset (the switch decides; on) | Admin › Site settings › Background jobs | When set, forces the daily compaction of layout histories on or off. |
 | `COLLECTION_COVER_MAX_BYTES` | unset (5 MB) | Admin › Site settings › Public catalogs | When set, forces the largest collection and catalog cover picture, in bytes (at most 7 MB). |
 | `LIMITS_ENFORCE` | unset (the switch decides; on) | Admin › Site settings › Usage limits | `on` or `off` forces whether usage limits are enforced. Read-only accounts and clubs stay read-only either way. |
-| `CBLD_DATA_FIX` | unset | — | A one-time data fix to run at this start (`clamp-drawing-values`), for one restart. Each runs once (recorded in `data_fixes`); without it the server only logs that one waits. Try it first on a copy: `node dist/ops/clampDrawingValuesCli.js --db <file>` in the Docker image (from `/app/apps/server`), or `pnpm --filter @cld/server data-fix:clamp-drawing-values --db <file>` from a checkout. |
+| `CBLD_DATA_FIX` | unset | — | A one-time data fix to run at this start (`clamp-drawing-values`), for one restart. Each runs once (recorded in `data_fixes`); without it the server looks (writing nothing) and, only when there is something to fix, logs that one waits. Try it first on a copy: `node dist/ops/clampDrawingValuesCli.js --db <file>` in the Docker image (from `/app/apps/server`), or `pnpm --filter @cld/server data-fix:clamp-drawing-values --db <file>` from a checkout. |
 | `PRIVACY_CONTACT` | unset | Admin › Site settings › Privacy | When set, forces the privacy contact (an email address or a web address) shown on the privacy page. |
 
 **Usage limits.** Each is also set in Admin › Site settings › Usage limits (and per person or club); the variable sets the default the admin starts from.

@@ -26,6 +26,24 @@ const EXPECTED = [
   'custom_parts_created_at_idx',
   'modules_created_at_idx',
   'daily_stats_metric_day_idx',
+  // Foreign keys' child columns (0044): deleting a user, layout, module or
+  // club looks them up instead of scanning (2 M audit rows: 586 ms → 40 ms).
+  'audit_events_user_id_idx',
+  'layouts_created_by_idx',
+  'modules_created_by_idx',
+  'custom_parts_created_by_idx',
+  'venue_library_owner_user_id_idx',
+  'venue_library_owner_org_id_idx',
+  'catalog_items_owner_user_id_idx',
+  'catalog_items_owner_org_id_idx',
+  'layout_invites_layout_id_idx',
+  'oauth_accounts_user_id_idx',
+  'email_verifications_user_id_idx',
+  'device_codes_user_id_idx',
+  'org_invites_org_id_idx',
+  'layout_transfers_layout_id_idx',
+  'module_transfers_module_id_idx',
+  'module_versions_author_id_idx',
 ];
 
 function plan(sql: string): string {
@@ -48,6 +66,11 @@ describe('schema indexes', () => {
     expect(
       plan(`SELECT * FROM audit_events WHERE resource_kind = 'module' AND resource_id = 'm' ORDER BY created_at DESC`),
     ).toContain('audit_events_resource_created_at_idx');
+  });
+
+  it('uses them when a user goes (their audit rows are set to nobody)', () => {
+    expect(plan(`SELECT id FROM audit_events WHERE user_id = 'u'`)).toContain('audit_events_user_id_idx');
+    expect(plan(`SELECT id FROM venue_library WHERE owner_user_id = 'u'`)).toContain('venue_library_owner_user_id_idx');
   });
 
   it('uses them for the admin graphs', () => {
