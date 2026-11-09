@@ -7,7 +7,7 @@
 // scope rewrites the matched text inside part numbers (e.g. 3001.1 →
 // 3001.5), keeping each brick's position.
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type * as Y from 'yjs';
 import type { BbmMap } from '@cld/model';
 import { useEditorStore } from './editorStore';
@@ -19,7 +19,64 @@ interface Props {
   onClose: () => void;
 }
 
+/** Margin between the panel and the bars it keeps clear of, in px. */
+const GAP = 8;
+
+/**
+ * Where the panel fits: below the bars at the top of the editor (the header
+ * and the Edit toolbar, however many rows they wrap to) and above the bars at
+ * the bottom (a phone's touch bar). Those bars carry `data-keep-clear`.
+ */
+export function clearBox(bars: Iterable<Element>, viewportHeight: number): { top: number; maxHeight: number } {
+  let top = GAP;
+  let bottom = viewportHeight - GAP;
+  for (const el of bars) {
+    const r = el.getBoundingClientRect();
+    if (r.width === 0 || r.height === 0) continue;
+    if (r.top + r.height / 2 < viewportHeight / 2) top = Math.max(top, r.bottom + GAP);
+    else bottom = Math.min(bottom, r.top - GAP);
+  }
+  return { top, maxHeight: Math.max(120, bottom - top) };
+}
+
+/** Keeps `clearBox` current as the bars wrap, appear (a selection) or go. */
+function useClearBox(): { top: number; maxHeight: number } {
+  const [box, setBox] = useState(() => ({ top: 64, maxHeight: Math.max(120, window.innerHeight - 72) }));
+  useLayoutEffect(() => {
+    let frame = 0;
+    let watched: Element[] = [];
+    const later = () => {
+      if (!frame) frame = requestAnimationFrame(() => { frame = 0; place(); });
+    };
+    // A bar wrapping onto another row (the window or its contents changed).
+    const sizes = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(later);
+    function place() {
+      const bars = [...document.querySelectorAll('[data-keep-clear]')];
+      if (sizes && (bars.length !== watched.length || bars.some((b, i) => b !== watched[i]))) {
+        sizes.disconnect();
+        for (const b of bars) sizes.observe(b);
+        watched = bars;
+      }
+      const next = clearBox(bars, window.innerHeight);
+      setBox((b) => (b.top === next.top && b.maxHeight === next.maxHeight ? b : next));
+    }
+    place();
+    window.addEventListener('resize', later);
+    // A bar showing or going: the touch bar once Find picks parts.
+    const added = new MutationObserver(later);
+    added.observe(document.body, { childList: true, subtree: true });
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener('resize', later);
+      sizes?.disconnect();
+      added.disconnect();
+    };
+  }, []);
+  return box;
+}
+
 export function FindDialog({ map, doc, onClose }: Props) {
+  const box = useClearBox();
   const setMixedSelection = useEditorStore((s) => s.setMixedSelection);
   const [needle, setNeedle] = useState('');
   const [replacement, setReplacement] = useState('');
@@ -79,7 +136,9 @@ export function FindDialog({ map, doc, onClose }: Props) {
       aria-modal="false"
       aria-label="Find & Replace"
       onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); onClose(); } }}
-      className="fixed right-4 top-16 z-40 max-h-[calc(100dvh-4.5rem)] w-152 max-w-[calc(100vw-2rem)] overflow-y-auto rounded-lg border border-line bg-panel p-5 shadow-xl"
+      // Below the toolbar and above a phone's touch bar, never over their buttons.
+      style={{ top: box.top, maxHeight: box.maxHeight }}
+      className="fixed right-4 z-40 w-152 max-w-[calc(100vw-2rem)] overflow-y-auto rounded-lg border border-line bg-panel p-5 shadow-xl"
     >
       <div>
         <h2 className="text-base font-semibold">Find &amp; Replace</h2>

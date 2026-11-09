@@ -171,6 +171,7 @@ export function TouchActionBar({ actions, onAddPart, onPaste, onTools, onSheets,
       role="toolbar"
       aria-label={count > 0 ? `${count} picked` : 'Touch editing'}
       data-testid="touch-bar"
+      data-keep-clear
       data-tour="touch.bar"
       className="absolute inset-x-0 bottom-0 z-10 border-t border-line bg-panel/95 pt-1 shadow-pop backdrop-blur"
       style={{ paddingLeft: 'max(0.25rem, env(safe-area-inset-left))', paddingRight: 'max(0.25rem, env(safe-area-inset-right))', paddingBottom: '0.25rem' }}

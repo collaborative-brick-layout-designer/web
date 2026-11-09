@@ -519,9 +519,6 @@ test.describe('header dropdowns at a narrow viewport', () => {
 });
 
 test.describe('find — modeless', () => {
-  // Wide enough that the Find panel (right side) leaves the turn buttons
-  // clear: at 1280 px where they land depends on the toolbar's wrapping.
-  test.use({ viewport: { width: 1600, height: 900 } });
   test('selects every match live and leaves the editor usable while open', async ({ page }) => {
     const id = await createLayout(page, FORDYCE_BBM);
     await openEditor(page, id);
