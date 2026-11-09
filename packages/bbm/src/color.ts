@@ -15,7 +15,24 @@ export function readColorSpec(node: Record<string, unknown> | undefined): ColorS
   if (!node) throw new Error('missing color element');
   const known = parseBool(stringField(node, 'IsKnownColor'));
   const name = stringField(node, 'Name');
-  return known ? { kind: 'known', name } : { kind: 'argb', argb: name };
+  return known ? { kind: 'known', name } : { kind: 'argb', argb: argbFromName(name) };
+}
+
+const HEX = /^[0-9a-f]{1,8}$/i;
+
+/**
+ * BlueBrick writes an unnamed color as .NET's Color.Name: lowercase hex
+ * without leading zeros ("0" is clear black, "5ff0000" a nearly clear red).
+ * The editor keeps every argb as 8 digits (a shorter one would read as an
+ * opaque RGB), so the leading zeros come back here.
+ */
+function argbFromName(name: string): string {
+  return HEX.test(name) ? name.toLowerCase().padStart(8, '0') : name;
+}
+
+/** Color.Name for an argb: what vanilla writes, so the bytes match it. */
+function nameFromArgb(argb: string): string {
+  return HEX.test(argb) ? Number.parseInt(argb, 16).toString(16) : argb;
 }
 
 /**
@@ -27,7 +44,7 @@ export function writeColorSpec(b: XmlBuilder, color: ColorSpec): void {
     b.textElement('Name', color.name);
   } else {
     b.textElement('IsKnownColor', formatBool(false));
-    b.textElement('Name', color.argb);
+    b.textElement('Name', nameFromArgb(color.argb));
   }
 }
 
