@@ -52,7 +52,7 @@ export async function oauthRoutes(app: FastifyInstance) {
     // codeql[js/missing-rate-limiting] - rate limited via Fastify config.rateLimit
     app.get('/api/auth/google/callback', { config: { rateLimit: { max: 20, timeWindow: '1 minute' } } }, async (req, reply) => {
       const params = req.query as { code?: string; state?: string };
-      const stored = readStateCookies(req);
+      const stored = takeStateCookies(req, reply);
       if (!params.code || !params.state || !stored.state || params.state !== stored.state) {
         return oauthFailure(reply, 'invalid_state');
       }
@@ -82,7 +82,7 @@ export async function oauthRoutes(app: FastifyInstance) {
     // codeql[js/missing-rate-limiting] - rate limited via Fastify config.rateLimit
     app.get('/api/auth/github/callback', { config: { rateLimit: { max: 20, timeWindow: '1 minute' } } }, async (req, reply) => {
       const params = req.query as { code?: string; state?: string };
-      const stored = readStateCookies(req);
+      const stored = takeStateCookies(req, reply);
       if (!params.code || !params.state || !stored.state || params.state !== stored.state) {
         return oauthFailure(reply, 'invalid_state');
       }
@@ -201,7 +201,14 @@ function setStateCookies(
   else reply.clearCookie(NEXT_COOKIE, { path: '/' });
 }
 
-function readStateCookies(req: import('fastify').FastifyRequest) {
+/**
+ * The state, verifier and next-path cookies, read once: the callback
+ * clears them whatever happens next, so they never outlive the sign-in.
+ */
+function takeStateCookies(req: import('fastify').FastifyRequest, reply: import('fastify').FastifyReply) {
+  for (const name of [STATE_COOKIE, VERIFIER_COOKIE, NEXT_COOKIE]) {
+    if (req.cookies[name] !== undefined) reply.clearCookie(name, { path: '/' });
+  }
   return {
     state: req.cookies[STATE_COOKIE] ?? '',
     verifier: req.cookies[VERIFIER_COOKIE] ?? '',

@@ -49,6 +49,29 @@ describe('OAuth sign-in keeps ?next=', () => {
     expect(res.headers.location).toBe('/login?error=invalid_state');
   });
 
+  it('clears the state, verifier and next cookies once the callback has read them', async () => {
+    const sent = 'cld_oauth_state=abc; cld_oauth_verifier=v; cld_oauth_next=%2Fdevice';
+    const cleared = (res: { headers: Record<string, unknown> }) =>
+      cookies(res)
+        .filter((c) => /^[a-z_]+=;/.test(c) && /Expires=Thu, 01 Jan 1970/i.test(c))
+        .map((c) => c.split('=')[0])
+        .sort();
+    // A callback that doesn't match.
+    const bad = await app.inject({ method: 'GET', url: '/api/auth/github/callback?code=x&state=nope', headers: { cookie: sent } });
+    expect(bad.headers.location).toBe('/login?error=invalid_state');
+    expect(cleared(bad)).toEqual(['cld_oauth_next', 'cld_oauth_state', 'cld_oauth_verifier']);
+    // One that matches but the provider refuses the code.
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async () => new Response(JSON.stringify({ error: 'bad_verification_code' }), { status: 200, headers: { 'content-type': 'application/json' } })) as typeof fetch;
+    try {
+      const refused = await app.inject({ method: 'GET', url: '/api/auth/github/callback?code=x&state=abc', headers: { cookie: sent } });
+      expect(refused.headers.location, refused.body).toBe('/login?error=oauth_error');
+      expect(cleared(refused)).toEqual(['cld_oauth_next', 'cld_oauth_state', 'cld_oauth_verifier']);
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+
   it('signing in goes on to the remembered path, or Home when there is none or it is unsafe', async () => {
     const profile = { providerUserId: 'gh-1', email: 'nina@example.com', displayName: 'Nina', avatarUrl: null };
     const redirects: string[] = [];
