@@ -1,6 +1,5 @@
 import { randomUUID } from 'node:crypto';
 import { hash } from '@node-rs/argon2';
-import { eq } from 'drizzle-orm';
 import { db, schema } from '../db/index.js';
 import { env } from '../env.js';
 import { normalizeEmail } from '../utils/validate.js';
@@ -11,19 +10,24 @@ export async function ensureBootstrapAdmin(): Promise<void> {
   if (!env.bootstrapAdminEmail || !password) return;
   const email = normalizeEmail(env.bootstrapAdminEmail);
 
+  // Only ever creates the account. An account that already has this email
+  // is never promoted: anyone could have signed up with it first (with email
+  // checks off, or still unverified), and promoting it would hand them the site.
   const existing = await findUserByEmail(email);
   if (existing) {
-    // Anyone can sign in as the demo account: it is never made an admin.
     if (existing.isDemoAccount) {
-      console.warn(`[bootstrap] ${email} is the demo account; not making it an admin`);
-      return;
-    }
-    if (!existing.isGlobalAdmin) {
-      await db
-        .update(schema.users)
-        .set({ isGlobalAdmin: true })
-        .where(eq(schema.users.id, existing.id));
-      console.log(`[bootstrap] promoted existing user ${email} to global admin`);
+      // Anyone can sign in as the demo account: it is never an admin.
+      console.warn(`[bootstrap] ${email} is the demo account; pick another BOOTSTRAP_ADMIN_EMAIL`);
+    } else if (existing.isGlobalAdmin) {
+      console.log(`[bootstrap] ${email} is already a site admin; sign in as it`);
+    } else {
+      console.warn('====================================================');
+      console.warn(`[bootstrap] an account with ${email} already exists, so no admin was created`);
+      console.warn('[bootstrap] and that account was NOT made a site admin. If it is yours,');
+      console.warn('[bootstrap] promote it from Admin › Users while signed in as a site admin.');
+      console.warn('[bootstrap] No site admin yet? Set BOOTSTRAP_ADMIN_EMAIL to an address with');
+      console.warn('[bootstrap] no account, restart, sign in as that admin and promote it there.');
+      console.warn('====================================================');
     }
     return;
   }

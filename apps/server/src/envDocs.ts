@@ -28,7 +28,7 @@ export const ENV_VARS: readonly EnvVarDoc[] = [
   { name: 'NODE_ENV', default: '`development`', inApp: '', notes: '`production` in the Docker image.' },
   { name: 'APP_VERSION', default: 'the server package version', inApp: '', notes: 'The version `GET /api/version` reports.' },
   { name: 'ENABLE_PASSWORD_AUTH', default: '`false`', inApp: '', notes: 'Allow email and password accounts. New accounts confirm their email first (see SMTP).' },
-  { name: 'BOOTSTRAP_ADMIN_EMAIL', default: '', inApp: '', notes: 'A site admin created on first start when no account has this email.' },
+  { name: 'BOOTSTRAP_ADMIN_EMAIL', default: '', inApp: '', notes: 'A site admin created on first start when no account has this email. An account that already has it is never made an admin: promote it from Admin › Users.' },
   { name: 'BOOTSTRAP_ADMIN_PASSWORD', default: '', inApp: '', notes: 'Its password (at least 12 characters).' },
   { name: 'GOOGLE_CLIENT_ID', default: '', inApp: '', notes: 'With `GOOGLE_CLIENT_SECRET`: sign in with Google.' },
   { name: 'GOOGLE_CLIENT_SECRET', default: '', inApp: '', notes: '' },

@@ -337,7 +337,7 @@ when they fall behind.
 | `NODE_ENV` | `development` | — | `production` in the Docker image. |
 | `APP_VERSION` | the server package version | — | The version `GET /api/version` reports. |
 | `ENABLE_PASSWORD_AUTH` | `false` | — | Allow email and password accounts. New accounts confirm their email first (see SMTP). |
-| `BOOTSTRAP_ADMIN_EMAIL` | — | — | A site admin created on first start when no account has this email. |
+| `BOOTSTRAP_ADMIN_EMAIL` | — | — | A site admin created on first start when no account has this email. An account that already has it is never made an admin: promote it from Admin › Users. |
 | `BOOTSTRAP_ADMIN_PASSWORD` | — | — | Its password (at least 12 characters). |
 | `GOOGLE_CLIENT_ID` | — | — | With `GOOGLE_CLIENT_SECRET`: sign in with Google. |
 | `GOOGLE_CLIENT_SECRET` | — | — |  |
