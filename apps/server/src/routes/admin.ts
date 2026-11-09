@@ -7,7 +7,7 @@
 
 import { COVER_MAX_CEILING, COVER_MAX_FLOOR, coverMaxBytes } from '../images/covers.js';
 import type { FastifyInstance } from 'fastify';
-import { and, count, desc, eq, inArray, or, sql } from 'drizzle-orm';
+import { and, count, desc, eq, inArray, isNotNull, or, sql } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 import { Buffer } from 'node:buffer';
 import { mkdir, rm, readdir } from 'node:fs/promises';
@@ -604,19 +604,22 @@ export async function adminRoutes(app: FastifyInstance): Promise<void> {
   // -----------------------------------------------------------------
   // Global audit log (all events, newest first, paginated)
   // -----------------------------------------------------------------
-  app.get<{ Querystring: { q?: string; limit?: string; offset?: string } }>(
+  // `layout`: one layout's whole history, also once it's deleted.
+  app.get<{ Querystring: { q?: string; limit?: string; offset?: string; layout?: string } }>(
     '/api/admin/audit',
     async (req) => {
       requireGlobalAdmin(req);
       const limit = clampLimit(req.query.limit);
       const offset = clampOffset(req.query.offset);
+      const only = typeof req.query.layout === 'string' && req.query.layout ? eq(schema.auditEvents.layoutId, req.query.layout) : undefined;
       const rows = await db
         .select()
         .from(schema.auditEvents)
+        .where(only)
         .orderBy(desc(schema.auditEvents.createdAt))
         .limit(limit)
         .offset(offset);
-      const totalRow = await db.select({ n: count() }).from(schema.auditEvents).get();
+      const totalRow = await db.select({ n: count() }).from(schema.auditEvents).where(only).get();
       const userIds = [...new Set(rows.map((r) => r.userId).filter((id): id is string => id !== null))];
       const userRows = userIds.length > 0
         ? await db
@@ -643,6 +646,48 @@ export async function adminRoutes(app: FastifyInstance): Promise<void> {
       };
     },
   );
+
+  // Admin › Audit log › Deleted layouts: each layout deleted by its owner
+  // or a site admin, by the title its delete event recorded, newest first.
+  // Its earlier history stays readable through /api/admin/audit?layout=.
+  app.get<{ Querystring: { limit?: string; offset?: string } }>('/api/admin/deleted-layouts', async (req) => {
+    requireGlobalAdmin(req);
+    const limit = clampLimit(req.query.limit);
+    const offset = clampOffset(req.query.offset);
+    const deletes = and(
+      inArray(schema.auditEvents.eventType, ['layout_delete', 'admin_layout_delete']),
+      isNotNull(schema.auditEvents.layoutId),
+      // Gone for good (a layout that came back isn't listed).
+      sql`not exists (select 1 from ${schema.layouts} where ${schema.layouts.id} = ${schema.auditEvents.layoutId})`,
+    );
+    const rows = await db.select().from(schema.auditEvents).where(deletes).orderBy(desc(schema.auditEvents.createdAt)).limit(limit).offset(offset);
+    const totalRow = await db.select({ n: count() }).from(schema.auditEvents).where(deletes).get();
+    const userIds = [...new Set(rows.map((r) => r.userId).filter((id): id is string => id !== null))];
+    const users = userIds.length > 0 ? await db.select({ id: schema.users.id, displayName: schema.users.displayName, email: schema.users.email }).from(schema.users).where(inArray(schema.users.id, userIds)) : [];
+    const names = new Map(users.map((u) => [u.id, u.displayName || u.email]));
+    const counts = new Map<string, number>();
+    const ids = rows.map((r) => r.layoutId!);
+    if (ids.length > 0) {
+      for (const c of await db.select({ id: schema.auditEvents.layoutId, n: count() }).from(schema.auditEvents).where(inArray(schema.auditEvents.layoutId, ids)).groupBy(schema.auditEvents.layoutId)) counts.set(c.id!, c.n);
+    }
+    return {
+      layouts: rows.map((r) => {
+        const p = (safeParse(r.payload) ?? {}) as { title?: unknown; owner?: unknown; clubName?: unknown };
+        return {
+          layoutId: r.layoutId!,
+          title: typeof p.title === 'string' ? p.title : null,
+          deletedAt: r.createdAt.getTime(),
+          deletedBy: r.userId ? (names.get(r.userId) ?? null) : r.actorLabel,
+          by: r.eventType === 'admin_layout_delete' ? 'admin' : 'owner',
+          club: typeof p.clubName === 'string' ? p.clubName : null,
+          events: counts.get(r.layoutId!) ?? 0,
+        };
+      }),
+      total: totalRow?.n ?? 0,
+      limit,
+      offset,
+    };
+  });
 
   // -----------------------------------------------------------------
   // Part Libraries — installable named sets of parts.

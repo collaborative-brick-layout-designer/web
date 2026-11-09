@@ -44,7 +44,7 @@ const MEMBERSHIP_CHANGE = /part-libraries|members|join|approve|org-invites|^dele
 const COLLECTIONS: QueryKey[] = [['catalog-collections'], ['catalog-collection'], ['catalog-collections-mine'], ['club-collections']];
 
 const KEYS: Record<HintKind, (h: Hint) => QueryKey[]> = {
-  layout: () => [['layouts'], ['layout'], ['collaborators'], ['audit'], ['club-summary'], ['transfer-preview'], ...ADMIN_LISTS],
+  layout: () => [['admin-audit'], ['admin-deleted-layouts'], ['layouts'], ['layout'], ['collaborators'], ['audit'], ['club-summary'], ['transfer-preview'], ...ADMIN_LISTS],
   module: () => [['modules'], ['module'], ['module-versions'], ['module-collaborators'], ['catalog-copies'], ['club-summary'], ...COLLECTIONS, ...ADMIN_LISTS],
   venue: () => [['venues'], ['venue'], ['venue-library'], ['club-summary']],
   'custom-part': () => [['custom-parts'], ['custom-part-collaborators'], ['set-move-plan'], ['parts-catalog'], ['catalog-copies'], ['club-summary'], ...COLLECTIONS],
