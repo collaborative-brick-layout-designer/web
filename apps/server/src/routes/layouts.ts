@@ -32,6 +32,7 @@ import { attachment, safeFileName } from '../utils/contentDisposition.js';
 import { clampTitle, titleTooLong, trimmed } from '../utils/validate.js';
 import { checkUpdate } from '../ws/updateGuard.js';
 import { checkGridSizes } from '../ws/gridGuard.js';
+import { allowedBackgroundUrl, backgroundImageUrl, dropForeignBackgroundUrl, snapshotBackgroundProblem } from '../ws/backgroundGuard.js';
 import { applyStoredUpdate, snapshotWork } from '../ws/yjsWork.js';
 
 interface CreateLayoutBody {
@@ -192,21 +193,25 @@ export async function layoutRoutes(app: FastifyInstance) {
       if (bytes.length > BG_MAX_BYTES) return reply.code(413).send({ error: 'file_too_large' });
       if (!isImageOfType(bytes, body.backgroundImage.type)) return reply.code(415).send({ error: 'unsupported_image_type' });
       background = { ext, bytes };
-      if (sidecarText) {
-        // The image lives here now; the file named it by entry.
-        try {
-          const raw = JSON.parse(sidecarText) as Record<string, unknown>;
-          const bg = raw.backgroundImage;
-          if (bg && typeof bg === 'object' && !Array.isArray(bg)) {
-            const o = bg as Record<string, unknown>;
-            delete o.file;
-            delete o.path;
-            o.url = `/api/layouts/${id}/background-image`;
-            sidecarText = JSON.stringify(raw);
-          }
-        } catch {
-          /* reported by readSidecar below */
+    }
+    if (sidecarText) {
+      try {
+        const raw = JSON.parse(sidecarText) as Record<string, unknown>;
+        const bg = raw.backgroundImage;
+        let changed = false;
+        if (background && bg && typeof bg === 'object' && !Array.isArray(bg)) {
+          // The image lives here now; the file named it by entry.
+          const o = bg as Record<string, unknown>;
+          delete o.file;
+          delete o.path;
+          o.url = backgroundImageUrl(id);
+          changed = true;
         }
+        // The picture is only ever loaded from this server (ws/backgroundGuard.ts).
+        if (dropForeignBackgroundUrl(raw, id)) changed = true;
+        if (changed) sidecarText = JSON.stringify(raw);
+      } catch {
+        /* reported by readSidecar below */
       }
     }
 
@@ -498,6 +503,12 @@ export async function layoutRoutes(app: FastifyInstance) {
     if (docHub.has(req.params.id)) {
       return reply.code(409).send({ error: 'layout_open_in_editor' });
     }
+    // The background picture only ever comes from this server (ws/backgroundGuard.ts).
+    const badBackground = await snapshotBackgroundProblem(bytes, req.params.id, async () => {
+      const row = await db.select({ docSnapshot: schema.layouts.docSnapshot }).from(schema.layouts).where(eq(schema.layouts.id, req.params.id)).get();
+      return row ? currentDocBytes(req.params.id, row.docSnapshot as Uint8Array) : null;
+    });
+    if (badBackground !== null) return reply.code(400).send({ error: 'invalid_background_image' });
     const existing = await db
       .select({
         ownerUserId: schema.layouts.ownerUserId,
@@ -944,7 +955,10 @@ export async function prepareLayoutCopy(
   const cache = readSidecarCache(doc) ?? undefined;
   const bg = cache?.backgroundImage as Record<string, unknown> | undefined;
   if (cache && bg && typeof bg.url === 'string' && bg.url.startsWith(oldBg)) {
-    doc.transact(() => writeSidecarCache(doc, { ...cache, backgroundImage: { ...bg, url: `/api/layouts/${id}/background-image` } }));
+    doc.transact(() => writeSidecarCache(doc, { ...cache, backgroundImage: { ...bg, url: backgroundImageUrl(id) } }));
+  } else if (cache && bg && !allowedBackgroundUrl(bg.url, id)) {
+    // Any other address (stored before the server checked them): the copy doesn't keep it.
+    doc.transact(() => writeSidecarCache(doc, { ...cache, backgroundImage: { ...bg, url: '' } }));
   }
   const now = new Date();
   return {

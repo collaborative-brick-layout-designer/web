@@ -212,10 +212,37 @@ describe('transfers — preview', () => {
 
     const res = await app.inject({ method: 'GET', url: `/api/transfers/${token}` });
     expect(res.statusCode).toBe(200);
-    const body = res.json() as { recipientEmail: string; layoutTitle: string; layoutId: string };
-    expect(body.recipientEmail).toBe('recipient@example.com');
+    const body = res.json() as { recipientEmail: string; forYou: boolean | null; layoutTitle: string; layoutId: string };
+    // Signed out, whoever holds the link sees only a masked address.
+    expect(body.recipientEmail).toBe('r…@example.com');
+    expect(body.forYou).toBeNull();
     expect(body.layoutTitle).toBe('Precious Layout');
     expect(body.layoutId).toBe(id);
+  });
+
+  it('shows the full address only to the recipient, signed in', async () => {
+    const ownerCookie = await registerAndLogin(app, 'owner@example.com');
+    const id = await createLayout(app, ownerCookie, 'Precious Layout');
+    const initRes = await app.inject({
+      method: 'POST',
+      url: `/api/layouts/${id}/transfer`,
+      headers: { cookie: ownerCookie },
+      payload: { recipientEmail: 'Recipient@Example.com' },
+    });
+    const { token } = initRes.json() as { token: string };
+    const as = async (cookie: string) => (await app.inject({ method: 'GET', url: `/api/transfers/${token}`, headers: { cookie } })).json() as { recipientEmail: string; forYou: boolean | null };
+
+    const recipient = await registerAndLogin(app, 'recipient@example.com');
+    const mine = await as(recipient);
+    expect(mine.forYou).toBe(true);
+    expect(mine.recipientEmail.toLowerCase()).toBe('recipient@example.com');
+
+    const other = await registerAndLogin(app, 'eve@example.com');
+    const theirs = await as(other);
+    expect(theirs.forYou).toBe(false);
+    expect(theirs.recipientEmail).toBe('r…@example.com');
+    // The owner who sent it sees it masked here too (their own list of transfers shows it).
+    expect((await as(ownerCookie)).recipientEmail).toBe('r…@example.com');
   });
 
   it('returns 404 for unknown token', async () => {

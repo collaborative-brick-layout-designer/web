@@ -847,7 +847,10 @@ export const api = {
       }),
     preview: (token: string) =>
       get<{
+        /** Masked ("s…@example.com") unless the hand-over is for the signed-in account. */
         recipientEmail: string;
+        /** Whether it's for the signed-in account; null when signed out. */
+        forYou: boolean | null;
         layoutId: string;
         layoutTitle: string;
         expiresAt: number;

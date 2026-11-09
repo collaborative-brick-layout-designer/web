@@ -110,6 +110,13 @@ describe('audit 2026-10 hardening', () => {
     await app.close();
   });
 
+  it('lets the app load images only from this server and the sign-in avatar hosts', () => {
+    const imgSrc = SPA_CSP.split('; ').find((d) => d.startsWith('img-src '))!;
+    expect(imgSrc.split(' ').slice(1).sort()).toEqual(["'self'", 'blob:', 'data:', 'https://*.googleusercontent.com', 'https://avatars.githubusercontent.com'].sort());
+    // No bare scheme: a layout's background address on another host stays blocked.
+    expect(imgSrc).not.toMatch(/(^| )https?:( |$)/);
+  });
+
   it('sandboxes an /api path even when its prefix is percent-encoded', async () => {
     const app = await buildApp();
     const res = await app.inject({ method: 'GET', url: '/%61pi/custom-parts' });

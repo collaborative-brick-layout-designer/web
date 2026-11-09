@@ -1,14 +1,18 @@
 // Map background: color with alpha (MainWindowMapMenu.cpp:48-60,
 // XmlPrimitives.cpp:174-180) and image placement (MapViewPaint.cpp:41-67).
 
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { createDefaultLayoutDoc, docToBbm } from '@cld/ydoc';
+import { createDefaultLayoutDoc, docToBbm, writeSidecarCache } from '@cld/ydoc';
 import { writeBbm } from '@cld/bbm';
-import { argbSpec, backgroundImageRectPx, hexAlpha } from '../background';
+import { argbSpec, backgroundImageRectPx, hexAlpha, sameOriginImageUrl } from '../background';
+import { localLayoutContents } from '../localLayoutFile';
 import { BackgroundColorDialog } from '../BackgroundColorDialog';
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
 
 describe('backgroundImageRectPx', () => {
   it('draws an image without a rect at native size at the origin (regression: was stretched to the bricks)', () => {
@@ -39,5 +43,37 @@ describe('background color alpha', () => {
     const map = docToBbm(doc);
     expect(map.backgroundColor).toEqual({ kind: 'argb', argb: '64102030' });
     expect(writeBbm(map)).toMatch(/<BackgroundColor>\s*<IsKnownColor>false<\/IsKnownColor>\s*<Name>64102030<\/Name>/);
+  });
+});
+
+describe('background image address', () => {
+  const origin = 'https://layouts.example.org';
+  it("loads this server's own picture", () => {
+    expect(sameOriginImageUrl('/api/layouts/abc/background-image', origin)).toBe('/api/layouts/abc/background-image');
+  });
+  it('never loads an address on another host', () => {
+    for (const url of [
+      'https://tracker.example.net/pixel.png',
+      'http://layouts.example.org/api/x',
+      '//tracker.example.net/pixel.png',
+      '/\\tracker.example.net/pixel.png',
+      'data:image/png;base64,AAAA',
+      'javascript:alert(1)',
+      'api/layouts/abc/background-image',
+      '',
+      undefined,
+      42,
+    ]) {
+      expect(sameOriginImageUrl(url, origin)).toBeNull();
+    }
+  });
+  it("a download of the layout doesn't fetch a picture from another host", async () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal('fetch', fetchSpy);
+    const doc = createDefaultLayoutDoc();
+    doc.transact(() => writeSidecarCache(doc, { schemaVersion: 1, bbmHashSha256: '', backgroundImage: { url: 'https://tracker.example.net/pixel.png', opacity: 0.5 } }));
+    const out = await localLayoutContents(doc);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(out.background).toBeUndefined();
   });
 });

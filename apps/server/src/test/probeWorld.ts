@@ -102,7 +102,7 @@ export async function seedProbeWorld(app: FastifyInstance): Promise<ProbeWorld> 
   const request = randomUUID();
   await db.insert(schema.privacyRequests).values({ id: request, type: 'access', receivedVia: 'email', receivedAt: now, dueAt: now, status: 'open', subjectUserId: olive.id, createdAt: now, updatedAt: now } as never);
   const invite = randomUUID();
-  await db.insert(schema.layoutInvites).values({ id: invite, layoutId: layout, invitedEmail: 'x@example.com', role: 'viewer', token: `inv-${invite}`, expiresAt: new Date(now.getTime() + 86_400_000) });
+  await db.insert(schema.layoutInvites).values({ id: invite, layoutId: layout, invitedEmail: 'x@example.com', role: 'viewer', token: `inv-${invite}`, invitedBy: olive.id, expiresAt: new Date(now.getTime() + 86_400_000) });
   const moduleInvite = randomUUID();
   await db.insert(schema.moduleInvites).values({ id: moduleInvite, moduleId: mod1, invitedEmail: 'x@example.com', role: 'viewer', token: `minv-${moduleInvite}`, invitedBy: olive.id, expiresAt: new Date(now.getTime() + 86_400_000), createdAt: now });
   const partInvite = randomUUID();

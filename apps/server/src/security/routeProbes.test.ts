@@ -422,6 +422,31 @@ describe('security probes for every route', () => {
     expect(wrong).toEqual([]);
   });
 
+  it('signed out, no link preview or public route returns a full email address', async () => {
+    const i = w.ids;
+    // The seeded links (test/probeWorld.ts), so each preview answers with what it shows.
+    const real: Record<string, string> = {
+      'GET /api/invites/:token': `inv-${i.invite}`,
+      'GET /api/module-invites/:token': `minv-${i.moduleInvite}`,
+      'GET /api/part-invites/:token': `pinv-${i.partInvite}`,
+      'GET /api/org-invites/:token': `oinv-${i.orgInvite}`,
+      'GET /api/transfers/:token': `tr-${i.transfer}`,
+    };
+    // A masked address ("z…@example.com") has no name before the @.
+    const FULL_EMAIL = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
+    const wrong: string[] = [];
+    const answered: string[] = [];
+    for (const r of byAccess('public', 'token').filter((r) => r.method === 'GET' && signedIn(r))) {
+      const token = real[r.key];
+      const res = await call(r, {}, token ? { url: r.url.replace(':token', token) } : {});
+      if (token && res.statusCode === 200) answered.push(r.key);
+      const found = res.body.match(FULL_EMAIL);
+      if (found) wrong.push(`${r.key}: ${found.join(', ')}`);
+    }
+    expect(wrong).toEqual([]);
+    expect(answered.sort()).toEqual(Object.keys(real).sort());
+  });
+
   it('a stranger is refused the owner’s, the club’s, the moderators’ and the admins’ routes', async () => {
     const wrong: string[] = [];
     for (const r of byAccess('shared', 'owner', 'member', 'club', 'mod', 'admin').filter(signedIn)) {

@@ -20,16 +20,22 @@ import type { FastifyInstance } from 'fastify';
 
 export const SANDBOX_CSP = "default-src 'none'; frame-ancestors 'none'; sandbox";
 
+/** Where sign-in avatars are served from (routes/auth/oauth.ts). */
+export const AVATAR_HOSTS = ['https://*.googleusercontent.com', 'https://avatars.githubusercontent.com'] as const;
+
 /**
  * The policy for the SPA's HTML. Styles allow 'unsafe-inline' because
- * components set style attributes; images allow https: for sign-in
- * avatars (GitHub, Google) and data:/blob: for exports and previews.
+ * components set style attributes. Images come from this server (parts,
+ * covers, logos, background pictures), data:/blob: (exports and
+ * previews), and the two hosts sign-in avatars live on (Google's
+ * `picture`, GitHub's `avatar_url`): no other host, so nothing a user
+ * writes into a layout can make a viewer's browser call one.
  */
 export const SPA_CSP = [
   "default-src 'self'",
   "script-src 'self'",
   "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data: blob: https:",
+  `img-src 'self' data: blob: ${AVATAR_HOSTS.join(' ')}`,
   "font-src 'self' data:",
   // 'self' covers same-origin ws(s): in current browsers; older Safari
   // needs the scheme spelled out.
