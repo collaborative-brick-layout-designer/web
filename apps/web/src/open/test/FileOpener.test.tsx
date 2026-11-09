@@ -9,6 +9,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { FileOpener, openFilePicker } from '../FileOpener';
 import { DESKTOP_URL } from '../../projectLinks';
+import { createDefaultLayoutDoc, docToBbm } from '@cld/ydoc';
+import { writeBbm } from '@cld/bbm/browser';
 
 const apiMock = vi.hoisted(() => ({ create: vi.fn(), catalog: vi.fn() }));
 vi.mock('../../api', async (importOriginal) => {
@@ -23,7 +25,8 @@ vi.mock('../../api', async (importOriginal) => {
   };
 });
 
-const BBM = '<?xml version="1.0" encoding="utf-8"?><Map><Version>9</Version></Map>';
+// A whole, valid .bbm: a cut-off or damaged one is refused before it opens.
+const BBM = writeBbm(docToBbm(createDefaultLayoutDoc()));
 
 function Editor() {
   const { pathname, state } = useLocation();
