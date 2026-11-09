@@ -118,6 +118,34 @@ describe('rebuildConnectivity', () => {
 
 
 
+  it('keeps a link to a part the library does not know, as the file has it', () => {
+    // A known straight joined to a BrickTracks curve this library lacks:
+    // the curve's points can't be placed, so the join stays.
+    const meta = makeMeta('TRACK', [
+      { x: -5, y: 0, type: 'rail' },
+      { x: 5, y: 0, type: 'rail' },
+    ]);
+    const catalog: Catalog = new Map([[meta.key, meta]]);
+    const a = makeBrick('a', 'TRACK', 0, 0);
+    a.connexions = [{ id: 'a0', linkedTo: '' }, { id: 'a1', linkedTo: 'c0' }];
+    const curve = makeBrick('c', 'BT R104.8', 40, 40);
+    curve.connexions = [{ id: 'c0', linkedTo: 'a1' }, { id: 'c1', linkedTo: '' }];
+    const map = makeMap([makeBrickLayer([a, curve])]);
+
+    rebuildConnectivity(map, catalog);
+
+    expect(a.connexions[1]?.linkedTo).toBe('c0');
+    expect(curve.connexions[0]?.linkedTo).toBe('a1');
+    expect(a.activeConnectionPointIndex).toBe(0);
+    // A link between two known parts that no longer meet still breaks.
+    const b = makeBrick('b', 'TRACK', 100, 0);
+    b.connexions = [{ id: 'b0', linkedTo: 'a0' }, { id: 'b1', linkedTo: '' }];
+    a.connexions[0]!.linkedTo = 'b0';
+    rebuildConnectivity(makeMap([makeBrickLayer([a, curve, b])]), catalog);
+    expect(a.connexions[0]?.linkedTo).toBe('');
+    expect(a.connexions[1]?.linkedTo).toBe('c0');
+  });
+
   it('does not link points with mismatched types', () => {
     const railMeta = makeMeta('RAIL', [{ x: 0, y: 0, type: 'rail' }]);
     const roadMeta = makeMeta('ROAD', [{ x: 0, y: 0, type: 'road' }]);

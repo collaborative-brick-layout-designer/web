@@ -61,6 +61,12 @@ export function rebuildConnectivity(
     const previous = new Map<string, string>();
     const all: WorldConnection[] = [];
     let fresh = 0;
+    // The connections of parts this library doesn't know: their points
+    // can't be placed, so a link to one is kept as the file has it (it
+    // was dropped, so opening a layout without that library changed it).
+    const unknown = new Set<string>();
+    for (const brick of layer.bricks)
+      if (!lookup(brick.partNumber)) for (const c of brick.connexions) if (c.id) unknown.add(c.id);
     for (const brick of layer.bricks) {
       const meta = lookup(brick.partNumber);
       if (!meta) continue;
@@ -69,6 +75,7 @@ export function rebuildConnectivity(
         const cp = brick.connexions[i]!;
         // <LinkedTo> names the partner's connection, so every connection needs an id.
         if (!cp.id) cp.id = `${brick.id}_c${fresh++}`;
+        if (cp.linkedTo && unknown.has(cp.linkedTo)) continue;
         if (cp.linkedTo) previous.set(cp.id, cp.linkedTo);
         cp.linkedTo = '';
         const c = meta.connections[i]!;
