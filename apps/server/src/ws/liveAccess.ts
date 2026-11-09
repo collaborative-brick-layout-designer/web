@@ -7,7 +7,7 @@
 
 import { eq } from 'drizzle-orm';
 import { db, schema } from '../db/index.js';
-import { isSuspended, limitsEnforced } from '../limits/limits.js';
+import { isSuspended } from '../limits/limits.js';
 
 export type AccessChange =
   /** Something about one person's access (their club role, their account). */
@@ -43,10 +43,9 @@ export function concerns(c: AccessChange, userId: string, layoutId: string): boo
 
 /**
  * A suspended person, or a layout whose owner (person or club) is
- * suspended, is read-only live (when limits are enforced).
+ * suspended, is read-only live, whether or not usage limits are enforced.
  */
 export async function suspendedIn(userId: string, layoutId: string): Promise<boolean> {
-  if (!(await limitsEnforced())) return false;
   if (isSuspended('user', userId)) return true;
   const owner = await db
     .select({ ownerUserId: schema.layouts.ownerUserId, ownerOrgId: schema.layouts.ownerOrgId })

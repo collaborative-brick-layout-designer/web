@@ -26,6 +26,7 @@ import { wsRoutes } from '../ws.js';
 import { docHub } from '../../ws/docHub.js';
 import { wsTiming } from '../../ws/handler.js';
 import { invalidateLimitCaches } from '../../limits/limits.js';
+import { env } from '../../env.js';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -120,6 +121,25 @@ describe('WS live access changes', () => {
     c.ws.send(edit('after', 'lifted'));
     await sleep(150);
     expect(meta(id).get('after')).toBe('lifted');
+  });
+
+  it('holds a suspended person to viewer even while usage limits are off', async () => {
+    env.limitsEnforceForced = 'off';
+    try {
+      const id = await layout();
+      const c = await client(id, owner.cookie);
+      expect((await app.inject({ method: 'PUT', url: `/api/admin/users/${owner.id}/limits`, headers: { cookie: admin.cookie }, payload: { suspended: true } })).statusCode).toBe(200);
+      c.ws.send(edit('off', 'suspended'));
+      await sleep(150);
+      expect(meta(id).get('off')).toBeUndefined();
+      // A new connection is held to viewer from the start too.
+      const c2 = await client(id, owner.cookie);
+      c2.ws.send(edit('fresh', 'suspended'));
+      await sleep(150);
+      expect(meta(id).get('fresh')).toBeUndefined();
+    } finally {
+      env.limitsEnforceForced = null;
+    }
   });
 
   it('the periodic check sees a suspension written without a route too', async () => {

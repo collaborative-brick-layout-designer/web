@@ -473,7 +473,7 @@ describe('LIMITS_ENFORCE=off', () => {
     env.limitsEnforceForced = null;
   });
 
-  it('counts and shows use but refuses nothing: no limit, no rate cap, no read-only', async () => {
+  it('counts and shows use but refuses no limit and no rate cap', async () => {
     const u = await loginAs(app, 'free@example.com');
     await setGlobal({ layoutsPerUser: 1, requestsPerMinuteUser: 2 });
     resetRateWindows();
@@ -481,15 +481,41 @@ describe('LIMITS_ENFORCE=off', () => {
     expect((await newLayout(u.cookie)).statusCode).toBe(201);
     expect((await newLayout(u.cookie)).statusCode).toBe(201); // over the limit of 1
     for (let i = 0; i < 3; i++) expect((await app.inject({ url: '/api/layouts', headers: { cookie: u.cookie } })).statusCode).toBe(200);
-    await app.inject({ method: 'PUT', url: `/api/admin/users/${u.id}/limits`, headers: { cookie: admin.cookie }, payload: { suspended: true, reason: 't' } });
-    expect((await newLayout(u.cookie)).statusCode).toBe(201);
     // Still counted, and the admin page says limits are off.
     usage.flush();
     const rows = db.select().from(schema.usageDaily).where(eq(schema.usageDaily.subjectId, u.id)).all();
-    expect(Object.fromEntries(rows.map((r) => [r.metric, r.value])).requests).toBeGreaterThanOrEqual(6);
+    expect(Object.fromEntries(rows.map((r) => [r.metric, r.value])).requests).toBeGreaterThanOrEqual(5);
     const page = await app.inject({ url: '/api/admin/limits', headers: { cookie: admin.cookie } });
     expect((page.json() as { enforced: boolean }).enforced).toBe(false);
     expect(await checkGrowth({ actor: { id: u.id } as User, owner: { kind: 'user', id: u.id }, add: { layouts: 1 } })).toBeNull();
+  });
+
+  it('still holds a read-only account and club: read-only never depends on the switch', async () => {
+    const u = await loginAs(app, 'held@example.com');
+    const before = await newLayout(u.cookie);
+    expect(before.statusCode).toBe(201);
+    const { id: layoutId } = before.json() as { id: string };
+    expect((await app.inject({ method: 'PUT', url: `/api/admin/users/${u.id}/limits`, headers: { cookie: admin.cookie }, payload: { suspended: true, reason: 't' } })).statusCode).toBe(200);
+    // Growth refused, through the request hook and through checkGrowth.
+    const blocked = await newLayout(u.cookie);
+    expect(blocked.statusCode).toBe(403);
+    expect(body(blocked)).toMatchObject({ error: 'suspended' });
+    expect((await checkGrowth({ actor: { id: u.id } as User, owner: { kind: 'user', id: u.id }, add: { layouts: 1 } }))?.body).toMatchObject({ error: 'suspended' });
+    // Reading and deleting still work.
+    expect((await app.inject({ url: '/api/layouts', headers: { cookie: u.cookie } })).statusCode).toBe(200);
+    expect((await app.inject({ method: 'DELETE', url: `/api/layouts/${layoutId}`, headers: { cookie: u.cookie } })).statusCode).toBeLessThan(300);
+    // Lifted: back to normal.
+    await app.inject({ method: 'PUT', url: `/api/admin/users/${u.id}/limits`, headers: { cookie: admin.cookie }, payload: { suspended: false } });
+    expect((await newLayout(u.cookie)).statusCode).toBe(201);
+
+    // A read-only club: nobody adds to it, even with limits off.
+    const club = await app.inject({ method: 'POST', url: '/api/orgs', headers: { cookie: admin.cookie }, payload: { name: 'Held Club' } });
+    expect(club.statusCode, club.body).toBe(201);
+    const { id: orgId, slug } = club.json() as { id: string; slug: string };
+    await app.inject({ method: 'PUT', url: `/api/admin/orgs/${orgId}/limits`, headers: { cookie: admin.cookie }, payload: { suspended: true } });
+    const inClub = await newLayout(admin.cookie, { orgSlug: slug });
+    expect(inClub.statusCode).toBe(403);
+    expect(body(inClub)).toMatchObject({ error: 'suspended' });
   });
 });
 

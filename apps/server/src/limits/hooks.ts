@@ -48,10 +48,18 @@ export function registerLimitHooks(app: FastifyInstance): void {
     if (!url.startsWith('/api/') && !url.startsWith('/ws/')) return;
     const now = Date.now();
     usage.count('user', user.id, 'requests', 1, now);
-    if (!(await limitsEnforced(now))) return; // counted, never refused
+    const ov = overrideFor('user', user.id, now);
+    // Read-only holds whether or not usage limits are enforced: an admin
+    // who marks someone read-only expects it to stick.
+    if (ov.suspended && req.method !== 'GET' && req.method !== 'HEAD' && req.method !== 'DELETE' && req.method !== 'OPTIONS' && !allowedWhileSuspended(url)) {
+      return reply.code(403).send({
+        error: 'suspended',
+        message: 'Your account is read-only for now. Ask the site admin why.',
+      });
+    }
+    if (!(await limitsEnforced(now))) return; // counted, never rate-limited
 
     const { values } = await globalLimits(now);
-    const ov = overrideFor('user', user.id, now);
     const token = req.apiToken;
     const max = token
       ? (ov.limits.requestsPerMinuteToken ?? values.requestsPerMinuteToken)
@@ -64,13 +72,6 @@ export function registerLimitHooks(app: FastifyInstance): void {
         limit: token ? 'requestsPerMinuteToken' : 'requestsPerMinuteUser',
         max,
         message: 'Too many requests at once. Please wait a minute and try again.',
-      });
-    }
-
-    if (ov.suspended && req.method !== 'GET' && req.method !== 'HEAD' && req.method !== 'DELETE' && req.method !== 'OPTIONS' && !allowedWhileSuspended(url)) {
-      return reply.code(403).send({
-        error: 'suspended',
-        message: 'Your account is read-only for now. Ask the site admin why.',
       });
     }
   });

@@ -11,6 +11,11 @@ export const WEB_ONLY_HELP_TEXTS = {
     short: 'A sign-in ends when it isn’t used for a while, or when it reaches its longest, whichever comes first.',
     more: 'Each visit, or each time the desktop app connects, starts the unused time over, so people who keep using the site stay signed in until the longest. A change here applies to everyone at their next visit; nobody is signed out when you save. The desktop app keeps its work on the computer and asks its owner to sign in again.',
   },
+  'admin.readOnly': {
+    title: 'Read-only accounts and clubs',
+    short: 'A read-only account or club can open, download and delete its things, but can’t add or change anything.',
+    more: 'Read-only always holds, even while “Enforce usage limits” is off, so it’s safe to use while you look into something. Open live editors drop to view-only at once. Lifting it gives everything back; nothing is deleted.',
+  },
 } as const satisfies Record<string, HelpEntry>;
 
 export type WebOnlyHelpKey = keyof typeof WEB_ONLY_HELP_TEXTS;
