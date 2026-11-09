@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   CURRENT_SCHEMA_VERSION,
+  NEWER_SIDECAR_WARNING,
   readSidecar,
+  sidecarWarnings,
   readView,
   writeSidecar,
   type Sidecar,
@@ -69,10 +71,31 @@ describe('readSidecar', () => {
     expect(result.bbmHashSha256).toBe('');
   });
 
-  it('rejects schemaVersion newer than supported', () => {
-    expect(() =>
-      readSidecar(JSON.stringify({ schemaVersion: CURRENT_SCHEMA_VERSION + 1 })),
-    ).toThrow(/schemaVersion/);
+  // As the desktop does (docs/bbm-bld-schema.md): a newer version's file
+  // opens with a warning, keeps what this version doesn't know (top level
+  // and inside labels) and is written back with its own version number.
+  it('opens a newer schemaVersion, keeps what it does not know and writes the version back', () => {
+    const newer = CURRENT_SCHEMA_VERSION + 1;
+    const raw = JSON.stringify({
+      schemaVersion: newer,
+      bbmHashSha256: '',
+      anchoredLabels: [{ id: 'l1', text: 'Depot', glow: true }],
+      futureField: { x: 1 },
+    });
+    const parsed = readSidecar(raw);
+    expect(parsed.schemaVersion).toBe(newer);
+    expect(parsed.extras).toEqual({ futureField: { x: 1 } });
+    const back = JSON.parse(writeSidecar(parsed)) as Record<string, unknown>;
+    expect(back.schemaVersion).toBe(newer);
+    expect(back.futureField).toEqual({ x: 1 });
+    expect((back.anchoredLabels as { glow?: boolean }[])[0]!.glow).toBe(true);
+    expect(sidecarWarnings(raw)).toEqual([NEWER_SIDECAR_WARNING]);
+  });
+
+  it('warns only about a newer version', () => {
+    expect(sidecarWarnings(JSON.stringify({ schemaVersion: CURRENT_SCHEMA_VERSION }))).toEqual([]);
+    expect(sidecarWarnings(JSON.stringify({}))).toEqual([]);
+    expect(sidecarWarnings('{not json')).toEqual([]);
   });
 
   it('preserves unknown top-level fields in extras', () => {

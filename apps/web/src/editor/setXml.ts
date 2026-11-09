@@ -4,6 +4,7 @@
 // changes only its English name (desktop saveload::renameSetXml), so the
 // layouts that placed it keep working.
 
+import { stripInvalidXmlChars } from '@cld/bbm/browser';
 import type { Brick } from '@cld/model';
 import type { PartWire } from '../api';
 
@@ -109,9 +110,8 @@ export function partNamedLikeSet(partNumber: string, subparts: readonly Pick<Set
   return subparts.find((sp) => sp.partKey.toLowerCase() === own)?.partKey ?? null;
 }
 
-// Control characters XML 1.0 doesn't allow (a pasted name with one made a
-// file BlueBrick won't open) are left out, as @cld/bbm's writer does.
+// Characters XML 1.0 doesn't allow (a pasted name with one made a file
+// BlueBrick won't open) are cleaned as @cld/bbm's writer and the desktop do.
 function escXml(s: string): string {
-  // eslint-disable-next-line no-control-regex
-  return s.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F￾￿]/g, '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  return stripInvalidXmlChars(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }

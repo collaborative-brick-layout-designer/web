@@ -21,14 +21,20 @@ export function escapeText(s: string): string {
 }
 
 // Characters XML 1.0 doesn't allow at all, not even as `&#x1;`: control
-// characters other than tab, LF and CR, and U+FFFE/U+FFFF. A name or text
-// pasted with one made a file BlueBrick and the desktop refuse to open
-// (both stop at the first invalid character), so they are left out.
+// characters other than tab, LF and CR, U+FFFE/U+FFFF and half a surrogate
+// pair. A name or text pasted with one made a file BlueBrick and the
+// desktop refuse to open (both stop at the first invalid character). As the
+// desktop does (XmlPrimitives cleanText): a vertical tab or form feed, which
+// are line breaks to the person who typed them, becomes a newline, and the
+// others are left out.
 // eslint-disable-next-line no-control-regex
-const INVALID_XML_CHARS = /[\u0000-\u0008\u000B\u000C\u000E-\u001F￾￿]/g;
+const LINE_BREAK_CHARS = /[\u000B\u000C]/g;
+const INVALID_XML_CHARS =
+  // eslint-disable-next-line no-control-regex
+  /[\u0000-\u0008\u000E-\u001F\uFFFE\uFFFF]|[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g;
 
 export function stripInvalidXmlChars(s: string): string {
-  return s.replace(INVALID_XML_CHARS, '');
+  return s.replace(LINE_BREAK_CHARS, '\n').replace(INVALID_XML_CHARS, '');
 }
 
 /** Escape an attribute value. Adds quote escaping on top of escapeText. */

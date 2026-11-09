@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { escapeAttr, escapeText, vanillaPostProcess, XmlBuilder } from './xml.js';
+import { escapeAttr, escapeText, stripInvalidXmlChars, vanillaPostProcess, XmlBuilder } from './xml.js';
 
 describe('escapeText / escapeAttr', () => {
   it('escapes the standard XML special chars', () => {
@@ -20,10 +20,20 @@ describe('escapeText / escapeAttr', () => {
   it('leaves out characters XML 1.0 forbids, keeping tab, LF and CR', () => {
     // A name pasted with a control character made a .bbm that BlueBrick
     // and the desktop refuse to open (audit 2026-10-20).
-    expect(escapeText('a\u0000b\u0001c\u0008d\u000Be\u000Cf\u001Fg￾h￿')).toBe('abcdefgh');
+    expect(escapeText('a\u0000b\u0001c\u0008d\u001Fg￾h￿')).toBe('abcdgh');
     expect(escapeText('t\tl\nc\r.')).toBe('t\tl\nc\r.');
     expect(escapeAttr('x\u0002"y')).toBe('x&quot;y');
     expect(escapeText('Zürich 駅 🚂')).toBe('Zürich 駅 🚂');
+  });
+
+  it('turns a vertical tab or form feed into a newline, as the desktop does', () => {
+    // Line breaks to whoever typed them (Word's line break pastes as \v).
+    expect(escapeText('one\u000Btwo\u000Cthree')).toBe('one\ntwo\nthree');
+    expect(stripInvalidXmlChars('a\u000Bb')).toBe('a\nb');
+  });
+
+  it('leaves out half a surrogate pair, keeping whole ones', () => {
+    expect(escapeText('x\uD83Dy\uDE82z🚂')).toBe('xyz🚂');
   });
 });
 
