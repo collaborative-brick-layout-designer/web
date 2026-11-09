@@ -9,10 +9,11 @@ import { describe, expect, it } from 'vitest';
 import { readBbm } from './Reader.js';
 import { writeBbm } from './Writer.js';
 
-const FIXTURES = resolve(dirname(fileURLToPath(import.meta.url)), '../tests/fixtures');
+// Not in tests/fixtures: every file there also has a part list golden.
+const FIXTURES = resolve(dirname(fileURLToPath(import.meta.url)), '../tests/vanilla');
 // Saved by vanilla BlueBrick 1.9.2 (desktop fixtures/bluebrick-oracle/tight-corner.from-tdl.bbm):
 // its clear colors are written <Name>0</Name>.
-const vanilla = readFileSync(resolve(FIXTURES, 'vanilla-clear-color.bbm'), 'utf8');
+const vanilla = readFileSync(resolve(FIXTURES, 'clear-color.bbm'), 'utf8');
 
 describe('unnamed colors, as BlueBrick names them', () => {
   it('reads "0" as clear black, not opaque black', () => {
