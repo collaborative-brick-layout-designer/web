@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
-import { eq } from 'drizzle-orm';
-import { invalidateSession, SESSION_COOKIE } from '../../auth/session.js';
+import { and, eq, gte } from 'drizzle-orm';
+import { invalidateOtherSessions, invalidateSession, publicSessionId, SESSION_COOKIE, sessionIdForToken } from '../../auth/session.js';
+import { notifyCredentialRevoked } from '../../auth/revocation.js';
 import { clearSessionCookie, requireUser } from '../../auth/cookie.js';
 import { listLinkedProviders } from '../../auth/users.js';
 import { listProviders } from '../../auth/providers.js';
@@ -73,6 +74,57 @@ export async function sessionRoutes(app: FastifyInstance) {
     // "Try the demo" shows only while an admin has the demo on.
     demoEnabled: (await getPlatformSettings()).demoEnabled,
   }));
+
+  // ---- Profile › Browsers and devices: your own web sign-ins ----------------
+  // (Desktop apps are the api_tokens list, /api/tokens.) Browser session
+  // only; the shared demo account can't see or end anyone's.
+  const currentSessionId = (req: import('fastify').FastifyRequest): string | null => {
+    const token = req.cookies[SESSION_COOKIE];
+    return token ? sessionIdForToken(token) : null;
+  };
+
+  app.get('/api/auth/sessions', async (req, reply) => {
+    const user = requireUser(req);
+    if (user.isDemoAccount) return reply.code(403).send({ error: 'demo_account_cannot_change_profile' });
+    const here = currentSessionId(req);
+    const rows = await db
+      .select()
+      .from(schema.sessions)
+      .where(and(eq(schema.sessions.userId, user.id), gte(schema.sessions.expiresAt, new Date())))
+      .all();
+    const sessions = rows
+      .map((r) => ({
+        id: publicSessionId(r.id),
+        current: r.id === here,
+        device: r.device,
+        createdAt: r.createdAt.getTime(),
+        lastUsedAt: r.lastUsedAt?.getTime() ?? null,
+      }))
+      .sort((a, b) => Number(b.current) - Number(a.current) || (b.lastUsedAt ?? b.createdAt) - (a.lastUsedAt ?? a.createdAt));
+    return { sessions };
+  });
+
+  /** Sign one of your browsers out (its open layouts close at once). */
+  app.delete<{ Params: { id: string } }>('/api/auth/sessions/:id', async (req, reply) => {
+    const user = requireUser(req);
+    if (user.isDemoAccount) return reply.code(403).send({ error: 'demo_account_cannot_change_profile' });
+    const rows = await db.select({ id: schema.sessions.id }).from(schema.sessions).where(eq(schema.sessions.userId, user.id)).all();
+    const row = rows.find((r) => publicSessionId(r.id) === req.params.id);
+    if (!row) return reply.code(404).send({ error: 'not_found' });
+    await db.delete(schema.sessions).where(eq(schema.sessions.id, row.id));
+    notifyCredentialRevoked({ sessionId: row.id });
+    if (row.id === currentSessionId(req)) clearSessionCookie(reply);
+    return { ok: true };
+  });
+
+  /** "Sign out of my other browsers": every web sign-in but this one. */
+  app.post('/api/auth/sessions/sign-out-others', async (req, reply) => {
+    const user = requireUser(req);
+    if (user.isDemoAccount) return reply.code(403).send({ error: 'demo_account_cannot_change_profile' });
+    const here = currentSessionId(req);
+    if (!here) return reply.code(400).send({ error: 'browser_only' });
+    return { ok: true, signedOut: await invalidateOtherSessions(user.id, here) };
+  });
 
   app.post('/api/auth/logout', async (req, reply) => {
     const token = req.cookies[SESSION_COOKIE];

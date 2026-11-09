@@ -78,8 +78,54 @@ export async function createSession(userId: string): Promise<{ token: string; ex
   return { token, expiresAt };
 }
 
+/** How often a session's "last used" time is written (not on every request). */
+const LAST_USED_EVERY_MS = 5 * 60 * 1000;
+
+/**
+ * A rough, friendly name for a browser from its user agent: "Firefox on
+ * Linux", "Safari on iPhone". Only this is kept, never the user agent.
+ */
+export function deviceName(userAgent: string | undefined): string | null {
+  if (!userAgent) return null;
+  const ua = userAgent;
+  const browser = /Edg\//.test(ua)
+    ? 'Edge'
+    : /OPR\/|Opera/.test(ua)
+      ? 'Opera'
+      : /Firefox\//.test(ua)
+        ? 'Firefox'
+        : /Chrome\/|CriOS\//.test(ua)
+          ? 'Chrome'
+          : /Safari\//.test(ua)
+            ? 'Safari'
+            : null;
+  const os = /iPhone/.test(ua)
+    ? 'iPhone'
+    : /iPad/.test(ua)
+      ? 'iPad'
+      : /Android/.test(ua)
+        ? 'Android'
+        : /Windows/.test(ua)
+          ? 'Windows'
+          : /Mac OS X|Macintosh/.test(ua)
+            ? 'Mac'
+            : /CrOS/.test(ua)
+              ? 'ChromeOS'
+              : /Linux/.test(ua)
+                ? 'Linux'
+                : null;
+  if (browser && os) return `${browser} on ${os}`;
+  return browser ?? os ?? 'A browser';
+}
+
+/** The id the owner sees for one of their sessions: not the stored id (a hash of the cookie), but a hash of that. */
+export function publicSessionId(sessionId: string): string {
+  return createHash('sha256').update(`listed:${sessionId}`).digest('hex').slice(0, 24);
+}
+
 export async function validateSession(
   token: string,
+  userAgent?: string,
 ): Promise<{ user: User; session: { id: string; expiresAt: Date }; refreshed: boolean } | null> {
   const id = hashToken(token);
   const row = await db
@@ -109,6 +155,12 @@ export async function validateSession(
     await db.update(schema.sessions).set({ expiresAt }).where(eq(schema.sessions.id, id));
     row.session.expiresAt = expiresAt;
     refreshed = true;
+  }
+  // For Profile › Browsers and devices: when it was last used, and roughly what it is.
+  const last = row.session.lastUsedAt?.getTime() ?? 0;
+  if (now - last >= LAST_USED_EVERY_MS) {
+    const device = row.session.device ?? deviceName(userAgent);
+    await db.update(schema.sessions).set({ lastUsedAt: new Date(now), device }).where(eq(schema.sessions.id, id));
   }
 
   return { user: row.user, session: { id, expiresAt: row.session.expiresAt }, refreshed };

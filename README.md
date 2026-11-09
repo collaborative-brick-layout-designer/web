@@ -417,7 +417,8 @@ Email and password accounts (`ENABLE_PASSWORD_AUTH=true`) confirm their email
 before they can sign in, so set up SMTP first; without it the confirmation
 link only goes to the server log. The same goes for "Forgot password?"
 links (one use, an hour each). People change their password under
-Profile, which signs out their other browsers and desktop apps.
+Profile, which signs out their other browsers and desktop apps; Profile ›
+Browsers and devices lists each sign-in, with Sign out for each.
 
 ### Desktop sign-in
 

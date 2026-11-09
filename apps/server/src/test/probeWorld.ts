@@ -175,6 +175,7 @@ export function concreteUrl(pattern: string, w: ProbeWorld, override?: string): 
       ['/api/admin/part-libraries/', 'no-such-library'],
       ['/api/admin/privacy/requests/', i.request!],
       ['/api/tokens/', i.oliveToken!],
+      ['/api/auth/sessions/', 'no-such-session'],
       ['/api/notices/', i.notice!],
       ['/api/privacy/exports/', i.dataExport!],
       ['/api/orgs/olive-club/join-requests/', i.joinRequest!],

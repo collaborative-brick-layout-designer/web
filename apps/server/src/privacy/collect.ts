@@ -100,7 +100,7 @@ export async function collectUserData(userId: string): Promise<DataSection[]> {
   add('sign-in-methods', 'Google, GitHub or other sign-ins linked to your account.', await select(s.oauthAccounts, eq(s.oauthAccounts.userId, userId)));
   add(
     'sessions',
-    'Browsers you are signed in on, since when and until when. The sign-in keys themselves are not included.',
+    'Browsers you are signed in on: since when, until when, when each was last used and roughly what browser it is. The sign-in keys themselves are not included.',
     await select(s.sessions, eq(s.sessions.userId, userId)),
     ['id'],
   );

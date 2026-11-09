@@ -11,6 +11,11 @@ export const WEB_ONLY_HELP_TEXTS = {
     short: 'Changing your password signs you out of your other browsers and desktop apps, and keeps you signed in here.',
     more: 'You need your current password to change it. If you’ve forgotten it, sign out and choose “Forgot password?” on the sign-in page: we email you a link that works once, for an hour. Desktop apps ask you to sign in again; their work stays on the computer.',
   },
+  'account.devices': {
+    title: 'Browsers and devices',
+    short: 'Every browser and desktop app signed in to your account, so you can sign out any you don’t use or don’t know.',
+    more: 'Signing a browser out ends its sign-in at once, and any layout it has open stops syncing. “Sign out of my other browsers” keeps you signed in here. Desktop apps keep their work on the computer and ask to sign in again.',
+  },
   'admin.signIn': {
     title: 'How long sign-ins last',
     short: 'A sign-in ends when it isn’t used for a while, or when it reaches its longest, whichever comes first.',

@@ -398,6 +398,8 @@ export const ROUTE_HINTS: Record<string, HintSpec> = {
   'DELETE /api/tokens/:id': me,
   // Other tabs' Browsers and devices lists (the signed-out ones are closed anyway).
   'POST /api/auth/password/change': me,
+  'DELETE /api/auth/sessions/:id': me,
+  'POST /api/auth/sessions/sign-out-others': me,
   'PUT /api/me/preferences': preferences,
   'POST /api/me/privacy/exports': me,
   'POST /api/me/deletion': adminOnly('admin', (c) => c.userId),
