@@ -60,6 +60,9 @@ export function useModuleDoc(moduleId: string): ModuleDocState {
   /** Unsaved work here (an edit since the last load or save), and a save on its way. */
   const dirtyRef = useRef(false);
   const savingRef = useRef(false);
+  /** The status as the hint handler reads it ("Saved": nothing here to lose). */
+  const statusRef = useRef<SaveStatus>({ kind: 'connecting' });
+  statusRef.current = status;
   const setSaveNote = useCallback((note: string) => {
     noteRef.current = note;
   }, []);
@@ -168,7 +171,7 @@ export function useModuleDoc(moduleId: string): ModuleDocState {
         .then(({ module }) => {
           // Our own save (its answer may come after the hint), or nothing new.
           if (savingRef.current || baseRef.current === undefined || module.docVersion <= baseRef.current) return;
-          if (!dirtyRef.current) setReload((n) => n + 1);
+          if (!dirtyRef.current || statusRef.current.kind === 'synced') setReload((n) => n + 1);
           else setModuleChange((c) => c ?? { refused: false });
         })
         .catch(() => undefined);
