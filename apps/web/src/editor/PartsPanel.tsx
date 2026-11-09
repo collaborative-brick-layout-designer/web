@@ -175,8 +175,9 @@ export const PartsPanel = memo(function PartsPanel({
 
   /** Place a part from the list: never one that is only used inside sets. */
   // A click that added the part (empty map): the double-click it may be
-  // the start of doesn't add a second one.
-  const clickPlaced = useRef<{ key: string; at: number } | null>(null);
+  // the start of doesn't add a second one. Tied to the one gesture (the
+  // click's count), so a later double-click still adds.
+  const clickPlaced = useRef(false);
   function place(p: PartWire) {
     if (p.notListed) {
       useEditorStore.getState().showNotice(hiddenPartNotice(p), 'error', 7000);
@@ -287,16 +288,18 @@ export const PartsPanel = memo(function PartsPanel({
                   aria-pressed={selectedTile === p.key}
                   data-part-key={p.key}
                   data-hidden-part={p.notListed ? 'true' : undefined}
-                  onClick={() => {
+                  onClick={(e) => {
                     setSelectedTile(p.key);
-                    if (mapEmpty && !p.notListed) {
-                      clickPlaced.current = { key: p.key, at: performance.now() };
-                      place(p);
-                    }
+                    // The first click of a gesture (detail 1); the second of a double-click adds nothing.
+                    if (e.detail > 1) return;
+                    clickPlaced.current = mapEmpty && !p.notListed;
+                    if (clickPlaced.current) place(p);
                   }}
                   onDoubleClick={() => {
-                    const c = clickPlaced.current;
-                    if (c && c.key === p.key && performance.now() - c.at < 600) return;
+                    if (clickPlaced.current) {
+                      clickPlaced.current = false;
+                      return;
+                    }
                     place(p);
                   }}
                   onKeyDown={(e) => {
