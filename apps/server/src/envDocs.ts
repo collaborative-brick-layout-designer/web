@@ -66,7 +66,7 @@ export function envTablesMarkdown(): string {
   lines.push('', '**Usage limits.** Each is also set in Admin › Site settings › Usage limits (and per person or club); the variable sets the default the admin starts from.', '');
   lines.push('| Variable | Built-in default | Limit |', '|---|---|---|');
   for (const l of LIMITS) {
-    const value = l.unit === 'bytes' ? bytes(l.builtIn) : l.unit === 'per_minute' ? `${l.builtIn} a minute` : String(l.builtIn);
+    const value = l.unit === 'bytes' ? bytes(l.builtIn) : l.unit === 'per_minute' ? `${l.builtIn} a minute` : l.unit === 'per_day' ? `${l.builtIn} a day` : String(l.builtIn);
     lines.push(`| \`${l.envVar}\` | ${value} | ${cell(l.label)}: ${cell(l.help)} |`);
   }
   lines.push('', '**Privacy.** Each is also set in Admin › Site settings › Privacy; when the variable is set to a whole number in range, it wins and the page says so.', '');

@@ -336,7 +336,7 @@ export function InviteSection({
   const [pickedUserId, setPickedUserId] = useState<string | null>(null);
   const [role, setRole] = useState<ClubRole>('member');
   const [days, setDays] = useState<number>(14);
-  const [made, setMade] = useState<{ url: string; emailed: boolean } | null>(null);
+  const [made, setMade] = useState<{ url: string; emailed: boolean; emailNote?: string | undefined } | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -359,7 +359,7 @@ export function InviteSection({
     mutationFn: () =>
       api.orgs.invite(slug, pickedUserId ? { userId: pickedUserId } : { email: email.trim() }, giveable.length && pickedRoleId ? { roleId: pickedRoleId } : role, days),
     onSuccess: (res) => {
-      setMade({ url: res.inviteUrl, emailed: res.emailDelivered });
+      setMade({ url: res.inviteUrl, emailed: res.emailDelivered, emailNote: res.emailNote });
       setEmail('');
       setPickedUserId(null);
       setSuggest(false);
@@ -471,7 +471,7 @@ export function InviteSection({
         {made && (
           <div className="space-y-2 rounded-lg border border-line bg-ok-soft p-3" role="status">
             <p className="text-ok">
-              {made.emailed ? 'Invite sent by email. You can also send this link yourself:' : 'Invite made. Send them this link:'}
+              {made.emailed ? 'Invite sent by email. You can also send this link yourself:' : (made.emailNote ?? 'Invite made. Send them this link:')}
             </p>
             <code className="block break-all rounded-lg bg-panel p-2 text-xs">{made.url}</code>
             <button type="button" className={btn} onClick={() => void copy(made.url, setNote)}>
@@ -509,7 +509,13 @@ export function PendingInvitesSection({
   const resend = useMutation({
     mutationFn: (id: string) => api.orgs.resendInvite(slug, id),
     onSuccess: (res) => {
-      setNote(res.emailDelivered ? 'Sent again. The link works for 14 more days.' : 'The link works for 14 more days. Email isn’t set up here, so copy the link and send it.');
+      setNote(
+        res.emailDelivered
+          ? 'Sent again. The link works for 14 more days.'
+          : res.emailNote
+            ? `The link works for 14 more days. ${res.emailNote}`
+            : 'The link works for 14 more days. Email isn’t set up here, so copy the link and send it.',
+      );
       void refresh();
     },
     onError: (e: Error) => setNote(e.message),

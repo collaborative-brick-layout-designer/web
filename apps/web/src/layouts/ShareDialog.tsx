@@ -157,6 +157,7 @@ function InviteForm({
   const [role, setRole] = useState<'viewer' | 'editor'>('editor');
   const [shareUrl, setShareUrl] = useState<string | null>(null);
   const [delivered, setDelivered] = useState(false);
+  const [emailNote, setEmailNote] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const invite = useMutation({
@@ -164,6 +165,7 @@ function InviteForm({
     onSuccess: (res) => {
       setShareUrl(res.inviteUrl);
       setDelivered(res.emailDelivered);
+      setEmailNote(res.emailNote ?? null);
       setEmail('');
       onInvited();
     },
@@ -221,7 +223,7 @@ function InviteForm({
       {shareUrl && (
         <div className="mt-3 rounded-lg border border-emerald-900 bg-emerald-950/30 p-2 text-xs">
           <p className="text-emerald-400">
-            {delivered ? 'Email sent.' : 'Email delivery skipped (no SMTP configured).'}
+            {delivered ? 'Email sent.' : (emailNote ?? 'Email delivery skipped (no SMTP configured).')}
           </p>
           <p className="mt-1 text-neutral-300">
             Share this link with the recipient (the email-match check
@@ -415,7 +417,7 @@ function TransferSection({ layoutId }: { layoutId: string }) {
   const [mode, setMode] = useState<'closed' | 'user' | 'org'>('closed');
   const [email, setEmail] = useState('');
   const [orgSlug, setOrgSlug] = useState('');
-  const [linkResult, setLinkResult] = useState<{ id: string; url: string; emailDelivered: boolean } | null>(
+  const [linkResult, setLinkResult] = useState<{ id: string; url: string; emailDelivered: boolean; emailNote?: string | undefined } | null>(
     null,
   );
   const [orgResult, setOrgResult] = useState<string | null>(null);
@@ -441,7 +443,7 @@ function TransferSection({ layoutId }: { layoutId: string }) {
         setOrgResult(res.ownerSlug);
         setLinkResult(null);
       } else {
-        setLinkResult({ id: res.id, url: res.transferUrl, emailDelivered: res.emailDelivered });
+        setLinkResult({ id: res.id, url: res.transferUrl, emailDelivered: res.emailDelivered, emailNote: res.emailNote });
         setOrgResult(null);
       }
     },
@@ -565,7 +567,9 @@ function TransferSection({ layoutId }: { layoutId: string }) {
           <p className="text-emerald-400">
             {linkResult.emailDelivered
               ? 'Email sent. The transfer is pending until the recipient accepts.'
-              : 'Email delivery skipped (no SMTP configured). Share this link:'}
+              : linkResult.emailNote
+                ? `${linkResult.emailNote} The transfer is pending until they accept.`
+                : 'Email delivery skipped (no SMTP configured). Share this link:'}
           </p>
           <code className="mt-1 block break-all rounded-lg bg-bg p-1 text-[11px]">
             {linkResult.url}

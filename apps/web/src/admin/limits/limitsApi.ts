@@ -3,7 +3,7 @@
 
 import { apiGet, apiSend } from '../../api';
 
-export type LimitUnit = 'count' | 'bytes' | 'per_minute';
+export type LimitUnit = 'count' | 'bytes' | 'per_minute' | 'per_day';
 
 export interface GlobalLimit {
   key: string;
@@ -99,6 +99,7 @@ export function formatLimit(value: number, unit: LimitUnit): string {
     return `${Math.round(value / 1024)} KB`;
   }
   if (unit === 'per_minute') return `${value.toLocaleString('en-US')} a minute`;
+  if (unit === 'per_day') return `${value.toLocaleString('en-US')} a day`;
   return value.toLocaleString('en-US');
 }
 

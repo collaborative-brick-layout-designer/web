@@ -21,7 +21,7 @@ import { checkGrowth } from '../limits/limits.js';
 import { requireUser } from '../auth/cookie.js';
 import { isDemoUser } from '../demo/demoAccount.js';
 import { writeAuditEvent } from '../audit/writeAuditEvent.js';
-import { sendInviteEmail } from '../email/sendInvite.js';
+import { sendInviteEmailCapped } from '../email/inviteEmailCap.js';
 import { env } from '../env.js';
 import { escapeLike, isValidEmail, normalizeEmail, trimmed } from '../utils/validate.js';
 import { isClubRole, type ClubRole } from '../access/clubRoles.js';
@@ -575,18 +575,13 @@ export async function orgRoutes(app: FastifyInstance): Promise<void> {
       });
 
       const inviteUrl = `${env.publicUrl}/org-invite/${token}`;
-      let emailDelivered = false;
-      try {
-        emailDelivered = await sendInviteEmail({
-          to: email,
-          inviteUrl,
-          inviterName: publicName(user.id, user.displayName),
-          what: 'club',
-          name: org.name,
-        });
-      } catch {
-        /* ignored — fall back to copy-paste link */
-      }
+      const mail = await sendInviteEmailCapped(user, {
+        to: email,
+        inviteUrl,
+        inviterName: publicName(user.id, user.displayName),
+        what: 'club',
+        name: org.name,
+      });
 
       await writeAuditEvent({
         resourceKind: 'org',
@@ -600,7 +595,7 @@ export async function orgRoutes(app: FastifyInstance): Promise<void> {
         id,
         token,
         inviteUrl,
-        emailDelivered,
+        ...mail,
         expiresAt: expiresAt.getTime(),
       };
     },
@@ -732,13 +727,8 @@ export async function orgRoutes(app: FastifyInstance): Promise<void> {
       const expiresAt = new Date(Date.now() + ttl);
       await db.update(schema.orgInvites).set({ expiresAt }).where(eq(schema.orgInvites.id, invite.id));
       const inviteUrl = `${env.publicUrl}/org-invite/${invite.token}`;
-      let emailDelivered = false;
-      try {
-        emailDelivered = await sendInviteEmail({ to: invite.invitedEmail, inviteUrl, inviterName: publicName(user.id, user.displayName), what: 'club', name: org.name });
-      } catch {
-        /* ignored — the admin can copy the link */
-      }
-      return { ok: true, inviteUrl, emailDelivered, expiresAt: expiresAt.getTime() };
+      const mail = await sendInviteEmailCapped(user, { to: invite.invitedEmail, inviteUrl, inviterName: publicName(user.id, user.displayName), what: 'club', name: org.name });
+      return { ok: true, inviteUrl, ...mail, expiresAt: expiresAt.getTime() };
     },
   );
 

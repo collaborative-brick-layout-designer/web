@@ -16,6 +16,11 @@ export const WEB_ONLY_HELP_TEXTS = {
     short: 'A read-only account or club can open, download and delete its things, but can’t add or change anything.',
     more: 'Read-only always holds, even while “Enforce usage limits” is off, so it’s safe to use while you look into something. Open live editors drop to view-only at once. Lifting it gives everything back; nothing is deleted.',
   },
+  'admin.inviteEmails': {
+    title: 'Invite emails a day',
+    short: 'How many invite and hand-over emails one person may send from this site in a day.',
+    more: 'It keeps a throwaway account from sending lots of email in the site’s name, and brand-new accounts get the lower number for their first week. Past it, the invite is still made: the person sees a friendly note and copies the link to send it themselves. You can raise it for one person on their Use and limits page.',
+  },
 } as const satisfies Record<string, HelpEntry>;
 
 export type WebOnlyHelpKey = keyof typeof WEB_ONLY_HELP_TEXTS;

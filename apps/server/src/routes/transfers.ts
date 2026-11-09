@@ -28,7 +28,7 @@ import { requireUser } from '../auth/cookie.js';
 import { isDemoUser } from '../demo/demoAccount.js';
 import { hasAtLeast, resolveResourceRole } from '../access/resolveResourceRole.js';
 import { writeAuditEvent } from '../audit/writeAuditEvent.js';
-import { sendInviteEmail } from '../email/sendInvite.js';
+import { sendInviteEmailCapped } from '../email/inviteEmailCap.js';
 import { env } from '../env.js';
 import { hasVerifiedEmail } from '../auth/users.js';
 import { sameEmail, trimmed } from '../utils/validate.js';
@@ -181,23 +181,18 @@ export async function transferRoutes(app: FastifyInstance): Promise<void> {
       });
 
       const transferUrl = `${env.publicUrl}/transfer/${token}`;
-      let emailDelivered = false;
-      try {
-        emailDelivered = await sendInviteEmail({
-          to: recipientEmail,
-          inviteUrl: transferUrl,
-          inviterName: publicName(user.id, user.displayName),
-          what: 'transfer',
-        });
-      } catch {
-        /* ignored */
-      }
+      const mail = await sendInviteEmailCapped(user, {
+        to: recipientEmail,
+        inviteUrl: transferUrl,
+        inviterName: publicName(user.id, user.displayName),
+        what: 'transfer',
+      });
 
       return reply.send({
         id,
         token,
         transferUrl,
-        emailDelivered,
+        ...mail,
         expiresAt: expiresAt.getTime(),
       });
     },

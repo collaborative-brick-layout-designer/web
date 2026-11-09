@@ -1,6 +1,6 @@
 // Per-person and per-club daily counters for the admin abuse view
 // (usage_daily in schema.ts): requests, refused requests, uploads,
-// upload bytes, share-link views. Kept in memory and written with the
+// upload bytes, share-link views, invite emails sent. Kept in memory and written with the
 // dashboard rollup once a minute. Counts only; swept after 90 days.
 
 import { lt } from 'drizzle-orm';
@@ -9,7 +9,7 @@ import { dayKey } from './rollup.js';
 
 export const USAGE_RETENTION_DAYS = 90;
 
-export type UsageMetric = 'requests' | 'refused' | 'uploads' | 'upload_bytes' | 'share_views';
+export type UsageMetric = 'requests' | 'refused' | 'uploads' | 'upload_bytes' | 'share_views' | 'invite_emails';
 
 class UsageCounter {
   private adds = new Map<string, number>();
@@ -30,6 +30,16 @@ class UsageCounter {
     sqlite.transaction(() => {
       for (const [k, v] of rows) add.run(...(k.split('\u0000') as [string, string, string, string]), v);
     })();
+  }
+
+  /** Today's count so far: what's written plus what's waiting to be. */
+  today(kind: 'user' | 'org', id: string, metric: UsageMetric, now: number = Date.now()): number {
+    const day = dayKey(now);
+    const pending = this.adds.get(`${day}\u0000${kind}\u0000${id}\u0000${metric}`) ?? 0;
+    const row = sqlite
+      .prepare('SELECT value FROM usage_daily WHERE day = ? AND subject_kind = ? AND subject_id = ? AND metric = ?')
+      .get(day, kind, id, metric) as { value: number } | undefined;
+    return (row?.value ?? 0) + pending;
   }
 
   reset(): void {

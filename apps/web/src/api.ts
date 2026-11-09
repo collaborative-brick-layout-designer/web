@@ -650,6 +650,8 @@ export const api = {
         token: string;
         inviteUrl: string;
         emailDelivered: boolean;
+        /** Why it wasn’t emailed, when the sender reached today’s email cap. */
+        emailNote?: string;
         expiresAt: number;
       }>(`/api/layouts/${layoutId}/invites`, { email, role }),
     revokeInvite: (layoutId: string, inviteId: string) =>
@@ -738,11 +740,13 @@ export const api = {
         token: string;
         inviteUrl: string;
         emailDelivered: boolean;
+        /** Why it wasn’t emailed, when the sender reached today’s email cap. */
+        emailNote?: string;
         expiresAt: number;
       }>(`/api/orgs/${slug}/invites`, { ...target, ...(typeof role === 'string' ? { role } : role), ...(expiresInDays ? { expiresInDays } : {}) }),
     /** Send an invite again, with a fresh expiry. */
     resendInvite: (slug: string, inviteId: string, expiresInDays?: number) =>
-      post<{ ok: true; inviteUrl: string; emailDelivered: boolean; expiresAt: number }>(
+      post<{ ok: true; inviteUrl: string; emailDelivered: boolean; emailNote?: string; expiresAt: number }>(
         `/api/orgs/${slug}/invites/${encodeURIComponent(inviteId)}/resend`,
         expiresInDays ? { expiresInDays } : {},
       ),
@@ -840,7 +844,7 @@ export const api = {
     ) =>
       post<
         | { transferred: true; ownerKind: 'org'; ownerSlug: string }
-        | { id: string; token: string; transferUrl: string; emailDelivered: boolean; expiresAt: number }
+        | { id: string; token: string; transferUrl: string; emailDelivered: boolean; emailNote?: string; expiresAt: number }
       >(`/api/layouts/${layoutId}/transfer`, {
         recipientEmail: 'email' in recipient ? recipient.email : undefined,
         recipientOrgSlug: 'orgSlug' in recipient ? recipient.orgSlug : undefined,
@@ -920,7 +924,7 @@ export const api = {
       ),
     /** Invite by email: they get a link to accept (nobody is added before that). */
     invite: (id: string, email: string, role: 'viewer' | 'editor') =>
-      post<{ id: string; token: string; inviteUrl: string; emailDelivered: boolean; expiresAt: number }>(
+      post<{ id: string; token: string; inviteUrl: string; emailDelivered: boolean; emailNote?: string; expiresAt: number }>(
         `/api/custom-parts/${encodeURIComponent(id)}/invites`,
         { email, role },
       ),
@@ -995,7 +999,7 @@ export const api = {
       get<{ collaborators: CollaboratorSummary[]; invites?: InviteSummary[] }>(`/api/modules/${encodeURIComponent(id)}/collaborators`),
     /** Invite by email: they get a link to accept (nobody is added before that). */
     invite: (id: string, email: string, role: 'viewer' | 'editor') =>
-      post<{ id: string; token: string; inviteUrl: string; emailDelivered: boolean; expiresAt: number }>(
+      post<{ id: string; token: string; inviteUrl: string; emailDelivered: boolean; emailNote?: string; expiresAt: number }>(
         `/api/modules/${encodeURIComponent(id)}/invites`,
         { email, role },
       ),

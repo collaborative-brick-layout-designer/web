@@ -296,10 +296,10 @@ const SORTS = new Set([
   'requests1d', 'refused7d', 'shareViews7d', 'live', 'members',
 ]);
 
-function limitRows(limits: Record<LimitKey, EffectiveLimit>, kind: 'user' | 'org', used: Usage) {
+function limitRows(limits: Record<LimitKey, EffectiveLimit>, kind: 'user' | 'org', used: Usage, inviteEmailsToday = 0) {
   const usedFor: Partial<Record<LimitKey, number>> =
     kind === 'user'
-      ? { clubsPerUser: used.clubsCreated, layoutsPerUser: used.layouts, storagePerUser: used.storageBytes, customPartsPerUser: used.customParts, shareLinksPerUser: used.shareLinks }
+      ? { clubsPerUser: used.clubsCreated, layoutsPerUser: used.layouts, storagePerUser: used.storageBytes, customPartsPerUser: used.customParts, shareLinksPerUser: used.shareLinks, inviteEmailsPerDay: inviteEmailsToday }
       : { layoutsPerClub: used.layouts, storagePerClub: used.storageBytes, customPartsPerClub: used.customParts, membersPerClub: used.members, shareLinksPerClub: used.shareLinks };
   return LIMITS.filter((l) => l.applies === kind || l.applies === 'both').map((l) => ({
     key: l.key,
@@ -528,7 +528,7 @@ export async function adminLimitsRoutes(app: FastifyInstance): Promise<void> {
     return {
       subject: { kind: 'user', id: user.id, name: user.displayName, email: user.email, createdAt: user.createdAt.getTime(), emailVerified: user.emailVerified },
       usage: used,
-      limits: limitRows(await userLimits(user, now), 'user', used),
+      limits: limitRows(await userLimits(user, now), 'user', used, usageCounter.today('user', user.id, 'invite_emails', now)),
       override: overrideRow('user', user.id),
       series: series('user', user.id, now),
       activity: activityFor(or(eq(schema.auditEvents.userId, user.id), and(eq(schema.auditEvents.resourceKind, 'user'), eq(schema.auditEvents.resourceId, user.id)))),

@@ -23,7 +23,7 @@ interface Shareable {
   listKey: string;
   thingsKey: string;
   collaborators: (id: string) => Promise<{ collaborators: CollaboratorSummary[]; invites?: InviteSummary[]; setParts?: SetPartSummary[] }>;
-  invite: (id: string, email: string, role: 'viewer' | 'editor') => Promise<{ inviteUrl: string; emailDelivered: boolean }>;
+  invite: (id: string, email: string, role: 'viewer' | 'editor') => Promise<{ inviteUrl: string; emailDelivered: boolean; emailNote?: string }>;
   revokeInvite: (id: string, inviteId: string) => Promise<unknown>;
   removeCollaborator: (id: string, userId: string) => Promise<unknown>;
 }
@@ -170,12 +170,12 @@ function ComesAlong({ parts, isOwner }: { parts: SetPartSummary[]; isOwner: bool
 function InviteForm({ what, id, onInvited }: { what: Shareable; id: string; onInvited: () => void }) {
   const [email, setEmail] = useState('');
   const [role, setRole] = useState<'viewer' | 'editor'>('viewer');
-  const [sent, setSent] = useState<{ url: string; delivered: boolean; to: string } | null>(null);
+  const [sent, setSent] = useState<{ url: string; delivered: boolean; note?: string | undefined; to: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const invite = useMutation({
     mutationFn: () => what.invite(id, email, role),
     onSuccess: (res) => {
-      setSent({ url: res.inviteUrl, delivered: res.emailDelivered, to: email });
+      setSent({ url: res.inviteUrl, delivered: res.emailDelivered, note: res.emailNote, to: email });
       setEmail('');
       onInvited();
     },
@@ -224,7 +224,11 @@ function InviteForm({ what, id, onInvited }: { what: Shareable; id: string; onIn
       {sent && (
         <div role="status" className="mt-3 rounded-lg border border-emerald-900 bg-emerald-950/30 p-2 text-xs">
           <p className="text-emerald-400">
-            {sent.delivered ? `Invite sent to ${sent.to}.` : `Invite made for ${sent.to}. This site can’t send email, so send them the link yourself.`}
+            {sent.delivered
+              ? `Invite sent to ${sent.to}.`
+              : sent.note
+                ? `Invite made for ${sent.to}. ${sent.note}`
+                : `Invite made for ${sent.to}. This site can’t send email, so send them the link yourself.`}
           </p>
           <p className="mt-1 text-neutral-300">They open the link and sign in with that address to accept:</p>
           <code className="mt-1 block break-all rounded-lg bg-bg p-1 text-[11px]">{sent.url}</code>

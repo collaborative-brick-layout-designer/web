@@ -14,7 +14,7 @@ import { db, schema } from '../db/index.js';
 import { requireUser } from '../auth/cookie.js';
 import { isDemoUser } from '../demo/demoAccount.js';
 import { hasAtLeast, resolveResourceRole, type Role } from '../access/resolveResourceRole.js';
-import { sendInviteEmail } from '../email/sendInvite.js';
+import { sendInviteEmailCapped } from '../email/inviteEmailCap.js';
 import { writeAuditEvent } from '../audit/writeAuditEvent.js';
 import { env } from '../env.js';
 import { isValidEmail, normalizeEmail } from '../utils/validate.js';
@@ -162,16 +162,12 @@ export async function collaboratorRoutes(app: FastifyInstance): Promise<void> {
       // owner copy-pastes the URL from the API response. Always returns
       // the URL so a configured SMTP can fail gracefully (the owner
       // still has a fallback).
-      let emailDelivered = false;
-      try {
-        emailDelivered = await sendInviteEmail({
-          to: email,
-          inviteUrl,
-          inviterName: publicName(user.id, user.displayName),
-        });
-      } catch {
-        // Silenced: emailDelivered stays false, the owner gets the URL.
-      }
+      // Past the sender's daily email cap, the invite is still made (emailNote says so).
+      const mail = await sendInviteEmailCapped(user, {
+        to: email,
+        inviteUrl,
+        inviterName: publicName(user.id, user.displayName),
+      });
 
       await writeAuditEvent({
         layoutId: req.params.id,
@@ -184,7 +180,7 @@ export async function collaboratorRoutes(app: FastifyInstance): Promise<void> {
         id,
         token,
         inviteUrl,
-        emailDelivered,
+        ...mail,
         expiresAt: expiresAt.getTime(),
       };
     },
