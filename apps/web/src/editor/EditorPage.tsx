@@ -4933,7 +4933,8 @@ function EmptyMapHint({ touch }: { touch: boolean }) {
   return (
     <p
       data-testid="empty-map-hint"
-      className="pointer-events-none absolute left-1/2 top-3 max-w-[calc(100%-2rem)] -translate-x-1/2 rounded-card border border-line bg-panel/95 px-4 py-2 text-center text-sm text-ink shadow"
+      // By touch, below the Undo / Redo pill in the corner.
+      className={`pointer-events-none absolute left-1/2 ${touch ? 'top-20' : 'top-3'} max-w-[calc(100%-2rem)] -translate-x-1/2 rounded-card border border-line bg-panel/95 px-4 py-2 text-center text-sm text-ink shadow`}
     >
       {touch ? 'Tap Add part below to put down your first piece.' : 'Click a part in the Parts panel to add it, or drag it onto the map.'}
     </p>

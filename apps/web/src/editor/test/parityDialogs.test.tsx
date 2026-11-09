@@ -238,7 +238,7 @@ describe('FindDialog — modeless, live selection', () => {
     fireEvent.change(screen.getByPlaceholderText('The new part’s number…'), { target: { value: '3001.99' } });
     const asked = autoConfirm(false);
     fireEvent.click(screen.getByRole('button', { name: 'Replace all' }));
-    await vi.waitFor(() => expect(asked.titles).toEqual(['“3001.99” isn’t a part in the library']));
+    await vi.waitFor(() => expect(asked.titles).toEqual(['“3001.99” isn’t in the parts library']));
     expect(bricksOf(doc, '3001.1')).toHaveLength(2);
     expect(bricksOf(doc, '3001.99')).toHaveLength(0);
 

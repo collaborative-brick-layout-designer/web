@@ -101,21 +101,10 @@ export function VenueLibraryPanel({ doc, isViewer, onDrawOutline, onDimensions, 
 
   return (
     <div className="flex h-full flex-col overflow-y-auto text-xs">
-      <div className="border-b border-line p-2">
-        <input
-          placeholder="Filter venues…"
-          value={filter}
-          onChange={(e) => setFilter(e.target.value)}
-          className="w-full rounded-lg border border-border bg-soft px-2 py-1 text-xs"
-        />
-      </div>
-
-      {isViewer && <p className="p-2 text-muted">Sign in to access the venue library.</p>}
       {!isViewer && !hasVenue && (
-        <div data-testid="draw-venue-card" className="m-2 space-y-2 rounded-card border border-line bg-soft/60 p-3 text-sm">
-          <p className="font-semibold text-ink">Draw your venue</p>
+        <div data-testid="draw-venue-card" className="space-y-1.5 border-b border-line bg-soft/60 p-2 text-sm">
           <p className="text-xs text-muted">
-            The venue is the hall your layout has to fit in. Draw its walls, then the layout tells you when parts are too close to them.
+            <span className="font-semibold text-ink">Draw your venue:</span> the hall your layout has to fit in. Parts too close to its walls are pointed out.
           </p>
           <div className="flex flex-wrap gap-1.5">
             {onDesigner && (
@@ -137,6 +126,16 @@ export function VenueLibraryPanel({ doc, isViewer, onDrawOutline, onDimensions, 
           {venues.length > 0 && <p className="text-xs text-muted">Or pick a saved venue below and choose Use in this layout.</p>}
         </div>
       )}
+      <div className="border-b border-line p-2">
+        <input
+          placeholder="Filter venues…"
+          value={filter}
+          onChange={(e) => setFilter(e.target.value)}
+          className="w-full rounded-lg border border-border bg-soft px-2 py-1 text-xs"
+        />
+      </div>
+
+      {isViewer && <p className="p-2 text-muted">Sign in to access the venue library.</p>}
       {!isViewer && list.isLoading && <p className="p-2 text-muted">Loading…</p>}
       {!isViewer && list.isError && <p className="p-2 text-danger">Failed to load venue library.</p>}
 

@@ -131,8 +131,8 @@ export function FindDialog({ map, doc, onClose }: Props) {
     if (unknown.length === 0) return true;
     const list = unknown.slice(0, 3).map((u) => `“${u}”`).join(', ') + (unknown.length > 3 ? ` and ${unknown.length - 3} more` : '');
     return askConfirm({
-      title: unknown.length === 1 ? `${list} isn’t a part in the library` : 'These aren’t parts in the library',
-      removes: `${unknown.length === 1 ? '' : `${list}. `}Parts the library doesn’t have show on the map as a red ✕, and can’t be counted or snapped.`,
+      title: unknown.length === 1 ? `${list} isn’t in the parts library` : 'These aren’t in the parts library',
+      removes: `${unknown.length === 1 ? '' : `${list}. `}A part that isn’t in the parts library shows on the map as a red ✕, and can’t be counted or snapped.`,
       keeps: 'Check the part number, or pick one from the list under Replace.',
       confirmLabel: 'Replace anyway',
       cancelLabel: 'Go back',

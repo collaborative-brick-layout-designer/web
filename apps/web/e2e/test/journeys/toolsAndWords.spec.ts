@@ -160,7 +160,7 @@ test.describe('tools that do what they say', () => {
     await find.getByPlaceholder('The new part’s number…').fill('nosuchpart.1');
     await find.getByRole('button', { name: 'Replace all' }).click();
     const ask = page.getByTestId('confirm-dialog');
-    await expect(ask).toContainText('“nosuchpart.1” isn’t a part in the library');
+    await expect(ask).toContainText('“nosuchpart.1” isn’t in the parts library');
     await shot(page, 'find-unknown-part');
     await ask.getByRole('button', { name: 'Go back' }).click();
     const xml = await (await page.request.get(`/api/layouts/${id}/export.bbm`)).text();
