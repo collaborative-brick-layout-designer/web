@@ -82,7 +82,7 @@ host's to keep or not.
 | `limit_overrides` | a person's own limits, suspension and its reason | yes | |
 | `usage_daily` | per-person daily counts (requests, uploads, bytes) | yes | Numbers only; swept after `USAGE_RETENTION_DAYS`. |
 | `daily_stats` | none | no | Site-wide daily numbers. |
-| `audit_events` | who did what to which thing, with a JSON payload; some payloads name an email (invites, admin actions) | yes | No IP addresses or user agents. |
+| `audit_events` | who did what to which thing, with a JSON payload; some payloads name an email (invites, admin actions) | yes | No IP addresses or user agents. A refused live edit notes the sender's app as a rough name ("Firefox on Linux", "Desktop app 2.0.12"), shown to site admins only and removed with the other personal fields after the audit retention period. |
 | `platform_settings` | `updated_by` (the admin who last saved) | as "site-settings-changes" | |
 | `data_fixes` | none | no | Which one-time data fixes the server has run, when, and how many values each changed (counts only). |
 | `data_exports` | data downloads: about whom, asked by whom, when | yes | Files in `exports/<id>.zip` next to the database. |

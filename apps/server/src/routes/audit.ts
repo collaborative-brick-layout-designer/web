@@ -187,11 +187,18 @@ function toWire(row: typeof schema.auditEvents.$inferSelect, names: Map<string, 
     userName: row.userId ? (names.get(row.userId) ?? null) : row.actorLabel,
     eventType: row.eventType,
     // Addresses in a payload (who was invited) are for site admins only;
-    // club and layout managers see a masked form.
-    payload: viewer.isGlobalAdmin ? safeParse(row.payload) : maskPayloadEmails(safeParse(row.payload)),
+    // club and layout managers see a masked form. So is the sender's app
+    // ("Firefox on Linux") on a refused live update.
+    payload: viewer.isGlobalAdmin ? safeParse(row.payload) : withoutClient(maskPayloadEmails(safeParse(row.payload))),
     docVersion: row.docVersion,
     createdAt: row.createdAt.getTime(),
   };
+}
+
+function withoutClient(payload: unknown): unknown {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload) || !('client' in payload)) return payload;
+  const { client: _client, ...rest } = payload as Record<string, unknown>;
+  return rest;
 }
 
 function safeParse(json: string): unknown {

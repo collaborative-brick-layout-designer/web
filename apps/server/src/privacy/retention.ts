@@ -24,7 +24,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 /** Audit rows read at a time. */
 const AUDIT_BATCH = 2000;
 const EMAIL_RE = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
-const PERSONAL_KEYS = new Set(['ip', 'ipAddress', 'userAgent', 'user_agent']);
+const PERSONAL_KEYS = new Set(['ip', 'ipAddress', 'userAgent', 'user_agent', 'client']);
 
 export interface RetentionResult {
   sessions: number;
@@ -119,7 +119,7 @@ export async function purgeRetention(now = new Date()): Promise<RetentionResult>
         and(
           gt(s.auditEvents.id, lastId),
           lt(s.auditEvents.createdAt, auditCutoff),
-          or(like(s.auditEvents.payload, '%@%'), like(s.auditEvents.payload, '%"ip%'), like(s.auditEvents.payload, '%serAgent%'), like(s.auditEvents.payload, '%user_agent%')),
+          or(like(s.auditEvents.payload, '%@%'), like(s.auditEvents.payload, '%"ip%'), like(s.auditEvents.payload, '%serAgent%'), like(s.auditEvents.payload, '%user_agent%'), like(s.auditEvents.payload, '%"client"%')),
         ),
       )
       .orderBy(asc(s.auditEvents.id))

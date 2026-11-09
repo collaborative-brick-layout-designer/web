@@ -48,6 +48,7 @@ import { backgroundUrlProblem } from './backgroundGuard.js';
 import { decodeIncoming, guardWork, type DecodedUpdate } from './decoded.js';
 import { MAX_HELD_UPDATES, deletesPresent, waitsOn } from './held.js';
 import { MAX_UPDATE_WORK, yjsWork } from './yjsWork.js';
+import { deviceName } from '../auth/session.js';
 
 /**
  * Close code and reason for an update refused because it would merge
@@ -450,9 +451,20 @@ function landHeld(session: DocSession): void {
   }
 }
 
+/**
+ * What an audit event says about the sender's app: "Desktop app 2.0.12" or
+ * a rough browser name ("Firefox on Linux"), never the user agent, which
+ * the layout's viewers can read (docs/PRIVACY-DATA.md).
+ */
+export function auditClient(userAgent: string): string | null {
+  const desktop = /(?:Collaborative)?BrickLayoutDesigner\/(\S+)/.exec(userAgent);
+  if (desktop) return `Desktop app ${desktop[1]}`;
+  return deviceName(userAgent || undefined);
+}
+
 function mergePayload(sender: Sender, check: MergeCheck): Record<string, unknown> {
   return {
-    client: sender.client,
+    client: auditClient(sender.client),
     via: sender.credential?.kind ?? null,
     updateBytes: check.updateBytes,
     foreignLayers: check.foreignLayers,
@@ -540,7 +552,7 @@ function refuseUpdate(
     layoutId: session.layoutId,
     userId: sender.userId,
     eventType: 'layout_update_refused',
-    payload: { client: sender.client, via: sender.credential?.kind ?? null, updateBytes, kind, why },
+    payload: { client: auditClient(sender.client), via: sender.credential?.kind ?? null, updateBytes, kind, why },
   }).catch((err) => console.error('[ws] could not write the layout_update_refused audit event', err));
 }
 
