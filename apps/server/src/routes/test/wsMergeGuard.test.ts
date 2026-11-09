@@ -85,7 +85,7 @@ describe('WS merge guard', () => {
       expect(audit).toHaveLength(1);
       expect(audit[0]).toMatchObject({ layoutId: b, userId });
       expect(JSON.parse(audit[0]!.payload)).toMatchObject({
-        client: 'BrickLayoutDesigner/1.3.0 (desktop)',
+        client: 'Desktop app 1.3.0',
         via: 'session',
         foreignLayers: aLayers,
       });
