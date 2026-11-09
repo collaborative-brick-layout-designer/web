@@ -99,6 +99,7 @@ const ROUTES: RouteCase[] = [
   { name: 'device', who: 'owner', path: () => '/device' },
   { name: 'invite', who: 'member', path: (s) => `/invite/${s.inviteToken}` },
   { name: 'verify-email', who: 'nobody', path: () => '/verify-email/not-a-real-token' },
+  { name: 'reset-password', who: 'nobody', path: () => '/reset-password/not-a-real-token' },
   { name: 'transfer', who: 'member', path: (s) => `/transfer/${s.transferToken}` },
   { name: 'org-invite', who: 'member', path: (s) => `/org-invite/${s.orgInviteToken}` },
   { name: 'orgs', who: 'owner', path: () => '/orgs' },

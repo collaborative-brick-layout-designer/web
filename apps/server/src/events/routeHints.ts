@@ -396,6 +396,8 @@ export const ROUTE_HINTS: Record<string, HintSpec> = {
   'POST /api/auth/device/approve': me,
   'POST /api/auth/device/deny': me,
   'DELETE /api/tokens/:id': me,
+  // Other tabs' Browsers and devices lists (the signed-out ones are closed anyway).
+  'POST /api/auth/password/change': me,
   'PUT /api/me/preferences': preferences,
   'POST /api/me/privacy/exports': me,
   'POST /api/me/deletion': adminOnly('admin', (c) => c.userId),
@@ -633,6 +635,8 @@ export const NO_HINT: Record<string, string> = {
   'POST /api/auth/password/verify-email/:token': 'signs in; the new page loads fresh',
   'POST /api/auth/password/login': 'signs in; the new page loads fresh',
   'POST /api/auth/password/set': 'your own password: nothing anyone else sees',
+  'POST /api/auth/password/forgot': 'sends an email only',
+  'POST /api/auth/password/reset': 'signs in and every other sign-in ends; the new page loads fresh',
   'POST /api/auth/demo': 'signs in as the demo account; the new page loads fresh',
   'POST /api/admin/demo/reset': 'the reset sends its own hints to the demo account and admins (demo/reset.ts)',
   'POST /api/auth/logout': 'signs out',

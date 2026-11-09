@@ -74,7 +74,7 @@ const KEYS: Record<HintKind, (h: Hint) => QueryKey[]> = {
     ...(MEMBERSHIP_CHANGE.test(h.action ?? '') ? [['parts-catalog']] : []),
     ...ADMIN_LISTS,
   ],
-  me: () => [['me'], ['preferences'], ['api-tokens'], ['providers'], ['my-exports'], ['my-deletion'], ['club-exports']],
+  me: () => [['me'], ['preferences'], ['api-tokens'], ['sessions'], ['providers'], ['my-exports'], ['my-deletion'], ['club-exports']],
   transfer: () => [['layouts'], ['modules'], ['transfer-preview']],
   // …and the demo account's last reset (Admin › Settings and the dashboard).
   admin: () => [

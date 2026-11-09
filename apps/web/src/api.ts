@@ -57,6 +57,10 @@ const ERROR_MESSAGES: Record<string, string> = {
   invalid_input: 'Please fill in all required fields.',
   invalid_password: 'Use a password of 8 to 128 characters.',
   password_already_set: 'This account already has a password.',
+  wrong_current_password: 'That isn’t your current password. Check it and try again.',
+  no_password_yet: 'This account has no password yet. Choose one below.',
+  reset_link_expired: 'This link has run out (they last an hour). Ask for a new one on the sign-in page.',
+  reset_link_not_found: 'This link doesn’t work any more: it was used already, or a newer one was sent. Ask for a new one on the sign-in page.',
   name_taken: 'Another saved venue already has that name.',
   not_an_org_member: 'You are not in that club.',
   not_a_member_of_recipient_org: 'You are not in that club.',
@@ -567,6 +571,15 @@ export const api = {
   /** `needsPassword`: signed in, but the account has no password yet; ask for one (setPassword). */
   verifyEmail: (token: string) =>
     post<{ ok: true; needsPassword?: boolean }>(`/api/auth/password/verify-email/${encodeURIComponent(token)}`),
+  /** Change the password (needs the current one). Signs out every other browser and desktop app. */
+  changePassword: (currentPassword: string, newPassword: string) =>
+    post<{ ok: true; signedOutBrowsers: number; signedOutDesktops: number }>('/api/auth/password/change', { currentPassword, newPassword }),
+  /** "Forgot password?": the same answer whether or not the address has an account. */
+  forgotPassword: (email: string) => post<{ ok: true }>('/api/auth/password/forgot', { email }),
+  /** Whether a reset link still works. */
+  checkResetLink: (token: string) => get<{ ok: true }>(`/api/auth/password/reset/${encodeURIComponent(token)}`),
+  /** Choose a new password from a reset link; signs this browser in. */
+  resetPassword: (token: string, password: string) => post<{ ok: true }>('/api/auth/password/reset', { token, password }),
   /** Choose a password for the signed-in account when it has none. */
   setPassword: (password: string) => post<{ ok: true }>('/api/auth/password/set', { password }),
 

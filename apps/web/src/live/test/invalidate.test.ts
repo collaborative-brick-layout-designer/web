@@ -42,7 +42,7 @@ describe('keysFor', () => {
   it('every query on the site is refetched by some kind (or is listed here as never changing live)', () => {
     // One-off pages whose data doesn't change under the reader.
     const STATIC = new Set([
-      'public-layout', 'public-layout-snapshot', 'invite-preview', 'module-invite-preview', 'part-invite-preview', 'org-invite-preview',
+      'public-layout', 'public-layout-snapshot', 'reset-link', 'invite-preview', 'module-invite-preview', 'part-invite-preview', 'org-invite-preview',
       'admin-series', 'admin-people', 'admin-health', 'admin-content', 'admin-usage',
     ]);
     const reachable = new Set(HINT_KINDS.flatMap((k) => prefixes(k)));

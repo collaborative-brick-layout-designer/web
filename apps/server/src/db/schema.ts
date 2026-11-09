@@ -164,6 +164,27 @@ export const emailVerifications = sqliteTable('email_verifications', {
 });
 
 /**
+ * "Forgot password?" links (0041). One-time: the row is deleted when it's
+ * used, when a newer link is asked for, and when the password changes.
+ * Only the sha256 of the emailed token is kept; links last an hour.
+ */
+export const passwordResets = sqliteTable(
+  'password_resets',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    tokenHash: text('token_hash').notNull().unique(),
+    expiresAt: integer('expires_at', { mode: 'timestamp_ms' }).notNull(),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+  },
+  (t) => ({
+    userIdx: index('password_resets_user_idx').on(t.userId),
+  }),
+);
+
+/**
  * Platform-wide settings, admin-configurable via /api/admin/settings.
  * Singleton table: always exactly one row, id fixed to
  * PLATFORM_SETTINGS_ID (see auth/platformSettings.ts). DB values here
