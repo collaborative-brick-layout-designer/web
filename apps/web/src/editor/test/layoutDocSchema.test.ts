@@ -3,6 +3,7 @@
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type * as Y from 'yjs';
+import { Awareness } from 'y-protocols/awareness';
 
 type Handler = (arg: unknown) => void;
 const providers: FakeProvider[] = [];
