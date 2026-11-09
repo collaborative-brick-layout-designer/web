@@ -53,7 +53,7 @@ test('a layout with old drawing values out of range opens and draws normally aft
   await expect(options).toBeVisible();
   await expect(options.getByLabel('Sub-divisions per cell')).toHaveValue('100');
   await expect(options.getByLabel('Grid line thickness')).toHaveValue('100');
-  await expect(options.getByLabel('Transparency (%)')).toHaveValue('100');
+  await expect(options.getByLabel('Opacity (%)')).toHaveValue('100');
   await options.getByRole('button', { name: 'Cancel' }).click();
   await expect(options).toHaveCount(0);
 

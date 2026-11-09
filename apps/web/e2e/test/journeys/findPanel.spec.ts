@@ -29,7 +29,7 @@ async function openFordyce(page: Page, who: string): Promise<void> {
 async function findPart(page: Page, part: string): Promise<Locator> {
   await page.keyboard.press('Control+f');
   const panel = page.getByRole('dialog', { name: 'Find & Replace' });
-  await panel.getByRole('combobox').selectOption('part');
+  await panel.getByLabel('Find in').selectOption('part');
   await panel.getByPlaceholder('Search…').fill(part);
   return panel;
 }

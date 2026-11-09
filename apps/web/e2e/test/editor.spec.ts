@@ -77,7 +77,7 @@ test.describe('editor — tool switching', () => {
     const rotateBtn = page.getByRole('button', { name: 'Turn', exact: true });
     await rotateBtn.click();
     await expect(rotateBtn).toHaveAttribute('aria-pressed', 'true');
-    await expect(page.locator('footer')).toContainText('Tool: rotate');
+    await expect(page.locator('footer')).toContainText('Tool: Turn');
   });
 
   test('clicking delete tool activates it', async ({ page }) => {
@@ -87,7 +87,7 @@ test.describe('editor — tool switching', () => {
     // rail's buttons carry data-tool, which is unambiguous.
     const deleteBtn = page.getByRole('navigation', { name: 'Build tools' }).locator('[data-tool="delete"]');
     await deleteBtn.click();
-    await expect(page.locator('footer')).toContainText('Tool: delete');
+    await expect(page.locator('footer')).toContainText('Tool: Delete');
     await expect(page.locator('canvas').first()).toBeVisible();
   });
 
@@ -97,9 +97,9 @@ test.describe('editor — tool switching', () => {
     const rotateBtn = page.getByRole('button', { name: 'Turn', exact: true });
     const selectBtn = page.getByRole('button', { name: 'Select' });
     await rotateBtn.click();
-    await expect(page.locator('footer')).toContainText('Tool: rotate');
+    await expect(page.locator('footer')).toContainText('Tool: Turn');
     await selectBtn.click();
-    await expect(page.locator('footer')).toContainText('Tool: select');
+    await expect(page.locator('footer')).toContainText('Tool: Select');
     await expect(page.locator('canvas').first()).toBeVisible();
   });
 });
