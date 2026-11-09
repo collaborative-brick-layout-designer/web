@@ -898,7 +898,9 @@ export async function adminRoutes(app: FastifyInstance): Promise<void> {
 
   app.post<{ Body: DownloadLibraryBody }>( // codeql[js/missing-rate-limiting]
     '/api/admin/part-libraries/download',
-    { config: { rateLimit: perPerson(10, '1 minute') } },
+    // Site admins only. Installing every Download Center pack at once is
+    // about 20 in a row; 10 a minute stopped at the 11th.
+    { config: { rateLimit: perPerson(60, '1 minute') } },
     async (req, reply) => {
       const me = requireGlobalAdmin(req);
       const body = req.body ?? ({} as DownloadLibraryBody);
