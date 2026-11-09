@@ -68,6 +68,12 @@ export class TokenBucket {
     return true;
   }
 
+  /** Give back `n` tokens (up to the burst): for a message found not to count. */
+  give(n = 1, now: number = Date.now()): void {
+    this.take(0, now);
+    this.tokens = Math.min(this.capacity, this.tokens + n);
+  }
+
   /** Whether any tokens are left (none after a charge took it below zero). */
   available(now: number = Date.now()): boolean {
     return this.take(0, now) && this.tokens > 0;

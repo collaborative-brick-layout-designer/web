@@ -1,14 +1,17 @@
 // A tab still opening a layout shares an empty presence ({}), which the
 // server used to pass on as { user: { id } }: every other web editor in the
-// room then crashed drawing it (full review area 4, Bug 1).
+// room then crashed drawing it (full review area 4, Bug 1). And each tab
+// sent everyone's presence back to the server, so a crowded layout closed
+// idle people for sending too fast (Bug 2).
 
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import * as Y from 'yjs';
 import { Awareness, applyAwarenessUpdate, encodeAwarenessUpdate } from 'y-protocols/awareness';
+import type { WebsocketProvider } from 'y-websocket';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { readPeerPresence } from '../awareness';
 import { PresencePanel } from '../PresencePanel';
-import { newLivePresence, type LayoutDocState } from '../useLayoutDoc';
+import { newLivePresence, sendOnlyOwnPresence, type LayoutDocState } from '../useLayoutDoc';
 import { EditorErrorBoundary } from '../EditorErrorBoundary';
 
 const person = (displayName: string, extra: Record<string, unknown> = {}) => ({
@@ -76,6 +79,27 @@ describe('the presence this tab shares', () => {
     // y-protocols renews a set presence every 15 s.
     vi.advanceTimersByTime(40_000);
     expect(updates).not.toHaveBeenCalled();
+    awareness.destroy();
+  });
+
+  it("only this tab's own presence goes to the server, not everyone else's", () => {
+    const awareness = new Awareness(new Y.Doc());
+    const send = vi.fn();
+    const provider = { awareness, _awarenessUpdateHandler: send } as unknown as WebsocketProvider;
+    awareness.on('update', send);
+    sendOnlyOwnPresence(provider);
+    send.mockClear();
+    // Someone else moves: nothing is sent.
+    arrive(awareness, person('Alice'), 201);
+    arrive(awareness, person('Alice', { cursor: { x: 1, y: 2, layerId: null } }), 201);
+    expect(send).not.toHaveBeenCalled();
+    // This tab's own change: sent, alone.
+    awareness.setLocalState(person('Me'));
+    expect(send).toHaveBeenCalledTimes(1);
+    const changes = send.mock.calls[0]![0] as { added: number[]; updated: number[]; removed: number[] };
+    expect([...changes.added, ...changes.updated, ...changes.removed]).toEqual([awareness.clientID]);
+    // And the provider's destroy() takes this handler off.
+    expect(provider._awarenessUpdateHandler).not.toBe(send);
     awareness.destroy();
   });
 });

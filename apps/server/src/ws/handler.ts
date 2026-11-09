@@ -323,7 +323,11 @@ export function handleMessage(
       // Presence: only this connection's own entries, within limits (DocSession.applyClientAwareness).
       const update = decoding.readVarUint8Array(decoder);
       if (update.length > MAX_AWARENESS_BYTES) return;
-      session.applyClientAwareness(ws, update);
+      // A message holding none of this connection's own entries (an older
+      // web page sends everyone's presence back) isn't counted against its
+      // pacing: in a crowded layout that closed idle people with 1013. Its
+      // bytes still count.
+      if (session.applyClientAwareness(ws, update) === 0) sender.pace.messages.give(1);
       break;
     }
     default:

@@ -20,6 +20,7 @@ import { layoutRoutes } from '../layouts.js';
 import { wsRoutes } from '../ws.js';
 import { MAX_AWARENESS_BYTES, MAX_AWARENESS_IDS, docHub } from '../../ws/docHub.js';
 import { Peer } from './wsPeer.js';
+import { wsPacing } from '../../ws/pacing.js';
 
 const FIXTURES = resolve(dirname(fileURLToPath(import.meta.url)), '../../../../../packages/bbm/tests/fixtures');
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -234,6 +235,28 @@ describe('WS presence', () => {
     c.ws.send(awarenessMsg([1, 2, 3, 4].map((n) => ({ clientID: 700 + n, clock: 1, state: pres(`ok${n}`) }))));
     await sleep(150);
     expect([1, 2, 3, 4].every((n) => states().has(700 + n))).toBe(true);
+  });
+
+  it("someone else's presence sent back (older web pages did) doesn't count against the sender's pacing", async () => {
+    const carolUser = await share('carol@x.com', 'viewer');
+    const alice = await client();
+    await sleep(100);
+    alice.ws.send(awarenessMsg([{ clientID: 900, clock: 1, state: pres('Alice') }]));
+    await sleep(100);
+    const before = wsPacing.messageBurst;
+    wsPacing.messageBurst = 20;
+    try {
+      const tight = await client(carolUser.cookie);
+      await sleep(100);
+      // 200 relays of Alice's entry: all dropped, none counted.
+      for (let i = 0; i < 200; i++) tight.ws.send(awarenessMsg([{ clientID: 900, clock: 2 + i, state: pres('Alice', { cursor: { x: i } }) }]));
+      await sleep(300);
+      expect(tight.ws.readyState).toBe(WebSocket.OPEN);
+      expect((states().get(900) as { cursor?: unknown }).cursor).toBeUndefined();
+    } finally {
+      wsPacing.messageBurst = before;
+    }
+    expect(alice.ws.readyState).toBe(WebSocket.OPEN);
   });
 
   it('passes the presence of someone who selected every part of a large layout', async () => {

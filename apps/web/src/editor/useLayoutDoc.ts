@@ -184,6 +184,26 @@ export function newLivePresence(doc: Y.Doc): Awareness {
   return awareness;
 }
 
+/**
+ * Make the provider send only this tab's own presence. y-websocket sends
+ * every entry that changed, other people's too: each tab sent everyone's
+ * cursor back to the server, about 20 messages a second per person moving,
+ * so a crowded layout closed idle people for sending too fast.
+ */
+export function sendOnlyOwnPresence(provider: WebsocketProvider): void {
+  const { awareness } = provider;
+  const sendChanged = provider._awarenessUpdateHandler;
+  awareness.off('update', sendChanged);
+  const sendOwn = (changes: { added: number[]; updated: number[]; removed: number[] }, origin: unknown): void => {
+    const self = (c: number): boolean => c === awareness.clientID;
+    const own = { added: changes.added.filter(self), updated: changes.updated.filter(self), removed: changes.removed.filter(self) };
+    if (own.added.length + own.updated.length + own.removed.length > 0) sendChanged(own, origin);
+  };
+  // (destroy() takes the handler the provider holds off again.)
+  provider._awarenessUpdateHandler = sendOwn;
+  awareness.on('update', sendOwn);
+}
+
 /** Build the WS URL relative to the current page (so dev + prod both work). */
 function wsUrlBase(): string {
   if (typeof window === 'undefined') return '';
@@ -261,6 +281,7 @@ export function useLayoutDoc(layoutId: string, canEdit?: boolean): LayoutDocStat
       connect: true,
       awareness: newLivePresence(fresh),
     });
+    sendOnlyOwnPresence(provider);
     providerRef.current = provider;
 
     let lastSyncedAt: number | null = null;
