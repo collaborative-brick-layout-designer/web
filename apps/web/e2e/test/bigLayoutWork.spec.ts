@@ -232,7 +232,7 @@ test('a big layout: pan, zoom and box-select draw what changed, and the export i
   const download = page.waitForEvent('download');
   await dialog.getByRole('button', { name: 'Export PNG' }).click();
   const file = await download;
-  expect(file.suggestedFilename()).toBe('Big_work.png');
+  expect(file.suggestedFilename()).toBe('Big work.png');
   const png = readFileSync((await file.path())!);
   expect(png.subarray(1, 4).toString()).toBe('PNG');
   expect([png.readUInt32BE(16), png.readUInt32BE(20)]).toEqual([1200, height]);

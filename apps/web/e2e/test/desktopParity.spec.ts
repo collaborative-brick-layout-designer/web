@@ -217,7 +217,7 @@ test.describe('toolbar and menus', () => {
 
     const download = page.waitForEvent('download');
     await page.getByRole('button', { name: 'Export JPEG' }).click();
-    expect((await download).suggestedFilename()).toBe('Parity_Test.jpg');
+    expect((await download).suggestedFilename()).toBe('Parity Test.jpg');
   });
 });
 
@@ -767,12 +767,15 @@ test.describe('chained placement', () => {
         links: [...m[0].matchAll(/<LinkedTo>([^<]+)<\/LinkedTo>/g)].length,
       }));
     };
-    // A single click only picks the tile (desktop places on activation).
+    // On an empty map one click adds the first piece (both apps); after that a
+    // single click only picks the tile, and a double-click adds the next.
     await tile.click();
     await expect(tile).toHaveAttribute('aria-pressed', 'true');
+    await expect.poll(async () => (await bricks()).length).toBe(1);
+    await tile.click();
     await page.waitForTimeout(500);
-    expect(await bricks()).toHaveLength(0);
-    for (let n = 1; n <= 3; n++) {
+    expect(await bricks()).toHaveLength(1);
+    for (let n = 2; n <= 3; n++) {
       await tile.dblclick();
       await expect.poll(async () => (await bricks()).length).toBe(n);
     }
