@@ -17,6 +17,8 @@ import { registerChangeHints } from '../events/routeHints.js';
 import { closeAll } from '../events/hub.js';
 import { DEMO_DISPLAY_NAME, DEMO_USER_ID, demoResetDue, demoStatus, isDemoUser, nextDemoReset } from './demoAccount.js';
 import { DEMO_SAMPLE_IDS, DEMO_SAMPLES, uuidV5 } from './reset.js';
+import * as Y from 'yjs';
+import { docToBbm } from '@cld/ydoc';
 import { demoTick } from '../workers/index.js';
 import { getPlatformSettings } from '../auth/platformSettings.js';
 
@@ -241,7 +243,13 @@ describe('a reset', () => {
     }
     const after = db.select().from(schema.layouts).where(eq(schema.layouts.id, DEMO_SAMPLE_IDS.layout)).get()!;
     expect(after.title).toBe(DEMO_SAMPLES.layout.title);
-    expect(Buffer.from(after.docSnapshot as Uint8Array).equals(Buffer.from(fresh.docSnapshot as Uint8Array))).toBe(true);
+    // The same layout as a fresh sample (the bytes differ: each copy is made anew).
+    const read = (bytes: unknown) => {
+      const d = new Y.Doc();
+      Y.applyUpdate(d, new Uint8Array(bytes as Uint8Array));
+      return JSON.stringify(docToBbm(d));
+    };
+    expect(read(after.docSnapshot)).toBe(read(fresh.docSnapshot));
     expect(db.select().from(schema.layoutUpdates).where(eq(schema.layoutUpdates.layoutId, DEMO_SAMPLE_IDS.layout)).all()).toEqual([]);
     expect(db.select().from(schema.layoutCollaborators).where(eq(schema.layoutCollaborators.layoutId, DEMO_SAMPLE_IDS.layout)).all()).toEqual([]);
   });
