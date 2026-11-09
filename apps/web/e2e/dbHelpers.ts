@@ -193,6 +193,6 @@ export function spoilSheetSettings(layoutId: string, type: string, values: Recor
  * Returns what it printed.
  */
 export function clampDrawingValuesFix(apply: boolean): string {
-  const args = ['--filter', '@cld/server', 'data-fix:clamp-drawing-values', '--db', dbPath(), ...(apply ? ['--apply'] : [])];
+  const args = ['--filter', '@cld/server', 'data-fix:clamp-drawing-values', '--db', dbPath(), ...(apply ? ['--apply', '--server-running'] : [])];
   return execFileSync('pnpm', args, { cwd: resolve(import.meta.dirname, '../../..'), encoding: 'utf8', timeout: 120_000 });
 }

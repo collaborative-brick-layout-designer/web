@@ -1,4 +1,4 @@
-// Area 2 review fixes: a deleted layout or venue leaves an audit record;
+// Area 2 review fixes: a deleted venue leaves an audit record (layouts: web #498);
 // the venue library takes only venues (and never two of one name); a club
 // invite opened while the club waits to be deleted is kept, and works again
 // once the club is restored.
@@ -44,16 +44,7 @@ afterEach(async () => {
 
 const VENUE = { name: 'Hall', enabled: true, minWalkwayStuds: 0, bounds: { x: 0, y: 0, w: 100, h: 50 }, edges: [], obstacles: [] };
 
-describe('deleting leaves a record', () => {
-  it('a layout: who deleted it, its title and owner', async () => {
-    const { id } = (await call(ada, 'POST', '/api/layouts', { title: 'Main yard' })).json() as { id: string };
-    expect((await call(ada, 'DELETE', `/api/layouts/${id}`)).statusCode).toBe(200);
-    const rows = await db.select().from(schema.auditEvents).where(and(eq(schema.auditEvents.layoutId, id), eq(schema.auditEvents.eventType, 'delete'))).all();
-    expect(rows).toHaveLength(1);
-    expect(rows[0]!.userId).toBe(ada.id);
-    expect(JSON.parse(rows[0]!.payload)).toMatchObject({ title: 'Main yard', ownerUserId: ada.id });
-  });
-
+describe('deleting a venue leaves a record', () => {
   it('a venue: who deleted it and its name', async () => {
     const { id } = (await call(ada, 'POST', '/api/venues', { name: 'Hall', data: VENUE })).json() as { id: string };
     expect((await call(ada, 'DELETE', `/api/venues/${id}`)).statusCode).toBe(200);

@@ -57,6 +57,7 @@ from a checkout (packages built):
   pnpm --filter @cld/server data-fix:clamp-drawing-values --db <absolute path> [--quiet]
 --quiet   the summary only
 --apply   write the fix, only on a database no server has open (the server runs it with CBLD_DATA_FIX=clamp-drawing-values)
+--server-running  with --apply: write although a server has it open (only when none of the layouts it changes is open there)
 `;
 
 class CantOpen extends Error {}
@@ -100,6 +101,8 @@ export function main(argv = process.argv.slice(2)): number {
       db: { type: 'string' },
       quiet: { type: 'boolean', default: false },
       apply: { type: 'boolean', default: false },
+      // Write even though a server holds the database: only when no layout it changes is open there.
+      'server-running': { type: 'boolean', default: false },
     },
   });
   if (!values.db) {
@@ -107,7 +110,7 @@ export function main(argv = process.argv.slice(2)): number {
     return 2;
   }
   if (values.apply) {
-    const running = refuseWhileRunning(values.db);
+    const running = values['server-running'] ? null : refuseWhileRunning(values.db);
     if (running) {
       process.stderr.write(running);
       return 4;

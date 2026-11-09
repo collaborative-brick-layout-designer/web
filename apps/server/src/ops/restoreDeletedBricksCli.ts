@@ -55,6 +55,8 @@ export function main(argv = process.argv.slice(2)): number {
       report: { type: 'string' },
       'export-dir': { type: 'string' },
       apply: { type: 'boolean', default: false },
+      // Write even though a server holds the database: only when no layout it changes is open there.
+      'server-running': { type: 'boolean', default: false },
       expect: { type: 'string' },
     },
   });
@@ -125,7 +127,7 @@ export function main(argv = process.argv.slice(2)): number {
       process.stdout.write('dry run: nothing written. Stop the server and rerun with --apply --expect <fingerprint> to apply.\n');
       return 0;
     }
-    const running = refuseWhileRunning(values.db);
+    const running = values['server-running'] ? null : refuseWhileRunning(values.db);
     if (running) {
       process.stderr.write(running);
       return 4;

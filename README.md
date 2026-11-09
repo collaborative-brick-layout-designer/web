@@ -302,7 +302,7 @@ Without `--apply` they only read, print what they would change and a
 fingerprint of that plan. To write it, **stop the server**, then run again
 with `--apply --expect <fingerprint>`. They refuse to write while the
 server runs on that database (it holds `<database>.server` while it runs),
-because an open layout would overwrite the repair when it next saves.
+because an open layout would overwrite the repair when it next saves. (`--server-running` writes anyway, for when you know none of the layouts it changes is open.)
 `clampDrawingValuesCli.js` (the `CBLD_DATA_FIX` fix below) works the same
 way.
 
