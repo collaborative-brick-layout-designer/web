@@ -1,11 +1,16 @@
 // Help behind "?" buttons the desktop app has no screen for (site admin
-// pages). Kept apart from helpTexts.ts, whose keys and words the desktop
+// pages, the Profile page's password). Kept apart from helpTexts.ts, whose keys and words the desktop
 // copies (help-keys.txt): these never go to the desktop. The same rules
 // apply (helpTexts.test.ts): one sentence on hover, two or three on click.
 
 import type { HelpEntry } from './helpTexts';
 
 export const WEB_ONLY_HELP_TEXTS = {
+  'account.password': {
+    title: 'Your password',
+    short: 'Changing your password signs you out of your other browsers and desktop apps, and keeps you signed in here.',
+    more: 'You need your current password to change it. If you’ve forgotten it, sign out and choose “Forgot password?” on the sign-in page: we email you a link that works once, for an hour. Desktop apps ask you to sign in again; their work stays on the computer.',
+  },
   'admin.signIn': {
     title: 'How long sign-ins last',
     short: 'A sign-in ends when it isn’t used for a while, or when it reaches its longest, whichever comes first.',

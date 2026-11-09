@@ -55,6 +55,6 @@ export async function ensureBootstrapAdmin(): Promise<void> {
   });
   console.log('====================================================');
   console.log(`[bootstrap] CREATED GLOBAL ADMIN: ${email}`);
-  console.log('[bootstrap] change the password from the profile page after first login');
+  console.log('[bootstrap] after first sign-in, change the password under Profile › Password');
   console.log('====================================================');
 }

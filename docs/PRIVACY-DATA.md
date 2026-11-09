@@ -25,6 +25,7 @@ host's to keep or not.
 | `device_codes` | desktop sign-in codes a person approved or denied | yes (no codes) | Expire after minutes. |
 | `oauth_accounts` | the Google / GitHub / OIDC account id linked | yes | |
 | `email_verifications` | open "confirm your email" links | yes (no token) | |
+| `password_resets` | open "Forgot password?" links: when asked for, when they end | yes (no token) | Only a hash of the link is kept. A link works once, for an hour; it's deleted when used, when a newer one is asked for, or when the password changes, and expired ones are swept with old sign-ins. |
 | `user_preferences` | theme, text size, help and tour settings | yes | |
 
 ## Clubs
@@ -122,7 +123,7 @@ When the account is erased (`privacy/accountDeletion.ts`):
 
 | Data | What happens |
 |---|---|
-| `users`, `sessions`, `api_tokens`, `device_codes`, `oauth_accounts`, `email_verifications`, `user_preferences` | deleted |
+| `users`, `sessions`, `api_tokens`, `device_codes`, `oauth_accounts`, `email_verifications`, `password_resets`, `user_preferences` | deleted |
 | `org_members`, `org_join_requests` | deleted. A club they were the **last admin** of gets a new admin, chosen by what their roles may do: someone who may manage members and roles, else someone who may invite people, else the longest-standing member (longest-standing first within each); they get a note. A club with **nobody else** in it is deleted. |
 | `layouts`, `modules`, `custom_parts`, `venue_library`, `catalog_items`, personal `catalog_collections` they own alone | deleted (with their background pictures and data downloads on disk). Copies other people added from the catalog are theirs and stay. |
 | Club things they made | stay with the club: `created_by` moves to a club admin, chosen the same way (it must name an account), `deleted_author_id` keeps the credit "Builder #…". A club collection they curate moves to them too. |

@@ -239,7 +239,7 @@ What may still answer 4xx, one request at a time rather than in bursts:
 |---|---|
 | 401 on `/api/*` | the session ended (signed out in another tab, account deleted, a demo reset, or a sign-in past its longest) |
 | 403 / 404 on `/api/layouts/:id`, `/api/modules/:id`, `/api/venues/:id`, `/api/orgs/:slug/*` | a link to something deleted, or not shared with you; a club's manage page just after you handed the club over |
-| 404 on `/api/auth/password/verify-email/:token`, `/api/invites/*`, `/api/transfers/*`, `/api/org-invites/*` | an emailed link used twice or expired |
+| 404 / 410 on `/api/auth/password/verify-email/:token`, `/api/auth/password/reset/:token`, `/api/invites/*`, `/api/transfers/*`, `/api/org-invites/*` | an emailed link used twice or expired |
 | 400 / 409 / 413 | a form refused (a taken part number, a file too big) |
 | 429 | the server's own rate limits |
 
@@ -256,7 +256,7 @@ description: "Collaborative Brick Layout Designer: the app's own paths may 404 n
 whitelist:
   reason: "app paths that may answer 401/403/404 in normal use"
   expression:
-    - evt.Meta.http_status in ['401', '403', '404'] && evt.Meta.http_path matches '^/api/(layouts|modules|venues|orgs|auth/password/verify-email|invites|transfers|org-invites)/'
+    - evt.Meta.http_status in ['401', '403', '404'] && evt.Meta.http_path matches '^/api/(layouts|modules|venues|orgs|auth/password/verify-email|auth/password/reset|invites|transfers|org-invites)/'
 ```
 
 Leave `/parts/`, `/api/catalog/` and `/api/public-layouts/` out of it:
@@ -413,7 +413,9 @@ Each OAuth provider needs this callback URL:
 
 Email and password accounts (`ENABLE_PASSWORD_AUTH=true`) confirm their email
 before they can sign in, so set up SMTP first; without it the confirmation
-link only goes to the server log.
+link only goes to the server log. The same goes for "Forgot password?"
+links (one use, an hour each). People change their password under
+Profile, which signs out their other browsers and desktop apps.
 
 ### Desktop sign-in
 

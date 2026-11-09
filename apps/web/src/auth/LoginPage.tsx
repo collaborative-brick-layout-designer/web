@@ -133,7 +133,8 @@ function TryDemo({ next }: { next: string }) {
 
 function PasswordForm({ next }: { next: string }) {
   const qc = useQueryClient();
-  const [mode, setMode] = useState<'login' | 'register'>('login');
+  const [params] = useSearchParams();
+  const [mode, setMode] = useState<'login' | 'register' | 'forgot'>(params.get('forgot') ? 'forgot' : 'login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
@@ -162,6 +163,8 @@ function PasswordForm({ next }: { next: string }) {
   const resend = useMutation({
     mutationFn: () => api.resendVerification(email, next),
   });
+
+  if (mode === 'forgot') return <ForgotPasswordForm email={email} setEmail={setEmail} back={() => setMode('login')} />;
 
   if (awaitingVerification) {
     return (
@@ -264,6 +267,11 @@ function PasswordForm({ next }: { next: string }) {
       >
         {mode === 'login' ? 'Sign in' : 'Create account'}
       </button>
+      {mode === 'login' && (
+        <button type="button" onClick={() => setMode('forgot')} className="w-full text-sm text-accent-text hover:underline">
+          Forgot password?
+        </button>
+      )}
       <button
         type="button"
         onClick={() => setMode(mode === 'login' ? 'register' : 'login')}
@@ -272,5 +280,55 @@ function PasswordForm({ next }: { next: string }) {
         {mode === 'login' ? 'Need an account?' : 'Already have an account?'}
       </button>
     </form>
+  );
+}
+
+/**
+ * "Forgot password?": we email a link that works once, for an hour. The
+ * answer is the same whether or not there's an account for the address.
+ */
+function ForgotPasswordForm({ email, setEmail, back }: { email: string; setEmail: (v: string) => void; back: () => void }) {
+  const send = useMutation({ mutationFn: () => api.forgotPassword(email.trim()) });
+  return (
+    <div className="space-y-3 border-t border-line pt-4" data-testid="forgot-password">
+      <h2 className="font-medium">Forgot your password?</h2>
+      {send.isSuccess ? (
+        <p className="text-sm text-neutral-300" role="status">
+          If there’s an account for <span className="font-medium text-ink">{email.trim()}</span>, we’ve emailed it a link to choose a new
+          password. The link works once, for an hour. Check your spam folder too.
+        </p>
+      ) : (
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            send.mutate();
+          }}
+          className="space-y-3"
+        >
+          <p className="text-sm text-muted">Type the email you signed up with, and we’ll send you a link to choose a new password.</p>
+          <input
+            type="email"
+            placeholder="Email"
+            aria-label="Email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            required
+            autoComplete="email"
+            className="w-full rounded-lg border border-border bg-soft px-3 py-2"
+          />
+          {send.isError && (
+            <p className="text-sm text-danger" role="alert">
+              {(send.error as Error).message}
+            </p>
+          )}
+          <button type="submit" disabled={send.isPending} className="w-full rounded-lg bg-accent py-2 text-accent-ink hover:bg-accent-hover disabled:opacity-50">
+            {send.isPending ? 'Sending…' : 'Email me a link'}
+          </button>
+        </form>
+      )}
+      <button type="button" onClick={back} className="w-full text-sm text-muted hover:underline">
+        Back to sign in
+      </button>
+    </div>
   );
 }

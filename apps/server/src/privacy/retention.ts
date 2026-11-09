@@ -96,7 +96,9 @@ export async function purgeRetention(now = new Date()): Promise<RetentionResult>
     db.delete(s.apiTokens).where(or(and(isNotNull(s.apiTokens.revokedAt), lt(s.apiTokens.revokedAt, signInCutoff)), lt(s.apiTokens.expiresAt, signInCutoff))),
   );
   res.deviceCodes = run(db.delete(s.deviceCodes).where(lt(s.deviceCodes.expiresAt, signInCutoff)));
-  res.emailVerifications = run(db.delete(s.emailVerifications).where(lt(s.emailVerifications.expiresAt, signInCutoff)));
+  res.emailVerifications =
+    run(db.delete(s.emailVerifications).where(lt(s.emailVerifications.expiresAt, signInCutoff))) +
+    run(db.delete(s.passwordResets).where(lt(s.passwordResets.expiresAt, signInCutoff)));
   res.invites =
     run(db.delete(s.layoutInvites).where(and(isNull(s.layoutInvites.acceptedAt), lt(s.layoutInvites.expiresAt, signInCutoff)))) +
     run(db.delete(s.customPartInvites).where(and(isNull(s.customPartInvites.acceptedAt), lt(s.customPartInvites.expiresAt, signInCutoff)))) +

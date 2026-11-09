@@ -1,5 +1,5 @@
 import { randomBytes, createHash } from 'node:crypto';
-import { eq } from 'drizzle-orm';
+import { and, eq, ne } from 'drizzle-orm';
 import { db, schema } from '../db/index.js';
 import type { User } from '../db/schema.js';
 import { notifyCredentialRevoked } from './revocation.js';
@@ -124,4 +124,16 @@ export async function invalidateSession(token: string): Promise<void> {
 export async function invalidateAllSessions(userId: string, reason?: 'demo_reset' | 'demo_off'): Promise<void> {
   await db.delete(schema.sessions).where(eq(schema.sessions.userId, userId));
   notifyCredentialRevoked(reason ? { userId, reason } : { userId });
+}
+
+/**
+ * Sign `userId` out of every browser except the one holding
+ * `keepSessionId` (e.g. after they change their password there). Returns
+ * how many were signed out; their open layouts are closed at once.
+ */
+export async function invalidateOtherSessions(userId: string, keepSessionId: string | null): Promise<number> {
+  const where = keepSessionId ? and(eq(schema.sessions.userId, userId), ne(schema.sessions.id, keepSessionId)) : eq(schema.sessions.userId, userId);
+  const gone = await db.delete(schema.sessions).where(where).returning({ id: schema.sessions.id });
+  for (const { id } of gone) notifyCredentialRevoked({ sessionId: id });
+  return gone.length;
 }

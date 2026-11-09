@@ -40,7 +40,7 @@ export function forgetNamePromptSkip(): void {
 }
 
 /** Pages where the prompt would get in the way of signing in or out. */
-const QUIET = /^\/(login|verify-email|link|device)\b/;
+const QUIET = /^\/(login|verify-email|reset-password|link|device)\b/;
 
 export function NamePrompt() {
   const me = useQuery({ queryKey: ['me'], queryFn: api.me });

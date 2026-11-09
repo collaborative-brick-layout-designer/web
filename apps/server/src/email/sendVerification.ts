@@ -18,7 +18,7 @@ interface SendVerificationEmailArgs {
    * the account has no password and no other way to sign in, so the link
    * signs it in to choose one.
    */
-  purpose?: 'verify' | 'set-password';
+  purpose?: 'verify' | 'set-password' | 'reset-password';
 }
 
 export async function sendVerificationEmail(args: SendVerificationEmailArgs): Promise<boolean> {
@@ -31,6 +31,21 @@ export async function sendVerificationEmail(args: SendVerificationEmailArgs): Pr
   // path here, but it's escaped anyway for consistency with
   // sendInvite.ts's html body and as cheap defense-in-depth.
   const safeUrl = escapeHtml(args.verifyUrl);
+
+  if (args.purpose === 'reset-password') {
+    const subject = 'Reset your password — Collaborative Brick Layout Designer';
+    const text =
+      `Someone asked to reset the password of your Collaborative Brick Layout Designer account.\n\n` +
+      `Open this link to choose a new one:\n\n${args.verifyUrl}\n\n` +
+      `This link works once and expires in 1 hour. If you didn't ask for it, you can ignore this email; your password stays the same.\n`;
+    const html =
+      `<p>Someone asked to reset the password of your Collaborative Brick Layout Designer account.</p>` +
+      `<p><a href="${safeUrl}">Choose a new password</a></p>` +
+      `<p style="color:#888">Or paste this URL into your browser: ${safeUrl}</p>` +
+      `<p style="color:#888">This link works once and expires in 1 hour. If you didn't ask for it, you can ignore this email; your password stays the same.</p>`;
+    await transporter.sendMail({ from: config.from, to: args.to, subject, text, html });
+    return true;
+  }
 
   if (args.purpose === 'set-password') {
     const subject = 'Set your password — Collaborative Brick Layout Designer';

@@ -107,6 +107,12 @@ export async function collectUserData(userId: string): Promise<DataSection[]> {
   add('desktop-sign-ins', 'Desktop apps you signed in, with their names and when they were last used.', await select(s.apiTokens, eq(s.apiTokens.userId, userId)));
   add('desktop-sign-in-requests', 'Desktop sign-in codes you approved or turned down.', await select(s.deviceCodes, eq(s.deviceCodes.userId, userId)));
   add('email-confirmations', 'Links sent to confirm your email address that are still open.', await select(s.emailVerifications, eq(s.emailVerifications.userId, userId)));
+  add(
+    'password-resets',
+    '“Forgot password?” links sent to you that are still open. The links themselves are not included.',
+    await select(s.passwordResets, eq(s.passwordResets.userId, userId)),
+    ['tokenHash'],
+  );
   add('preferences', 'Your appearance and help settings.', await select(s.userPreferences, eq(s.userPreferences.userId, userId)));
 
   // ---- clubs ---------------------------------------------------------------
@@ -242,6 +248,7 @@ export const READ_TABLES = [
   'api_tokens',
   'device_codes',
   'email_verifications',
+  'password_resets',
   'user_preferences',
   'org_members',
   'member_roles',

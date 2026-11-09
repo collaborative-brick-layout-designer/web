@@ -10,6 +10,7 @@ import { DeleteAccountSection } from '../privacy/DeleteAccount';
 import { HelpButton } from '../help/HelpButton';
 import { useHashScroll } from '../ui/useHashScroll';
 import { SetPasswordForm } from './SetPasswordForm';
+import { ChangePasswordForm } from './ChangePasswordForm';
 
 export function ProfilePage() {
   const qc = useQueryClient();
@@ -100,7 +101,7 @@ export function ProfilePage() {
             )}
             {error && <p className="mt-1 text-sm text-danger">{error}</p>}
             {user.isDemoAccount ? (
-              <p className="text-xs text-amber-400">The shared demo account: it resets itself, and its name, sign-in and desktop app can’t be changed.</p>
+              <p className="text-xs text-amber-400">The shared demo account: it resets itself, and its name, password, sign-in and desktop app can’t be changed.</p>
             ) : (
               <p className="text-sm text-muted">{user.email}</p>
             )}
@@ -134,6 +135,15 @@ export function ProfilePage() {
               );
             })}
           </ul>
+          {providers.data?.passwordEnabled && user.hasPassword && (
+            <div className="space-y-2 rounded-lg border border-line p-4" id="password">
+              <h3 className="flex items-center gap-1 font-medium">
+                Password <HelpButton helpKey="account.password" target="#password" />
+              </h3>
+              <p className="text-sm text-muted">Change the password you sign in with. Your other browsers and desktop apps are signed out.</p>
+              <ChangePasswordForm />
+            </div>
+          )}
           {providers.data?.passwordEnabled && user.hasPassword === false && (
             <div className="space-y-2 rounded-lg border border-line p-4" data-testid="set-password">
               <h3 className="font-medium">Password</h3>

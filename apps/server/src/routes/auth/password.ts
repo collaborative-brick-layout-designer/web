@@ -1,10 +1,10 @@
 import { randomUUID, randomBytes } from 'node:crypto';
 import type { FastifyInstance, FastifyBaseLogger, FastifyReply, FastifyRequest } from 'fastify';
 import { hash, verify } from '@node-rs/argon2';
-import { eq, or } from 'drizzle-orm';
+import { and, eq, gt, or } from 'drizzle-orm';
 import { db, schema } from '../../db/index.js';
 import type { User } from '../../db/schema.js';
-import { createSession, hashToken, invalidateAllSessions } from '../../auth/session.js';
+import { createSession, hashToken, invalidateAllSessions, invalidateOtherSessions, SESSION_COOKIE, sessionIdForToken } from '../../auth/session.js';
 import { requireUser, setSessionCookie } from '../../auth/cookie.js';
 import { revokeAllApiTokens } from '../../auth/apiTokens.js';
 import { loginWaitMs, noteLoginFailure, noteLoginSuccess } from '../../auth/loginPacing.js';
@@ -47,6 +47,25 @@ const LEGACY_TOKEN_LENGTH = 48;
 const SIGNUP_NOTICE_EVERY_MS = 60 * 60 * 1000;
 const SIGNUP_NOTICE_MAX_TRACKED = 10_000;
 const lastSignupNotice = new Map<string, number>();
+
+/** A "Forgot password?" link works for an hour, once. */
+export const RESET_TTL_MS = 60 * 60 * 1000;
+/**
+ * At most one reset email per account in this window, so the form can't
+ * flood an inbox (the route is also limited per address). In memory, bounded.
+ */
+const RESET_EVERY_MS = 2 * 60 * 1000;
+const lastResetEmail = new Map<string, number>();
+
+/** Forget the reset-email throttle (tests). */
+export function resetPasswordResetThrottleForTests(): void {
+  lastResetEmail.clear();
+}
+
+/** The emailed "choose a new password" link. */
+export function resetUrl(token: string): string {
+  return `${env.publicUrl}/reset-password/${token}`;
+}
 
 /** Argon2 hash of a random password: login for an unknown email checks against it, so it takes as long as a wrong password. */
 let dummyHash: Promise<string> | null = null;
@@ -134,6 +153,51 @@ async function issueVerification(
     // and for an operator to hand-deliver if needed.
     log.info({ email: user.email, verifyUrl }, 'email verification link (SMTP not configured or delivery failed)');
   }
+}
+
+/**
+ * Email a one-time "choose a new password" link (an hour, single use;
+ * only its hash is stored, and any older link for the account stops
+ * working). Without SMTP the link is logged, as verification links are.
+ */
+async function issuePasswordReset(log: FastifyBaseLogger, user: Pick<User, 'id' | 'email'>): Promise<void> {
+  await db.delete(schema.passwordResets).where(eq(schema.passwordResets.userId, user.id));
+  const token = randomBytes(32).toString('hex');
+  const now = Date.now();
+  await db.insert(schema.passwordResets).values({ id: randomUUID(), userId: user.id, tokenHash: hashToken(token), expiresAt: new Date(now + RESET_TTL_MS), createdAt: new Date(now) });
+  const url = resetUrl(token);
+  let delivered = false;
+  try {
+    delivered = await sendVerificationEmail({ to: user.email, verifyUrl: url, purpose: 'reset-password' });
+  } catch (err) {
+    log.warn({ err }, 'failed to send password reset email');
+  }
+  if (!delivered) log.info({ email: user.email, resetUrl: url }, 'password reset link (SMTP not configured or delivery failed)');
+}
+
+/** True (and noted) when this account may get another reset email now. */
+function mayEmailReset(userId: string, now: number = Date.now()): boolean {
+  const last = lastResetEmail.get(userId);
+  if (last !== undefined && now - last < RESET_EVERY_MS) return false;
+  lastResetEmail.delete(userId);
+  if (lastResetEmail.size >= SIGNUP_NOTICE_MAX_TRACKED) {
+    const oldest = lastResetEmail.keys().next().value;
+    if (oldest !== undefined) lastResetEmail.delete(oldest);
+  }
+  lastResetEmail.set(userId, now);
+  return true;
+}
+
+/** The reset row behind a raw link token, while it still works. */
+async function liveReset(raw: unknown): Promise<{ row: typeof schema.passwordResets.$inferSelect | null; expired: boolean }> {
+  if (typeof raw !== 'string' || !/^[0-9a-f]{64}$/.test(raw)) return { row: null, expired: false };
+  const row = (await db.select().from(schema.passwordResets).where(eq(schema.passwordResets.tokenHash, hashToken(raw))).get()) ?? null;
+  if (!row) return { row: null, expired: false };
+  if (row.expiresAt.getTime() < Date.now()) {
+    await db.delete(schema.passwordResets).where(eq(schema.passwordResets.id, row.id));
+    return { row: null, expired: true };
+  }
+  return { row, expired: false };
 }
 
 /** A verified account with no password and no other sign-in: the only way back in is a link to its own mailbox. */
@@ -359,6 +423,132 @@ export async function passwordRoutes(app: FastifyInstance) {
       if (user.passwordHash) return reply.code(409).send({ error: 'password_already_set' });
       const passwordHash = await hash(password, ARGON_OPTS);
       await db.update(schema.users).set({ passwordHash }).where(eq(schema.users.id, user.id));
+      return reply.send({ ok: true });
+    },
+  );
+
+  /**
+   * Change the password: needs the current one. Every other browser is
+   * signed out and every desktop app's sign-in revoked; this browser
+   * stays signed in. Browser session only (desktop tokens never reach
+   * this route).
+   */
+  app.post<{ Body: { currentPassword?: string; newPassword?: string } }>(
+    '/api/auth/password/change',
+    {
+      config: { rateLimit: { max: 10, timeWindow: '1 minute' } },
+    },
+    async (req, reply) => {
+      const user = requireUser(req);
+      if (user.isDemoAccount) return reply.code(403).send({ error: 'demo_account_cannot_change_profile' });
+      const { currentPassword, newPassword } = req.body ?? {};
+      if (typeof newPassword !== 'string' || newPassword.length < PASSWORD_MIN || newPassword.length > PASSWORD_MAX) {
+        return reply.code(400).send({ error: 'invalid_password' });
+      }
+      if (!user.passwordHash) return reply.code(409).send({ error: 'no_password_yet' });
+      if (typeof currentPassword !== 'string' || !currentPassword || currentPassword.length > PASSWORD_MAX) {
+        return reply.code(400).send({ error: 'wrong_current_password' });
+      }
+      // Wrong guesses are paced like sign-in, for the same account.
+      const waitMs = loginWaitMs(user.email);
+      if (waitMs > 0) {
+        const retryAfter = Math.ceil(waitMs / 1000);
+        return reply.code(429).header('retry-after', String(retryAfter)).send({ error: 'login_paced', retryAfter });
+      }
+      if (!(await verify(user.passwordHash, currentPassword, ARGON_OPTS))) {
+        noteLoginFailure(user.email);
+        return reply.code(400).send({ error: 'wrong_current_password' });
+      }
+      noteLoginSuccess(user.email);
+      const passwordHash = await hash(newPassword, ARGON_OPTS);
+      await db.update(schema.users).set({ passwordHash }).where(eq(schema.users.id, user.id));
+      await db.delete(schema.passwordResets).where(eq(schema.passwordResets.userId, user.id));
+      const cookie = req.cookies[SESSION_COOKIE];
+      const browsers = await invalidateOtherSessions(user.id, cookie ? sessionIdForToken(cookie) : null);
+      const desktops = await revokeAllApiTokens(user.id);
+      return reply.send({ ok: true, signedOutBrowsers: browsers, signedOutDesktops: desktops });
+    },
+  );
+
+  /**
+   * "Forgot password?": always the same answer, whether or not the
+   * address has an account, so it can't be used to find out who's
+   * signed up. An account gets a one-time link (an hour); one never
+   * confirmed gets its confirmation link again instead. The email goes
+   * out after the answer, so the answer takes as long either way.
+   */
+  app.post<{ Body: { email?: string } }>(
+    '/api/auth/password/forgot',
+    {
+      config: { rateLimit: { max: 5, timeWindow: '1 minute' } },
+    },
+    async (req, reply) => {
+      const email = typeof req.body?.email === 'string' ? normalizeEmail(req.body.email) : '';
+      if (!email) return reply.code(400).send({ error: 'invalid_input' });
+      const user = await findUserByEmail(email);
+      if (user && !user.isDemoAccount && mayEmailReset(user.id)) {
+        const log = req.log;
+        void (async () => {
+          const settings = await getPlatformSettings();
+          if (settings.requireEmailVerification && !user.emailVerified) {
+            // Not confirmed yet: whoever opens the confirmation link chooses the password.
+            await issueVerification(log, user, null, null);
+          } else {
+            await issuePasswordReset(log, user);
+          }
+        })().catch((err: unknown) => log.warn({ err }, 'password reset failed'));
+      }
+      return reply.send({ ok: true });
+    },
+  );
+
+  /** Whether a reset link still works, so the page can say so before anyone types. */
+  app.get<{ Params: { token: string } }>(
+    '/api/auth/password/reset/:token',
+    {
+      config: { rateLimit: { max: 20, timeWindow: '1 minute' } },
+    },
+    async (req, reply) => {
+      const { row, expired } = await liveReset(req.params.token);
+      if (!row) return reply.code(expired ? 410 : 404).send({ error: expired ? 'reset_link_expired' : 'reset_link_not_found' });
+      return reply.send({ ok: true });
+    },
+  );
+
+  /**
+   * Choose a new password from a reset link. The link works once. Every
+   * browser and desktop app is signed out, then this browser is signed
+   * in (opening the link proved the mailbox, which also confirms it).
+   */
+  app.post<{ Body: { token?: string; password?: string } }>(
+    '/api/auth/password/reset',
+    {
+      config: { rateLimit: { max: 10, timeWindow: '1 minute' } },
+    },
+    async (req, reply) => {
+      const password = req.body?.password;
+      if (typeof password !== 'string' || password.length < PASSWORD_MIN || password.length > PASSWORD_MAX) {
+        return reply.code(400).send({ error: 'invalid_password' });
+      }
+      const { row, expired } = await liveReset(req.body?.token);
+      if (!row) return reply.code(expired ? 410 : 404).send({ error: expired ? 'reset_link_expired' : 'reset_link_not_found' });
+      // Single use: only the request that deletes the row goes on.
+      const taken = await db
+        .delete(schema.passwordResets)
+        .where(and(eq(schema.passwordResets.id, row.id), gt(schema.passwordResets.expiresAt, new Date())))
+        .returning({ id: schema.passwordResets.id });
+      if (taken.length === 0) return reply.code(404).send({ error: 'reset_link_not_found' });
+      const user = await db.select().from(schema.users).where(eq(schema.users.id, row.userId)).get();
+      if (!user || user.isDemoAccount) return reply.code(404).send({ error: 'reset_link_not_found' });
+      const passwordHash = await hash(password, ARGON_OPTS);
+      await db.update(schema.users).set({ passwordHash, emailVerified: true }).where(eq(schema.users.id, user.id));
+      await db.delete(schema.passwordResets).where(eq(schema.passwordResets.userId, user.id));
+      await db.delete(schema.emailVerifications).where(eq(schema.emailVerifications.userId, user.id));
+      await invalidateAllSessions(user.id);
+      await revokeAllApiTokens(user.id);
+      noteLoginSuccess(user.email);
+      const { token, expiresAt } = await createSession(user.id);
+      setSessionCookie(reply, token, expiresAt);
       return reply.send({ ok: true });
     },
   );
