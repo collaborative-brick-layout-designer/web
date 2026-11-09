@@ -153,7 +153,7 @@ describe('DevicesSection', () => {
   it('shows an empty state', async () => {
     routes['GET /api/tokens'] = () => ({ body: { tokens: [] } });
     renderAt(<DevicesSection />);
-    expect(await screen.findByText('No devices signed in.')).toBeTruthy();
+    expect(await screen.findByText('No desktop apps signed in.')).toBeTruthy();
   });
 });
 

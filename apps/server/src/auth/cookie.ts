@@ -98,7 +98,7 @@ export async function attachUser(req: FastifyRequest, reply: FastifyReply): Prom
     req.user = null;
     return;
   }
-  const result = await validateSession(token);
+  const result = await validateSession(token, req.headers['user-agent']);
   if (!result) {
     req.user = null;
     clearSessionCookie(reply);

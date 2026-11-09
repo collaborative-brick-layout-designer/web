@@ -72,7 +72,7 @@ export function settingsMenuGroups(
   if (!user.isDemoAccount) {
     account.push(
       { label: 'Sign-in methods', to: '/profile#sign-in' },
-      { label: 'Devices', to: '/profile#devices' },
+      { label: 'Browsers and devices', to: '/profile#devices' },
       { label: 'Your data', to: '/profile#my-data' },
       { label: 'Emails', to: '/settings#email' },
       { label: 'Delete my account', to: '/profile#delete-account' },

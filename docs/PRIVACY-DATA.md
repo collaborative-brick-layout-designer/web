@@ -20,7 +20,7 @@ host's to keep or not.
 | Table | Personal data | Export | Notes |
 |---|---|---|---|
 | `users` | email, display name, avatar URL, password hash, admin/moderator flags, created and last-seen times, deletion and restriction dates | yes (no hash) | `last_seen_at` is one time, rounded, no history. |
-| `sessions` | which browsers are signed in, since when (`created_at`) and until when | yes (no ids) | The id is a hash of the cookie: a secret. `created_at` is kept so a sign-in ends at its longest (Admin › Site settings › Sign-in); sessions from before it existed got the upgrade's time. |
+| `sessions` | which browsers are signed in, since when (`created_at`) and until when, when each was last used (`last_used_at`, to the nearest 5 minutes) and a rough browser name (`device`, e.g. "Firefox on Linux") | yes (no ids) | The id is a hash of the cookie: a secret. `created_at` is kept so a sign-in ends at its longest (Admin › Site settings › Sign-in); sessions from before it existed got the upgrade's time. The full user agent is never stored. Shown to the person under Profile › Browsers and devices, where they can sign each out. |
 | `api_tokens` | desktop sign-ins: name, prefix and last 4 characters, scopes, last used | yes (no hash) | Revoked rows are kept so the Devices list can show them. |
 | `device_codes` | desktop sign-in codes a person approved or denied | yes (no codes) | Expire after minutes. |
 | `oauth_accounts` | the Google / GitHub / OIDC account id linked | yes | |

@@ -40,6 +40,17 @@ export interface DemoStatus {
   nextResetAt: number | null;
 }
 
+/** One of your web sign-ins (Profile › Browsers and devices). */
+export interface SessionSummary {
+  id: string;
+  /** The browser you're looking from. */
+  current: boolean;
+  /** A rough name, e.g. "Firefox on Linux"; null when unknown. */
+  device: string | null;
+  createdAt: number;
+  lastUsedAt: number | null;
+}
+
 export interface ProviderInfo {
   id: ProviderId;
   label: string;
@@ -589,6 +600,13 @@ export const api = {
     approve: (userCode: string) => post<{ ok: true }>('/api/auth/device/approve', { user_code: userCode }),
     deny: (userCode: string) => post<{ ok: true }>('/api/auth/device/deny', { user_code: userCode }),
   },
+  /** Profile › Browsers and devices: your own web sign-ins. */
+  sessions: {
+    list: () => get<{ sessions: SessionSummary[] }>('/api/auth/sessions'),
+    signOut: (id: string) => del(`/api/auth/sessions/${encodeURIComponent(id)}`),
+    signOutOthers: () => post<{ ok: true; signedOut: number }>('/api/auth/sessions/sign-out-others', {}),
+  },
+
   tokens: {
     list: () => get<{ tokens: ApiTokenSummary[] }>('/api/tokens'),
     revoke: (id: string) => del(`/api/tokens/${encodeURIComponent(id)}`),

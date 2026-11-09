@@ -72,6 +72,10 @@ export const sessions = sqliteTable(
     createdAt: integer('created_at', { mode: 'timestamp_ms' })
       .notNull()
       .$defaultFn(() => new Date()),
+    /** When this browser last used the sign-in (0042), to the nearest few minutes; null before 0042. */
+    lastUsedAt: integer('last_used_at', { mode: 'timestamp_ms' }),
+    /** A rough name for the browser, e.g. "Firefox on Linux" (0042): never the full user agent. */
+    device: text('device'),
   },
   (t) => ({
     // "Log out everywhere" / user delete cascade look sessions up by user.
