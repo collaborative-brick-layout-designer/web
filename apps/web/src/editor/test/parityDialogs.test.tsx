@@ -16,6 +16,30 @@ import { useEditorStore } from '../editorStore';
 import { hitsSelection } from '../findReplace';
 import { textKey } from '../mixedSelection';
 import { createUndoManager } from '../useUndoManager';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import type { PartWire } from '../../api';
+import { autoConfirm } from '../../test/confirmHost';
+
+/** The library Find checks replacements against: 3001 in two colors, 3710, and a straight track. */
+const FIND_PARTS = [
+  { key: '3001.1', partNumber: '3001', colorCode: '1', description: 'Brick 2 x 4' },
+  { key: '3001.5', partNumber: '3001', colorCode: '5', description: 'Brick 2 x 4' },
+  { key: '3001.7', partNumber: '3001', colorCode: '7', description: 'Brick 2 x 4' },
+  { key: '3710.1', partNumber: '3710', colorCode: '1', description: 'Plate 1 x 4' },
+  { key: '2865.8', partNumber: '2865', colorCode: '8', description: '9V Straight Track' },
+].map((p) => ({ ...p, spritePath: '', source: 'bundled' }) as unknown as PartWire);
+
+function findDialog(doc: Y.Doc) {
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
+  qc.setQueryData(['parts-catalog'], { parts: FIND_PARTS });
+  const ui = () => (
+    <QueryClientProvider client={qc}>
+      <FindDialog map={docToBbm(doc)} doc={doc} onClose={() => {}} />
+    </QueryClientProvider>
+  );
+  const r = render(ui());
+  return { ...r, rerender: () => r.rerender(ui()) };
+}
 
 afterEach(cleanup);
 
@@ -96,15 +120,26 @@ describe('AddAnchoredLabelDialog', () => {
 });
 
 describe('AddAnchoredLabelDialog — desktop font and kinds', () => {
-  it('defaults to 8.25 pt Microsoft Sans Serif, Regular, and accepts fractional points', () => {
+  it('saves 8.25 pt Microsoft Sans Serif, Regular, by default (no font box to fill in), and accepts fractional points', () => {
     const doc = createDefaultLayoutDoc();
     render(<AddAnchoredLabelDialog doc={doc} defaultTargetId={null} viewCentre={{ x: 0, y: 0 }} onClose={() => {}} />);
-    expect((screen.getAllByRole('textbox')[1] as HTMLInputElement).value).toBe('Microsoft Sans Serif');
+    expect(screen.queryByText(/Microsoft Sans Serif|Font family/)).toBeNull();
     expect(numberInputs()[0]!.value).toBe('8.25');
     fireEvent.change(numberInputs()[0]!, { target: { value: '10.5' } });
     fireEvent.change(screen.getAllByRole('textbox')[0]!, { target: { value: 'Pt' } });
     fireEvent.click(screen.getByRole('button', { name: 'Add Label' }));
     expect(labels(doc)[0]!.font).toEqual({ family: 'Microsoft Sans Serif', size: 10.5, style: 'Regular' });
+  });
+
+  it('asks in plain words: where it sits, and the zoom it shows from as a percentage', () => {
+    const doc = createDefaultLayoutDoc();
+    render(<AddAnchoredLabelDialog doc={doc} defaultTargetId={null} viewCentre={{ x: 0, y: 0 }} onClose={() => {}} />);
+    expect(screen.getByLabelText('Where it sits')).toBeTruthy();
+    expect(screen.queryByText(/World|Min zoom|Offset/)).toBeNull();
+    fireEvent.change(screen.getByLabelText('Text'), { target: { value: 'Far' } });
+    fireEvent.change(screen.getByLabelText('Show from zoom (%)'), { target: { value: '50' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Add Label' }));
+    expect(labels(doc)[0]!.minZoom).toBe(0.5);
   });
 
   it('editing a Group label keeps its kind and target', () => {
@@ -132,31 +167,31 @@ describe('FindDialog', () => {
   const parts = (doc: Y.Doc) =>
     docToBbm(doc).layers.flatMap((l) => (l.type === 'brick' ? l.bricks.map((b) => b.partNumber) : []));
 
-  it('Replace changes only the current match; clicking a result makes it current', () => {
+  it('Replace changes only the current match; clicking a result makes it current', async () => {
     const doc = seeded();
-    const { rerender } = render(<FindDialog map={docToBbm(doc)} doc={doc} onClose={() => {}} />);
-    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'part' } });
+    const { rerender } = findDialog(doc);
+    fireEvent.change(screen.getByLabelText('Find in'), { target: { value: 'part' } });
     fireEvent.change(screen.getByPlaceholderText('Search…'), { target: { value: '3001.1' } });
-    fireEvent.change(screen.getByPlaceholderText('New part-number text…'), { target: { value: '3001.5' } });
+    fireEvent.change(screen.getByPlaceholderText('The new part’s number…'), { target: { value: '3001.5' } });
     const results = screen.getAllByRole('listitem');
     expect(results).toHaveLength(3);
     fireEvent.click(results[2]!.querySelector('button')!);
     expect(results[2]!.querySelector('button')!.getAttribute('aria-current')).toBe('true');
     fireEvent.click(screen.getByRole('button', { name: 'Replace' }));
-    expect(parts(doc)).toEqual(['3001.1', '3001.1', '3001.5']);
-    rerender(<FindDialog map={docToBbm(doc)} doc={doc} onClose={() => {}} />);
+    await vi.waitFor(() => expect(parts(doc)).toEqual(['3001.1', '3001.1', '3001.5']));
+    rerender();
     expect(screen.getByText('2 matches')).toBeTruthy();
   });
 
-  it('Replace all rewrites every match in one undo step', () => {
+  it('Replace all rewrites every match in one undo step', async () => {
     const doc = seeded();
     const um = createUndoManager(doc);
-    render(<FindDialog map={docToBbm(doc)} doc={doc} onClose={() => {}} />);
-    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'part' } });
+    findDialog(doc);
+    fireEvent.change(screen.getByLabelText('Find in'), { target: { value: 'part' } });
     fireEvent.change(screen.getByPlaceholderText('Search…'), { target: { value: '.1' } });
-    fireEvent.change(screen.getByPlaceholderText('New part-number text…'), { target: { value: '.7' } });
+    fireEvent.change(screen.getByPlaceholderText('The new part’s number…'), { target: { value: '.7' } });
     fireEvent.click(screen.getByRole('button', { name: 'Replace all' }));
-    expect(parts(doc)).toEqual(['3001.7', '3001.7', '3001.7']);
+    await vi.waitFor(() => expect(parts(doc)).toEqual(['3001.7', '3001.7', '3001.7']));
     um.undo();
     expect(parts(doc)).toEqual(['3001.1', '3001.1', '3001.1']);
   });
@@ -186,17 +221,37 @@ describe('FindDialog — modeless, live selection', () => {
     useEditorStore.setState({ selection: [], annoSelection: { rulers: [], labels: [], texts: [] } });
   });
 
-  it('opens on the "Text content" scope, listed first, like desktop', () => {
+  it('opens on parts, listed first, and finds a part by its name with its picture', () => {
     const doc = withText();
-    render(<FindDialog map={docToBbm(doc)} doc={doc} onClose={() => {}} />);
-    const scope = screen.getByRole('combobox') as HTMLSelectElement;
-    expect(scope.value).toBe('text');
-    expect([...scope.options].map((o) => o.value)).toEqual(['text', 'part']);
+    findDialog(doc);
+    const scope = screen.getByLabelText('Find in') as HTMLSelectElement;
+    expect(scope.value).toBe('part');
+    expect([...scope.options].map((o) => o.value)).toEqual(['part', 'text']);
+    fireEvent.change(screen.getByPlaceholderText('Search…'), { target: { value: 'plate' } });
+    expect(screen.getAllByRole('listitem').map((li) => li.textContent)).toEqual([expect.stringContaining('Plate 1 x 4 (3710.1)')]);
+  });
+
+  it('asks before replacing with a part the library doesn’t have, and says "texts" for text', async () => {
+    const doc = withText();
+    findDialog(doc);
+    fireEvent.change(screen.getByPlaceholderText('Search…'), { target: { value: '3001.1' } });
+    fireEvent.change(screen.getByPlaceholderText('The new part’s number…'), { target: { value: '3001.99' } });
+    const asked = autoConfirm(false);
+    fireEvent.click(screen.getByRole('button', { name: 'Replace all' }));
+    await vi.waitFor(() => expect(asked.titles).toEqual(['“3001.99” isn’t a part in the library']));
+    expect(bricksOf(doc, '3001.1')).toHaveLength(2);
+    expect(bricksOf(doc, '3001.99')).toHaveLength(0);
+
+    fireEvent.change(screen.getByLabelText('Find in'), { target: { value: 'text' } });
+    fireEvent.change(screen.getByPlaceholderText('Search…'), { target: { value: 'Station' } });
+    fireEvent.change(screen.getByPlaceholderText('New text…'), { target: { value: 'Halt' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Replace all' }));
+    await vi.waitFor(() => expect(useEditorStore.getState().notice?.text).toBe('Replaced 2 texts.'));
   });
 
   it('is not modal: no backdrop covers the canvas', () => {
     const doc = withText();
-    render(<FindDialog map={docToBbm(doc)} doc={doc} onClose={() => {}} />);
+    findDialog(doc);
     const dlg = screen.getByRole('dialog');
     expect(dlg.getAttribute('aria-modal')).toBe('false');
     expect(dlg.className).not.toMatch(/inset-0/);
@@ -205,8 +260,8 @@ describe('FindDialog — modeless, live selection', () => {
   it('selects every match as you type, and clears the selection for an empty query', () => {
     vi.useFakeTimers();
     const doc = withText();
-    render(<FindDialog map={docToBbm(doc)} doc={doc} onClose={() => {}} />);
-    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'part' } });
+    findDialog(doc);
+    fireEvent.change(screen.getByLabelText('Find in'), { target: { value: 'part' } });
     fireEvent.change(screen.getByPlaceholderText('Search…'), { target: { value: '3001' } });
     act(() => { vi.advanceTimersByTime(250); });
     expect(useEditorStore.getState().selection).toEqual(bricksOf(doc, '3001.1'));
@@ -218,8 +273,8 @@ describe('FindDialog — modeless, live selection', () => {
   it('a result clicked before the live selection fires keeps just that match selected (regression)', () => {
     vi.useFakeTimers();
     const doc = withText();
-    render(<FindDialog map={docToBbm(doc)} doc={doc} onClose={() => {}} />);
-    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'part' } });
+    findDialog(doc);
+    fireEvent.change(screen.getByLabelText('Find in'), { target: { value: 'part' } });
     fireEvent.change(screen.getByPlaceholderText('Search…'), { target: { value: '3001' } });
     act(() => { vi.advanceTimersByTime(50); });
     fireEvent.click(screen.getAllByRole('listitem')[0]!.querySelector('button')!);
@@ -231,8 +286,8 @@ describe('FindDialog — modeless, live selection', () => {
     vi.useFakeTimers();
     const doc = withText();
     const textLayer = docToBbm(doc).layers.find((l) => l.type === 'text')!.id;
-    render(<FindDialog map={docToBbm(doc)} doc={doc} onClose={() => {}} />);
-    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'text' } });
+    findDialog(doc);
+    fireEvent.change(screen.getByLabelText('Find in'), { target: { value: 'text' } });
     fireEvent.change(screen.getByPlaceholderText('Search…'), { target: { value: 'station' } });
     act(() => { vi.advanceTimersByTime(250); });
     expect(useEditorStore.getState().annoSelection.texts).toEqual([textKey(textLayer, 0), textKey(textLayer, 2)]);
@@ -400,7 +455,7 @@ describe('ExportImageDialog', () => {
     useEditorStore.setState({ showExportWatermark: false });
     const { ref, render: renderFn } = handle();
     render(<ExportImageDialog layoutTitle="t" exportImageRef={ref} onClose={() => {}} />);
-    const chk = screen.getByLabelText('Embed general-info watermark') as HTMLInputElement;
+    const chk = screen.getByLabelText('Add the author, club and event in the corner') as HTMLInputElement;
     expect(chk.checked).toBe(false);
     fireEvent.click(chk);
     fireEvent.click(screen.getByRole('button', { name: 'Export PNG' }));

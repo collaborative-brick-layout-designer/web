@@ -274,7 +274,7 @@ export function SharePictureDialog({ layoutTitle, views, map, sidecar, exportIma
         </div>
 
         <div className="mt-3 flex justify-between gap-2 border-t border-line pt-3">
-          <button type="button" className="min-h-11 px-1 text-sm text-accent underline-offset-2 hover:underline" onClick={onMoreOptions}>
+          <button type="button" className="min-h-11 px-1 text-sm font-semibold text-accent-text underline-offset-2 hover:underline" onClick={onMoreOptions}>
             More options…
           </button>
           <button type="button" className={secondary} onClick={onClose}>

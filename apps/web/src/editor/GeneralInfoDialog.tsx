@@ -19,9 +19,9 @@ export function GeneralInfoDialog({ map, doc, onClose }: Props) {
   const [author, setAuthor] = useState(map.author);
   const [lug, setLug] = useState(map.lug);
   const [event, setEventValue] = useState(map.event);
-  const [day, setDay] = useState(map.date.day);
-  const [month, setMonth] = useState(map.date.month);
-  const [year, setYear] = useState(map.date.year);
+  // One date box: the browser shows it the person's own way (a US club
+  // reads month first) and offers a calendar.
+  const [date, setDate] = useState(() => isoDate(map.date));
   const [comment, setComment] = useState(map.comment);
 
   function commit() {
@@ -30,7 +30,7 @@ export function GeneralInfoDialog({ map, doc, onClose }: Props) {
       lug,
       event,
       comment,
-      date: { day, month, year },
+      date: fromIsoDate(date) ?? map.date,
     });
     onClose();
   }
@@ -39,12 +39,12 @@ export function GeneralInfoDialog({ map, doc, onClose }: Props) {
     <div
       role="dialog" aria-label="General info"
       aria-modal="true"
-      className="fixed inset-0 z-50 grid place-items-center bg-black/60"
+      className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-black/60 p-4"
       onClick={onClose}
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="w-lg rounded-lg border border-line bg-panel p-5 shadow-xl"
+        className="w-full max-w-lg rounded-lg border border-line bg-panel p-5 shadow-xl"
       >
         <h2 className="text-base font-semibold">General info</h2>
         <div className="mt-4 grid grid-cols-[7rem_1fr] gap-2 text-sm">
@@ -55,7 +55,7 @@ export function GeneralInfoDialog({ map, doc, onClose }: Props) {
             onChange={(e) => setAuthor(e.target.value)}
             className="rounded-lg border border-border bg-soft px-2 py-1"
           />
-          <label className="self-center" htmlFor={`${uid}-lug`}>LUG:</label>
+          <label className="self-center" htmlFor={`${uid}-lug`}>Club (LUG):</label>
           <input
             id={`${uid}-lug`}
             value={lug}
@@ -69,14 +69,16 @@ export function GeneralInfoDialog({ map, doc, onClose }: Props) {
             onChange={(e) => setEventValue(e.target.value)}
             className="rounded-lg border border-border bg-soft px-2 py-1"
           />
-          <span className="self-center" id={`${uid}-date`}>Date:</span>
-          <div className="flex items-center gap-1" role="group" aria-labelledby={`${uid}-date`}>
-            <NumberInput value={day} setValue={setDay} min={1} max={31} placeholder="DD" label="Day" />
-            <span className="text-muted">/</span>
-            <NumberInput value={month} setValue={setMonth} min={1} max={12} placeholder="MM" label="Month" />
-            <span className="text-muted">/</span>
-            <NumberInput value={year} setValue={setYear} min={1900} max={2999} placeholder="YYYY" label="Year" />
-          </div>
+          <label className="self-center" htmlFor={`${uid}-date`}>Date:</label>
+          <input
+            id={`${uid}-date`}
+            type="date"
+            min="1900-01-01"
+            max="2999-12-31"
+            value={date}
+            onChange={(e) => setDate(e.target.value)}
+            className="justify-self-start rounded-lg border border-border bg-soft px-2 py-1"
+          />
           <label className="self-start" htmlFor={`${uid}-comment`}>Comment:</label>
           <textarea
             id={`${uid}-comment`}
@@ -105,34 +107,18 @@ export function GeneralInfoDialog({ map, doc, onClose }: Props) {
   );
 }
 
-function NumberInput({
-  value,
-  setValue,
-  min,
-  max,
-  placeholder,
-  label,
-}: {
-  value: number;
-  setValue: (v: number) => void;
-  min?: number;
-  max?: number;
-  placeholder?: string;
-  label: string;
-}) {
-  return (
-    <input
-      type="number"
-      aria-label={label}
-      value={value}
-      min={min}
-      max={max}
-      placeholder={placeholder}
-      onChange={(e) => {
-        const n = parseInt(e.target.value, 10);
-        if (Number.isFinite(n)) setValue(n);
-      }}
-      className="w-16 rounded-lg border border-border bg-soft px-2 py-1"
-    />
-  );
+const pad = (n: number, w = 2) => String(n).padStart(w, '0');
+
+/** The map's date as the date box's yyyy-mm-dd. */
+export function isoDate(d: { day: number; month: number; year: number }): string {
+  return `${pad(d.year, 4)}-${pad(d.month)}-${pad(d.day)}`;
+}
+
+/** yyyy-mm-dd back to the map's date; null when the box is empty or not a date. */
+export function fromIsoDate(s: string): { day: number; month: number; year: number } | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+  if (!m) return null;
+  const [year, month, day] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+  return { day, month, year };
 }

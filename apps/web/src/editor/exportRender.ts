@@ -160,6 +160,42 @@ export function aspectHeight(width: number, scene: { width: number; height: numb
   return Math.max(64, Math.round(width * (scene.height / scene.width)));
 }
 
+/** A new picture's longest side (px): big enough to print or zoom, small enough to send. */
+export const DEFAULT_EXPORT_LONG_SIDE = 4000;
+
+/**
+ * The picture size a first export starts at: twice the map's own size
+ * (1 stud = 16 px), but no more than DEFAULT_EXPORT_LONG_SIDE on its
+ * longest side (a big layout at 2x was 16,384 px wide, a 118 MB PNG).
+ */
+export function defaultExportSize(scene: { width: number; height: number }): { width: number; height: number } {
+  const long = Math.max(scene.width, scene.height, 1);
+  const k = Math.min(2, DEFAULT_EXPORT_LONG_SIDE / long);
+  return {
+    width: Math.max(1, Math.min(MAX_CANVAS_SIDE, Math.round(scene.width * k))),
+    height: Math.max(1, Math.min(MAX_CANVAS_SIDE, Math.round(scene.height * k))),
+  };
+}
+
+/**
+ * Roughly how big the file will be, in bytes. A layout picture is mostly
+ * flat color: PNG comes to about 0.8 bytes a pixel (the 16,384 x 9,196
+ * Fordyce export was 118 MB), JPEG to a fraction of that, more at a
+ * higher quality.
+ */
+export function estimateImageBytes(width: number, height: number, format: 'png' | 'jpeg', quality = 90): number {
+  const px = Math.max(0, width) * Math.max(0, height);
+  const perPx = format === 'png' ? 0.8 : 0.05 + 0.35 * (Math.max(10, Math.min(100, quality)) / 100) ** 2;
+  return Math.round(px * perPx);
+}
+
+/** "about 12 MB", "about 800 KB". */
+export function aboutSize(bytes: number): string {
+  if (bytes < 1024 * 1024) return `about ${Math.max(1, Math.round(bytes / 1024))} KB`;
+  const mb = bytes / (1024 * 1024);
+  return `about ${mb < 10 ? mb.toFixed(1) : Math.round(mb).toLocaleString('en-US')} MB`;
+}
+
 /** Round an explicit export size to whole pixels inside the browser's canvas limits. */
 export function clampExportSize(width: number, height: number): { width: number; height: number } {
   let w = Math.max(1, Math.round(width));

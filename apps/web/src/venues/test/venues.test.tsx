@@ -147,7 +147,6 @@ describe('VenueList', () => {
   it('lets the owner of personal venues rename and delete them', async () => {
     routes['PATCH /api/venues/v-mine'] = () => ({ body: { ok: true, id: 'v-mine', name: 'Shed' } });
     routes['DELETE /api/venues/v-mine'] = () => ({ body: { ok: true } });
-    vi.stubGlobal('prompt', () => 'Shed');
     autoConfirm(true);
     renderAt(<VenueList filter="me" myUserId="u1" orgs={[]} />);
 
@@ -160,6 +159,10 @@ describe('VenueList', () => {
     fireEvent.click(more);
     expect(within(row).queryByRole('menuitem', { name: 'Move or copy…' })).toBeNull();
     fireEvent.click(within(row).getByRole('menuitem', { name: 'Rename…' }));
+    const box = screen.getByRole('dialog', { name: 'Rename venue' });
+    fireEvent.change(within(box).getByRole('textbox'), { target: { value: 'Shed' } });
+    fireEvent.click(within(box).getByRole('button', { name: 'Rename' }));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Rename venue' })).toBeNull());
     fireEvent.click(more);
     fireEvent.click(within(row).getByRole('menuitem', { name: 'Delete' }));
     await waitFor(() => expect(calls.filter((c) => c.method !== 'GET').map((c) => `${c.method} ${c.path}`)).toEqual(['PATCH /api/venues/v-mine', 'DELETE /api/venues/v-mine']));

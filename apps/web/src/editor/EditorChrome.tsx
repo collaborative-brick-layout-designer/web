@@ -6,6 +6,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import type { SaveStatus } from './useLayoutDoc';
+import { altKey, modKey } from './mapMenu';
 import { usePreferences } from '../theme/PrefsProvider';
 import { GETTING_STARTED } from '../help/guide';
 import { ShortcutList } from '../help/HelpPage';
@@ -93,12 +94,12 @@ export function LayoutNameMenu({
             Home
           </Link>
           {onNew && (
-            <button role="menuitem" type="button" title="New layout (Ctrl+N)" onClick={onNew} className={MENU_ITEM}>
+            <button role="menuitem" type="button" title={`New layout (${altKey()}+N)`} onClick={onNew} className={MENU_ITEM}>
               New layout
             </button>
           )}
           {onOpen && (
-            <button role="menuitem" type="button" title="Open layout (Ctrl+O)" onClick={onOpen} className={MENU_ITEM}>
+            <button role="menuitem" type="button" title={`Open another layout (${modKey()}+O)`} onClick={onOpen} className={MENU_ITEM}>
               Open another layout
             </button>
           )}

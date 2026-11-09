@@ -1,12 +1,12 @@
 // The module-drag ghost (MapView.cpp:1796-1900) and the panel changes
 // behind it: the Module library publishing the dragged module, and the
 // Venue Library (VenueLibraryPanel.cpp): details, Rename with its
-// duplicate-name check, and Save Current Venue.
+// duplicate-name check, and Save this layout's venue.
 
 import { autoConfirm } from '../../test/confirmHost';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createElement as h, Fragment, type ReactNode } from 'react';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { createDefaultLayoutDoc } from '@cld/ydoc';
 import type { PartWire } from '../../api';
@@ -159,7 +159,7 @@ describe('VenueLibraryPanel', () => {
     expect(apiMock.venuesGet).toHaveBeenCalledWith('v1');
   });
 
-  it('renames through the API after a prompt, and refuses another venue\'s name', async () => {
+  it('renames through the API in the Rename box, and refuses another venue\'s name', async () => {
     setupVenues([
       { id: 'v1', name: 'Hall', ownerOrgId: null },
       { id: 'v2', name: 'Annex', ownerOrgId: null },
@@ -167,41 +167,51 @@ describe('VenueLibraryPanel', () => {
     apiMock.venuesRename.mockResolvedValue({ ok: true, id: 'v1', name: 'Main Hall' });
     render(withQuery(h(VenueLibraryPanel, { doc: createDefaultLayoutDoc(), isViewer: false })));
     fireEvent.click(await screen.findByRole('option', { name: 'Hall' }));
-    const btn = screen.getByRole('button', { name: 'Rename…' });
-
-    const prompt = vi.spyOn(window, 'prompt');
-    const alert = vi.spyOn(window, 'alert').mockImplementation(() => {});
-    prompt.mockReturnValueOnce(null);
-    fireEvent.click(btn);
-    prompt.mockReturnValueOnce('Hall');
-    fireEvent.click(btn);
-    prompt.mockReturnValueOnce(' annex ');
-    fireEvent.click(btn);
-    expect(alert).toHaveBeenCalledWith('"annex" already exists.');
+    fireEvent.click(screen.getByRole('button', { name: 'Rename…' }));
+    const box = screen.getByRole('dialog', { name: 'Rename venue' });
+    const input = within(box).getByRole('textbox') as HTMLInputElement;
+    expect(input.value).toBe('Hall');
+    fireEvent.change(input, { target: { value: ' annex ' } });
+    fireEvent.click(within(box).getByRole('button', { name: 'Rename' }));
+    await waitFor(() => expect(within(box).getByText('There’s already a venue called “annex”.')).toBeTruthy());
     expect(apiMock.venuesRename).not.toHaveBeenCalled();
 
-    prompt.mockReturnValueOnce('  Main Hall  ');
-    fireEvent.click(btn);
+    fireEvent.change(input, { target: { value: '  Main Hall  ' } });
+    fireEvent.click(within(box).getByRole('button', { name: 'Rename' }));
     await waitFor(() => expect(apiMock.venuesRename).toHaveBeenCalledWith('v1', 'Main Hall'));
-    expect(prompt).toHaveBeenLastCalledWith('New name:', 'Hall');
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Rename venue' })).toBeNull());
     // The list is refetched after a rename.
     await waitFor(() => expect(apiMock.venuesList.mock.calls.length).toBeGreaterThan(1));
   });
 
-  it('Save Current Venue: says when there is none, saves a new name, asks before overwriting', async () => {
+  it('a layout with no venue gets the Draw your venue card, which goes away once there is one', async () => {
+    setupVenues([]);
+    const doc = createDefaultLayoutDoc();
+    const onDesigner = vi.fn();
+    const onDimensions = vi.fn();
+    const onDrawOutline = vi.fn();
+    render(withQuery(h(VenueLibraryPanel, { doc, isViewer: false, onDesigner, onDimensions, onDrawOutline })));
+    const card = screen.getByTestId('draw-venue-card');
+    fireEvent.click(within(card).getByRole('button', { name: 'Open the venue designer' }));
+    fireEvent.click(within(card).getByRole('button', { name: 'Draw on the map' }));
+    fireEvent.click(within(card).getByRole('button', { name: 'Type in the sizes…' }));
+    expect([onDesigner.mock.calls.length, onDrawOutline.mock.calls.length, onDimensions.mock.calls.length]).toEqual([1, 1, 1]);
+    expect((screen.getByRole('button', { name: 'Save this layout’s venue…' }) as HTMLButtonElement).disabled).toBe(true);
+    act(() => setVenue(doc, { ...HALL, edges: [...HALL.edges], obstacles: [...HALL.obstacles] } as never));
+    await waitFor(() => expect(screen.queryByTestId('draw-venue-card')).toBeNull());
+    expect((screen.getByRole('button', { name: 'Save this layout’s venue…' }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it('Save this layout’s venue: saves a new name, asks before overwriting', async () => {
     setupVenues([{ id: 'v1', name: 'Hall', ownerOrgId: null }]);
     apiMock.venuesCreate.mockResolvedValue({ id: 'v9', name: 'Big Hall' });
     apiMock.venuesUpdate.mockResolvedValue({ ok: true, id: 'v1', name: 'Hall' });
     const doc = createDefaultLayoutDoc();
-    const alert = vi.spyOn(window, 'alert').mockImplementation(() => {});
+    setVenue(doc, { ...HALL, edges: [...HALL.edges], obstacles: [...HALL.obstacles] } as never);
     render(withQuery(h(VenueLibraryPanel, { doc, isViewer: false })));
     await screen.findByRole('option', { name: 'Hall' });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Save Current Venue' }));
-    expect(alert).toHaveBeenCalledWith('There is no venue on the current project.');
-
-    setVenue(doc, { ...HALL, edges: [...HALL.edges], obstacles: [...HALL.obstacles] } as never);
-    fireEvent.click(screen.getByRole('button', { name: 'Save Current Venue' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save this layout’s venue…' }));
     const name = screen.getByLabelText('Name for this venue');
     expect((name as HTMLInputElement).value).toBe('Hall');
     fireEvent.change(name, { target: { value: 'Big Hall' } });
@@ -211,7 +221,7 @@ describe('VenueLibraryPanel', () => {
     // Same name as a saved venue (any case): overwrite only after a yes.
     const asked = autoConfirm(false, true);
     for (let i = 0; i < 2; i++) {
-      fireEvent.click(screen.getByRole('button', { name: 'Save Current Venue' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Save this layout’s venue…' }));
       fireEvent.change(screen.getByLabelText('Name for this venue'), { target: { value: 'HALL' } });
       fireEvent.click(screen.getByRole('button', { name: 'Save' }));
       await waitFor(() => expect(asked.titles).toHaveLength(i + 1));
@@ -226,6 +236,7 @@ describe('VenueLibraryPanel', () => {
     setupVenues([{ id: 'v1', name: 'Hall', ownerOrgId: null }]);
     render(withQuery(h(VenueLibraryPanel, { doc: createDefaultLayoutDoc(), isViewer: true })));
     expect(screen.queryByRole('button', { name: 'Rename…' })).toBeNull();
-    expect(screen.queryByRole('button', { name: 'Save Current Venue' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Save this layout’s venue…' })).toBeNull();
+    expect(screen.queryByTestId('draw-venue-card')).toBeNull();
   });
 });

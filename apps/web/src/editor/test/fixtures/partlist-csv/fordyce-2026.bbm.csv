@@ -11,7 +11,7 @@ TABLE96X190,23,,Plate TABLE96X190,N/A,N/A,N/A
 Total,940,,,N/A,N/A,N/A
 ----
 Part,In Use,Color,Description,Budgeted,Missing,Part Usage %
-2865,440,Dark Gray,Brick 2865.8  Track 9V,12,428,3,667
+2865,440,Dark Gray,Brick 2865.8  Track 9V,12,428,3667
 3811,54,Tan,Plate 3811.19,Unbudgeted,54,Unbudgeted
 3811,252,Green,Plate 3811.2,Unbudgeted,252,Unbudgeted
 3811,3,Red,Brick 3811.4  Track 9V,Unbudgeted,3,Unbudgeted
@@ -20,22 +20,22 @@ Part,In Use,Color,Description,Budgeted,Missing,Part Usage %
 BT R104,32,Dark Gray,Brick BT R104.8  Track 9V,Unbudgeted,32,Unbudgeted
 BT R120,32,Dark Gray,Plate BT R120.8,Unbudgeted,32,Unbudgeted
 TABLE96X190,23,,Plate TABLE96X190,Unbudgeted,23,Unbudgeted
-Total,940,,,12,928,3,667
+Total,940,,,12,928,3667
 ----
 Tables
 Part,In Use,Color,Description,Budgeted,Missing,Part Usage %
-TABLE96X190,23,,Plate TABLE96X190,0,23,2,400
+TABLE96X190,23,,Plate TABLE96X190,0,23,2400
 Total,23,,,0,23,0
 
 Tracks
 Part,In Use,Color,Description,Budgeted,Missing,Part Usage %
-2865,440,Dark Gray,Brick 2865.8  Track 9V,12,428,3,667
-3811,54,Tan,Plate 3811.19,0,54,5,500
-3811,252,Green,Plate 3811.2,0,252,25,300
+2865,440,Dark Gray,Brick 2865.8  Track 9V,12,428,3667
+3811,54,Tan,Plate 3811.19,0,54,5500
+3811,252,Green,Plate 3811.2,0,252,25300
 3811,3,Red,Brick 3811.4  Track 9V,0,3,400
-3857,72,Black,Plate 3857.0,0,72,7,300
-4186,32,Gray,Plate 4186.7,0,32,3,300
-BT R104,32,Dark Gray,Brick BT R104.8  Track 9V,0,32,3,300
-BT R120,32,Dark Gray,Plate BT R120.8,0,32,3,300
-Total,917,,,12,905,3,667
+3857,72,Black,Plate 3857.0,0,72,7300
+4186,32,Gray,Plate 4186.7,0,32,3300
+BT R104,32,Dark Gray,Brick BT R104.8  Track 9V,0,32,3300
+BT R120,32,Dark Gray,Plate BT R120.8,0,32,3300
+Total,917,,,12,905,3667
 

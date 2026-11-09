@@ -15,7 +15,8 @@ import { defaultSaveTo, itemOrgSlug, matchesOwnerFilter, type OwnerFilter } from
 import { CreditLine, MoveCopyDialog, OwnerChip, ReturnMenuItems, SaveToDialog } from '../owners/OwnerControls';
 import { MoreMenu, MORE_ITEM } from '../ui/MoreMenu';
 import { atLeast } from '../orgs/clubRoles';
-import { confirmDelete, toastDeleted } from '../ui/ConfirmDialog';
+import { confirmDelete, showToast, toastDeleted } from '../ui/ConfirmDialog';
+import { RenameDialog } from '../ui/RenameDialog';
 import { VENUE_DELETE_WORDING } from '../ui/deleteWording';
 import { CatalogBadge, ShareToCatalogDialog, useCatalogStatus } from '../catalog/ShareToCatalog';
 
@@ -40,11 +41,12 @@ export function VenueList({
   const fileInput = useRef<HTMLInputElement>(null);
   const venues = useQuery({ queryKey: ['venues'], queryFn: api.venues.list });
   const refresh = () => qc.invalidateQueries({ queryKey: ['venues'] });
-  const fail = (what: string) => (e: Error) => alert(`Could not ${what}: ${e.message}`);
+  const fail = (what: string) => (e: Error) => showToast(`Couldn’t ${what}: ${e.message}`);
   // Where an upload goes, picked before the file is.
   const uploadTo = useRef('');
   const [asking, setAsking] = useState<'new' | 'upload' | null>(null);
   const [moving, setMoving] = useState<VenueSummary | null>(null);
+  const [renaming, setRenaming] = useState<VenueSummary | null>(null);
   const hasClubs = (orgs?.length ?? 0) > 0;
   const catalog = useCatalogStatus();
   const [sharing, setSharing] = useState<VenueSummary | null>(null);
@@ -58,7 +60,6 @@ export function VenueList({
   const rename = useMutation({
     mutationFn: ({ id, name }: { id: string; name: string }) => api.venues.rename(id, name),
     onSuccess: refresh,
-    onError: fail('rename the venue'),
   });
   const remove = useMutation({ mutationFn: api.venues.remove, onSuccess: refresh, onError: fail('delete the venue') });
 
@@ -70,7 +71,7 @@ export function VenueList({
     try {
       venue = parseVenueFile(await file.text());
     } catch (err) {
-      alert(`Could not read ${file.name}: ${(err as Error).message}`);
+      showToast(`Couldn’t read ${file.name}: ${(err as Error).message}`);
       return;
     }
     const name = venue.name.trim() || file.name.replace(/\.(bld-venue|cld-venue|json)$/i, '');
@@ -82,7 +83,7 @@ export function VenueList({
       const v = await api.venues.get(id);
       downloadText(`${name}${VENUE_FILE_EXT}`, writeVenueFile(v.data as Venue));
     } catch (err) {
-      alert(`Could not download the venue: ${(err as Error).message}`);
+      showToast(`Couldn’t download the venue: ${(err as Error).message}`);
     }
   }
 
@@ -179,10 +180,7 @@ export function VenueList({
                             role="menuitem"
                             type="button"
                             className={MORE_ITEM}
-                            onClick={() => {
-                              const next = prompt('New name:', v.name)?.trim();
-                              if (next && next !== v.name) rename.mutate({ id: v.id, name: next });
-                            }}
+                            onClick={() => setRenaming(v)}
                           >
                             Rename…
                           </button>
@@ -231,6 +229,9 @@ export function VenueList({
       )}
       {sharing && (
         <ShareToCatalogDialog kind="venue" sourceId={sharing.id} title={sharing.name} existing={catalog.shared('venue', sharing.id)} onClose={() => setSharing(null)} />
+      )}
+      {renaming && (
+        <RenameDialog heading="Rename venue" current={renaming.name} onSave={(name) => rename.mutateAsync({ id: renaming.id, name })} onClose={() => setRenaming(null)} />
       )}
       {moving && orgs && (
         <MoveCopyDialog

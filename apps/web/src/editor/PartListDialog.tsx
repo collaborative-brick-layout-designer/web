@@ -81,7 +81,7 @@ export function PartListDialog({ map, parts, limits, layoutTitle, onClose }: Pro
   async function exportList() {
     const groups = buildPartList(map, parts, { splitPerLayer: split, includeHiddenLayers: hidden, limits, defaultBudgetIsInfinite: defaultInfinite });
     if (groups.length === 0 || (groups.length === 1 && groups[0]!.rows.length === 0)) {
-      window.alert('The current layout contains no bricks.');
+      useEditorStore.getState().showNotice('There are no parts in this layout yet, so there’s nothing to list.', 'error');
       return;
     }
     const base = layoutTitle.replace(/[\\/:*?"<>|]+/g, '_').trim() || 'parts';

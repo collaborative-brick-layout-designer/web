@@ -28,7 +28,7 @@ export const SHORTCUT_GROUPS: { title: string; items: Shortcut[] }[] = [
       { keys: 'V', does: 'Select' },
       { keys: 'B', does: 'Paint' },
       { keys: 'E', does: 'Erase' },
-      { keys: 'Ctrl+T', does: 'Add text' },
+      { keys: 'T', does: 'Add text' },
       { keys: 'Ctrl+L', does: 'Add a label' },
       { keys: 'Ctrl+F', does: 'Find a part' },
     ],
@@ -41,15 +41,17 @@ export const SHORTCUT_GROUPS: { title: string; items: Shortcut[] }[] = [
       { keys: 'Ctrl+Z', does: 'Undo' },
       { keys: 'Ctrl+Shift+Z', does: 'Redo' },
       { keys: 'Ctrl+S', does: 'Save now (it also saves by itself)' },
+      { keys: 'Alt+N', does: 'Start a new layout' },
+      { keys: 'Ctrl+O', does: 'Open another layout' },
     ],
   },
 ];
 
-export const SHORTCUT_NOTE = 'On a Mac, use ⌘ instead of Ctrl.';
+export const SHORTCUT_NOTE = 'On a Mac, use ⌘ instead of Ctrl, and Option instead of Alt.';
 
 /** First steps, shown under Help > Getting started. */
 export const GETTING_STARTED: string[] = [
-  'Drag a part from the Parts panel onto the map, or click it to drop it in the middle.',
+  'Drag a part from the Parts panel onto the map, or double-click it to add it in the middle. On an empty map, one click is enough.',
   'Ends of track snap together when they meet. Press R to turn the selected piece.',
   'Sheets keep things apart: track on one, buildings on another.',
   'The Venue tab holds the hall the layout has to fit in.',

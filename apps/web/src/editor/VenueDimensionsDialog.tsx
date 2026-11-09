@@ -12,6 +12,20 @@ import { useEscape } from './useEscape';
 const STUDS_PER_FOOT = 38.09814081;
 const STUDS_PER_INCH = STUDS_PER_FOOT / 12;
 
+/** The lengths' units; 1 stud = 8 mm. */
+export const VENUE_UNITS = [
+  { id: 'ft', label: 'Feet (ft)', studs: STUDS_PER_FOOT },
+  { id: 'in', label: 'Inches (in)', studs: STUDS_PER_INCH },
+  { id: 'm', label: 'Meters (m)', studs: 125 },
+  { id: 'cm', label: 'Centimeters (cm)', studs: 1.25 },
+] as const;
+export type VenueUnit = (typeof VENUE_UNITS)[number]['id'];
+
+/** Studs in one `unit`. */
+export function studsPerUnit(unit: VenueUnit): number {
+  return VENUE_UNITS.find((u) => u.id === unit)!.studs;
+}
+
 const ANGLE_PRESETS = [
   { label: '→ East (0°)',   deg: 0   },
   { label: '↘ SE (45°)',    deg: 45  },
@@ -48,7 +62,8 @@ function parseDeg(angle: string): number {
 
 export function VenueDimensionsDialog({ doc, onClose }: Props) {
   useEscape(onClose);
-  const [unit, setUnit] = useState<'ft' | 'in'>('ft');
+  const [unit, setUnit] = useState<VenueUnit>('ft');
+  const [error, setError] = useState('');
   const [originX, setOriginX] = useState('0.00');
   const [originY, setOriginY] = useState('0.00');
   const [segments, setSegments] = useState<Segment[]>([defaultSeg()]);
@@ -85,16 +100,16 @@ export function VenueDimensionsDialog({ doc, onClose }: Props) {
 
   function submit(e: FormEvent) {
     e.preventDefault();
-    const studsPerUnit = unit === 'in' ? STUDS_PER_INCH : STUDS_PER_FOOT;
+    const perUnit = studsPerUnit(unit);
     const pts: { x: number; y: number }[] = [];
     const metas: { kind: 0 | 1 | 2; label: string }[] = [];
 
-    let cx = (parseFloat(originX) || 0) * studsPerUnit;
-    let cy = (parseFloat(originY) || 0) * studsPerUnit;
+    let cx = (parseFloat(originX) || 0) * perUnit;
+    let cy = (parseFloat(originY) || 0) * perUnit;
     pts.push({ x: cx, y: cy });
 
     for (const seg of segments) {
-      const len = (parseFloat(seg.length) || 0) * studsPerUnit;
+      const len = (parseFloat(seg.length) || 0) * perUnit;
       if (len <= 0) continue;
       const rad = (parseDeg(seg.angle) * Math.PI) / 180;
       cx += Math.cos(rad) * len;
@@ -104,9 +119,10 @@ export function VenueDimensionsDialog({ doc, onClose }: Props) {
     }
 
     if (pts.length < 3) {
-      alert('Need at least three non-zero segments to build a polygon.');
+      setError('Add at least two walls longer than zero. The outline closes back to the start by itself.');
       return;
     }
+    setError('');
 
     // Drop closing vertex if it coincides with the origin.
     const last = pts[pts.length - 1]!;
@@ -140,11 +156,12 @@ export function VenueDimensionsDialog({ doc, onClose }: Props) {
             <span className={labelCls}>Unit:</span>
             <select
               value={unit}
-              onChange={(e) => setUnit(e.target.value as 'ft' | 'in')}
+              onChange={(e) => setUnit(e.target.value as VenueUnit)}
               className={inputCls}
             >
-              <option value="ft">Feet (ft)</option>
-              <option value="in">Inches (in)</option>
+              {VENUE_UNITS.map((u) => (
+                <option key={u.id} value={u.id}>{u.label}</option>
+              ))}
             </select>
           </label>
           <label className="flex items-center gap-1.5">
@@ -250,13 +267,13 @@ export function VenueDimensionsDialog({ doc, onClose }: Props) {
             <p className="text-xs font-semibold">Rectangle preset</p>
             <div className="flex flex-wrap gap-3">
               <label className="flex items-center gap-1.5 text-xs">
-                Width (E-W, ft):
+                Width (E-W, {unit}):
                 <input type="number" min="0" step="0.01" value={rectW}
                   onChange={(e) => setRectW(e.target.value)}
                   className="w-20 rounded-lg border border-border bg-panel px-1 py-0.5" />
               </label>
               <label className="flex items-center gap-1.5 text-xs">
-                Depth (N-S, ft):
+                Depth (N-S, {unit}):
                 <input type="number" min="0" step="0.01" value={rectD}
                   onChange={(e) => setRectD(e.target.value)}
                   className="w-20 rounded-lg border border-border bg-panel px-1 py-0.5" />
@@ -271,6 +288,7 @@ export function VenueDimensionsDialog({ doc, onClose }: Props) {
           </div>
         )}
 
+        {error && <p role="alert" className="text-xs text-danger">{error}</p>}
         <div className="flex justify-end gap-2 pt-2">
           <button type="button" onClick={onClose}
             className="rounded-lg border border-border px-4 py-1.5 text-sm hover:bg-soft">

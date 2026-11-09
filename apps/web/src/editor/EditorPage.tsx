@@ -35,7 +35,7 @@ import {
   type AnnoDragHandlers,
   type NodeSnap,
 } from './render/groupDragNodes';
-import { Toolbar } from './Toolbar';
+import { Toolbar, toolLabel } from './Toolbar';
 import { GridLayer } from './render/GridLayer';
 import { BrickLayer } from './render/BrickLayer';
 import { PartsPanel } from './PartsPanel';
@@ -88,6 +88,7 @@ import {
   moveRulerEndpoint,
   scaleRuler,
   ensureAreaLayer,
+  shownAreaLayer,
   ensureBrickLayer,
   ensureRulerLayer,
   ensureTextLayer,
@@ -185,13 +186,13 @@ import { DEFAULT_SNAP_STRENGTH, SnapSession, snapBypassed } from './snapFeel';
 import { annoDragShift, grabSnapCorner, snapPoint } from './gridSnap';
 import { liveSnapReach } from './liveSnapReach';
 import { LAST_LAYOUT_KEY } from '../layouts/reopenLast';
-import { askConfirm, askLeaveUnsaved } from '../ui/ConfirmDialog';
+import { askConfirm, askLeaveUnsaved, askLeaveUnsavedModule } from '../ui/ConfirmDialog';
 import { creditText } from '../owners/owners';
 import type { Credit } from '../api';
 import { useShallow } from 'zustand/react/shallow';
 import { Menu } from '../ui/menu/Menu';
 import { resolveMenu } from '../ui/menu/menuModel';
-import { mapMenuEntries, phoneMapEntries, type MapMenuToggles } from './mapMenu';
+import { mapMenuEntries, modKey, phoneMapEntries, type MapMenuToggles } from './mapMenu';
 import { openFilePicker } from '../open/FileOpener';
 import { OpenedSummaryCard } from '../open/OpenedSummary';
 // Dialogs and infrequently-used panels — lazy-loaded so they don't bloat
@@ -698,6 +699,13 @@ function Editor({ layoutId, docState, moduleMode }: { layoutId: string; docState
   const showLeft = !viewport.isMobile && !isViewer && leftPanels.length > 0;
   const showRight = !viewport.isMobile && !isViewer && rightPanels.length > 0;
 
+  // Leaving the editor (leaveLayout, below); the canvas's Alt+N and Ctrl+O go the same way.
+  const leaveRef = useRef<(to?: string) => Promise<void>>(async () => undefined);
+  useEffect(() => {
+    const onLeave = (e: Event) => void leaveRef.current((e as CustomEvent<string>).detail);
+    window.addEventListener('cld:leave-editor', onLeave);
+    return () => window.removeEventListener('cld:leave-editor', onLeave);
+  }, []);
   if (loadError) return <ErrorScreen err={loadError} what={moduleMode ? 'module' : 'layout'} />;
   if (loading || !doc) return <OpeningLayoutScreen />;
 
@@ -714,7 +722,7 @@ function Editor({ layoutId, docState, moduleMode }: { layoutId: string; docState
   function panelBody(panelId: string): React.ReactNode {
     if (!doc) return null;
     if (moduleMode && NOT_IN_MODULES.has(panelId)) return null;
-    if (panelId === 'parts') return <PartsPanel onPlacePart={onPlacePart} budgetLimits={budgetLimits} map={budgetLimits.size > 0 ? docMap : null} canUploadPart={!!me.data?.user && !me.data.user.isDemoAccount} />;
+    if (panelId === 'parts') return <PartsPanel onPlacePart={onPlacePart} budgetLimits={budgetLimits} map={budgetLimits.size > 0 ? docMap : null} canUploadPart={!!me.data?.user && !me.data.user.isDemoAccount} mapEmpty={!isViewer && mapHasNoParts(docMap)} />;
     if (panelId === 'layers') return <LayersPanelHost doc={doc} isViewer={isViewer} />;
     if (panelId === 'usedparts') return <UsedPartsPanel doc={doc} budgetLimits={budgetLimits} />;
     if (panelId === 'modules') return <Suspense fallback={null}><ModulesPanel doc={doc} isViewer={isViewer} /></Suspense>;
@@ -725,7 +733,7 @@ function Editor({ layoutId, docState, moduleMode }: { layoutId: string; docState
         </Suspense>
       );
     if (panelId === 'views') return viewsPanel(false);
-    if (panelId === 'venuelibrary') return <Suspense fallback={null}><VenueLibraryPanel doc={doc} isViewer={isViewer} /></Suspense>;
+    if (panelId === 'venuelibrary') return <Suspense fallback={null}><VenueLibraryPanel doc={doc} isViewer={isViewer} onDesigner={() => setShowVenueDesigner(true)} onDimensions={() => setShowVenueDimensions(true)} onDrawOutline={() => useEditorStore.getState().setTool('venueOutline')} /></Suspense>;
     return null;
   }
 
@@ -806,12 +814,29 @@ function Editor({ layoutId, docState, moduleMode }: { layoutId: string; docState
     }
   };
 
-  const leaveLayout = async () => {
-    if (status.kind === 'reconnecting' || status.kind === 'offline' || status.kind === 'error' || status.kind === 'unsaved' || status.kind === 'saving') {
-      if (!(await askLeaveUnsaved())) return;
-    }
-    window.location.href = '/';
+  // Home; `to` the New layout dialog (/?new=1) or the list to open
+  // another from (/?open=1).
+  // In the app, not a page load: a layout's unsent changes keep sending
+  // (useLayoutDoc finishSending), and there's no second browser question.
+  // A module isn't saved by itself: save it, leave it, or stay.
+  const leaveLayout = async (to = '/') => {
+    const unsent = status.kind === 'reconnecting' || status.kind === 'offline' || status.kind === 'error' || status.kind === 'unsaved' || status.kind === 'saving';
+    if (unsent && moduleMode) {
+      const choice = await askLeaveUnsavedModule();
+      if (choice === null) return;
+      if (choice === 'confirm') {
+        try {
+          await checkSaved();
+        } catch (e) {
+          useEditorStore.getState().showNotice(`The module couldn’t be saved, so you’re still here: ${(e as Error).message}`, 'error', 10000);
+          return;
+        }
+        void qc.invalidateQueries({ queryKey: ['modules'] });
+      }
+    } else if (unsent && !(await askLeaveUnsaved())) return;
+    navigate(to);
   };
+  leaveRef.current = leaveLayout;
   // Task tabs are shortcuts onto the existing panels and dialogs.
   const onTask = (t: EditorTask) => {
     const show = (id: string) => {
@@ -849,19 +874,20 @@ function Editor({ layoutId, docState, moduleMode }: { layoutId: string; docState
   function venueSaveToLibrary(): void {
     if (!doc) return;
     const venue = readSidecarFromDoc(doc)?.venue;
-    if (!venue) { alert('No venue defined on this layout.'); return; }
+    if (!venue) { useEditorStore.getState().showNotice('This layout has no venue yet. Draw one first (Map ▸ Venue).', 'error'); return; }
     setShowVenueSaveLibrary(true);
   }
   function venueExportFile(): void {
     if (!doc) return;
     const venue = readSidecarFromDoc(doc)?.venue;
-    if (!venue) { alert('No venue defined on this layout.'); return; }
+    if (!venue) { useEditorStore.getState().showNotice('This layout has no venue yet. Draw one first (Map ▸ Venue).', 'error'); return; }
     // Desktop format (VenueIO.cpp): *.bld-venue, schema bld-venue/1.
     const blob = new Blob([writeVenueFile(venue)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `${venue.name || 'venue'}${VENUE_FILE_EXT}`;
+    // Named after the venue, else the layout ("Show 2026 venue").
+    a.download = `${sanitizeFilename(venue.name.trim() || `${meta.data?.layout.title ?? 'Layout'} venue`)}${VENUE_FILE_EXT}`;
     a.click();
     noticeDownloaded(a.download);
     URL.revokeObjectURL(url);
@@ -878,7 +904,7 @@ function Editor({ layoutId, docState, moduleMode }: { layoutId: string; docState
         try {
           setVenue(doc, parseVenueFile(text));
         } catch (e) {
-          alert(`Could not load venue file: ${(e as Error).message}`);
+          useEditorStore.getState().showNotice(`Couldn’t read ${file.name}: ${(e as Error).message}`, 'error', 10000);
         }
       });
     };
@@ -902,7 +928,7 @@ function Editor({ layoutId, docState, moduleMode }: { layoutId: string; docState
           style={{ gridColumn: '1 / -1' }}
         >
           <AppMark />
-          <button type="button" onClick={leaveLayout} className="tap-target shrink-0 rounded-lg px-2 py-1.5 text-sm font-semibold text-accent-text hover:bg-soft">
+          <button type="button" onClick={() => void leaveLayout()} className="tap-target shrink-0 rounded-lg px-2 py-1.5 text-sm font-semibold text-accent-text hover:bg-soft">
             Home
           </button>
           <h1 data-testid="module-editor-title" className="min-w-0 flex-1 truncate font-display text-[17px] font-bold">
@@ -981,8 +1007,8 @@ function Editor({ layoutId, docState, moduleMode }: { layoutId: string; docState
             <div className="min-w-0 flex-1">
               <LayoutNameMenu
                 title={meta.data?.layout.title ?? 'Untitled'}
-                onNew={isViewer ? undefined : leaveLayout}
-                onOpen={isViewer ? undefined : leaveLayout}
+                onNew={isViewer ? undefined : () => void leaveLayout('/?new=1')}
+                onOpen={isViewer ? undefined : () => void leaveLayout('/?open=1')}
                 onRename={role !== 'viewer' ? () => setRenaming(true) : undefined}
               >
                 <ViewsMenuItems
@@ -1089,8 +1115,8 @@ function Editor({ layoutId, docState, moduleMode }: { layoutId: string; docState
           <LayoutNameMenu
             title={meta.data?.layout.title ?? 'Untitled'}
             credit={creditLabel(meta.data?.layout.credit)}
-            onNew={isViewer ? undefined : leaveLayout}
-            onOpen={isViewer ? undefined : leaveLayout}
+            onNew={isViewer ? undefined : () => void leaveLayout('/?new=1')}
+            onOpen={isViewer ? undefined : () => void leaveLayout('/?open=1')}
             onRename={role !== 'viewer' ? () => setRenaming(true) : undefined}
           >
             {isViewer && (
@@ -1159,7 +1185,7 @@ function Editor({ layoutId, docState, moduleMode }: { layoutId: string; docState
           <button
             onClick={undo.undo}
             disabled={!undo.canUndo}
-            title="Undo (Cmd-Z)"
+            title={`Undo (${modKey()}+Z)`}
             className="shrink-0 rounded-lg border border-border px-2 py-1 text-xs disabled:opacity-30"
           >
             Undo
@@ -1167,7 +1193,7 @@ function Editor({ layoutId, docState, moduleMode }: { layoutId: string; docState
           <button
             onClick={undo.redo}
             disabled={!undo.canRedo}
-            title="Redo (Cmd-Shift-Z)"
+            title={`Redo (${modKey()}+Shift+Z)`}
             className="shrink-0 rounded-lg border border-border px-2 py-1 text-xs disabled:opacity-30"
           >
             Redo
@@ -1343,7 +1369,7 @@ function Editor({ layoutId, docState, moduleMode }: { layoutId: string; docState
         )}
         {touchModuleId && doc && <TouchModuleSheet doc={doc} moduleId={touchModuleId} onClose={() => setTouchModuleId(null)} />}
 
-        <Canvas doc={doc} awareness={awareness} isViewer={isViewer} size={canvasSize} touchEl={canvasBox} phone={viewport.isMobile} saveNow={saveNow} status={status} placeAtCenterRef={placeAtCenterRef} exportImageRef={exportImageRef} canvasActionsRef={canvasActionsRef} undo={undo} onOpenVenueProps={() => setShowVenueProps(true)} onMakeModule={() => openMakeModule(doc)} />
+        <Canvas doc={doc} awareness={awareness} isViewer={isViewer} size={canvasSize} touchEl={canvasBox} phone={viewport.isMobile} saveNow={saveNow} placeAtCenterRef={placeAtCenterRef} exportImageRef={exportImageRef} canvasActionsRef={canvasActionsRef} undo={undo} onOpenVenueProps={() => setShowVenueProps(true)} onMakeModule={() => openMakeModule(doc)} />
       </main>
       {showRight && (
         <DockColumn
@@ -1579,7 +1605,7 @@ function Editor({ layoutId, docState, moduleMode }: { layoutId: string; docState
                 if (r === 'cancelled') return;
                 useEditorStore.getState().showStatusMessage('Venue saved to the Venue library.');
                 await qc.invalidateQueries({ queryKey: ['venue-library'] });
-              })().catch((e) => alert(`Failed to save venue to library: ${(e as Error).message}`));
+              })().catch((e) => useEditorStore.getState().showNotice(`Couldn’t save the venue: ${(e as Error).message}`, 'error', 10000));
             }}
             onClose={() => setShowVenueSaveLibrary(false)}
           />
@@ -1652,7 +1678,6 @@ function Canvas({
   touchEl,
   phone,
   saveNow,
-  status,
   placeAtCenterRef,
   exportImageRef,
   canvasActionsRef,
@@ -1670,7 +1695,6 @@ function Canvas({
   /** The phone viewer: one-finger pan, roomier fit, unreadable text hidden. */
   phone: boolean;
   saveNow: () => Promise<void> | void;
-  status: import('./useLayoutDoc').SaveStatus;
   placeAtCenterRef: React.MutableRefObject<((part: PartWire) => void) | null>;
   exportImageRef: React.MutableRefObject<import('./ExportImageDialog').ExportHandle | null>;
   canvasActionsRef: React.MutableRefObject<CanvasActions | null>;
@@ -1752,8 +1776,9 @@ function Canvas({
     const length = Math.hypot(pt.x - start.x, pt.y - start.y);
     // The same spot again: still waiting for the end.
     if (length < 0.5) return;
-    const layerId = ensureRulerLayer(doc);
+    const layerId = ensureRulerLayer(doc, st.activeLayerId);
     const id = st.tool === 'rulerCircular' ? addCircularRuler(doc, layerId, start, length) : addLinearRuler(doc, layerId, start, pt);
+    announcePlacement([layerId], null, 'Your ruler');
     st.setTool('select');
     useEditorStore.setState({ selection: [], annoSelection: { ...EMPTY_ANNO, rulers: [id] } });
   }
@@ -2032,6 +2057,12 @@ function Canvas({
     [],
   );
 
+  // The Turn tool: a click picks the part (its group or module) and turns
+  // it clockwise by the turn step; Shift+click turns it back. The latest
+  // rotatePicked, through a ref, so the parts' handler stays the same.
+  const turnRef = useRef<(ids: readonly string[], back: boolean) => void>(() => undefined);
+  const onTurnPart = useCallback((ids: readonly string[], back: boolean) => turnRef.current(ids, back), []);
+
   // Edit-AnchoredLabel dialog state — opened by double-click on a label.
   const [editingLabel, setEditingLabel] = useState<import('@cld/bbm').AnchoredLabel | null>(null);
 
@@ -2054,7 +2085,7 @@ function Canvas({
     { item: import('@cld/model').RulerItem; layerId: string } | null
   >(null);
 
-  // Add-Text dialog state — opened by Ctrl+T.
+  // Add-Text dialog state — opened by T.
   const [showAddText, setShowAddText] = useState(false);
   // Where "Add Text Here…" was invoked (studs); null = at the cursor.
   const [addTextAt, setAddTextAt] = useState<{ x: number; y: number } | null>(null);
@@ -2922,7 +2953,7 @@ function Canvas({
     const st = useEditorStore.getState();
     if (tool === 'venueObstacle' && !readSidecarFromDoc(doc)?.venue) {
       st.setTool('select');
-      window.alert('Draw the venue outline first.');
+      st.showNotice('Draw the venue’s outline first, then add obstacles inside it.', 'error');
       return;
     }
     st.showStatusMessage(
@@ -3065,8 +3096,11 @@ function Canvas({
         return;
       }
 
-      // Ctrl/Cmd + T — Insert ▸ Text. Desktop MainWindowMenus.cpp:431.
-      if ((e.metaKey || e.ctrlKey) && (e.key === 't' || e.key === 'T')) {
+      // T — Insert ▸ Text (desktop's Ctrl+T, MainWindowMenus.cpp:431: the
+      // browser keeps Ctrl+T for a new tab).
+      // Ctrl+T still works where the browser lets it through (the installed app).
+      const plain = !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey;
+      if ((plain || ((e.metaKey || e.ctrlKey) && !e.altKey)) && (e.key === 't' || e.key === 'T')) {
         e.preventDefault();
         if (isViewer) return;
         setShowAddText(true);
@@ -3110,34 +3144,16 @@ function Canvas({
         return;
       }
 
-      // Ctrl/Cmd + N — New layout (navigate to layouts page then create).
-      // Desktop MainWindowMenus.cpp:76-78. Guard with unsaved-changes prompt
-      // when sync is broken (reconnecting / offline / error).
-      if ((e.metaKey || e.ctrlKey) && (e.key === 'n' || e.key === 'N')) {
+      // Alt+N — New layout (desktop's Ctrl+N, MainWindowMenus.cpp:76-78: the
+      // browser keeps Ctrl+N for a new window). Ctrl/Cmd+O — Open: the list
+      // on Home (MainWindowMenus.cpp:80-82). Both ask first while changes
+      // haven't reached the server.
+      const newLayout = (e.altKey && !e.metaKey && !e.ctrlKey && e.code === 'KeyN') || ((e.metaKey || e.ctrlKey) && !e.altKey && (e.key === 'n' || e.key === 'N'));
+      const openOther = (e.metaKey || e.ctrlKey) && !e.altKey && (e.key === 'o' || e.key === 'O');
+      if (newLayout || openOther) {
         e.preventDefault();
-        const s = status;
-        if (s.kind === 'reconnecting' || s.kind === 'offline' || s.kind === 'error') {
-          void askLeaveUnsaved().then((ok) => {
-            if (ok) window.location.href = '/';
-          });
-          return;
-        }
-        window.location.href = '/';
-        return;
-      }
-
-      // Ctrl/Cmd + O — Open layout (navigate to layouts page).
-      // Desktop MainWindowMenus.cpp:80-82.
-      if ((e.metaKey || e.ctrlKey) && (e.key === 'o' || e.key === 'O')) {
-        e.preventDefault();
-        const s = status;
-        if (s.kind === 'reconnecting' || s.kind === 'offline' || s.kind === 'error') {
-          void askLeaveUnsaved().then((ok) => {
-            if (ok) window.location.href = '/';
-          });
-          return;
-        }
-        window.location.href = '/';
+        // The editor asks first when changes haven't reached the server (leaveLayout).
+        window.dispatchEvent(new CustomEvent('cld:leave-editor', { detail: newLayout ? '/?new=1' : '/?open=1' }));
         return;
       }
 
@@ -3353,6 +3369,10 @@ function Canvas({
         areaMoveRef.current = { layerId: sheet.id, cellSize, start: { x: Math.floor(studs.x / cellSize), y: Math.floor(studs.y / cellSize) } };
         return;
       }
+      if (tool === 'erase' && !sheet) {
+        useEditorStore.getState().showNotice('There’s no painted ground to erase. Use Paint first, or show the area sheet.', 'error');
+        return;
+      }
       paintStrokeRef.current = new Set();
       doPaintStroke(studs.x, studs.y);
     }
@@ -3444,7 +3464,10 @@ function Canvas({
     if (!map) return;
     const stroke = paintStrokeRef.current;
     if (!stroke) return;
-    const layerId = ensureAreaLayer(doc);
+    // Erasing needs painted ground: with no area sheet shown there's
+    // nothing to erase, and no empty sheet is made for it.
+    const layerId = tool === 'erase' ? shownAreaLayer(doc) : ensureAreaLayer(doc);
+    if (!layerId) return;
     // The sheet's cell size, from the doc: a sheet this stroke just made
     // isn't in `map` yet (it used to be painted in 8-stud cells on a
     // 32-stud sheet, so the first stroke's squares landed apart).
@@ -3495,7 +3518,7 @@ function Canvas({
       const dy = ey - rulerDraft.startY;
       // Skip degenerate zero-length drags (e.g. user clicked without drag).
       if (Math.hypot(dx, dy) >= 0.5) {
-        const layerId = ensureRulerLayer(doc);
+        const layerId = ensureRulerLayer(doc, activeLayerId);
         if (rulerDraft.kind === 'linear') {
           addLinearRuler(
             doc,
@@ -3511,6 +3534,7 @@ function Canvas({
             Math.hypot(dx, dy),
           );
         }
+        announcePlacement([layerId], null, 'Your ruler');
       }
       setRulerDraft(null);
     }
@@ -3646,6 +3670,11 @@ function Canvas({
    * Rotate CW / CCW for what's picked: parts, and text and rulers too
    * (BlueBrick RotateText, RotateRulers), about one pivot. One undo step.
    */
+  turnRef.current = (ids, back) => {
+    if (isViewer) return;
+    useEditorStore.getState().setSelection([...ids]);
+    rotatePicked(back ? -rotationStepDegrees : rotationStepDegrees);
+  };
   function rotatePicked(degrees: number): void {
     const st = useEditorStore.getState();
     if (st.selection.length + annoCount(st.annoSelection) === 0) return;
@@ -4562,6 +4591,7 @@ function Canvas({
           doc={doc}
           isViewer={isViewer}
           onEditBrick={onEditBrick}
+          onTurn={onTurnPart}
         />
         <Group listening={!isViewer && !editingModuleId}>
           <TextLayers
@@ -4689,7 +4719,7 @@ function Canvas({
     // Its middle on the grid, as the parts are.
     const target = gridPointStuds(addTextAt ?? viewCentreStuds({ width, height }));
     setAddTextAt(null);
-    const layerId = ensureTextLayer(doc);
+    const layerId = ensureTextLayer(doc, activeLayerId);
     const box = newTextBox(r.text);
     const styleParts: string[] = [];
     if (r.isBold) styleParts.push('Bold');
@@ -4705,6 +4735,7 @@ function Canvas({
       fontColor: r.colorArgb.toUpperCase() === 'FF000000' ? { kind: 'known', name: 'Black' } : { kind: 'argb', argb: r.colorArgb },
       orientation: r.rotation,
     });
+    announcePlacement([layerId], null, 'Your text');
     setShowAddText(false);
   }
 
@@ -4881,6 +4912,7 @@ function Canvas({
           onModuleLook={(id) => setLookModuleId(id)}
         />
       )}
+      {!isViewer && mapHasNoParts(map) && <EmptyMapHint touch={coarsePointer()} />}
       <ScaleBarHud zoom={zoom} right={phone && rowNumbersShown} />
       {budgetBox && <BudgetReachedDialog onClose={() => setBudgetBox(false)} />}
     </>
@@ -4895,6 +4927,18 @@ function Canvas({
 const PHONE_FIT_INSETS: ViewInsets = { top: 8, right: 8, bottom: 64, left: 8 };
 /** Sideways the layout is height-bound and centred, clear of the card anyway. */
 const PHONE_LANDSCAPE_FIT_INSETS: ViewInsets = { top: 8, right: 8, bottom: 8, left: 8 };
+
+/** On a map with no parts yet: how to put the first one down. */
+function EmptyMapHint({ touch }: { touch: boolean }) {
+  return (
+    <p
+      data-testid="empty-map-hint"
+      className="pointer-events-none absolute left-1/2 top-3 max-w-[calc(100%-2rem)] -translate-x-1/2 rounded-card border border-line bg-panel/95 px-4 py-2 text-center text-sm text-ink shadow"
+    >
+      {touch ? 'Tap Add part below to put down your first piece.' : 'Click a part in the Parts panel to add it, or drag it onto the map.'}
+    </p>
+  );
+}
 
 /**
  * Scale-bar HUD pinned to the lower-left corner of the canvas, like
@@ -5701,7 +5745,7 @@ function StatusBar({ gridSpan, status, venue, budgetLimits, budgetMap, onZoomIn,
           </span>
           <HelpButton helpKey="status.sheet" />
         </span>
-        <span>Tool: <span className="text-ink">{tool}{dirty ? ' *' : ''}</span></span>
+        <span>Tool: <span className="text-ink">{toolLabel(tool)}{dirty ? ' *' : ''}</span></span>
         {dropTargetHint || statusMessage ? (
           <span className="text-accent-text transition-opacity">{dropTargetHint ?? statusMessage}</span>
         ) : (
@@ -6124,6 +6168,11 @@ function HeaderEditButtons({
  * `"brickA_0"`), NOT the brick id. We need a connexion-id → brick-id
  * lookup to resolve it, then build brick→brick edges.
  */
+/** No parts on any sheet yet (a new layout). */
+function mapHasNoParts(map: import('@cld/model').BbmMap | null | undefined): boolean {
+  return !!map && !map.layers.some((l) => l.type === 'brick' && l.bricks.length > 0);
+}
+
 function buildConnectedAdj(map: import('@cld/model').BbmMap): Map<string, string[]> {
   // Pass 1: connexion id → brick id
   const connToBrick = new Map<string, string>();
@@ -6169,7 +6218,7 @@ async function downloadLocalBbm(doc: Y.Doc, title: string): Promise<void> {
   try {
     saveFile({ filename: `${sanitizeFilename(title)}.bbm`, type: 'application/xml', data: new TextEncoder().encode(writeBbm(docToBbm(doc))) });
   } catch (e) {
-    window.alert(`Could not build the .bbm: ${(e as Error).message}`);
+    useEditorStore.getState().showNotice(`Couldn’t make the .bbm: ${(e as Error).message}`, 'error', 10000);
   }
 }
 

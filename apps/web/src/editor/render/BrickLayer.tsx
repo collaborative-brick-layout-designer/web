@@ -121,6 +121,8 @@ interface Props {
   isViewer?: boolean;
   /** Double-click → open per-brick properties dialog. */
   onEditBrick?: (brick: Brick, layerId: string, meta: PartWire | undefined) => void;
+  /** The Turn tool clicked a part: turn these (the part, or its group or module) by the turn step; `back` with Shift. */
+  onTurn?: (ids: readonly string[], back: boolean) => void;
 }
 
 const NO_MODULES: SidecarModule[] = [];
@@ -132,7 +134,7 @@ const NO_MODULES: SidecarModule[] = [];
  * changed. That relies on the shared cached projection (useDocMap), which
  * keeps unchanged Brick objects identical across doc updates.
  */
-export const BrickLayer = memo(function BrickLayer({ map, doc, isViewer = false, onEditBrick }: Props) {
+export const BrickLayer = memo(function BrickLayer({ map, doc, isViewer = false, onEditBrick, onTurn }: Props) {
   const catalog = useQuery({
     queryKey: ['parts-catalog'],
     queryFn: api.parts.catalog,
@@ -268,6 +270,7 @@ export const BrickLayer = memo(function BrickLayer({ map, doc, isViewer = false,
                   partsByKey={partsByKey}
                   glyphs={glyphs}
                   {...(onEditBrick ? { onEditBrick } : {})}
+                  {...(onTurn ? { onTurn } : {})}
                 />
               );
             })}
@@ -301,6 +304,7 @@ const BrickGlyph = memo(function BrickGlyph({
   partsByKey,
   glyphs,
   onEditBrick,
+  onTurn,
 }: {
   brick: Brick;
   layerId: string;
@@ -328,6 +332,7 @@ const BrickGlyph = memo(function BrickGlyph({
   /** Where the part tells the selection overlay what it needs (SelectionOverlay.ts). */
   glyphs: Map<string, GlyphInfo>;
   onEditBrick?: (brick: Brick, layerId: string, meta: PartWire | undefined) => void;
+  onTurn?: (ids: readonly string[], back: boolean) => void;
 }) {
   const spriteUrl = meta ? spriteUrlFor(meta) : '';
   const groupRef = useRef<Konva.Group | null>(null);
@@ -459,6 +464,12 @@ const BrickGlyph = memo(function BrickGlyph({
       } else {
         useEditorStore.getState().setSelection(groupMembers);
       }
+    } else if (tool === 'rotate' && !isViewer) {
+      // Turn: a click turns the part (its whole group or module) by the
+      // turn step, clockwise; Shift+click turns it back.
+      e.cancelBubble = true;
+      const unit = selectionUnit(brick.id, getModules(), useEditorStore.getState().editingModuleId, groupMembersOf(getMap(), brick.myGroup));
+      onTurn?.(unit, 'shiftKey' in e.evt && e.evt.shiftKey);
     } else if (tool === 'delete' && !isViewer) {
       e.cancelBubble = true;
       deleteBricks(doc, layerId, [brick.id]);
@@ -1226,7 +1237,9 @@ const BrickGlyph = memo(function BrickGlyph({
 
   /** What a double click or double tap does: Edit module, or the part's properties. */
   function doubleClickAction(byTouch: boolean) {
-    if (isViewer || outside) return;
+    // Only Select opens things: clicking fast with Turn turns the part
+    // again (twice in a row isn't a double-click that opens its properties).
+    if (isViewer || outside || tool !== 'select') return;
     // A module's part opens Edit module (the part picked); inside the
     // module being edited it opens the part's properties as usual.
     const mod = moduleByPart(getModules()).get(brick.id);

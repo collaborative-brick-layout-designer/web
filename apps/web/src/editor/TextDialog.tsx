@@ -34,7 +34,9 @@ interface Props {
 export function TextDialog({ initial, onClose, onCommit, onDelete }: Props) {
   useEscape(onClose);
   const [text, setText] = useState(initial?.text ?? '');
-  const [fontFamily, setFontFamily] = useState(initial?.font.family ?? 'Arial');
+  // Text draws in the app's map font whatever family the file names
+  // (render/fontStack.ts): no font to pick; the family is kept as it is.
+  const fontFamily = initial?.font.family ?? 'Arial';
   // New text: Arial 12 pt, like desktop (MapView::addTextAtScenePos).
   const [fontSize, setFontSize] = useState(initial?.font.size ?? 12);
   const styleStr = (initial?.font.style ?? '').toLowerCase();
@@ -51,31 +53,27 @@ export function TextDialog({ initial, onClose, onCommit, onDelete }: Props) {
       role="dialog"
       aria-label={initial ? 'Edit text' : 'Add text'}
       aria-modal="true"
-      className="fixed inset-0 z-50 grid place-items-center bg-black/60"
+      className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-black/60 p-4"
       onClick={onClose}
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="w-md rounded-lg border border-line bg-panel p-5 shadow-xl"
+        className="w-full max-w-md rounded-lg border border-line bg-panel p-5 shadow-xl"
       >
         <h2 className="text-base font-semibold">{initial ? 'Edit text' : 'Add text'}</h2>
         <div className="mt-4 grid grid-cols-[8rem_1fr] gap-2 text-sm">
-          <label className="self-center">Text:</label>
+          <label className="self-center" htmlFor="text-text">Text:</label>
           <textarea
+            id="text-text"
             value={text}
             onChange={(e) => setText(e.target.value)}
             rows={3}
             autoFocus
             className="rounded-lg border border-border bg-soft px-2 py-1"
           />
-          <label className="self-center">Font:</label>
+          <label className="self-center" htmlFor="text-size">Size (pt):</label>
           <input
-            value={fontFamily}
-            onChange={(e) => setFontFamily(e.target.value)}
-            className="rounded-lg border border-border bg-soft px-2 py-1"
-          />
-          <label className="self-center">Size:</label>
-          <input
+            id="text-size"
             type="number"
             value={fontSize}
             onChange={(e) => {
@@ -86,7 +84,7 @@ export function TextDialog({ initial, onClose, onCommit, onDelete }: Props) {
             step={1}
             className="rounded-lg border border-border bg-soft px-2 py-1"
           />
-          <label className="self-center">Style:</label>
+          <span className="self-center">Style:</span>
           <div className="flex items-center gap-3 text-xs">
             <label className="flex items-center gap-1">
               <input
@@ -105,10 +103,11 @@ export function TextDialog({ initial, onClose, onCommit, onDelete }: Props) {
               Italic
             </label>
           </div>
-          <label className="self-center">Color:</label>
+          <span className="self-center">Color:</span>
           <ColorAlphaInput label="Text color" value={colorArgb} onChange={(v) => setColorArgb(v.toUpperCase())} />
-          <label className="self-center">Angle (°):</label>
+          <label className="self-center" htmlFor="text-angle">Angle (°):</label>
           <input
+            id="text-angle"
             type="number"
             value={rotation}
             onChange={(e) => {

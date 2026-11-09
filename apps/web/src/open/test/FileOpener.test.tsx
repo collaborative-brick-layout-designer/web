@@ -71,7 +71,8 @@ describe('FileOpener', () => {
     act(() => void window.dispatchEvent(drop));
     expect(drop.defaultPrevented).toBe(true);
     await waitFor(() => expect(screen.getByTestId('editor').textContent).toContain('/editor/new-1'));
-    expect(apiMock.create).toHaveBeenCalledWith({ bbm: BBM });
+    // Named after the file, not the .bbm's event (often BlueBrick's "Unknown Event").
+    expect(apiMock.create).toHaveBeenCalledWith({ title: 'Yard', bbm: BBM });
     expect(screen.getByTestId('editor').textContent).toContain('"openedFile":"Yard.bbm"');
   });
 

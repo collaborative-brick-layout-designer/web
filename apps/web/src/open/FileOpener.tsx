@@ -16,7 +16,7 @@ import { PartDifferencesDialog } from '../layouts/PartDifferencesDialog';
 import { catalogMapConverter, type OpenedMapState } from '../mapFormats';
 import { HelpButton } from '../help/HelpButton';
 import { DesktopOnlySteps } from './DesktopOnly';
-import { OPEN_FORMATS_LINE, OPEN_PICKER_ACCEPT, sortFiles, type DesktopOnlyFormat } from './openFiles';
+import { OPEN_FORMATS_LINE, OPEN_PICKER_ACCEPT, sortFiles, titleFromFileName, type DesktopOnlyFormat } from './openFiles';
 
 let pickerInput: HTMLInputElement | null = null;
 
@@ -85,6 +85,9 @@ export function FileOpener() {
           if (parts.changed) await qc.fetchQuery({ queryKey: ['parts-catalog'], queryFn: api.parts.catalog, staleTime: 0 });
           const warnings = [...(l.warnings ?? []), ...parts.notes];
           const created = await api.layouts.create({
+            // Named after the file, as the New layout dialog does (the
+            // .bbm's event is often BlueBrick's "Unknown Event").
+            title: titleFromFileName(l.name),
             bbm: parts.bbm,
             ...(l.sidecar !== undefined ? { sidecar: l.sidecar } : {}),
             ...(l.background ? { backgroundImage: l.background } : {}),

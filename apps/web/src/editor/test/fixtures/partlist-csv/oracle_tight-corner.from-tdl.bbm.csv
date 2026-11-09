@@ -37,22 +37,22 @@ Part,In Use,Color,Description,Budgeted,Missing,Part Usage %
 2891,2,Gray,Brick 2891.7  Track 9V,0,2,300
 2892,2,Gray,Plate 2892.7,0,2,300
 3811,6,Blue,Plate 3811.1,0,6,700
-3811,11,Gray,Brick 3811.7  Track 9V,0,11,1,200
+3811,11,Gray,Brick 3811.7  Track 9V,0,11,1200
 3857,2,Blue,Plate 3857.1,0,2,300
-3857,9,White,Plate 3857.15,0,9,1,000
+3857,9,White,Plate 3857.15,0,9,1000
 3867,1,White,Brick 3867.15  Track 9V,0,1,200
 Total,33,,,0,33,0
 
 Rail
 Part,In Use,Color,Description,Budgeted,Missing,Part Usage %
 2865,88,Dark Gray,Brick 2865.8  Track 9V,12,76,733
-9VHALFSTRAIGHT,12,Dark Gray,Plate 9VHALFSTRAIGHT.8,0,12,1,300
+9VHALFSTRAIGHT,12,Dark Gray,Plate 9VHALFSTRAIGHT.8,0,12,1300
 Total,100,,,12,88,733
 
 Monorail
 Part,In Use,Color,Description,Budgeted,Missing,Part Usage %
-2670,14,Gray,Brick 2670.7  Track 9V,0,14,1,500
-2671,36,Gray,Plate 2671.7,0,36,3,700
+2670,14,Gray,Brick 2670.7  Track 9V,0,14,1500
+2671,36,Gray,Plate 2671.7,0,36,3700
 2672,4,Gray,Plate 2672.7,0,4,500
 2889,2,Gray,Plate 2889.7,0,2,300
 2890,2,Gray,Plate 2890.7,0,2,300
