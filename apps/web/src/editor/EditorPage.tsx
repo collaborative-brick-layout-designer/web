@@ -12,6 +12,7 @@ import type { KonvaEventObject } from 'konva/lib/Node';
 import { api, spriteUrlFor, type LayoutSummary, type PartWire } from '../api';
 import { DEMO_WAS_RESET, MERGE_REFUSED, SIGN_IN_TO_OPEN, useLayoutDoc, type LayoutDocState } from './useLayoutDoc';
 import { useModuleDoc } from './useModuleDoc';
+import { ModuleChangedCard } from './ModuleChangedCard';
 import { ShareToCatalogDialog, useCatalogStatus } from '../catalog/ShareToCatalog';
 import { makeModuleThumbnail, makeRegionThumbnail, waitForPartPictures } from './moduleThumbnail';
 import { getSpriteProgress } from './render/spriteCache';
@@ -261,9 +262,12 @@ function LayoutEditor({ layoutId }: { layoutId: string }) {
 function ModuleEditor({ moduleId }: { moduleId: string }) {
   const docState = useModuleDoc(moduleId);
   return (
-    <EditorErrorBoundary what="module" layoutId={moduleId} docState={docState}>
-      <Editor layoutId={moduleId} docState={docState} moduleMode />
-    </EditorErrorBoundary>
+    <>
+      <EditorErrorBoundary what="module" layoutId={moduleId} docState={docState}>
+        <Editor layoutId={moduleId} docState={docState} moduleMode />
+      </EditorErrorBoundary>
+      <ModuleChangedCard change={docState.moduleChange} onLoadTheirs={docState.loadTheirs} onSaveMine={docState.saveMine} onDismiss={docState.dismissChange} />
+    </>
   );
 }
 

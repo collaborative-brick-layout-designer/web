@@ -310,6 +310,7 @@ export async function moduleRoutes(app: FastifyInstance): Promise<void> {
     if (!module) return reply.code(404).send({ error: 'not_found' });
     reply.header('Content-Type', 'application/octet-stream');
     reply.header('X-Doc-Version', String(module.docVersion));
+    reply.header('ETag', `"${module.docVersion}"`);
     return reply.send(Buffer.from(module.docSnapshot as Uint8Array));
   });
 
@@ -357,16 +358,29 @@ export async function moduleRoutes(app: FastifyInstance): Promise<void> {
     }
     const note = cleanNote(req.query?.note);
     if (note === undefined) return reply.code(400).send({ error: 'note_too_long' });
-    await db
+    // If-Match: the module's docVersion when the editor opened it (or last
+    // saved it). Someone else's save since then: 409, and nothing written,
+    // so neither save is lost. No If-Match (an older app, or "Save mine as a
+    // new version"): written as before; the other save stays in its history.
+    const base = baseVersion(req.headers['if-match']);
+    if (base === 'bad') return reply.code(400).send({ error: 'invalid_if_match' });
+    const was = current?.docVersion ?? 0;
+    if (base !== null && base !== was) return reply.code(409).send({ error: 'module_changed', docVersion: was });
+    const next = was + 1;
+    const written = await db
       .update(schema.modules)
       .set({
         docSnapshot: bytes,
-        docVersion: (current?.docVersion ?? 0) + 1,
+        docVersion: next,
         updatedAt,
       })
-      .where(eq(schema.modules.id, req.params.id));
+      // Only over the version read above: two saves at once can't both win.
+      .where(and(eq(schema.modules.id, req.params.id), eq(schema.modules.docVersion, was)))
+      .run();
+    if (written.changes === 0) return reply.code(409).send({ error: 'module_changed' });
     const version = await recordVersion(req.params.id, bytes, user.id, note);
-    return { ok: true, updatedAt: updatedAt.getTime(), version };
+    reply.header('ETag', `"${next}"`);
+    return { ok: true, updatedAt: updatedAt.getTime(), version, docVersion: next };
   });
 
   // ---- thumbnail ----------------------------------------------------------
@@ -739,4 +753,15 @@ function toListItem(
     createdAt: m.createdAt.getTime(),
     updatedAt: m.updatedAt.getTime(),
   };
+}
+
+/**
+ * The docVersion an If-Match names (`"3"`, `W/"3"` or `3`), null when there
+ * is none (or `*`), 'bad' when it isn't a version.
+ */
+export function baseVersion(header: string | string[] | undefined): number | null | 'bad' {
+  const raw = Array.isArray(header) ? header[0] : header;
+  if (raw === undefined || raw.trim() === '' || raw.trim() === '*') return null;
+  const m = /^(?:W\/)?"?(\d{1,12})"?$/.exec(raw.trim());
+  return m ? Number(m[1]) : 'bad';
 }

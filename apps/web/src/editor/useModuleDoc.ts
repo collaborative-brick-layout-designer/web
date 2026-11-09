@@ -6,7 +6,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import * as Y from 'yjs';
 import { Awareness } from 'y-protocols/awareness';
 import { canReadDoc, createDefaultLayoutDoc, docToBbm } from '@cld/ydoc';
-import { api } from '../api';
+import { api, ModuleChangedError } from '../api';
+import { HINT_EVENT } from '../live/LiveUpdates';
+import type { Hint } from '../live/invalidate';
 import { repairModuleSheets } from './moduleSheets';
 import { UNREADABLE_LAYOUT, type LayoutDocState, type SaveResult, type SaveStatus } from './useLayoutDoc';
 
@@ -19,7 +21,27 @@ function hasNoLayers(doc: Y.Doc): boolean {
   }
 }
 
-export function useModuleDoc(moduleId: string): LayoutDocState {
+/**
+ * Someone else saved the module since this editor opened it (or last saved):
+ * `refused` when this editor's save was turned down for it (409), otherwise
+ * heard live while there were changes here not saved yet.
+ */
+export interface ModuleChange {
+  refused: boolean;
+}
+
+export interface ModuleDocState extends LayoutDocState {
+  /** Someone else's save is waiting: Load theirs, or Save mine as a new version. */
+  moduleChange: ModuleChange | null;
+  /** Their version in place of the work here (which isn't saved). */
+  loadTheirs: () => void;
+  /** This work saved over theirs, as a new version (theirs stays in the history). */
+  saveMine: () => Promise<SaveResult>;
+  /** Close the card and carry on (the next save asks again). */
+  dismissChange: () => void;
+}
+
+export function useModuleDoc(moduleId: string): ModuleDocState {
   const [doc, setDoc] = useState<Y.Doc | null>(null);
   const [awareness, setAwareness] = useState<Awareness | null>(null);
   const [status, setStatus] = useState<SaveStatus>({ kind: 'connecting' });
@@ -30,6 +52,14 @@ export function useModuleDoc(moduleId: string): LayoutDocState {
   const editsRef = useRef(0);
   const afterSaveRef = useRef<(() => Promise<unknown>) | null>(null);
   const noteRef = useRef('');
+  /** The module's docVersion this doc is based on (sent as If-Match). */
+  const baseRef = useRef<number | undefined>(undefined);
+  const [moduleChange, setModuleChange] = useState<ModuleChange | null>(null);
+  /** Bumped to read the module again from the server (Load theirs). */
+  const [reload, setReload] = useState(0);
+  /** Unsaved work here (an edit since the last load or save), and a save on its way. */
+  const dirtyRef = useRef(false);
+  const savingRef = useRef(false);
   const setSaveNote = useCallback((note: string) => {
     noteRef.current = note;
   }, []);
@@ -47,14 +77,18 @@ export function useModuleDoc(moduleId: string): LayoutDocState {
     setLoadError(null);
     setStatus({ kind: 'connecting' });
     editsRef.current = 0;
+    dirtyRef.current = false;
     const onUpdate = () => {
       editsRef.current += 1;
+      dirtyRef.current = true;
       setStatus({ kind: 'unsaved' });
     };
     void (async () => {
       try {
-        const bytes = await api.modules.snapshot(moduleId);
+        const { bytes, docVersion } = await api.modules.snapshotAt(moduleId);
         if (cancelled) return;
+        baseRef.current = docVersion;
+        setModuleChange(null);
         let d = new Y.Doc();
         Y.applyUpdate(d, bytes);
         if (!canReadDoc(d.getMap('meta').get('schemaVersion'))) throw new Error(UNREADABLE_LAYOUT);
@@ -89,29 +123,62 @@ export function useModuleDoc(moduleId: string): LayoutDocState {
       }
       docRef.current = null;
     };
-  }, [moduleId]);
+  }, [moduleId, reload]);
 
-  // Save: the whole doc goes up as the module's new snapshot.
-  const saveNow = useCallback(async (): Promise<SaveResult> => {
+  // Save: the whole doc goes up as the module's new snapshot, over the
+  // version it started from (`force`: over whatever is there now).
+  const save = useCallback(async (force: boolean): Promise<SaveResult> => {
     const d = docRef.current;
     if (!d) return 'offline';
     const before = editsRef.current;
     setStatus({ kind: 'saving' });
+    savingRef.current = true;
     try {
-      await api.modules.saveSnapshot(moduleId, Y.encodeStateAsUpdate(d), noteRef.current);
+      const res = await api.modules.saveSnapshot(moduleId, Y.encodeStateAsUpdate(d), noteRef.current, force ? undefined : baseRef.current);
+      if (res.docVersion !== undefined) baseRef.current = res.docVersion;
       noteRef.current = '';
+      setModuleChange(null);
     } catch (e) {
       setStatus({ kind: 'unsaved' });
+      if (e instanceof ModuleChangedError) setModuleChange({ refused: true });
       throw e;
+    } finally {
+      savingRef.current = false;
     }
+    if (editsRef.current === before) dirtyRef.current = false;
     // Its picture; a failed picture never fails the save.
     await afterSaveRef.current?.().catch(() => undefined);
     setStatus(editsRef.current === before ? { kind: 'synced' } : { kind: 'unsaved' });
     return 'saved';
   }, [moduleId]);
+  const saveNow = useCallback(() => save(false), [save]);
+  const saveMine = useCallback(() => save(true), [save]);
+  const loadTheirs = useCallback(() => setReload((n) => n + 1), []);
+  const dismissChange = useCallback(() => setModuleChange(null), []);
+
+  // Someone else saves this module (the live hint): with nothing unsaved
+  // here it's simply loaded, so the editor always shows the newest; with
+  // work here, the card asks what to do.
+  useEffect(() => {
+    const onHint = (e: Event) => {
+      const hint = (e as CustomEvent<Hint>).detail;
+      if (hint?.kind !== 'module' || hint.id !== moduleId) return;
+      void api.modules
+        .get(moduleId)
+        .then(({ module }) => {
+          // Our own save (its answer may come after the hint), or nothing new.
+          if (savingRef.current || baseRef.current === undefined || module.docVersion <= baseRef.current) return;
+          if (!dirtyRef.current) setReload((n) => n + 1);
+          else setModuleChange((c) => c ?? { refused: false });
+        })
+        .catch(() => undefined);
+    };
+    window.addEventListener(HINT_EVENT, onHint);
+    return () => window.removeEventListener(HINT_EVENT, onHint);
+  }, [moduleId]);
 
   return useMemo(
-    () => ({ doc, awareness, status, saveNow, setAfterSave, setSaveNote, loadError, loading }),
-    [doc, awareness, status, saveNow, setAfterSave, setSaveNote, loadError, loading],
+    () => ({ doc, awareness, status, saveNow, setAfterSave, setSaveNote, loadError, loading, moduleChange, loadTheirs, saveMine, dismissChange }),
+    [doc, awareness, status, saveNow, setAfterSave, setSaveNote, loadError, loading, moduleChange, loadTheirs, saveMine, dismissChange],
   );
 }
