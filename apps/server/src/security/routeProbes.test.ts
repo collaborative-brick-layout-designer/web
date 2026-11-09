@@ -237,6 +237,7 @@ const ACCESS: Record<string, [Access, Scope, Flags?]> = {
   'PATCH /api/venues/:id': ['owner', 'venues:write'],
   'DELETE /api/venues/:id': ['owner', 'venues:write'],
   'POST /api/venues/:id/copy': ['owner', 'venues:write'],
+  'GET /api/admin/deleted-layouts': ['admin', null],
   'POST /api/venues/:id/move': ['owner', 'venues:write'],
   'GET /api/me/preferences': ['user', ['layouts:read', 'account:prefs']],
   'PUT /api/me/preferences': ['user', 'account:prefs'],

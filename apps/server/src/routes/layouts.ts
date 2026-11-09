@@ -13,6 +13,7 @@ import { readBbm, readSidecar, writeBbm, writeSidecar, type Sidecar } from '@cld
 import { hashBbmBytes } from '@cld/bbm/hash';
 import { createDefaultLayoutDoc, decodeDoc, encodeDoc, exportBbmFromDoc, exportSidecarFromDoc, readSidecarCache, seedFromBbm, seedFromSidecar, writeSidecarCache } from '@cld/ydoc';
 import { db, schema } from '../db/index.js';
+import { writeAuditEvent } from '../audit/writeAuditEvent.js';
 import { requireUser } from '../auth/cookie.js';
 import { isDemoUser } from '../demo/demoAccount.js';
 import { hasAtLeast, resolveResourceRole } from '../access/resolveResourceRole.js';
@@ -318,6 +319,26 @@ export async function layoutRoutes(app: FastifyInstance) {
     if (role.role === null) return reply.code(404).send({ error: 'not_found' });
     if (!hasAtLeast(role.role, 'owner')) return reply.code(403).send({ error: 'forbidden' });
 
+    // Recorded before it goes, as Admin › Layouts' delete is (admin_layout_delete):
+    // who, its title, and whose it was (the person themselves, or a club).
+    // Its earlier history stays in audit_events (layout_id has no foreign key)
+    // and site admins find it under Admin › Audit log › Deleted layouts.
+    const gone = await db
+      .select({ title: schema.layouts.title, ownerUserId: schema.layouts.ownerUserId, ownerOrgId: schema.layouts.ownerOrgId })
+      .from(schema.layouts)
+      .where(eq(schema.layouts.id, req.params.id))
+      .get();
+    if (gone) {
+      const club = gone.ownerOrgId ? await db.select({ name: schema.orgs.name }).from(schema.orgs).where(eq(schema.orgs.id, gone.ownerOrgId)).get() : undefined;
+      await writeAuditEvent({
+        layoutId: req.params.id,
+        userId: user.id,
+        eventType: 'layout_delete',
+        payload: gone.ownerOrgId
+          ? { title: gone.title, owner: 'club', clubId: gone.ownerOrgId, clubName: club?.name ?? null }
+          : { title: gone.title, owner: gone.ownerUserId === user.id ? 'self' : 'person' },
+      });
+    }
     await db.delete(schema.layouts).where(eq(schema.layouts.id, req.params.id));
     // Shut any open editor sockets; otherwise their next update hits a
     // foreign-key failure against the deleted row.

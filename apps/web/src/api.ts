@@ -1138,9 +1138,14 @@ export const api = {
       spriteMime: 'image/gif' | 'image/png';
     }) => post<{ id: string }>('/api/admin/global-parts', body),
     deleteGlobalPart: (id: string) => del(`/api/admin/global-parts/${id}`),
-    auditLog: (q: AdminListParams) =>
+    auditLog: (q: AdminListParams & { layout?: string }) =>
       get<{ events: AdminAuditEvent[]; total: number; limit: number; offset: number }>(
-        `/api/admin/audit?${listParams(q)}`,
+        `/api/admin/audit?${listParams(q)}${q.layout ? `&layout=${encodeURIComponent(q.layout)}` : ''}`,
+      ),
+    /** Layouts deleted by their owner or a site admin, by the title their delete recorded. */
+    deletedLayouts: (q: { limit?: number; offset?: number } = {}) =>
+      get<{ layouts: DeletedLayout[]; total: number; limit: number; offset: number }>(
+        `/api/admin/deleted-layouts?limit=${q.limit ?? 50}&offset=${q.offset ?? 0}`,
       ),
     partLibraries: () => get<{ libraries: PartLibrary[]; onDiskBaseParts?: number }>('/api/admin/part-libraries'),
     searchPartLibraries: (source: string) =>
@@ -2217,4 +2222,19 @@ export interface ModerationCounts {
   public: number;
   unpublished: number;
   collections: number;
+}
+
+/** Admin › Audit log › Deleted layouts: one deleted layout. */
+export interface DeletedLayout {
+  layoutId: string;
+  /** As its delete event recorded it. */
+  title: string | null;
+  deletedAt: number;
+  deletedBy: string | null;
+  /** Deleted by its owner, or by a site admin. */
+  by: 'owner' | 'admin';
+  /** The club it belonged to, if a club's. */
+  club: string | null;
+  /** Events in its history. */
+  events: number;
 }

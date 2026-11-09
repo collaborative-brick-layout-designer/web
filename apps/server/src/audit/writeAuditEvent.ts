@@ -46,6 +46,8 @@ export type AuditEventType =
   | 'layout_update_refused'
   // A module went back to an earlier version (as a new version).
   | 'restore_version'
+  // Its owner deleted a layout (routes/layouts.ts): who, its title, whose it was.
+  | 'layout_delete'
   // Platform-admin actions. Subject is the resource being modified
   // (`resourceKind: 'user' | 'org' | 'layout' | ...`); the userId
   // field on the event is the admin who performed the action.
