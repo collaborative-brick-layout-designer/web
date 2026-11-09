@@ -4,19 +4,24 @@
 import { useRef, useState } from 'react';
 import type * as Y from 'yjs';
 import type { BackgroundImage } from '@cld/bbm';
+import type { BbmMap } from '@cld/model';
 import { readSidecarFromDoc } from '@cld/ydoc';
 import { setBackgroundImage, clearBackgroundImage } from './mutations';
 import { noteWrite } from '../api';
 import { confirmDelete } from '../ui/ConfirmDialog';
 import { useEscape } from './useEscape';
+import { fitImageRect } from './background';
+import { contentBoundsStuds } from './exportRender';
 
 interface Props {
   layoutId: string;
   doc: Y.Doc;
+  /** The layout, to fit a new picture over its parts. */
+  map?: BbmMap | null;
   onClose: () => void;
 }
 
-export function BackgroundImageDialog({ layoutId, doc, onClose }: Props) {
+export function BackgroundImageDialog({ layoutId, doc, map, onClose }: Props) {
   useEscape(onClose);
   const existing = readSidecarFromDoc(doc)?.backgroundImage ?? null;
 
@@ -27,6 +32,22 @@ export function BackgroundImageDialog({ layoutId, doc, onClose }: Props) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
+
+  // A new picture: fitted over the parts, keeping its shape (not a 100 × 100 box at 0,0).
+  async function pick(f: File | null) {
+    setFile(f);
+    if (!f) return;
+    try {
+      const bmp = await createImageBitmap(f);
+      const fit = fitImageRect(map ? contentBoundsStuds(map) : null, { width: bmp.width, height: bmp.height });
+      bmp.close();
+      const round = (v: number) => Math.round(v * 10) / 10;
+      setRect({ x: round(fit.x), y: round(fit.y), w: round(fit.w), h: round(fit.h) });
+      setUseRect(true);
+    } catch {
+      // Not readable here: the server says so on OK.
+    }
+  }
 
   async function commit() {
     setBusy(true);
@@ -70,12 +91,18 @@ export function BackgroundImageDialog({ layoutId, doc, onClose }: Props) {
     if (!ok) return;
     setBusy(true);
     try {
-      await fetch(`/api/layouts/${layoutId}/background-image`, {
+      const res = await fetch(`/api/layouts/${layoutId}/background-image`, {
         method: 'DELETE',
         credentials: 'include',
       });
+      // Gone already (404) is fine; anything else keeps the picture.
+      if (!res.ok && res.status !== 404) {
+        setError('Couldn’t remove the picture. Try again.');
+        return;
+      }
       noteWrite('DELETE', `/api/layouts/${layoutId}/background-image`);
-      clearBackgroundImage(doc);
+      // The file is gone, so this isn't an undo step (Undo would bring back a broken picture).
+      clearBackgroundImage(doc, { untracked: true });
       onClose();
     } catch {
       setError('Failed to remove');
@@ -102,7 +129,8 @@ export function BackgroundImageDialog({ layoutId, doc, onClose }: Props) {
               ref={inputRef}
               type="file"
               accept="image/png,image/jpeg,image/gif,image/webp"
-              onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+              aria-label="Image file"
+              onChange={(e) => void pick(e.target.files?.[0] ?? null)}
               className="w-full text-xs text-neutral-300"
             />
             {existing?.url && !file && (
@@ -156,6 +184,11 @@ export function BackgroundImageDialog({ layoutId, doc, onClose }: Props) {
         </div>
 
         {error && <p className="mt-2 text-xs text-danger">{error}</p>}
+        {!file && !existing && (
+          <p className="mt-2 text-xs text-muted" data-testid="background-pick-hint">
+            Choose a picture first. It’s fitted over your parts; tick Custom placement to move it.
+          </p>
+        )}
 
         <div className="mt-5 flex items-center justify-between">
           {existing && (

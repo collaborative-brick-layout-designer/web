@@ -41,7 +41,8 @@ import { drawSelection, SELECTION_OVERLAY, type GlyphInfo } from './SelectionOve
 import { useLiveDragPose, type DragPose } from '../liveDragPose';
 import { isTouchEvent, tapGuard } from '../touchGesture';
 import type { SidecarModule } from '@cld/bbm';
-import { boundsOf, canDragPart, moduleByPart, outsideEdit, outsideOutline, pinnedAmong, selectionUnit, type StudRect } from '../moduleEdit';
+import { boundsOf, canDragPart, moduleByPart, dimInEdit, outsideEdit, outsideOutline, pinnedAmong, selectionUnit, type StudRect } from '../moduleEdit';
+import { editedModuleFrame } from './ModuleEditDim';
 import { enterModuleEdit, leaveModuleEdit, takeOutOfModule, tellPinned } from '../moduleActions';
 import { askConfirm } from '../../ui/ConfirmDialog';
 import { useYjsSnapshot } from '../useYjsSnapshot';
@@ -207,6 +208,8 @@ export const BrickLayer = memo(function BrickLayer({ map, doc, isViewer = false,
   const getMap = useCallback(() => mapRef.current, []);
 
   const brickLayers = map.layers.filter((l): l is LayerBrick => l.type === 'brick');
+  // The edited module's frame: parts beyond it are dimmed by the one overlay, not each on its own.
+  const editFrame = useMemo(() => (editingModuleId ? editedModuleFrame(map, modules, editingModuleId) : null), [map, modules, editingModuleId]);
 
   // The picked parts' halos (not a module picked whole: ModuleOverlay
   // shows that) and dots, one shape over every part, like the desktop.
@@ -267,6 +270,7 @@ export const BrickLayer = memo(function BrickLayer({ map, doc, isViewer = false,
                   getModules={getModules}
                   dragOk={canDragPart(brick.id, modules, editingModuleId)}
                   outside={outsideEdit(brick.id, modules, editingModuleId)}
+                  dimmed={dimInEdit(brick.id, brick.displayArea, modules, editingModuleId, editFrame)}
                   partsByKey={partsByKey}
                   glyphs={glyphs}
                   {...(onEditBrick ? { onEditBrick } : {})}
@@ -301,6 +305,7 @@ const BrickGlyph = memo(function BrickGlyph({
   getModules,
   dragOk,
   outside,
+  dimmed,
   partsByKey,
   glyphs,
   onEditBrick,
@@ -326,8 +331,10 @@ const BrickGlyph = memo(function BrickGlyph({
   getModules: () => readonly SidecarModule[];
   /** It may be dragged: not out of reach while a module is edited, and not in a pinned module. */
   dragOk: boolean;
-  /** A module is being edited and this part isn't in it: dimmed and out of reach. */
+  /** A module is being edited and this part isn't in it: out of reach. */
   outside: boolean;
+  /** Drawn at half strength on its own: outside the edited module but inside its frame (beyond it, the dim overlay does it). */
+  dimmed: boolean;
   partsByKey: Map<string, PartWire>;
   /** Where the part tells the selection overlay what it needs (SelectionOverlay.ts). */
   glyphs: Map<string, GlyphInfo>;
@@ -1266,7 +1273,7 @@ const BrickGlyph = memo(function BrickGlyph({
       y={studToPx(pivot.y)}
       rotation={brick.orientation}
       draggable={!isViewer && tool === 'select' && dragOk}
-      opacity={outside ? opacity * 0.5 : opacity}
+      opacity={dimmed ? opacity * 0.5 : opacity}
       onMouseDown={handleMouseDown}
       onTouchStart={handleTouchStart}
       onClick={handleClick}

@@ -25,6 +25,7 @@ import { CustomPartsSection } from '../parts/CustomPartsSection';
 import { AddToCollectionDialog } from '../catalog/AddToCollection';
 import { HomeCollections } from '../catalog/Collections';
 import { WelcomeCard } from '../tours/WelcomeCard';
+import { MyInvites } from '../orgs/MyInvites';
 import { WELCOME_ID } from '../tours/tours';
 import { usePreferences } from '../theme/PrefsProvider';
 import { lastLayoutToReopen } from './reopenLast';
@@ -129,6 +130,7 @@ export function LayoutsPage() {
   return (
     <section className="space-y-8">
       <WelcomeCard name={me.data?.user?.displayName} onLayout={() => setShowCreate(true)} />
+      {me.data?.user && <MyInvites />}
 
       {!hasClubs && orgsQuery.isSuccess && prefs.ready && prefs.prefs.toursSeen.includes(WELCOME_ID) && (
         <div data-tour="clubs.join" data-testid="join-club-card" className="flex flex-wrap items-center justify-between gap-3 rounded-card border border-line bg-panel px-4 py-3">

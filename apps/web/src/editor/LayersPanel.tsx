@@ -31,6 +31,7 @@ import { LayerOptionsDialog } from './LayerOptionsDialog';
 import { confirmDelete } from '../ui/ConfirmDialog';
 import { deleteSheetWording } from './sheetContents';
 import { displaySheetName, renamedSheet, sheetName, SHEET_GLYPH } from './activeSheet';
+import { useMenuRoles } from '../ui/menu/useMenuRoles';
 
 interface Props {
   map: BbmMap;
@@ -174,6 +175,7 @@ function LayerRow({
   const [showOptions, setShowOptions] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const menuStyle = useOnScreen(menuRef, ctxMenu);
+  useMenuRoles(menuRef, !!ctxMenu, `Sheet ${shownName}`, () => setCtxMenu(null));
   const itemCount = layerItemCount(layer);
 
   // Re-sync the draft when the layer's name changes externally (remote

@@ -5,7 +5,7 @@
 // they persist and sync; .bbb Open/Save import and export them.
 
 import { noticeDownloaded, useEditorStore } from './editorStore';
-import { useState, useMemo } from 'react';
+import { useState, useMemo, type CSSProperties } from 'react';
 import type { BbmMap } from '@cld/model';
 import { mergeBudgets, parseBbb, writeBbb, type BudgetEntry } from './budgetFile';
 import { budgetRows } from './budgetUsage';
@@ -17,10 +17,14 @@ interface Props {
   onLimitsChange: (limits: Map<string, number>) => void;
   /** Current id for an old part number read from a .bbb (BlueBrick getActualPartNumber); identity by default. */
   resolvePart?: (id: string) => string;
+  /** The part's name from the parts library, shown beside its number. */
+  partName?: (id: string) => string | undefined;
+  /** How far from the right edge it opens (the right dock's width), so it never covers the Parts panel. */
+  clearRight?: string;
   onClose: () => void;
 }
 
-export function BudgetDialog({ map, limits, onLimitsChange, resolvePart = (id) => id, onClose }: Props) {
+export function BudgetDialog({ map, limits, onLimitsChange, resolvePart = (id) => id, partName, clearRight = '0px', onClose }: Props) {
   const setLimits = onLimitsChange;
   const [fileName, setFileName] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
@@ -120,7 +124,8 @@ export function BudgetDialog({ map, limits, onLimitsChange, resolvePart = (id) =
       role="dialog"
       aria-label="Budget"
       // On a phone it spans the screen's width, above the touch bar.
-      className="fixed inset-x-2 bottom-[calc(0.5rem+var(--touch-bar-h,0px))] z-40 flex flex-col rounded-lg border border-border bg-panel text-sm shadow-2xl sm:inset-x-auto sm:bottom-8 sm:right-8 sm:w-[540px]"
+      style={{ '--budget-right': `calc(${clearRight} + 2rem)` } as CSSProperties}
+      className="fixed inset-x-2 bottom-[calc(0.5rem+var(--touch-bar-h,0px))] z-40 flex flex-col rounded-lg border border-border bg-panel text-sm shadow-2xl sm:inset-x-auto sm:bottom-8 sm:right-(--budget-right) sm:w-[540px]"
     >
       {/* Title bar */}
       <div className="flex items-center justify-between border-b border-line px-3 py-2">
@@ -130,7 +135,7 @@ export function BudgetDialog({ map, limits, onLimitsChange, resolvePart = (id) =
           </span>
           <HelpButton helpKey="dialog.budget" />
         </span>
-        <button onClick={onClose} className="text-muted hover:text-ink text-base leading-none">×</button>
+        <button onClick={onClose} aria-label="Close the budget" title="Close the budget" className="text-muted hover:text-ink text-base leading-none">×</button>
       </div>
 
       {/* Toolbar */}
@@ -171,7 +176,16 @@ export function BudgetDialog({ map, limits, onLimitsChange, resolvePart = (id) =
               const over = limit >= 0 && used > limit;
               return (
                 <tr key={part} className={over ? 'bg-red-950/60' : 'odd:bg-soft/30'}>
-                  <td className="px-2 py-1 font-mono">{part}</td>
+                  <td className="px-2 py-1">
+                    {partName?.(part) ? (
+                      <>
+                        <span className="block">{partName(part)}</span>
+                        <span className="block font-mono text-muted">{part}</span>
+                      </>
+                    ) : (
+                      <span className="font-mono">{part}</span>
+                    )}
+                  </td>
                   <td className={`px-2 py-1 text-right ${over ? 'text-danger font-bold' : ''}`}>{used}</td>
                   <td className="px-2 py-1">
                     <input

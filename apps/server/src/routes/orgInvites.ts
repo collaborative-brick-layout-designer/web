@@ -2,12 +2,13 @@
 //
 //   GET  /api/org-invites/:token    → preview (no side effects)
 //   POST /api/org-invites/:token    → accept (auth required, email-match)
+//   GET  /api/me/org-invites        → the open invites for my (verified) address
 //
 // Mirrors the layout-invite endpoints in routes/invites.ts. The demo
 // account can't accept one: it never joins clubs.
 
 import type { FastifyInstance } from 'fastify';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, gt, isNull, sql } from 'drizzle-orm';
 import { db, schema } from '../db/index.js';
 import { clubAccess, setMemberRoles } from '../access/clubPermissions.js';
 import { inviteRole, mayGiveRole } from './orgs.js';
@@ -17,8 +18,55 @@ import { isDemoUser } from '../demo/demoAccount.js';
 import { hasVerifiedEmail } from '../auth/users.js';
 import { sameEmail } from '../utils/validate.js';
 import { maskEmail } from '../utils/maskEmail.js';
+import { publicName } from '../utils/publicName.js';
 
 export async function orgInviteRoutes(app: FastifyInstance): Promise<void> {
+  // Home's "You're invited to a club": the open invites for the signed-in
+  // person's address, so someone with an account can join without the email.
+  // Only once the address is proven (as accepting needs), and never for a
+  // club waiting to be deleted.
+  app.get('/api/me/org-invites', async (req) => {
+    const user = requireUser(req);
+    if (isDemoUser(user) || !(await hasVerifiedEmail(user))) return { invites: [] };
+    const rows = await db
+      .select({
+        token: schema.orgInvites.token,
+        orgId: schema.orgInvites.orgId,
+        role: schema.orgInvites.role,
+        roleId: schema.orgInvites.roleId,
+        expiresAt: schema.orgInvites.expiresAt,
+        orgName: schema.orgs.name,
+        orgSlug: schema.orgs.slug,
+        inviterId: schema.users.id,
+        inviterName: schema.users.displayName,
+      })
+      .from(schema.orgInvites)
+      .innerJoin(schema.orgs, eq(schema.orgs.id, schema.orgInvites.orgId))
+      .leftJoin(schema.users, eq(schema.users.id, schema.orgInvites.invitedBy))
+      .where(
+        and(
+          sql`lower(${schema.orgInvites.invitedEmail}) = ${user.email.trim().toLowerCase()}`,
+          isNull(schema.orgInvites.acceptedAt),
+          gt(schema.orgInvites.expiresAt, new Date()),
+          isNull(schema.orgs.deletionDueAt),
+        ),
+      )
+      .limit(50)
+      .all();
+    const invites = [];
+    for (const r of rows) {
+      invites.push({
+        token: r.token,
+        orgName: r.orgName,
+        orgSlug: r.orgSlug,
+        roleName: (await inviteRole(r.orgId, r))?.name ?? null,
+        invitedBy: r.inviterId ? publicName(r.inviterId, r.inviterName) : null,
+        expiresAt: r.expiresAt.getTime(),
+      });
+    }
+    return { invites };
+  });
+
   app.get<{ Params: { token: string } }>(
     '/api/org-invites/:token',
     async (req, reply) => {

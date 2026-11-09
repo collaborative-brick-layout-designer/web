@@ -51,3 +51,22 @@ export function argbSpec(hex: string, alpha: number): ColorSpec {
 export function hexAlpha(c: ColorSpec, fallback = '#6495ed'): { hex: string; alpha: number } {
   return { hex: colorSpecToHex(c, fallback), alpha: colorSpecAlpha(c) };
 }
+
+/**
+ * Where a new background picture goes, in studs: fitted over the layout's
+ * parts (`bounds`), keeping its shape and centred on them; on an empty map,
+ * at its own size (8 px a stud) from the corner. Not a 100 × 100 box at 0,0.
+ */
+export function fitImageRect(
+  bounds: { x: number; y: number; width: number; height: number } | null,
+  natural: { width: number; height: number },
+  pxPerStud = 8,
+): { x: number; y: number; w: number; h: number } {
+  const iw = Math.max(1, natural.width);
+  const ih = Math.max(1, natural.height);
+  if (!bounds || !(bounds.width > 0) || !(bounds.height > 0)) return { x: 0, y: 0, w: iw / pxPerStud, h: ih / pxPerStud };
+  const scale = Math.min(bounds.width / iw, bounds.height / ih);
+  const w = iw * scale;
+  const h = ih * scale;
+  return { x: bounds.x + (bounds.width - w) / 2, y: bounds.y + (bounds.height - h) / 2, w, h };
+}

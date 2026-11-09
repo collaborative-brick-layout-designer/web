@@ -32,6 +32,7 @@ import { useDocMap } from './useDocMap';
 import { hiddenSheetsNote, moduleSheetsUsed } from './moduleSheets';
 import { indexParts } from './partIndex';
 import type { PartGeom } from './brickGeometry';
+import { useMenuRoles } from '../ui/menu/useMenuRoles';
 
 interface Props {
   doc: Y.Doc;
@@ -128,6 +129,7 @@ function ModuleRow({
   const [lookOpen, setLookOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const menuStyle = useOnScreen(menuRef, ctxMenu);
+  useMenuRoles(menuRef, !!ctxMenu, `Module ${module.name}`, () => setCtxMenu(null));
 
   const isMembersSelected =
     module.members.length > 0 &&

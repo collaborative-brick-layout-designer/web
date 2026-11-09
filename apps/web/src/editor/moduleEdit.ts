@@ -66,6 +66,24 @@ export function outsideEdit(partId: string, modules: readonly SidecarModule[], e
 }
 
 /**
+ * Whether a part outside the edited module is dimmed on its own. Only one
+ * inside the module's frame is: the dim overlay (ModuleEditDim) covers
+ * everything beyond the frame as one layer, so parts there keep their own
+ * look under it and a covered part never shows through the one above it.
+ */
+export function dimInEdit(
+  partId: string,
+  area: StudRect,
+  modules: readonly SidecarModule[],
+  editingId: string | null,
+  frame: StudRect | null,
+): boolean {
+  if (!outsideEdit(partId, modules, editingId)) return false;
+  if (!frame) return true;
+  return area.x < frame.x + frame.width && area.x + area.width > frame.x && area.y < frame.y + frame.height && area.y + area.height > frame.y;
+}
+
+/**
  * A pinned module (not the one being edited) with a part among `ids`: the
  * selection can't be moved or turned as a whole. Null when nothing is pinned.
  */

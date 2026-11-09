@@ -59,7 +59,7 @@ const KEYS: Record<HintKind, (h: Hint) => QueryKey[]> = {
     ['club-review'], ['moderation-clubs'], ['org'], ['orgs'],
   ],
   club: (h) => [
-    ['orgs'], ['org'], ['org-members'], ['org-join-requests'], ['join-request-count'], ['org-audit'],
+    ['orgs'], ['org'], ['org-members'], ['org-join-requests'], ['my-org-invites'], ['join-request-count'], ['org-audit'],
     // Deleting a club: Clubs › Being deleted, and the delete screen.
     ['clubs-deleting'], ['club-deletion'],
     ['org-part-libraries'], ['org-user-search'], ['club-summary'], ['club-directory'],
@@ -74,7 +74,7 @@ const KEYS: Record<HintKind, (h: Hint) => QueryKey[]> = {
     ...(MEMBERSHIP_CHANGE.test(h.action ?? '') ? [['parts-catalog']] : []),
     ...ADMIN_LISTS,
   ],
-  me: () => [['me'], ['preferences'], ['api-tokens'], ['sessions'], ['providers'], ['my-exports'], ['my-deletion'], ['club-exports']],
+  me: () => [['me'], ['preferences'], ['api-tokens'], ['sessions'], ['providers'], ['my-exports'], ['my-deletion'], ['club-exports'], ['my-org-invites']],
   transfer: () => [['layouts'], ['modules'], ['transfer-preview']],
   // …and the demo account's last reset (Admin › Settings and the dashboard).
   admin: () => [

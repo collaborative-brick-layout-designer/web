@@ -351,7 +351,7 @@ export function PartLibrariesTab() {
                   className="accent-accent"
                 />
                 <span>{src.label}</span>
-                <span className="text-neutral-600">— {src.hint}</span>
+                <span className="text-muted">— {src.hint}</span>
               </label>
             ))}
             {selectedSources.has('custom') && customUrl.trim() && (

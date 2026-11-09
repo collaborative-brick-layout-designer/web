@@ -2883,9 +2883,14 @@ export function setBackgroundImage(doc: Y.Doc, bg: BackgroundImage): void {
   }, LOCAL_ORIGIN);
 }
 
-export function clearBackgroundImage(doc: Y.Doc): void {
+/** Not on the undo stack: Undo can't bring back a picture whose file is gone. */
+export const BACKGROUND_REMOVED_ORIGIN = Symbol('cld-background-removed');
+
+/** `untracked`: after the server deleted the file, so Undo never brings back
+ *  a picture that would only 404. */
+export function clearBackgroundImage(doc: Y.Doc, opts: { untracked?: boolean } = {}): void {
   doc.transact(() => {
     const { backgroundImage: _removed, ...rest } = readSidecarCache(doc);
     writeSidecarCache(doc, rest);
-  }, LOCAL_ORIGIN);
+  }, opts.untracked ? BACKGROUND_REMOVED_ORIGIN : LOCAL_ORIGIN);
 }

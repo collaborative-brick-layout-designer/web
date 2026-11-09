@@ -866,6 +866,11 @@ export const api = {
       }>(`/api/org-invites/${token}`),
     accept: (token: string) =>
       post<{ orgId: string; role: ClubRole }>(`/api/org-invites/${token}`),
+    /** The open club invites for the signed-in person's address (Home). */
+    mine: () =>
+      get<{ invites: { token: string; orgName: string; orgSlug: string; roleName: string | null; invitedBy: string | null; expiresAt: number }[] }>(
+        '/api/me/org-invites',
+      ),
   },
 
   transfers: {

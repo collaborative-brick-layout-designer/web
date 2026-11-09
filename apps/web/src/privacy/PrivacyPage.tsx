@@ -25,7 +25,7 @@ export function PrivacyPage() {
   const q = useQuery({ queryKey: ['privacy-page'], queryFn: fetchPrivacy });
   return (
     <main className="mx-auto max-w-2xl space-y-6 p-4 text-ink sm:p-8">
-      <Link to="/" className="text-sm text-accent-text hover:underline">
+      <Link to="/" className="text-sm text-accent-text underline underline-offset-2">
         ← Home
       </Link>
       <h1 className="font-display text-2xl font-semibold">Privacy</h1>
@@ -43,13 +43,13 @@ export function PrivacyPage() {
             <h2 className="font-semibold">Your data, your choice</h2>
             <ul className="list-disc space-y-1 pl-5">
               <li>
-                <Link to="/profile#my-data" className="text-accent-text hover:underline">
+                <Link to="/profile#my-data" className="text-accent-text underline underline-offset-2">
                   Download your data
                 </Link>
                 : everything this site keeps about you, in one file.
               </li>
               <li>
-                <Link to="/profile#delete-account" className="text-accent-text hover:underline">
+                <Link to="/profile#delete-account" className="text-accent-text underline underline-offset-2">
                   Delete your account
                 </Link>
                 : it waits a while first, so you can change your mind.
@@ -60,7 +60,7 @@ export function PrivacyPage() {
               <p data-testid="privacy-contact">
                 Contact:{' '}
                 {contactHref(q.data.contact) ? (
-                  <a href={contactHref(q.data.contact)!} className="text-accent-text hover:underline">
+                  <a href={contactHref(q.data.contact)!} className="text-accent-text underline underline-offset-2">
                     {q.data.contact}
                   </a>
                 ) : (

@@ -1,4 +1,4 @@
-// "Budget reached" box shown when Use Budget Limitation refuses a part —
+// "Budget reached" box shown when "Stop at the budget limits" refuses a part —
 // port of MapView::reportBudgetRefusal (MapView.cpp:1675-1690), with its
 // "don't show again" check box (`general/warnBudgetLimitation`).
 
@@ -21,8 +21,8 @@ export function BudgetReachedDialog({ onClose }: { onClose: () => void }) {
       <div onClick={(e) => e.stopPropagation()} className="w-lg rounded-lg border border-line bg-panel p-5 shadow-xl">
         <h2 className="text-base font-semibold text-danger">Budget reached</h2>
         <p className="mt-3 text-sm text-neutral-300">
-          Cannot add this part because the budget is reached. If you want to add this part, increase the budget for this
-          part, disable the Budget Limitation or close the budget file.
+          This part wasn’t added: the layout already has as many as its budget allows. To add it, raise its limit in
+          Budget › Edit budget…, or turn off Budget › Stop at the budget limits.
         </p>
         <label className="mt-4 flex items-center gap-2 text-sm text-muted">
           <input type="checkbox" checked={dontShow} onChange={(e) => setDontShow(e.target.checked)} />

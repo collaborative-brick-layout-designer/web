@@ -70,7 +70,7 @@ import { sanitizeFilename } from '../bbmFiles';
 import { downloadLocalLayout, saveFile } from './localLayoutFile';
 import { backgroundImageRectPx, sameOriginImageUrl } from './background';
 import { mapFontsReady } from './render/mapText';
-import { scaleBar } from './scaleBar';
+import { scaleBar, studDisplay } from './scaleBar';
 import { areaForPivot, areaSize, pivotOf } from './brickGeometry';
 import { imageOffset } from '@cld/parts-catalog/browser';
 import { askForPermission } from '../orgs/clubPermissions';
@@ -1203,6 +1203,7 @@ function Editor({ layoutId, docState, moduleMode }: { layoutId: string; docState
             <HeaderEditButtons
               saveNow={saveNow}
               canvasActionsRef={canvasActionsRef}
+              touch={touchTablet}
             />
           )}
           {!isViewer && (
@@ -1548,6 +1549,7 @@ function Editor({ layoutId, docState, moduleMode }: { layoutId: string; docState
         <BackgroundImageDialog
           layoutId={layoutId}
           doc={doc}
+          map={docMap}
           onClose={() => setShowBackgroundImage(false)}
         />
       )}
@@ -1662,6 +1664,8 @@ function Editor({ layoutId, docState, moduleMode }: { layoutId: string; docState
           limits={budgetLimits}
           onLimitsChange={(next) => setBudgetLimits(doc, next)}
           resolvePart={(id) => actualPartNumber(partIndex, id)}
+          partName={(id) => partIndex.get(id.toLowerCase())?.description || undefined}
+          clearRight={rightWidthPx}
           onClose={() => setShowBudget(false)}
         />
       )}
@@ -5690,11 +5694,6 @@ function StatusBar({ gridSpan, status, venue, budgetLimits, budgetMap, onZoomIn,
   // so a warning shows (or clears) before the drop.
   const venueReadout = useLiveVenueReadout(venue, budgetMap ?? null);
   const budgetOver = useMemo(() => overBudgetCount(budgetMap, budgetLimits), [budgetMap, budgetLimits]);
-  // 1 stud = 8mm for standard LEGO; display in m when ≥100 studs
-  function studDisplay(studs: number): string {
-    if (studs >= 100) return `${(studs * 0.008).toFixed(1)} m`;
-    return `${studs} st`;
-  }
   const dirty = status.kind === 'reconnecting' || status.kind === 'error';
   const pieces = useMemo(
     () => (budgetMap?.layers ?? []).reduce((n, l) => n + (l.type === 'brick' ? l.bricks.length : 0), 0),
@@ -5955,10 +5954,27 @@ function PanelsMenu({
 }) {
   const [open, setOpen] = useState(false);
   const [anchor, setAnchor] = useState<React.CSSProperties>({});
+  const button = useRef<HTMLButtonElement>(null);
   const allIds = Object.keys(PANEL_TITLES);
+  // Esc closes it and gives the focus back to the button, like every other menu.
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      e.preventDefault();
+      e.stopPropagation();
+      setOpen(false);
+      button.current?.focus();
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [open]);
   return (
     <div className="relative">
       <button
+        ref={button}
+        aria-haspopup="true"
+        aria-expanded={open}
         onClick={(e) => {
           setAnchor(dropdownAnchor(e.currentTarget, window.innerWidth, 168));
           setOpen((v) => !v);
@@ -5972,7 +5988,7 @@ function PanelsMenu({
         <>
           {/* Click-away backdrop */}
           <div className="fixed inset-0 z-20" onClick={() => setOpen(false)} />
-          <ul className="fixed z-[45] min-w-[168px] rounded-lg border border-border bg-panel text-xs shadow-sm" style={anchor}>
+          <ul aria-label="Panels" className="fixed z-[45] min-w-[168px] rounded-lg border border-border bg-panel text-xs shadow-sm" style={anchor}>
             {allIds.map((id) => {
               const visible = dock.left.includes(id) || dock.right.includes(id) || dock.float.includes(id);
               return (
@@ -6111,9 +6127,12 @@ function EmptyDoc() {
 function HeaderEditButtons({
   saveNow,
   canvasActionsRef,
+  touch = false,
 }: {
   saveNow: () => Promise<void> | void;
   canvasActionsRef: React.MutableRefObject<CanvasActions | null>;
+  /** A touch screen: the touch bar has the picked parts' buttons (and Paste), so they aren't here twice. */
+  touch?: boolean;
 }) {
   const selection = useEditorStore((s) => s.selection);
   const annoTotal = useEditorStore((s) => annoCount(s.annoSelection));
@@ -6126,6 +6145,8 @@ function HeaderEditButtons({
       <button onClick={() => void saveNow()} title="Save (Ctrl+S)" className={btnCls}>
         Save
       </button>
+      {!touch && (
+      <>
       <div className="h-4 w-px bg-neutral-700" />
       <button onClick={() => act()?.cut()} disabled={!hasSel} title="Cut (Ctrl+X)" className={btnCls}>
         Cut
@@ -6158,6 +6179,8 @@ function HeaderEditButtons({
       <button onClick={() => act()?.reorder('front')} disabled={!hasSel} title="Bring to front (Ctrl+Shift+])" aria-label="Bring to front" className={btnCls + ' whitespace-nowrap'}>
         Bring to front
       </button>
+      </>
+      )}
     </>
   );
 }

@@ -160,15 +160,18 @@ export function InsertModuleDialog({ doc, onClose }: Props) {
                 className="flex items-center justify-between px-3 py-2"
               >
                 <ModuleThumb module={m} size="md" />
-                <div className="min-w-0 flex-1 px-3">
+                <div className={`min-w-0 flex-1 px-3${m.docVersion === 0 ? ' opacity-60' : ''}`}>
                   <p className="break-words">{m.title}</p>
                   <p className="text-xs text-muted">
-                    v{m.docVersion} · updated {new Date(m.updatedAt).toLocaleString()}
+                    {m.docVersion === 0
+                      ? 'No parts yet: open it from Home and add some'
+                      : `v${m.docVersion} · updated ${new Date(m.updatedAt).toLocaleString()}`}
                   </p>
                 </div>
                 <button
                   onClick={() => insert.mutate(m.id)}
-                  disabled={insert.isPending}
+                  disabled={insert.isPending || m.docVersion === 0}
+                  title={m.docVersion === 0 ? 'This module has no parts yet' : undefined}
                   className="rounded-lg bg-accent text-accent-ink px-3 py-1 text-xs hover:bg-accent-hover disabled:opacity-50"
                 >
                   Insert

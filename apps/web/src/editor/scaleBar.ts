@@ -34,3 +34,11 @@ export function scaleBar(pxPerStud: number): ScaleBar | null {
     secondary: mm >= 1000 ? `${(mm / 1000).toFixed(2)} m` : `${mm} mm`,
   };
 }
+
+/** A size for the status bar: meters from 100 studs (1 stud = 8 mm), whole
+ *  studs as they are, anything else to one place ("37.0 st", never
+ *  "36.974999999999994 st"). */
+export function studDisplay(studs: number): string {
+  if (studs >= 100) return `${(studs * 0.008).toFixed(1)} m`;
+  return Number.isInteger(studs) ? `${studs} st` : `${studs.toFixed(1)} st`;
+}

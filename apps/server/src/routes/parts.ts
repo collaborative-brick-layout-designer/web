@@ -208,6 +208,11 @@ export async function bundledPartKeys(logger: ScanLogger): Promise<Set<string>> 
   return keys;
 }
 
+/** The unreadable files a scan found, named (with why), the first 20, for the log. */
+function unreadable(errors: readonly { path: string; message: string }[]): string[] {
+  return errors.slice(0, 20).map((e) => `${e.path}: ${e.message.slice(0, 120)}`);
+}
+
 async function loadBundled(
   app: ScanLogger,
 ): Promise<{ etag: string; wire: PartWire[] }> {
@@ -221,7 +226,7 @@ async function loadBundled(
     try {
       const result = await scanCatalog(partsRoot);
       if (result.errors.length > 0) {
-        app.log.warn({ count: result.errors.length }, 'base library scan: some XML files unreadable');
+        app.log.warn({ count: result.errors.length, files: unreadable(result.errors) }, 'base library scan: some XML files unreadable');
       }
       for (const p of result.catalog.values()) allWire.push(toBundledWire(p));
     } catch (err) {
@@ -246,7 +251,7 @@ async function loadBundled(
       try {
         const result = await scanCatalog(libDir);
         if (result.errors.length > 0) {
-          app.log.warn({ count: result.errors.length, slug }, 'library scan: some XML files unreadable');
+          app.log.warn({ count: result.errors.length, slug, files: unreadable(result.errors) }, 'library scan: some XML files unreadable');
         }
         for (const p of result.catalog.values()) {
           allWire.push(toBundledWire(p, `libraries/${slug}/`));
