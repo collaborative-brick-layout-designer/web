@@ -42,14 +42,16 @@ export type LimitKey =
   | 'shareLinksPerClub'
   | 'liveEditorsPerLayout'
   | 'requestsPerMinuteUser'
-  | 'requestsPerMinuteToken';
+  | 'requestsPerMinuteToken'
+  | 'inviteEmailsPerDay'
+  | 'newAccountInviteEmailsPerDay';
 
 export interface LimitInfo {
   key: LimitKey;
   label: string;
   /** One plain sentence for the settings page. */
   help: string;
-  unit: 'count' | 'bytes' | 'per_minute';
+  unit: 'count' | 'bytes' | 'per_minute' | 'per_day';
   applies: 'user' | 'org' | 'both';
   builtIn: number;
   envVar: string;
@@ -72,6 +74,8 @@ export const LIMITS: readonly LimitInfo[] = [
   { key: 'liveEditorsPerLayout', label: 'People editing one layout at once', help: 'Live connections to one layout.', unit: 'count', applies: 'both', builtIn: 50, envVar: 'LIMIT_LIVE_EDITORS_PER_LAYOUT' },
   { key: 'requestsPerMinuteUser', label: 'Requests per minute (browser)', help: 'Requests one signed-in person may make in a minute from the web app.', unit: 'per_minute', applies: 'user', builtIn: 2400, envVar: 'LIMIT_REQUESTS_PER_MINUTE_USER' },
   { key: 'requestsPerMinuteToken', label: 'Requests per minute (desktop app)', help: 'Requests one desktop sign-in may make in a minute.', unit: 'per_minute', applies: 'user', builtIn: 2400, envVar: 'LIMIT_REQUESTS_PER_MINUTE_TOKEN' },
+  { key: 'inviteEmailsPerDay', label: 'Invite emails per person a day', help: 'Invite and hand-over emails one person may send in a day. Past it, the invite is still made and they copy the link to send themselves.', unit: 'per_day', applies: 'user', builtIn: 50, envVar: 'LIMIT_INVITE_EMAILS_PER_DAY' },
+  { key: 'newAccountInviteEmailsPerDay', label: 'Invite emails a day in an account’s first week', help: 'Lower cap for brand-new accounts, so a throwaway account can’t send many emails.', unit: 'per_day', applies: 'user', builtIn: 10, envVar: 'LIMIT_NEW_ACCOUNT_INVITE_EMAILS_PER_DAY' },
 ];
 
 const LIMIT_BY_KEY = new Map(LIMITS.map((l) => [l.key, l]));
@@ -204,6 +208,9 @@ export async function userLimits(user: Pick<User, 'id' | 'emailVerified' | 'crea
     out.clubsPerUser = { value: 0, source: 'smart', reason: 'Email not confirmed yet' };
   } else if (now - user.createdAt.getTime() < 7 * DAY_MS) {
     out.clubsPerUser = { value: Math.min(values.clubsPerUser, values.newAccountClubs), source: 'smart', reason: 'Account is less than a week old' };
+  }
+  if (now - user.createdAt.getTime() < 7 * DAY_MS) {
+    out.inviteEmailsPerDay = { value: Math.min(values.inviteEmailsPerDay, values.newAccountInviteEmailsPerDay), source: 'smart', reason: 'Account is less than a week old' };
   }
   for (const [k, v] of Object.entries(ov) as [LimitKey, number][]) out[k] = { value: v, source: 'override' };
   return out;

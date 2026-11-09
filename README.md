@@ -379,6 +379,8 @@ when they fall behind.
 | `LIMIT_LIVE_EDITORS_PER_LAYOUT` | 50 | People editing one layout at once: Live connections to one layout. |
 | `LIMIT_REQUESTS_PER_MINUTE_USER` | 2400 a minute | Requests per minute (browser): Requests one signed-in person may make in a minute from the web app. |
 | `LIMIT_REQUESTS_PER_MINUTE_TOKEN` | 2400 a minute | Requests per minute (desktop app): Requests one desktop sign-in may make in a minute. |
+| `LIMIT_INVITE_EMAILS_PER_DAY` | 50 a day | Invite emails per person a day: Invite and hand-over emails one person may send in a day. Past it, the invite is still made and they copy the link to send themselves. |
+| `LIMIT_NEW_ACCOUNT_INVITE_EMAILS_PER_DAY` | 10 a day | Invite emails a day in an account’s first week: Lower cap for brand-new accounts, so a throwaway account can’t send many emails. |
 
 **Privacy.** Each is also set in Admin › Site settings › Privacy; when the variable is set to a whole number in range, it wins and the page says so.
 

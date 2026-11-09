@@ -9,6 +9,7 @@ import { formatBytes, formatDate } from '../insights/format';
 import { describeEvent, formatLimit, limitsApi, toInput, toStored, type AbuseRow, type GlobalLimit, type LimitUnit, type SubjectLimit } from './limitsApi';
 import { api } from '../../api';
 import { HelpButton } from '../../help/HelpButton';
+import type { WebOnlyHelpKey } from '../../help/webOnlyHelpTexts';
 
 // ---------------------------------------------------------------------------
 // Heavy use: top people and clubs
@@ -493,16 +494,25 @@ export function GlobalLimitsForm() {
   );
 }
 
+/** Limits whose one line of help needs more: their ⓘ. */
+const LIMIT_HELP: Partial<Record<string, WebOnlyHelpKey>> = {
+  inviteEmailsPerDay: 'admin.inviteEmails',
+  newAccountInviteEmailsPerDay: 'admin.inviteEmails',
+};
+
 function GlobalRow({ l, value, onChange }: { l: GlobalLimit; value: string; onChange: (v: string) => void }) {
   const id = `glim-${l.key}`;
   const origin = l.changedHere ? 'Changed here' : l.fromEnv ? `From ${l.envVar}` : 'Default';
   return (
     <li className="rounded-xl border border-line bg-panel p-3">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <label htmlFor={id} className="text-sm font-medium text-ink">
-          {l.label}
-          {l.unit === 'bytes' ? ' (MB)' : ''}
-        </label>
+        <span className="inline-flex items-center gap-1">
+          <label htmlFor={id} className="text-sm font-medium text-ink">
+            {l.label}
+            {l.unit === 'bytes' ? ' (MB)' : ''}
+          </label>
+          {LIMIT_HELP[l.key] && <HelpButton helpKey={LIMIT_HELP[l.key]!} target={`#${id}`} />}
+        </span>
         <span className="rounded-md bg-soft px-1.5 py-0.5 text-xs text-muted">{origin}</span>
       </div>
       <p className="mt-0.5 text-xs text-muted">{l.help}</p>

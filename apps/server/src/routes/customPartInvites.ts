@@ -19,7 +19,7 @@ import { db, schema } from '../db/index.js';
 import { requireUser } from '../auth/cookie.js';
 import { isDemoUser } from '../demo/demoAccount.js';
 import { hasAtLeast, resolveResourceRole } from '../access/resolveResourceRole.js';
-import { sendInviteEmail } from '../email/sendInvite.js';
+import { sendInviteEmailCapped } from '../email/inviteEmailCap.js';
 import { writeAuditEvent } from '../audit/writeAuditEvent.js';
 import { env } from '../env.js';
 import { hasVerifiedEmail } from '../auth/users.js';
@@ -108,13 +108,8 @@ export async function customPartInviteRoutes(app: FastifyInstance): Promise<void
       });
 
       const inviteUrl = `${env.publicUrl}/part-invite/${token}`;
-      let emailDelivered = false;
-      try {
-        const isSet = (await db.select({ spriteMime: schema.customParts.spriteMime }).from(schema.customParts).where(eq(schema.customParts.id, req.params.id)).get())?.spriteMime === '';
-        emailDelivered = await sendInviteEmail({ to: email, inviteUrl, inviterName: publicName(user.id, user.displayName), what: isSet ? 'set' : 'part' });
-      } catch {
-        // emailDelivered stays false; the owner has the link to send.
-      }
+      const isSet = (await db.select({ spriteMime: schema.customParts.spriteMime }).from(schema.customParts).where(eq(schema.customParts.id, req.params.id)).get())?.spriteMime === '';
+      const mail = await sendInviteEmailCapped(user, { to: email, inviteUrl, inviterName: publicName(user.id, user.displayName), what: isSet ? 'set' : 'part' });
       await writeAuditEvent({
         resourceKind: 'custom_part',
         resourceId: req.params.id,
@@ -122,7 +117,7 @@ export async function customPartInviteRoutes(app: FastifyInstance): Promise<void
         eventType: 'share',
         payload: { invitedEmail: email, role: inviteRole, inviteId: id },
       });
-      return { id, token, inviteUrl, emailDelivered, expiresAt: expiresAt.getTime() };
+      return { id, token, inviteUrl, ...mail, expiresAt: expiresAt.getTime() };
     },
   );
 
