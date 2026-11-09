@@ -1033,6 +1033,38 @@ export const venueLibrary = sqliteTable('venue_library', {
 export type VenueLibraryEntry = typeof venueLibrary.$inferSelect;
 
 /**
+ * Recently deleted (0045): a layout, module or venue its owner deleted,
+ * kept 30 days so it can be restored, then erased by the privacy clean-up.
+ * `payload` is the gzipped JSON of its rows (and a layout's background
+ * picture); the item itself is gone from its own table meanwhile. Goes
+ * with its owner (a person or club erased takes their trash too).
+ */
+export const trashItems = sqliteTable(
+  'trash_items',
+  {
+    id: text('id').primaryKey(),
+    kind: text('kind', { enum: ['layout', 'module', 'venue'] }).notNull(),
+    /** The layout's, module's or venue's own id (restored under it). */
+    itemId: text('item_id').notNull(),
+    title: text('title').notNull(),
+    ownerUserId: text('owner_user_id').references(() => users.id, { onDelete: 'cascade' }),
+    ownerOrgId: text('owner_org_id').references(() => orgs.id, { onDelete: 'cascade' }),
+    deletedBy: text('deleted_by').references(() => users.id, { onDelete: 'set null' }),
+    deletedAt: integer('deleted_at', { mode: 'timestamp_ms' }).notNull(),
+    /** When the privacy clean-up erases it for good. */
+    purgeAt: integer('purge_at', { mode: 'timestamp_ms' }).notNull(),
+    payload: blob('payload').notNull(),
+    bytes: integer('bytes').notNull(),
+  },
+  (t) => ({
+    ownerUserIdx: index('trash_items_owner_user_id_idx').on(t.ownerUserId),
+    ownerOrgIdx: index('trash_items_owner_org_id_idx').on(t.ownerOrgId),
+    deletedByIdx: index('trash_items_deleted_by_idx').on(t.deletedBy),
+    purgeIdx: index('trash_items_purge_at_idx').on(t.purgeAt),
+  }),
+);
+
+/**
  * Per-account appearance and help settings (theme, color, bigger text,
  * expert mode, help icons, tours seen). One row per user; `prefs` is a
  * validated JSON object (see routes/preferences.ts) so new keys don't

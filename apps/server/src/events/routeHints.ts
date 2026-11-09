@@ -481,6 +481,16 @@ export const ROUTE_HINTS: Record<string, HintSpec> = {
   'POST /api/venues': resource('venue', { reply: 'id' }),
   'PATCH /api/venues/:id': resource('venue'),
   'DELETE /api/venues/:id': resource('venue'),
+  // Recently deleted: a restored thing shows again wherever it's listed; the list itself is the person's own.
+  'POST /api/trash/:id/restore': {
+    after: async (c) => {
+      const kind = c.reply?.kind;
+      const id = str(c.reply?.id);
+      if ((kind !== 'layout' && kind !== 'module' && kind !== 'venue') || !id) return [];
+      return resource(kind, { reply: 'id' }).after(c);
+    },
+  },
+  'DELETE /api/trash/:id': me,
   'POST /api/venues/:id/copy': resource('venue', { reply: 'id' }),
   'POST /api/venues/:id/move': resource('venue'),
   'POST /api/venues/:id/take-back': returned('venue'),

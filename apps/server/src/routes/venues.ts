@@ -14,6 +14,7 @@ import { destinationOrg, matchesOwner, ownerLookup, resolveOwnerFilter } from '.
 import { clubAccess, clubAccessMap, has } from '../access/clubPermissions.js';
 import { creditLookup } from './credits.js';
 import { titleTooLong } from '../utils/validate.js';
+import { trashVenue } from '../trash/trash.js';
 
 // The desktop app reaches these with an API token too: venues:read to list
 // and download, venues:write to save, rename and delete.
@@ -235,15 +236,17 @@ export async function venueRoutes(app: FastifyInstance): Promise<void> {
     if (!row) return reply.code(404).send({ error: 'Not found' });
     if (!(await canManage(row, user.id))) return reply.code(403).send({ error: 'Forbidden' });
 
+    // Kept in Recently deleted for 30 days (trash/trash.ts).
+    const trashId = await trashVenue(row.id, user.id);
     await db.delete(schema.venueLibrary).where(eq(schema.venueLibrary.id, req.params.id));
     await writeAuditEvent({
       resourceKind: 'venue',
       resourceId: row.id,
       userId: user.id,
       eventType: 'delete',
-      payload: { name: row.name, ownerUserId: row.ownerUserId ?? null, ownerOrgId: row.ownerOrgId ?? null },
+      payload: { name: row.name, ownerUserId: row.ownerUserId ?? null, ownerOrgId: row.ownerOrgId ?? null, trashId },
     });
-    return { ok: true };
+    return { ok: true, trashId };
   });
   // ---- copy a venue to yourself or a club ---------------------------------
   // Anyone who can open the venue can copy it, into their own venues or a

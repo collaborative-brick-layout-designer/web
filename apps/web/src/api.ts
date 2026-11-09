@@ -405,6 +405,14 @@ async function del(path: string): Promise<void> {
   noteWrite('DELETE', path);
 }
 
+/** A DELETE that answers with JSON (a layout, module or venue says where it went: `trashId`). */
+async function delJson<T>(path: string): Promise<T> {
+  const res = await reach(fetch(path, { method: 'DELETE', credentials: 'include' }));
+  if (!res.ok) throw new Error(await friendlyErrorMessage(res, 'DELETE', path));
+  noteWrite('DELETE', path);
+  return (await res.json().catch(() => ({}))) as T;
+}
+
 async function put<T>(path: string, body: unknown): Promise<T> {
   const res = await reach(fetch(path, {
     method: 'PUT',
@@ -634,7 +642,8 @@ export const api = {
     },
     rename: (id: string, title: string) =>
       patch<{ ok: true }>(`/api/layouts/${id}`, { title }),
-    remove: (id: string) => del(`/api/layouts/${id}`),
+    /** To Recently deleted for 30 days (`trashId` restores it). */
+    remove: (id: string) => delJson<{ ok: true; trashId?: string | null }>(`/api/layouts/${id}`),
     exportBbmUrl: (id: string) => `/api/layouts/${id}/export.bbm`,
     exportSidecarUrl: (id: string) => `/api/layouts/${id}/export.bbm.bld`,
     exportZipUrl: (id: string) => `/api/layouts/${id}/export.zip`,
@@ -1044,7 +1053,8 @@ export const api = {
       put<{ ok: true; thumbnailAt: number }>(`/api/modules/${encodeURIComponent(id)}/thumbnail`, thumb),
     rename: (id: string, title: string) =>
       patch<{ ok: true }>(`/api/modules/${id}`, { title }),
-    remove: (id: string) => del(`/api/modules/${id}`),
+    /** To Recently deleted for 30 days (`trashId` restores it). */
+    remove: (id: string) => delJson<{ ok: true; trashId?: string | null }>(`/api/modules/${id}`),
     /** Who has it, and (for its owners) the invites still waiting. */
     collaborators: (id: string) =>
       get<{ collaborators: CollaboratorSummary[]; invites?: InviteSummary[] }>(`/api/modules/${encodeURIComponent(id)}/collaborators`),
@@ -1068,6 +1078,13 @@ export const api = {
     accept: (token: string) => post<{ moduleId: string; role: 'viewer' | 'editor' }>(`/api/module-invites/${encodeURIComponent(token)}`),
   },
 
+  /** Recently deleted: layouts, modules and venues kept 30 days after they're deleted. */
+  trash: {
+    list: () => get<{ days: number; items: TrashItem[] }>('/api/trash'),
+    restore: (id: string) => post<{ ok: true; kind: TrashItem['kind']; id: string }>(`/api/trash/${encodeURIComponent(id)}/restore`, {}),
+    remove: (id: string) => del(`/api/trash/${encodeURIComponent(id)}`),
+  },
+
   venues: {
     list: () => get<{ venues: VenueSummary[] }>('/api/venues'),
     /** Copy into your own venues (no `orgSlug`) or a club's. */
@@ -1084,7 +1101,8 @@ export const api = {
     /** Replace a saved venue's contents (Save Current Venue over an existing name). */
     update: (id: string, data: unknown) =>
       patch<{ ok: true; id: string; name: string }>(`/api/venues/${id}`, { data }),
-    remove: (id: string) => del(`/api/venues/${id}`),
+    /** To Recently deleted for 30 days (`trashId` restores it). */
+    remove: (id: string) => delJson<{ ok: true; trashId?: string | null }>(`/api/venues/${id}`),
   },
 
   /** Handing a club's thing back to the person who made it (the club keeps a copy). */
@@ -2258,4 +2276,18 @@ export interface DeletedLayout {
   club: string | null;
   /** Events in its history. */
   events: number;
+}
+
+/** One thing in Recently deleted. */
+export interface TrashItem {
+  id: string;
+  kind: 'layout' | 'module' | 'venue';
+  itemId: string;
+  title: string;
+  ownerUserId: string | null;
+  ownerOrgId: string | null;
+  deletedAt: number;
+  /** When it's erased for good. */
+  purgeAt: number;
+  deletedBy: string | null;
 }

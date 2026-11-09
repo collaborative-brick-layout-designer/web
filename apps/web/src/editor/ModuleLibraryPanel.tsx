@@ -21,6 +21,7 @@ import { useIsDemo } from '../catalog/ShareToCatalog';
 import { IconSizeSlider, useListIconSize, useResizeGestures } from './listIconSize';
 import { confirmDelete, toastDeleted } from '../ui/ConfirmDialog';
 import { MODULE_DELETE_WORDING } from '../ui/deleteWording';
+import { restoreDeleted } from '../trash/RecentlyDeleted';
 export { MODULE_MIME };
 
 interface Props {
@@ -115,8 +116,8 @@ export function ModuleLibraryPanel({ doc, isViewer, editingModuleId = null }: Pr
               onAddToCollection={collectionsOn && (m.role === undefined || m.role === 'owner') ? () => setToCollection(m) : undefined}
               onDelete={async () => {
                 if (!(await confirmDelete(m.title, MODULE_DELETE_WORDING))) return;
-                void api.modules.remove(m.id).then(() => {
-                  toastDeleted(m.title);
+                void api.modules.remove(m.id).then((r) => {
+                  toastDeleted(m.title, r.trashId ? () => void restoreDeleted(r.trashId) : undefined);
                   return qc.invalidateQueries({ queryKey: ['modules'] });
                 });
               }}

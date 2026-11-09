@@ -76,22 +76,21 @@ async function cancelThenDelete(open: () => Promise<void>, route: string, title:
 }
 
 describe('deleting through the dialog', () => {
-  it('a layout: asks for its name to be typed', async () => {
+  it('a layout: asks, and says it waits in Recently deleted', async () => {
     show(<LayoutsPage />);
-    await cancelThenDelete(() => deleteFromMenu('My Town'), 'DELETE /api/layouts/l1', 'Delete “My Town”?', 'My Town');
+    await cancelThenDelete(() => deleteFromMenu('My Town'), 'DELETE /api/layouts/l1', 'Delete “My Town”?', 'My Town', 'It waits 30 days in Recently deleted');
   });
 
-  it('a layout stays when the name typed is wrong', async () => {
+  it('a layout stays when Cancel is pressed (no name to type: it can be restored)', async () => {
     show(<LayoutsPage />);
     await deleteFromMenu('My Town');
     const d = await screen.findByTestId('confirm-dialog');
     expect(d.textContent).toContain('The modules, parts and venues it uses aren’t deleted.');
-    fireEvent.change(within(d).getByLabelText('Type My Town to confirm'), { target: { value: 'My Tow' } });
-    const del = within(d).getByRole('button', { name: 'Delete' }) as HTMLButtonElement;
-    expect(del.disabled).toBe(true);
-    fireEvent.click(del);
+    expect(within(d).queryByLabelText('Type My Town to confirm')).toBeNull();
+    fireEvent.click(within(d).getByRole('button', { name: 'Cancel' }));
     await new Promise((r) => setTimeout(r, 30));
     expect(writes).toEqual([]);
+    expect(screen.queryByTestId('confirm-dialog')).toBeNull();
   });
 
   it('a module', async () => {

@@ -50,6 +50,8 @@ export type AuditEventType =
   | 'demo_space_deleted'
   // Its owner deleted a layout (routes/layouts.ts): who, its title, whose it was.
   | 'layout_delete'
+  // Taken back out of Recently deleted (routes/trash.ts).
+  | 'restore_deleted'
   // Platform-admin actions. Subject is the resource being modified
   // (`resourceKind: 'user' | 'org' | 'layout' | ...`); the userId
   // field on the event is the admin who performed the action.

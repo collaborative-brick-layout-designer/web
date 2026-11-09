@@ -88,7 +88,7 @@ test('a layout, a module, a venue, a part and a collection are deleted through t
       await one.page.getByRole('menuitem', { name: 'Delete' }).click();
     };
 
-    await deleteIt(fromMenu(LAYOUT), LAYOUT, 'its share links are deleted', true);
+    await deleteIt(fromMenu(LAYOUT), LAYOUT, 'its share links are deleted');
     // The collection first: deleting the module would take it out of the collection.
     await one.page.goto('/catalog?kind=collections');
     await streamOpen(one.page);

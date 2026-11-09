@@ -33,7 +33,8 @@ import { useEditorStore } from '../editor/editorStore';
 import { ModuleThumb } from '../modules/ModuleThumb';
 import { ModuleVersionsDialog } from '../modules/ModuleVersionsDialog';
 import { askConfirm, confirmDelete, toastDeleted } from '../ui/ConfirmDialog';
-import { MODULE_DELETE_WORDING } from '../ui/deleteWording';
+import { LAYOUT_DELETE_WORDING, MODULE_DELETE_WORDING } from '../ui/deleteWording';
+import { RecentlyDeleted, restoreDeleted } from '../trash/RecentlyDeleted';
 import { CatalogBadge, ShareToCatalogDialog, UpdateAvailable, useCatalogStatus } from '../catalog/ShareToCatalog';
 import { useEscape } from '../editor/useEscape';
 const ShareDialog = lazyRetry(() => import('./ShareDialog').then((m) => ({ default: m.ShareDialog })));
@@ -201,12 +202,8 @@ export function LayoutsPage() {
                 layout={l}
                 chip={<OwnerChip item={l} myUserId={myUserId} orgs={orgs} />}
                 onDelete={async () => {
-                  const ok = await confirmDelete(l.title, {
-                    removes: 'The layout, its history and its share links are deleted for everyone who can open it.',
-                    keeps: 'The modules, parts and venues it uses aren’t deleted.',
-                    typeName: true,
-                  });
-                  if (ok) remove.mutate(l.id, { onSuccess: () => toastDeleted(l.title) });
+                  const ok = await confirmDelete(l.title, LAYOUT_DELETE_WORDING);
+                  if (ok) remove.mutate(l.id, { onSuccess: (r) => toastDeleted(l.title, r.trashId ? () => void restoreDeleted(r.trashId) : undefined) });
                 }}
                 onShare={() => setShareLayout(l)}
                 onRename={() => setRenameLayout(l)}
@@ -346,7 +343,7 @@ export function LayoutsPage() {
                       type="button"
                       onClick={async () => {
                         if (await confirmDelete(m.title, MODULE_DELETE_WORDING))
-                          removeModule.mutate(m.id, { onSuccess: () => toastDeleted(m.title) });
+                          removeModule.mutate(m.id, { onSuccess: (r) => toastDeleted(m.title, r.trashId ? () => void restoreDeleted(r.trashId) : undefined) });
                       }}
                       className={`${MORE_ITEM} text-danger`}
                     >
@@ -370,6 +367,8 @@ export function LayoutsPage() {
           canUpload={!!me.data?.user && !me.data.user.isDemoAccount}
         />
       </section>
+
+      {me.data?.user && <RecentlyDeleted />}
 
       {showNewModule && (
         <NewModuleDialog

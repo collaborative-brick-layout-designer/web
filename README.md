@@ -318,7 +318,8 @@ The server logs to standard output (`docker compose logs -f`). Its jobs:
 - **Daily**: the backup, compacting each layout's edit history, and
   clearing out old demo layouts.
 - **Hourly**: the privacy clean-up (old data downloads, accounts and clubs
-  whose waiting time is over, expired sign-ins and invites, old records).
+  whose waiting time is over, expired sign-ins and invites, old records,
+  and Recently deleted layouts, modules and venues past their 30 days).
   At start-up it logs `[privacy] clean-up scheduled hourly`, and after a run
   that removed something, one line such as
   `[privacy] clean-up: 2 sessions, 1 invite, 0 exports, 0 accounts, 0 clubs`.
@@ -484,6 +485,9 @@ does most of the work:
   person has (once a day by default), and Profile › Delete my account deletes
   it after a waiting period (14 days by default; signing back in cancels).
   Club admins delete a club the same way, with Restore during the wait.
+- **Deleted layouts, modules and venues** wait 30 days in Recently deleted
+  (on Home), where their owner (or a club admin who may delete club items)
+  can restore them or erase them at once; then they're erased for good.
 - **Email addresses are never shown to other people**, only to the person
   and to site admins.
 - **Records are trimmed for you** by the hourly clean-up, on the schedule in
