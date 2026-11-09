@@ -9,6 +9,7 @@ import type { PartWire } from '../api';
 import { layoutFileDownload, layoutSourceHere, type LayoutImage } from '../layoutFile';
 import { layoutPartFiles } from '../layoutParts';
 import { noticeDownloaded } from './editorStore';
+import { sameOriginImageUrl } from './background';
 
 export function saveFile(file: { filename: string; type: string; data: Uint8Array }): void {
   const url = URL.createObjectURL(new Blob([file.data as BlobPart], { type: file.type }));
@@ -30,7 +31,8 @@ export async function localLayoutContents(doc: Y.Doc): Promise<{
   const map = docToBbm(doc);
   const sidecar = readSidecarFromDoc(doc);
   let background: LayoutImage | undefined;
-  const bgUrl = sidecar?.backgroundImage?.url;
+  // Only from this site, as the editor loads it (background.ts).
+  const bgUrl = sameOriginImageUrl(sidecar?.backgroundImage?.url);
   if (bgUrl) {
     const res = await fetch(bgUrl, { credentials: 'include' });
     if (!res.ok) throw new Error(`the background image could not be fetched (${res.status})`);

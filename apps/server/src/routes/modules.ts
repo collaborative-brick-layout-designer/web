@@ -31,6 +31,7 @@ import { emailsVisible, nameFor } from '../utils/publicName.js';
 import { creditLookup, withCredits } from './credits.js';
 import { checkUpdate } from '../ws/updateGuard.js';
 import { checkGridSizes } from '../ws/gridGuard.js';
+import { snapshotBackgroundProblem } from '../ws/backgroundGuard.js';
 import { snapshotWork } from '../ws/yjsWork.js';
 
 type ModuleRow = typeof schema.modules.$inferSelect;
@@ -331,6 +332,12 @@ export async function moduleRoutes(app: FastifyInstance): Promise<void> {
     }
     // Only a document both apps can read (the live editor's check).
     if (checkUpdate(bytes) !== null || checkGridSizes(null, bytes) !== null || snapshotWork(bytes) !== null) return reply.code(400).send({ error: 'unreadable_snapshot' });
+    // A module has no background picture of its own: none, or the one it already had (ws/backgroundGuard.ts).
+    const badBackground = await snapshotBackgroundProblem(bytes, req.params.id, async () => {
+      const row = await db.select({ docSnapshot: schema.modules.docSnapshot }).from(schema.modules).where(eq(schema.modules.id, req.params.id)).get();
+      return (row?.docSnapshot as Uint8Array | undefined) ?? null;
+    });
+    if (badBackground !== null) return reply.code(400).send({ error: 'invalid_background_image' });
     const updatedAt = new Date();
     const current = await db
       .select({

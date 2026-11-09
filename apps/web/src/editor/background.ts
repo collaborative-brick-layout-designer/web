@@ -22,6 +22,21 @@ export function backgroundImageRectPx(
 }
 
 /**
+ * The address to load a layout's background picture from: a path on this
+ * site only (the server keeps it at `/api/layouts/<id>/background-image`
+ * and takes nothing else), or null. An address on another host would tell
+ * that host who opened the layout, so it is never loaded.
+ */
+export function sameOriginImageUrl(url: unknown, origin: string = window.location.origin): string | null {
+  if (typeof url !== 'string' || !url.startsWith('/') || url.startsWith('//') || url.includes('\\')) return null;
+  try {
+    return new URL(url, origin).origin === origin ? url : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * ARGB color spec as desktop writes it: `QColorDialog` with
  * ShowAlphaChannel (MainWindowMapMenu.cpp:54-55) → ColorSpec::fromArgb →
  * lowercase 8-digit `aarrggbb` (XmlPrimitives.cpp:174-180).

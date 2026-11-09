@@ -44,6 +44,7 @@ import {
 import { newPace, workBudget, type Pace } from './pacing.js';
 import { concerns, onAccessChanged, suspendedIn } from './liveAccess.js';
 import { COPY_BUDGET_SPENT, checkGridSizesDecoded, heldValueProblem } from './gridGuard.js';
+import { backgroundUrlProblem } from './backgroundGuard.js';
 import { decodeIncoming, guardWork, type DecodedUpdate } from './decoded.js';
 import { MAX_HELD_UPDATES, deletesPresent, waitsOn } from './held.js';
 import { MAX_UPDATE_WORK, yjsWork } from './yjsWork.js';
@@ -351,6 +352,12 @@ function takeUpdate(ws: WebSocket, session: DocSession, sender: Sender, update: 
   }
   if (badGrid !== null) {
     refuseUpdate(ws, session, sender, update.length, 'unreadable', badGrid);
+    return false;
+  }
+  // The background picture only ever comes from this server (backgroundGuard.ts).
+  const badBackground = decoded ? backgroundUrlProblem(session.doc, session.layoutId, decoded) : null;
+  if (badBackground !== null) {
+    refuseUpdate(ws, session, sender, update.length, 'unreadable', badBackground);
     return false;
   }
   const check = checkIncomingDecoded(session.doc, update, decoded);

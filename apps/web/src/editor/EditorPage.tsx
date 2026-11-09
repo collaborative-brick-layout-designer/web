@@ -68,7 +68,7 @@ import { brickIdsInDoc, parseTextKey, stillPicked } from './mixedSelection';
 import { PHONE_MIN_TEXT_PX } from './textLegibility';
 import { sanitizeFilename } from '../bbmFiles';
 import { downloadLocalLayout, saveFile } from './localLayoutFile';
-import { backgroundImageRectPx } from './background';
+import { backgroundImageRectPx, sameOriginImageUrl } from './background';
 import { mapFontsReady } from './render/mapText';
 import { scaleBar } from './scaleBar';
 import { areaForPivot, areaSize, pivotOf } from './brickGeometry';
@@ -5413,16 +5413,17 @@ function ResizableDockSlot({
  */
 function BackgroundImageLayer({ doc }: { doc: import('yjs').Doc }) {
   const bg = readSidecarFromDoc(doc)?.backgroundImage ?? null;
+  // Only ever from this site: never an address on another host (background.ts).
+  const src = bg ? sameOriginImageUrl(bg.url) : null;
   const [img, setImg] = useState<HTMLImageElement | null>(null);
 
   useEffect(() => {
-    if (!bg) { setImg(null); return; }
+    if (!src) { setImg(null); return; }
     const el = new window.Image();
     el.onload = () => setImg(el);
     el.onerror = () => setImg(null);
-    el.src = `${bg.url}?t=${Date.now()}`;
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bg?.url]);
+    el.src = `${src}?t=${Date.now()}`;
+  }, [src]);
 
   if (!bg || !img) return null;
 
