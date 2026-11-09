@@ -9,13 +9,17 @@ const providers: FakeProvider[] = [];
 
 class FakeProvider {
   handlers = new Map<string, Handler[]>();
-  awareness = {};
+  awareness: Awareness;
+  // (sendOnlyOwnPresence swaps it for its own.)
+  _awarenessUpdateHandler = (): void => undefined;
   disconnected = false;
   constructor(
     _url: string,
     _room: string,
     readonly doc: Y.Doc,
+    opts: { awareness?: Awareness } = {},
   ) {
+    this.awareness = opts.awareness ?? new Awareness(doc);
     providers.push(this);
   }
   on(event: string, h: Handler) {
