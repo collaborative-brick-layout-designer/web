@@ -6,5 +6,6 @@
 export { readBbm, type ReadResult } from './Reader.js';
 export { writeBbm, type WriteOptions } from './Writer.js';
 export { stripInvalidXmlChars, vanillaPostProcess } from './xml.js';
+export { NEWER_SIDECAR_WARNING, sidecarWarnings } from './sidecar.js';
 export { formatBool, formatInt, formatNumber, parseBool } from './format.js';
 export { BBM_FORMAT_VERSION } from '@cld/model';

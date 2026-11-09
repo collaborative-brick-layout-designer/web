@@ -237,5 +237,12 @@ export async function layoutsFromFiles(files: readonly File[], convertMap?: MapC
       loose.push({ name: f.name, text: () => f.text() });
     }
   }
-  return [...(await pairLayoutFiles(loose)), ...out];
+  const all = [...(await pairLayoutFiles(loose)), ...out];
+  // A sidecar saved by a newer version opens, saying some of it isn't shown.
+  const { sidecarWarnings } = await import('@cld/bbm/browser');
+  for (const l of all) {
+    const notes = l.sidecar !== undefined ? sidecarWarnings(l.sidecar) : [];
+    if (notes.length) l.warnings = [...(l.warnings ?? []), ...notes];
+  }
+  return all;
 }

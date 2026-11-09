@@ -325,6 +325,22 @@ describe('create — sidecar import', () => {
     expect(json.bbmHashSha256).toMatch(/^[0-9a-f]{64}$/);
   });
 
+  // As the desktop does: a newer version's sidecar opens, and its version
+  // and the fields this version doesn't know are written back.
+  it('takes a sidecar from a newer version and exports it with its version and fields', async () => {
+    const cookie = await registerAndLogin(app, 'owner@example.com');
+    const sidecar = JSON.stringify({ schemaVersion: 2, bbmHashSha256: '', venue: { name: 'Hall', enabled: true, minWalkwayStuds: 0, bounds: { x: 0, y: 0, w: 0, h: 0 }, edges: [], obstacles: [] }, futureField: { x: 1 } });
+    const res = await app.inject({ method: 'POST', url: '/api/layouts', headers: { cookie }, payload: { title: 'Newer', sidecar } });
+    expect(res.statusCode).toBe(201);
+    const { id } = res.json() as { id: string };
+    const bld = await app.inject({ method: 'GET', url: `/api/layouts/${id}/export.bbm.bld`, headers: { cookie } });
+    expect(bld.statusCode).toBe(200);
+    const json = bld.json() as { schemaVersion: number; venue: { name: string }; futureField: unknown };
+    expect(json.schemaVersion).toBe(2);
+    expect(json.venue.name).toBe('Hall');
+    expect(json.futureField).toEqual({ x: 1 });
+  });
+
   it('rejects an unparseable sidecar', async () => {
     const cookie = await registerAndLogin(app, 'owner@example.com');
     const res = await app.inject({ method: 'POST', url: '/api/layouts', headers: { cookie }, payload: { title: 'Bad', sidecar: '{nope' } });

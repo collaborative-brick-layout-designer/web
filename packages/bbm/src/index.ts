@@ -10,6 +10,8 @@ export { stripInvalidXmlChars, vanillaPostProcess } from './xml.js';
 export { formatBool, formatInt, formatNumber, parseBool } from './format.js';
 export {
   CURRENT_SCHEMA_VERSION,
+  NEWER_SIDECAR_WARNING,
+  sidecarWarnings,
   readSidecar,
   writeSidecar,
   readView,

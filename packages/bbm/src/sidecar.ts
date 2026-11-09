@@ -7,9 +7,11 @@
 //   - bbmHashSha256: lowercase hex of the sibling .bbm bytes (sync detection)
 //   - anchoredLabels / modules / venue: optional arrays / object
 //
-// Forward-compat rule: readers REJECT `schemaVersion > CURRENT_SCHEMA_VERSION`
-// rather than silently dropping unknown fields. Writers preserve unknown
-// fields they read (round-trip safety) by holding them in `extras`.
+// Forward-compat rule (the same in both apps, docs/bbm-bld-schema.md): a
+// file with `schemaVersion > CURRENT_SCHEMA_VERSION` opens, with a warning
+// (`sidecarWarnings`), and its version is written back, so saving never
+// quietly downgrades it. Writers preserve unknown fields they read
+// (round-trip safety) by holding them in `extras`.
 
 // Note: `hashBbmBytes` lives in ./sidecarHash.ts so this module has zero
 // runtime dependencies on `node:crypto` — that lets the browser bundle
@@ -17,6 +19,24 @@
 // shim. The hash helper imports `node:crypto` lazily; it's server-side only.
 
 export const CURRENT_SCHEMA_VERSION = 1;
+
+/** What a sidecar saved by a newer version says when it opens (the desktop's words). */
+export const NEWER_SIDECAR_WARNING =
+  "The labels, modules and venue were saved by a newer version of the app. Anything this version doesn't know is kept as it is, but isn't shown.";
+
+/**
+ * What to tell the person opening a sidecar: a newer version's file opens,
+ * and keeps what this one doesn't know, but some of it isn't shown.
+ */
+export function sidecarWarnings(raw: string): string[] {
+  try {
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    const v = parsed?.schemaVersion;
+    return typeof v === 'number' && Number.isFinite(v) && v > CURRENT_SCHEMA_VERSION ? [NEWER_SIDECAR_WARNING] : [];
+  } catch {
+    return [];
+  }
+}
 
 export type EdgeKind = 0 | 1 | 2; // 0=Wall, 1=Door, 2=Open
 
@@ -214,12 +234,9 @@ export function readSidecar(raw: string): Sidecar {
   const parsed = JSON.parse(raw) as Record<string, unknown>;
   // Files the web wrote before 2026-10 could leave schemaVersion out (a
   // sidecar the editor started from nothing); they are version 1.
+  // A newer version's file opens as it is (sidecarWarnings says so): the
+  // fields this version knows are read, the rest are kept in `extras`.
   const schemaVersion = parsed.schemaVersion === undefined ? 1 : numberField(parsed, 'schemaVersion');
-  if (schemaVersion > CURRENT_SCHEMA_VERSION) {
-    throw new Error(
-      `unsupported sidecar schemaVersion ${schemaVersion} (expected ≤ ${CURRENT_SCHEMA_VERSION})`,
-    );
-  }
 
   const sidecar: Sidecar = {
     schemaVersion,
@@ -288,7 +305,10 @@ export function writeSidecar(sidecar: Sidecar, opts: WriteSidecarOptions = {}): 
   // or venue) had no schemaVersion, and readSidecar refuses a file without
   // one: write the current version so the file opens again.
   const out: Record<string, unknown> = {
-    schemaVersion: Number.isFinite(sidecar.schemaVersion) ? sidecar.schemaVersion : CURRENT_SCHEMA_VERSION,
+    // A newer version's file keeps its number: it is still that version's file.
+    schemaVersion: Number.isFinite(sidecar.schemaVersion)
+      ? Math.max(sidecar.schemaVersion, CURRENT_SCHEMA_VERSION)
+      : CURRENT_SCHEMA_VERSION,
     bbmHashSha256: opts.bbmHashSha256 ?? sidecar.bbmHashSha256 ?? '',
   };
   if (sidecar.anchoredLabels) out.anchoredLabels = sidecar.anchoredLabels;

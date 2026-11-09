@@ -10,7 +10,7 @@ import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { FileOpener, openFilePicker } from '../FileOpener';
 import { DESKTOP_URL } from '../../projectLinks';
 import { createDefaultLayoutDoc, docToBbm } from '@cld/ydoc';
-import { writeBbm } from '@cld/bbm/browser';
+import { NEWER_SIDECAR_WARNING, writeBbm } from '@cld/bbm/browser';
 
 const apiMock = vi.hoisted(() => ({ create: vi.fn(), catalog: vi.fn() }));
 vi.mock('../../api', async (importOriginal) => {
@@ -76,6 +76,17 @@ describe('FileOpener', () => {
     await waitFor(() => expect(screen.getByTestId('editor').textContent).toContain('/editor/new-1'));
     expect(apiMock.create).toHaveBeenCalledWith({ bbm: BBM });
     expect(screen.getByTestId('editor').textContent).toContain('"openedFile":"Yard.bbm"');
+  });
+
+  // As the desktop does: a sidecar saved by a newer version opens, and the
+  // editor is told some of it isn't shown.
+  it('opens a sidecar from a newer version and says some of it is not shown', async () => {
+    setup();
+    const sidecar = JSON.stringify({ schemaVersion: 2, bbmHashSha256: '', futureField: { x: 1 } });
+    act(() => void window.dispatchEvent(dragEvent('drop', [new File([BBM], 'Yard.bbm'), new File([sidecar], 'Yard.bbm.bld')])));
+    await waitFor(() => expect(screen.getByTestId('editor').textContent).toContain('/editor/new-1'));
+    expect(apiMock.create).toHaveBeenCalledWith({ bbm: BBM, sidecar });
+    expect(screen.getByTestId('editor').textContent).toContain(JSON.stringify(NEWER_SIDECAR_WARNING).slice(1, -1));
   });
 
   it('opens a picked file the same way', async () => {

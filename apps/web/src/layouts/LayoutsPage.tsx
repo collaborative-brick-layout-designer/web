@@ -1,4 +1,4 @@
-import { Suspense, useEffect, useState, type ChangeEvent, type FormEvent, type ReactNode } from 'react';
+import { Suspense, useEffect, useMemo, useState, type ChangeEvent, type FormEvent, type ReactNode } from 'react';
 import { lazyRetry } from '../ui/lazyRetry';
 import { RenameDialog, MAX_NAME_LENGTH } from '../ui/RenameDialog';
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
@@ -18,6 +18,7 @@ import { takeLayoutParts, type PartChoice, type PartDifference } from '../layout
 import { PartDifferencesDialog } from './PartDifferencesDialog';
 import { originalHere, OriginalLayoutNotice, type OriginalLayout } from './originalLayout';
 import type { Venue } from '@cld/bbm';
+import { sidecarWarnings } from '@cld/bbm/browser';
 import { VenueList } from '../venues/VenueList';
 import { orderVenuesForOwner, sidecarWithVenue } from '../venues/venueStart';
 import { CustomPartsSection } from '../parts/CustomPartsSection';
@@ -630,6 +631,8 @@ function CreateLayoutDialog({
   const [openWarnings, setOpenWarnings] = useState<string[]>([]);
   const qc = useQueryClient();
   const [sidecar, setSidecar] = useState<string | null>(null);
+  // A sidecar saved by a newer version opens, saying some of it isn't shown.
+  const sidecarNotes = useMemo(() => (sidecar ? sidecarWarnings(sidecar) : []), [sidecar]);
   // A picked .bld-layout's background image.
   const [background, setBackground] = useState<LayoutImage | null>(null);
   // …and its parts, the missing ones uploaded as custom parts on Create.
@@ -764,7 +767,7 @@ function CreateLayoutDialog({
         partNotes = [`the layout's parts could not be added: ${(err as Error).message}`];
       }
     }
-    create.mutate(body, { onSuccess: (res) => onCreated(res.id, [...openWarnings, ...partNotes], bbm ? (bbmFilename ?? undefined) : undefined) });
+    create.mutate(body, { onSuccess: (res) => onCreated(res.id, [...openWarnings, ...sidecarNotes, ...partNotes], bbm ? (bbmFilename ?? undefined) : undefined) });
   }
 
   return (
@@ -858,6 +861,9 @@ function CreateLayoutDialog({
             onChange={pickSidecar}
             className="text-sm"
           />
+          {sidecarNotes.map((w) => (
+            <p key={w} className="mt-1 text-xs text-amber-400" data-testid="sidecar-note">{w}</p>
+          ))}
         </label>
 
         {error && <p className="text-sm text-danger">{error}</p>}
