@@ -27,7 +27,11 @@ describe('text cells round-trip through the projection', () => {
     expect(cells(doc).map((c) => c.text)).toEqual(['Hello']);
     editTextCell(doc, l, 0, 'Hi');
     editTextCellFull(doc, l, 0, { orientation: 90 });
-    expect(cells(doc)[0]).toMatchObject({ text: 'Hi', orientation: 90, displayArea: { x: 6, y: 8 } });
+    // New words re-fit the box about the same middle; turning alone keeps it.
+    const area = cells(doc)[0]!.displayArea;
+    expect(cells(doc)[0]).toMatchObject({ text: 'Hi', orientation: 90 });
+    expect(area.x + area.width / 2).toBeCloseTo(10);
+    expect(area.y + area.height / 2).toBeCloseTo(10);
     deleteTextCell(doc, l, 0);
     expect(cells(doc)).toEqual([]);
   });
@@ -82,11 +86,46 @@ describe('text cell ids', () => {
   });
 });
 
-describe('new text defaults (MapView::addTextAtScenePos)', () => {
-  it('a 10-stud-high box, 0.6 of that per character, at least 20 wide', async () => {
+describe('new text: the box follows the Size', () => {
+  it('is measured at the size in points (a point is 4/3 of a stud), plus a sixth of the size each side', async () => {
     const { newTextBox } = await import('../mutations');
-    expect(newTextBox('Hi')).toEqual({ width: 20, height: 10 });
-    expect(newTextBox('Station yard')).toEqual({ width: 72, height: 10 });
+    const w = (line: string, px: number) => line.length * 0.5 * px;
+    // 18 pt = 24 studs a line: "Nikki" 5 × 12 + 8 = 68 wide, 27.6 high.
+    expect(newTextBox('Nikki', 18, w)).toEqual({ width: 68, height: 27.598 });
+    // Twice the size: twice the box.
+    const a = newTextBox('Station yard', 12, w);
+    const b = newTextBox('Station yard', 24, w);
+    expect(b.width).toBeCloseTo(a.width * 2, 2);
+    expect(b.height).toBeCloseTo(a.height * 2, 2);
+    // Two lines: twice as high, as wide as the widest.
+    const two = newTextBox('City\nGardens', 12, w);
+    expect(two.height).toBeCloseTo(newTextBox('Gardens', 12, w).height * 2, 2);
+    expect(two.width).toBe(newTextBox('Gardens', 12, w).width);
+  });
+
+  it('big text draws bigger than small text (Size is no longer ignored)', async () => {
+    const { newTextBox } = await import('../mutations');
+    const { textCellLayout } = await import('../render/mapText');
+    const w = (line: string, px: number) => line.length * 0.6 * px;
+    const at = (text: string, pt: number) => {
+      const box = newTextBox(text, pt, w);
+      return textCellLayout({ text, displayArea: { x: 0, y: 0, ...box }, orientation: 0, textAlignment: 'Center' }, w).fontPx;
+    };
+    expect(at('Two\nlines', 60)).toBeGreaterThan(at('Two\nlines', 12) * 4);
+    expect(at('Two\nlines', 60)).toBeGreaterThan(at('one line', 12));
+  });
+
+  it('a new size re-fits an existing box about its middle; a quarter turn keeps it swapped', () => {
+    const doc = new Y.Doc();
+    ensureBrickLayer(doc);
+    const l = ensureTextLayer(doc);
+    addTextCell(doc, l, { ...spec, orientation: 90 });
+    const before = cells(doc)[0]!.displayArea;
+    editTextCellFull(doc, l, 0, { font: { family: 'Arial', size: 36, style: 'Regular' } }, (line, px) => line.length * 0.5 * px);
+    const after = cells(doc)[0]!.displayArea;
+    expect(after.height).toBeGreaterThan(after.width);
+    expect(after.x + after.width / 2).toBeCloseTo(before.x + before.width / 2);
+    expect(after.y + after.height / 2).toBeCloseTo(before.y + before.height / 2);
   });
 
   it('goes on the first text layer, or a new one named Labels', async () => {

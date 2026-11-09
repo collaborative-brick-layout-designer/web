@@ -21,6 +21,9 @@ interface Props {
   onClose: () => void;
 }
 
+/** The placement boxes, in plain words. */
+const RECT_WORDS = { x: 'Left', y: 'Top', w: 'Width', h: 'Height' } as const;
+
 export function BackgroundImageDialog({ layoutId, doc, map, onClose }: Props) {
   useEscape(onClose);
   const existing = readSidecarFromDoc(doc)?.backgroundImage ?? null;
@@ -124,12 +127,12 @@ export function BackgroundImageDialog({ layoutId, doc, map, onClose }: Props) {
 
         <div className="mt-4 space-y-3 text-sm">
           <div>
-            <label className="block text-xs text-muted mb-1">Image file (PNG / JPG / GIF / WebP, max 10 MB)</label>
+            <label htmlFor="bg-image-file" className="block text-xs text-muted mb-1">Picture (PNG, JPG, GIF or WebP, up to 10 MB)</label>
             <input
               ref={inputRef}
               type="file"
               accept="image/png,image/jpeg,image/gif,image/webp"
-              aria-label="Image file"
+              id="bg-image-file"
               onChange={(e) => void pick(e.target.files?.[0] ?? null)}
               className="w-full text-xs text-neutral-300"
             />
@@ -141,8 +144,9 @@ export function BackgroundImageDialog({ layoutId, doc, map, onClose }: Props) {
           </div>
 
           <div className="flex items-center gap-3">
-            <label className="text-xs text-muted w-16">Opacity</label>
+            <label htmlFor="bg-image-opacity" className="text-xs text-muted w-16">Opacity</label>
             <input
+              id="bg-image-opacity"
               type="range"
               min={0}
               max={1}
@@ -170,9 +174,10 @@ export function BackgroundImageDialog({ layoutId, doc, map, onClose }: Props) {
             <div className="grid grid-cols-2 gap-2 pl-5">
               {(['x', 'y', 'w', 'h'] as const).map((k) => (
                 <label key={k} className="flex flex-col gap-0.5">
-                  <span className="text-xs text-muted">{k}</span>
+                  <span className="text-xs text-muted">{RECT_WORDS[k]}</span>
                   <input
                     type="number"
+                    aria-label={`${RECT_WORDS[k]} (studs)`}
                     value={rect[k]}
                     onChange={(e) => setRect((r) => ({ ...r, [k]: parseFloat(e.target.value) || 0 }))}
                     className="rounded-lg border border-border bg-soft px-2 py-1 text-xs"

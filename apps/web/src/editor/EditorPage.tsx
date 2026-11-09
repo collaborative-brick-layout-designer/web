@@ -69,7 +69,7 @@ import { PHONE_MIN_TEXT_PX } from './textLegibility';
 import { sanitizeFilename } from '../bbmFiles';
 import { downloadLocalLayout, saveFile } from './localLayoutFile';
 import { backgroundImageRectPx, sameOriginImageUrl } from './background';
-import { mapFontsReady } from './render/mapText';
+import { mapFontsReady, mapLineWidth } from './render/mapText';
 import { scaleBar, studDisplay } from './scaleBar';
 import { areaForPivot, areaSize, pivotOf } from './brickGeometry';
 import { imageOffset } from '@cld/parts-catalog/browser';
@@ -424,7 +424,7 @@ function Editor({ layoutId, docState, moduleMode }: { layoutId: string; docState
       const ref = parseTextKey(a.texts[0]!);
       const layer = ref ? docMap?.layers.find((l) => l.id === ref.layerId) : undefined;
       const cell = ref && layer?.type === 'text' ? layer.textCells[ref.cellIndex] : undefined;
-      if (ref && cell) setTouchText({ title: 'Edit text', text: cell.text, save: (t) => editTextCell(d, ref.layerId, ref.cellIndex, t) });
+      if (ref && cell) setTouchText({ title: 'Edit text', text: cell.text, save: (t) => editTextCell(d, ref.layerId, ref.cellIndex, t, mapLineWidth(cell.font.style.toLowerCase().includes('bold') ? 'bold' : 'normal')) });
     }
   };
   // The canvas area's real size, after the header, the status bar and the
@@ -4719,12 +4719,12 @@ function Canvas({
   function commitAddText(r: TextDialogResult) {
     // Like desktop's Insert Text (MapView::addTextAtScenePos): at the view
     // centre, or where "Add Text Here" was picked, on the first text
-    // layer, in a 10-stud-high box.
+    // layer, in a box sized from the text and its Size.
     // Its middle on the grid, as the parts are.
     const target = gridPointStuds(addTextAt ?? viewCentreStuds({ width, height }));
     setAddTextAt(null);
     const layerId = ensureTextLayer(doc, activeLayerId);
-    const box = newTextBox(r.text);
+    const box = newTextBox(r.text, r.fontSize, mapLineWidth(textFontStyle(r)));
     const styleParts: string[] = [];
     if (r.isBold) styleParts.push('Bold');
     if (r.isItalic) styleParts.push('Italic');
@@ -4820,7 +4820,7 @@ function Canvas({
               font: { family: r.fontFamily, size: r.fontSize, style: styleParts.join(',') || 'Regular' },
               fontColor: { kind: 'argb', argb: r.colorArgb },
               orientation: r.rotation,
-            });
+            }, mapLineWidth(textFontStyle(r)));
             setEditingText(null);
           }}
         />
@@ -6404,4 +6404,9 @@ function shiftArea(map: import('@cld/model').BbmMap, shift: { layerId: string; d
         : l,
     ),
   };
+}
+
+/** The canvas font style of a text's Bold / Italic, for measuring its box. */
+function textFontStyle(r: { isBold: boolean; isItalic: boolean }): string {
+  return [r.isItalic ? 'italic' : '', r.isBold ? 'bold' : ''].filter(Boolean).join(' ') || 'normal';
 }

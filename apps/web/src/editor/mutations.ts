@@ -32,6 +32,7 @@ import { areaForPivot, connectionWorld, pivotOf, rotateAroundPivots, rotated, ty
 import { connectedTurn, type TurnBrick } from './rotateTurn';
 import { cloneGroups, topGroupId, type ExpandedSet, type SetModule } from './sets';
 import { findPartsSheet, type SheetChoices } from './moduleSheets';
+import { textBoxStuds, type LineWidthAt } from './render/mapText';
 
 export interface BrickInsertSpec {
   partNumber: string;
@@ -1538,12 +1539,46 @@ export function ensureTextLayer(doc: Y.Doc, activeId?: string | null): string {
 }
 
 /**
- * Box for new text, in studs: 10 studs high, 0.6 of that per character
- * wide and at least twice the height (MapView::addTextAtScenePos).
+ * Box for new text, in studs, from its size in points (render/mapText.ts
+ * textBoxStuds): the Size field decides how big it draws.
  */
-export function newTextBox(text: string): { width: number; height: number } {
-  const height = 10;
-  return { width: Math.max(height * 0.6 * text.length, height * 2), height };
+export function newTextBox(text: string, sizePt = 12, widthAt?: LineWidthAt): { width: number; height: number } {
+  return textBoxStuds(text, sizePt, widthAt);
+}
+
+/**
+ * The cell's box re-fitted to its text and size, about the same middle (a
+ * box turned a quarter keeps its width and height swapped, as BlueBrick
+ * stores it).
+ */
+function refittedArea(
+  area: { x: number; y: number; width: number; height: number },
+  text: string,
+  sizePt: number,
+  orientation: number,
+  widthAt?: LineWidthAt,
+): { x: number; y: number; width: number; height: number } {
+  const box = textBoxStuds(text, sizePt, widthAt);
+  const o = ((orientation % 360) + 360) % 360;
+  const quarter = Math.abs(o - 90) < 1 || Math.abs(o - 270) < 1;
+  const width = quarter ? box.height : box.width;
+  const height = quarter ? box.width : box.height;
+  const cx = area.x + area.width / 2;
+  const cy = area.y + area.height / 2;
+  return { x: cx - width / 2, y: cy - height / 2, width, height };
+}
+
+/** A text cell's current fields, from a Y.Map or a legacy plain object. */
+function textCellFields(cell: unknown): { area: { x: number; y: number; width: number; height: number } | undefined; text: string | undefined; size: number | undefined; orientation: number } {
+  const get = (k: string): unknown => (cell instanceof Y.Map ? cell.get(k) : (cell as Record<string, unknown> | undefined)?.[k]);
+  const font = get('font');
+  const fontSize = font instanceof Y.Map ? font.get('size') : (font as { size?: unknown } | undefined)?.size;
+  return {
+    area: get('displayArea') as { x: number; y: number; width: number; height: number } | undefined,
+    text: typeof get('text') === 'string' ? (get('text') as string) : undefined,
+    size: typeof fontSize === 'number' ? fontSize : undefined,
+    orientation: typeof get('orientation') === 'number' ? (get('orientation') as number) : 0,
+  };
 }
 
 /**
@@ -1615,13 +1650,17 @@ function patchTextCell(yCells: Y.Array<unknown>, cellIndex: number, patch: Recor
  * `EditTextCellTextCommand`. Still addressed by index (like desktop);
  * the cell's stable `id` is for live-sync clients.
  */
-export function editTextCell(doc: Y.Doc, layerId: string, cellIndex: number, newText: string): void {
+export function editTextCell(doc: Y.Doc, layerId: string, cellIndex: number, newText: string, widthAt?: LineWidthAt): void {
   doc.transact(() => {
     const layerData = doc.getMap('layerData').get(layerId);
     if (!(layerData instanceof Y.Map)) return;
     const yCells = layerData.get('textCells');
     if (!(yCells instanceof Y.Array)) return;
-    patchTextCell(yCells, cellIndex, { text: newText });
+    const was = textCellFields(yCells.get(cellIndex));
+    const patch: Record<string, unknown> = { text: newText };
+    // New words: the box fits them at the same size (BlueBrick re-measures on a text change).
+    if (was.area && was.text !== newText) patch.displayArea = refittedArea(was.area, newText, was.size ?? 12, was.orientation ?? 0, widthAt);
+    patchTextCell(yCells, cellIndex, patch);
   }, LOCAL_ORIGIN);
 }
 
@@ -1657,6 +1696,7 @@ export function editTextCellFull(
   layerId: string,
   cellIndex: number,
   patch: EditTextCellPatch,
+  widthAt?: LineWidthAt,
 ): void {
   doc.transact(() => {
     const layerData = doc.getMap('layerData').get(layerId);
@@ -1664,6 +1704,13 @@ export function editTextCellFull(
     const yCells = layerData.get('textCells');
     if (!(yCells instanceof Y.Array)) return;
     const next: Record<string, unknown> = {};
+    // New words or a new size: the box is re-fitted, so Size decides how big it draws.
+    const was = textCellFields(yCells.get(cellIndex));
+    const text = patch.text ?? was.text ?? '';
+    const size = patch.font?.size ?? was.size ?? 12;
+    if (was.area && (text !== was.text || size !== was.size)) {
+      next.displayArea = refittedArea(was.area, text, size, patch.orientation ?? was.orientation ?? 0, widthAt);
+    }
     if (patch.text !== undefined) next.text = patch.text;
     if (patch.font !== undefined) next.font = { ...patch.font };
     if (patch.fontColor !== undefined) next.fontColor = { ...patch.fontColor };

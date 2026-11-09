@@ -207,6 +207,7 @@ export function VenueDimensionsDialog({ doc, onClose }: Props) {
                       min="0"
                       step="0.01"
                       value={seg.length}
+                      aria-label={`Side ${i + 1} length`}
                       onChange={(e) => patchSeg(i, { length: e.target.value })}
                       className="w-24 rounded-lg border border-border bg-soft px-1 py-0.5"
                     />
@@ -214,6 +215,7 @@ export function VenueDimensionsDialog({ doc, onClose }: Props) {
                   <td className="px-2 py-1">
                     <select
                       value={seg.angle}
+                      aria-label={`Side ${i + 1} angle`}
                       onChange={(e) => patchSeg(i, { angle: e.target.value })}
                       className="rounded-lg border border-border bg-soft px-1 py-0.5"
                     >
@@ -225,6 +227,7 @@ export function VenueDimensionsDialog({ doc, onClose }: Props) {
                   <td className="px-2 py-1">
                     <select
                       value={seg.kind}
+                      aria-label={`Side ${i + 1} kind`}
                       onChange={(e) => patchSeg(i, { kind: Number(e.target.value) as 0 | 1 | 2 })}
                       className="rounded-lg border border-border bg-soft px-1 py-0.5"
                     >
@@ -236,6 +239,7 @@ export function VenueDimensionsDialog({ doc, onClose }: Props) {
                   <td className="px-2 py-1">
                     <input
                       value={seg.label}
+                      aria-label={`Side ${i + 1} label`}
                       onChange={(e) => patchSeg(i, { label: e.target.value })}
                       className="w-full min-w-24 rounded-lg border border-border bg-soft px-1 py-0.5"
                     />

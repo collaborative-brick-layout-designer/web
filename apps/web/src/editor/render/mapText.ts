@@ -45,6 +45,44 @@ export interface TextCellLayout {
 
 const PROBE_PX = 100;
 
+/** A font point in studs: BlueBrick measures a text cell's box in pixels at 96 dpi, one pixel a stud. */
+export const STUDS_PER_POINT = 96 / 72;
+
+/** Without a canvas (tests, a server): every character 0.6 em wide, as render-parity/text.json assumes. */
+export const approxLineWidth: LineWidthAt = (line, px) => line.length * 0.6 * px;
+
+let measureCtx: CanvasRenderingContext2D | null | undefined;
+/** A line's width in the bundled map font (canvas), or the 0.6 em guess where there's no canvas. */
+export function mapLineWidth(fontStyle = 'normal'): LineWidthAt {
+  return (line, px) => {
+    if (measureCtx === undefined) {
+      try {
+        measureCtx = typeof document === 'undefined' ? null : document.createElement('canvas').getContext('2d');
+      } catch {
+        measureCtx = null;
+      }
+    }
+    if (!measureCtx) return approxLineWidth(line, px);
+    measureCtx.font = `${fontStyle} normal ${px}px ${MAP_FONT_STACK}`;
+    return measureCtx.measureText(line).width;
+  };
+}
+
+/**
+ * A text cell's box, in studs, for its text at `sizePt`, unturned: the
+ * widest line plus a sixth of the font size each side (GDI+'s
+ * MeasureString margin), by the lines at the map's line spacing. So the
+ * Size field sets how big the text draws: BlueBrick's files store the same
+ * boxes (Arial 18 pt "Nikki": 59 × 27 studs).
+ */
+export function textBoxStuds(text: string, sizePt: number, widthAt: LineWidthAt = approxLineWidth): { width: number; height: number } {
+  const px = Math.max(1, Number.isFinite(sizePt) ? sizePt : 12) * STUDS_PER_POINT;
+  const lines = (text || ' ').split('\n');
+  const widest = Math.max(...lines.map((l) => widthAt(l, px)));
+  const round = (v: number) => Math.round(v * 1000) / 1000;
+  return { width: round(Math.max(widest, px * 0.5) + px / 3), height: round(lines.length * MAP_LINE_HEIGHT * px) };
+}
+
 /**
  * A text cell's text, fitted into its display area (the biggest font that
  * fits both sides), centred on it, lines aligned Near / Center / Far.
