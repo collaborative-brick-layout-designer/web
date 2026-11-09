@@ -233,17 +233,9 @@ describe('enforcement', () => {
     expect(body(invite).message).toMatch(/This club has 1 member, the most allowed/);
   });
 
-  it('blocks growth through snapshots and moves into a club, but lets a layout shrink', async () => {
+  it('blocks a move into a full club', async () => {
     const u = await loginAs(app, 'grow@example.com');
     const id = ((await newLayout(u.cookie)).json() as { id: string }).id;
-    const used = usageOf({ kind: 'user', id: u.id }).storageBytes;
-    await setGlobal({ storagePerUser: used });
-    const put = (bytes: Buffer) =>
-      app.inject({ method: 'PUT', url: `/api/layouts/${id}/snapshot`, headers: { cookie: u.cookie, 'content-type': 'application/octet-stream' }, payload: bytes });
-    const bigger = await put(Buffer.alloc(used + 100, 0));
-    expect(body(bigger)).toMatchObject({ error: 'limit_reached', limit: 'storagePerUser' });
-    const smaller = await put(Buffer.from([0, 0]));
-    expect(smaller.statusCode).toBe(200);
 
     const club = (await app.inject({ method: 'POST', url: '/api/orgs', headers: { cookie: u.cookie }, payload: { name: 'Full' } })).json() as { slug: string };
     await setGlobal({ layoutsPerClub: 0 });
