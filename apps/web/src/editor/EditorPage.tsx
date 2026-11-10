@@ -389,7 +389,8 @@ function Editor({ layoutId, docState, moduleMode }: { layoutId: string; docState
   const me = useQuery({ queryKey: ['me'], queryFn: api.me });
   const myOrgs = useQuery({ queryKey: ['orgs'], queryFn: api.orgs.list });
   const undo = useUndoManager(doc);
-  const role = meta.data?.role ?? 'viewer';
+  // Signed out while it was open: read only until signed in again (SignedOutCard).
+  const role = docState.signedOut ? 'viewer' : (meta.data?.role ?? 'viewer');
   // A club's layout or module the club's roles only let me look at: say which permission would let me edit it.
   const viewOnlyReason = role === 'viewer' && meta.data?.layout.ownerOrgId ? askForPermission(moduleMode ? 'edit_modules' : 'edit_layouts') : undefined;
   // A phone opens a layout in View mode (the phone viewer). People who
@@ -1494,6 +1495,7 @@ function Editor({ layoutId, docState, moduleMode }: { layoutId: string; docState
       {/* Status bar — port of MainWindow.cpp:861-1014 status widgets.
           Spans every column. Shows mouse coords / selection count / zoom. */}
       <NoticeToast lifted={touchEditing || touchTablet} />
+      {docState.signedOut && <SignedOutCard what={moduleMode ? 'module' : 'layout'} reconnect={docState.reconnect} />}
       <DropSheetTag />
       {openedFile && !loading && docMap && catalog.data && (
         <OpenedSummaryCard
@@ -6090,6 +6092,56 @@ function RotationPicker() {
   );
 }
 
+
+/**
+ * Signed out while the layout was open (a sign-out in another browser, a
+ * sign-in that ran out): it stays open, read only, behind this card, and
+ * nothing is lost. Signing in again, in another tab, picks up where it
+ * left off: this page notices (when it's looked at again, and every few
+ * seconds) and sends what wasn't sent.
+ */
+function SignedOutCard({ what, reconnect }: { what: 'layout' | 'module'; reconnect: (() => void) | undefined }) {
+  const qc = useQueryClient();
+  const here = `${window.location.pathname}${window.location.search}`;
+  useEffect(() => {
+    let stopped = false;
+    const check = async (): Promise<void> => {
+      const me = await api.me().catch(() => null);
+      if (stopped || !me?.user) return;
+      stopped = true;
+      void qc.invalidateQueries();
+      reconnect?.();
+    };
+    const onFocus = (): void => void check();
+    window.addEventListener('focus', onFocus);
+    const t = setInterval(() => void check(), 5000);
+    return () => {
+      stopped = true;
+      window.removeEventListener('focus', onFocus);
+      clearInterval(t);
+    };
+  }, [qc, reconnect]);
+  return (
+    <div className="pointer-events-none fixed inset-x-0 top-16 z-40 flex justify-center px-4">
+      <div role="alert" data-testid="signed-out" className="pointer-events-auto w-full max-w-md rounded-card border border-line bg-panel p-4 text-sm text-ink shadow-pop">
+        <p className="font-semibold">You were signed out</p>
+        <p className="mt-1 text-muted">
+          {`Your changes can't be saved until you sign in again, so this ${what} is read only for now. Nothing is lost: sign in, and it picks up where you left off.`}
+        </p>
+        <div className="mt-3 flex flex-wrap items-center gap-3">
+          <a
+            href={`/login?next=${encodeURIComponent(here)}`}
+            target="_blank"
+            rel="noopener"
+            className="rounded-lg bg-accent px-3 py-1.5 font-semibold text-accent-ink hover:bg-accent-hover"
+          >
+            Sign in (opens a new tab)
+          </a>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function ErrorScreen({ err, what }: { err: Error; what: 'layout' | 'module' }) {
   const signIn = err.message === SIGN_IN_TO_OPEN;

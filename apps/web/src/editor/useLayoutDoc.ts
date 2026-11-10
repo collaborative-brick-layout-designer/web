@@ -55,6 +55,14 @@ export interface LayoutDocState {
   /** Surfaced to the UI for "couldn't connect" cases (auth, 404, etc). */
   loadError: Error | null;
   loading: boolean;
+  /**
+   * Signed out while the layout was open (a sign-out elsewhere, a sign-in
+   * that ran out): it stays open, read only, and nothing is lost; after
+   * signing in again, `reconnect` picks up where it left off and sends
+   * what wasn't sent.
+   */
+  signedOut?: boolean;
+  reconnect?: () => void;
 }
 
 /**
@@ -105,6 +113,9 @@ const UPDATE_REFUSED_REASON = 'unreadable_update';
  * succeed (and y-websocket would otherwise reconnect with backoff forever).
  * An account put on hold (privacy) reconnects read only by itself.
  */
+/** Why the server closes a live connection whose sign-in ended (apps/server/src/auth/credentials.ts, routes/ws.ts). */
+const SIGNED_OUT_REASONS = new Set(['session_revoked', 'token_revoked', 'unauthorized']);
+
 function isFinalClose(event: CloseEvent): boolean {
   if (event.code === 1008 && event.reason === 'account_restricted') return false;
   return event.code === 4404 || event.code === 1008;
@@ -228,7 +239,9 @@ export function useLayoutDoc(layoutId: string, canEdit?: boolean): LayoutDocStat
   const [status, setStatus] = useState<SaveStatus>({ kind: 'connecting' });
   const [loadError, setLoadError] = useState<Error | null>(null);
   const [loading, setLoading] = useState(true);
+  const [signedOut, setSignedOut] = useState(false);
   const providerRef = useRef<WebsocketProvider | null>(null);
+  const reconnectRef = useRef<() => void>(() => undefined);
   // Bumped to start the layout again from the server's copy (down to view only).
   const [generation, setGeneration] = useState(0);
   const restarting = useRef(false);
@@ -250,6 +263,7 @@ export function useLayoutDoc(layoutId: string, canEdit?: boolean): LayoutDocStat
     setAwareness(null);
     setLoading(true);
     setLoadError(null);
+    setSignedOut(false);
     setStatus({ kind: 'connecting' });
 
     const fresh = new Y.Doc();
@@ -264,6 +278,15 @@ export function useLayoutDoc(layoutId: string, canEdit?: boolean): LayoutDocStat
     providerRef.current = provider;
 
     let lastSyncedAt: number | null = null;
+    // Signed out while open, and not signed in again yet.
+    let isSignedOut = false;
+    reconnectRef.current = () => {
+      if (!isSignedOut || providerRef.current !== provider) return;
+      isSignedOut = false;
+      setSignedOut(false);
+      setStatus({ kind: 'reconnecting', lastSyncedAt });
+      provider.connect();
+    };
     // Edits made while not connected and synced: sent on reconnect, so a
     // layout left before then finishes sending them (finishSending).
     let unsent = false;
@@ -351,6 +374,16 @@ export function useLayoutDoc(layoutId: string, canEdit?: boolean): LayoutDocStat
 
     const onConnectionClose = (event: CloseEvent | null): void => {
       if (!event) return;
+      if (event.code === 1008 && SIGNED_OUT_REASONS.has(event.reason) && lastSyncedAt !== null) {
+        // Signed out while it was open: it stays open, read only, keeping
+        // what wasn't sent; signing in again picks up from here (reconnect).
+        provider.disconnect();
+        isSignedOut = true;
+        setSignedOut(true);
+        setStatus({ kind: 'offline', lastSyncedAt });
+        announceSignInEnded();
+        return;
+      }
       if (isFinalClose(event)) {
         // Terminal: retrying can't succeed, and y-websocket would
         // otherwise keep reconnecting with backoff forever. Edits made
@@ -435,6 +468,13 @@ export function useLayoutDoc(layoutId: string, canEdit?: boolean): LayoutDocStat
         toCheck.current = fresh;
         return;
       }
+      if (unsent && isSignedOut) {
+        // Left while signed out with edits the server hasn't got: they're
+        // kept as a copy (refusedCopies), as when a layout ends.
+        provider.destroy();
+        if (!keepRefusedCopy(layoutId, fresh, 'signed_out')) fresh.destroy();
+        return;
+      }
       if (unsent) {
         // Left with edits the server hasn't got: they still go to THIS
         // layout when the connection is back, never to the next one.
@@ -458,13 +498,15 @@ export function useLayoutDoc(layoutId: string, canEdit?: boolean): LayoutDocStat
 
   // Edits stream over the socket and the server persists each update on
   // receipt, so "saved" means: connected and synced right now.
+  const reconnect = useCallback(() => reconnectRef.current(), []);
+
   const saveNow = useCallback(async (): Promise<SaveResult> => {
     const p = providerRef.current;
     return p && p.wsconnected && p.synced ? 'saved' : 'offline';
   }, []);
 
   return useMemo(
-    () => ({ doc, awareness, status, saveNow, loadError, loading }),
-    [doc, awareness, status, saveNow, loadError, loading],
+    () => ({ doc, awareness, status, saveNow, loadError, loading, signedOut, reconnect }),
+    [doc, awareness, status, saveNow, loadError, loading, signedOut, reconnect],
   );
 }

@@ -34,6 +34,10 @@ class FakeProvider {
     if (event === 'sync') this.synced = arg as boolean;
     for (const h of this.handlers.get(event) ?? []) h(arg);
   }
+  connects = 0;
+  connect() {
+    this.connects++;
+  }
   disconnect() {
     this.disconnected = true;
   }
@@ -183,6 +187,8 @@ describe('switching layouts', () => {
 
   // Audit 2026-10-20: offline edits were dropped when the connection came
   // back to a sign-in that had ended (or a layout deleted) meanwhile.
+  // Full review area 4, Bug 12: signed out while open, the layout stays
+  // open (read only), not replaced by "This layout is private".
   it('edits made offline are kept when the person was signed out meanwhile', () => {
     const { result, unmount } = renderHook(() => useLayoutDoc('E'));
     const p = providers.at(-1)!;
@@ -193,13 +199,42 @@ describe('switching layouts', () => {
     act(() => addLayer(p.doc, 'made-offline'));
     const gone = destroyed(p.doc);
     act(() => p.emit('connection-close', { code: 1008, reason: 'unauthorized' }));
-    expect(result.current.loadError).not.toBeNull();
+    expect(result.current.loadError).toBeNull();
+    expect(result.current.signedOut).toBe(true);
+    expect(result.current.doc).toBe(p.doc);
+    expect(p.disconnected).toBe(true);
+    // Left before signing in again: the edits are kept as a copy.
     unmount();
     expect(gone()).toBe(false);
     const [copy] = useRefusedCopies.getState().copies;
     expect(copy?.why).toBe('signed_out');
     expect(copy?.doc.getArray('layers').toArray()).toEqual(['synced', 'made-offline']);
     expect(unloadAsks()).toBe(true);
+  });
+
+  it('signed in again, the same layout reconnects and sends what was kept', () => {
+    const { result } = renderHook(() => useLayoutDoc('G'));
+    const p = providers.at(-1)!;
+    act(() => p.emit('sync', true));
+    p.wsconnected = false;
+    act(() => p.emit('sync', false));
+    act(() => addLayer(p.doc, 'made-offline'));
+    act(() => p.emit('connection-close', { code: 1008, reason: 'session_revoked' }));
+    expect(result.current.signedOut).toBe(true);
+    const connects = p.connects;
+    act(() => result.current.reconnect?.());
+    expect(result.current.signedOut).toBe(false);
+    expect(p.connects).toBe(connects + 1);
+    expect(result.current.doc?.getArray('layers').toArray()).toContain('made-offline');
+    expect(useRefusedCopies.getState().copies).toEqual([]);
+  });
+
+  it('signed out before the layout opened says to sign in', () => {
+    const { result } = renderHook(() => useLayoutDoc('H'));
+    const p = providers.at(-1)!;
+    act(() => p.emit('connection-close', { code: 1008, reason: 'unauthorized' }));
+    expect(result.current.loadError).not.toBeNull();
+    expect(result.current.signedOut).toBe(false);
   });
 
   it('signed out with nothing unsent keeps no copy', () => {
