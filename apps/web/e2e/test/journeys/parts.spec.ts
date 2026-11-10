@@ -9,7 +9,9 @@
 
 import { test, expect, type Page } from '@playwright/test';
 import { ensureUser, signIn, fromSettingsMenu, adminSection } from '../../helpers';
-import { makeGlobalAdmin } from '../../dbHelpers';
+import { makeGlobalAdmin, siteSettingsAtDefaults } from '../../dbHelpers';
+
+siteSettingsAtDefaults();
 
 test.describe.configure({ mode: 'serial' });
 

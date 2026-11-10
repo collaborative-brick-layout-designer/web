@@ -7,8 +7,10 @@
 
 import { test, expect } from '@playwright/test';
 import { signIn, adminSection } from '../../helpers';
-import { makeGlobalAdmin, useSmtp } from '../../dbHelpers';
+import { makeGlobalAdmin, useSmtp, siteSettingsAtDefaults } from '../../dbHelpers';
 import { startMailSink } from '../../mailSink';
+
+siteSettingsAtDefaults();
 
 const ts = Date.now();
 const ADMIN = `j-cap-admin-${ts}@example.com`;

@@ -7,7 +7,9 @@
 
 import { test, expect } from '@playwright/test';
 import { signIn, adminSection } from '../../helpers';
-import { makeGlobalAdmin } from '../../dbHelpers';
+import { makeGlobalAdmin, siteSettingsAtDefaults } from '../../dbHelpers';
+
+siteSettingsAtDefaults();
 
 const ts = Date.now();
 const ADMIN = `j-ro-admin-${ts}@example.com`;

@@ -10,7 +10,9 @@
 
 import { test, expect } from '@playwright/test';
 import { adminSection, signIn } from '../../helpers';
-import { makeGlobalAdmin } from '../../dbHelpers';
+import { makeGlobalAdmin, siteSettingsAtDefaults } from '../../dbHelpers';
+
+siteSettingsAtDefaults();
 
 const ts = Date.now();
 const ADMIN = `j-signin-admin-${ts}@example.com`;

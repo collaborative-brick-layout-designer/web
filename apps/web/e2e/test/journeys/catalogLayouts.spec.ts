@@ -11,7 +11,9 @@
 
 import { test, expect, type Page } from '@playwright/test';
 import { ensureUser, signIn, adminSection } from '../../helpers';
-import { makeGlobalAdmin } from '../../dbHelpers';
+import { makeGlobalAdmin, siteSettingsAtDefaults } from '../../dbHelpers';
+
+siteSettingsAtDefaults();
 
 test.setTimeout(240_000);
 const ts = Date.now();

@@ -17,8 +17,10 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { signIn } from '../../helpers';
-import { makeGlobalAdmin } from '../../dbHelpers';
+import { makeGlobalAdmin, siteSettingsAtDefaults } from '../../dbHelpers';
 import { watch4xx } from '../../quietNetwork';
+
+siteSettingsAtDefaults();
 
 test.setTimeout(240_000);
 const ts = Date.now();

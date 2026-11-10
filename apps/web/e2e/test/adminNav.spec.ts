@@ -5,7 +5,9 @@
 
 import { test, expect, type Browser } from '@playwright/test';
 import { signIn, adminSection, confirmInDialog } from '../helpers';
-import { makeGlobalAdmin } from '../dbHelpers';
+import { makeGlobalAdmin, siteSettingsAtDefaults } from '../dbHelpers';
+
+siteSettingsAtDefaults();
 
 const ts = Date.now();
 const ADMIN = `nav-admin-${ts}@example.com`;

@@ -16,7 +16,9 @@
 
 import { test, expect, type Page } from '@playwright/test';
 import { signIn, adminSection } from '../../helpers';
-import { makeGlobalAdmin } from '../../dbHelpers';
+import { makeGlobalAdmin, siteSettingsAtDefaults } from '../../dbHelpers';
+
+siteSettingsAtDefaults();
 
 const ts = Date.now();
 const ADMIN = `j-demo-admin-${ts}@example.com`;
