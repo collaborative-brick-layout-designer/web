@@ -31,6 +31,11 @@ export const WEB_ONLY_HELP_TEXTS = {
     short: 'How many invite and hand-over emails one person may send from this site in a day.',
     more: 'It keeps a throwaway account from sending lots of email in the site’s name, and brand-new accounts get the lower number for their first week. Past it, the invite is still made: the person sees a friendly note and copies the link to send it themselves. You can raise it for one person on their Use and limits page.',
   },
+  'admin.demoSpaces': {
+    title: 'Demo spaces',
+    short: 'Each visitor who tries the demo gets a private space of their own, with their own copy of the samples.',
+    more: 'A space and everything in it is deleted when its sign-in ends: at the next reset, or after a day at most, even if the visitor just closes the tab. The most at once keeps the demo from filling the server; past it, “Try the demo” says the demo is busy and to try again in a few minutes.',
+  },
 } as const satisfies Record<string, HelpEntry>;
 
 export type WebOnlyHelpKey = keyof typeof WEB_ONLY_HELP_TEXTS;

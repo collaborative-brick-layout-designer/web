@@ -14,6 +14,7 @@ import { randomUUID } from 'node:crypto';
 import { Buffer } from 'node:buffer';
 import type { FastifyInstance } from 'fastify';
 import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { DEMO_USER_ID } from '../demo/demoAccount.js';
 import { db, schema } from '../db/index.js';
 import { checkGrowth, type Subject } from '../limits/limits.js';
 import { requireUser } from '../auth/cookie.js';
@@ -178,7 +179,16 @@ export async function moduleRoutes(app: FastifyInstance): Promise<void> {
       .get();
     if (!module) return reply.code(404).send({ error: 'not_found' });
     const credit = (await creditLookup('module', [module.id], user.id))(module.id);
-    return { module: { ...toListItem(module), credit }, role };
+    // One of the demo's samples, opened by a demo visitor: their own copy of it (the editor goes there).
+    const demoCopy =
+      user.isDemoAccount && module.ownerUserId === DEMO_USER_ID && user.id !== DEMO_USER_ID
+        ? await db
+            .select({ id: schema.modules.id })
+            .from(schema.modules)
+            .where(and(eq(schema.modules.ownerUserId, user.id), eq(schema.modules.copiedFromId, module.id)))
+            .get()
+        : undefined;
+    return { module: { ...toListItem(module), credit }, role, ...(demoCopy ? { demoCopyId: demoCopy.id } : {}) };
   });
 
   // ---- create -----------------------------------------------------------

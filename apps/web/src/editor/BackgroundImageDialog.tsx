@@ -7,7 +7,7 @@ import type { BackgroundImage } from '@cld/bbm';
 import type { BbmMap } from '@cld/model';
 import { readSidecarFromDoc } from '@cld/ydoc';
 import { setBackgroundImage, clearBackgroundImage } from './mutations';
-import { noteWrite } from '../api';
+import { friendlyErrorMessage, noteWrite } from '../api';
 import { confirmDelete } from '../ui/ConfirmDialog';
 import { useEscape } from './useEscape';
 import { fitImageRect } from './background';
@@ -65,7 +65,7 @@ export function BackgroundImageDialog({ layoutId, doc, map, onClose }: Props) {
           body: form,
           credentials: 'include',
         });
-        if (!res.ok) throw new Error(`Upload failed: ${res.status}`);
+        if (!res.ok) throw new Error(await friendlyErrorMessage(res, 'POST', `/api/layouts/${layoutId}/background-image`));
         noteWrite('POST', `/api/layouts/${layoutId}/background-image`);
         const data = (await res.json()) as { url: string };
         url = data.url;

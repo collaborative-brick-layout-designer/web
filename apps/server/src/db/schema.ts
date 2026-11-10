@@ -10,10 +10,17 @@ export const users = sqliteTable('users', {
   avatarUrl: text('avatar_url'),
   passwordHash: text('password_hash'),
   /**
-   * True only for the one demo account (demo/demoAccount.ts), which an
-   * admin switches on in Admin › Settings. Nobody else has it.
+   * A demo account (demo/demoAccount.ts): the template `demo-account`
+   * that holds the samples, or one visitor's private demo space, made by
+   * "Try the demo". Never a real person.
    */
   isDemoAccount: integer('is_demo_account', { mode: 'boolean' }).notNull().default(false),
+  /**
+   * A visitor's demo space (0045): when it's deleted with everything in it
+   * (its sign-in's end: the next reset, 24 hours at most). Null for
+   * everyone else, the template included.
+   */
+  demoExpiresAt: integer('demo_expires_at', { mode: 'timestamp_ms' }),
   isGlobalAdmin: integer('is_global_admin', { mode: 'boolean' }).notNull().default(false),
   /**
    * Site moderator: reviews and unpublishes public catalog items, and
@@ -54,6 +61,8 @@ export const users = sqliteTable('users', {
   // The admin "new users" graph and the active-user counts.
   createdIdx: index('users_created_at_idx').on(t.createdAt),
   lastSeenIdx: index('users_last_seen_at_idx').on(t.lastSeenAt),
+  // The demo clean-up's sweep of spaces whose time is up.
+  demoExpiresIdx: index('users_demo_expires_at_idx').on(t.demoExpiresAt),
 }));
 
 export const sessions = sqliteTable(
@@ -281,6 +290,8 @@ export const platformSettings = sqliteTable('platform_settings', {
   demoResetEvery: text('demo_reset_every', { enum: ['1h', '6h', 'daily'] }).notNull().default('daily'),
   /** When the demo account was last reset. Null until the first reset. */
   demoLastResetAt: integer('demo_last_reset_at', { mode: 'timestamp_ms' }),
+  /** At most this many visitors' demo spaces at once (0045); past it, "The demo is busy right now". */
+  demoMaxSpaces: integer('demo_max_spaces').notNull().default(100),
   /**
    * Admin › Settings › Public catalogs: the biggest picture a curator can
    * upload as a collection's cover (before it's re-encoded). The

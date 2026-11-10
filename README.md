@@ -101,10 +101,15 @@ club** reviews what is published under its own name.
 - **Site admins** run everything under Admin: users, clubs, layouts, parts
   and part libraries, usage limits and heavy use, privacy requests, the
   audit log and the site settings.
-- **The demo account** ("Try the demo" on the sign-in page, when an admin
-  turns it on) is shared by every visitor, holds sample layouts, and resets
-  on a schedule. Each reset signs every visitor out (a demo sign-in lasts 24
-  hours at most), and their page offers "Start again".
+- **The demo** ("Try the demo" on the sign-in page, when an admin turns it
+  on) gives each visitor a private demo space: a throwaway account with its
+  own copy of the sample layout, module and venue. A space and everything in
+  it is deleted when its sign-in ends, at the next reset or after 24 hours at
+  most, even when the visitor just closes the tab; their page offers "Start
+  again". The samples themselves stay under the demo's template account, at
+  the same ids, so links to them keep working (a demo visitor is sent to
+  their own copy). Admin › Settings › Demo account sets the most spaces at
+  once (100 by default) and shows how many are in use.
 
 **Privacy.** People download all their data and delete their account from
 their Profile; nobody else ever sees their email address. See
@@ -318,8 +323,9 @@ The server logs to standard output (`docker compose logs -f`). Its jobs:
   that removed something, one line such as
   `[privacy] clean-up: 2 sessions, 1 invite, 0 exports, 0 accounts, 0 clubs`.
   It always runs: keeping personal data longer than promised isn't optional.
-- **Every few minutes**: the demo reset, when the demo account is on and a
-  reset is due.
+- **Every few minutes**: the demo reset, when the demo is on and a reset is
+  due, and the clean-up of demo spaces whose time is up (also at start-up,
+  so a restart leaves none behind).
 
 ---
 
@@ -549,7 +555,7 @@ apps/
       workers/      Backup, compaction, privacy clean-up and demo-reset jobs
       privacy/      Data downloads, account and club deletion, retention
       limits/       Usage limits
-      demo/         The one demo account (Admin › Site settings › Demo account)
+      demo/         The demo: its template account and visitors' spaces (Admin › Site settings › Demo account)
       db/           Drizzle schema + migrations
   web/              React + Vite SPA
     src/

@@ -103,7 +103,7 @@ function SourceFooter() {
 }
 
 /**
- * "Try the demo": signs in as the site's shared demo account, shown only
+ * "Try the demo": opens a private demo space for this visitor, shown only
  * while an admin has it switched on (Admin › Settings › Demo account).
  */
 function TryDemo({ next }: { next: string }) {
@@ -125,7 +125,7 @@ function TryDemo({ next }: { next: string }) {
       >
         {go.isPending ? 'Opening the demo…' : 'Try the demo'}
       </button>
-      <p className="text-xs text-muted">No account needed. The demo is shared and resets itself, so don’t keep anything there.</p>
+      <p className="text-xs text-muted">No account needed. You get a private demo space of your own. It’s deleted when you leave or at the next reset, so don’t keep anything there.</p>
       {go.error && <p className="text-sm text-danger">{go.error.message}</p>}
     </div>
   );

@@ -32,7 +32,7 @@ import { sweepRollup } from '../metrics/rollup.js';
 import { sweepUsage } from '../metrics/usage.js';
 import { getPlatformSettings } from '../auth/platformSettings.js';
 import { demoResetDue } from '../demo/demoAccount.js';
-import { runDemoReset } from '../demo/reset.js';
+import { runDemoReset, sweepDemoSpaces } from '../demo/reset.js';
 import { privacyTick, privacyTickSummary } from '../privacy/tick.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -49,6 +49,8 @@ export function startWorkers(): void {
   if (env.nodeEnv === 'test') return;
   if (timer) return;
   demoTimer = setInterval(() => void safeRun('demoReset', async () => void (await demoTick())), DEMO_CHECK_MS);
+  // Demo spaces whose time ran out while the server was down go at once.
+  void safeRun('demoSweep', async () => void (await sweepDemoSpaces()));
   privacyTimer = setInterval(() => void safeRun('privacy', runPrivacyTick), PRIVACY_CHECK_MS);
   setTimeout(() => void safeRun('privacy', runPrivacyTick), 90_000);
   console.log('[privacy] clean-up scheduled hourly');
@@ -83,6 +85,9 @@ export async function runPrivacyTick(now = new Date()): Promise<void> {
 
 /** Reset the demo account when it's on and its reset is due. */
 export async function demoTick(now = new Date()): Promise<boolean> {
+  // Spaces whose time is up go every few minutes, reset or not (a closed tab ends nothing by itself).
+  const swept = await sweepDemoSpaces(now);
+  if (swept > 0) console.log(`[demo] deleted ${swept} demo space${swept === 1 ? '' : 's'} whose time was up`);
   if (!demoResetDue(await getPlatformSettings(), now)) return false;
   await runDemoReset(now);
   return true;

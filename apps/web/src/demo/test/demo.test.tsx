@@ -108,7 +108,7 @@ describe('the demo profile', () => {
     routes['GET /api/auth/me'] = () => ({ body: demoUser({ enabled: true, resetEvery: 'daily', lastResetAt: NOW, nextResetAt: NOW + 86400_000 }) });
     routes['GET /api/auth/providers'] = () => ({ body: { providers: [{ id: 'google', label: 'Google', enabled: true }], passwordEnabled: false } });
     renderAt(<ProfilePage />);
-    expect(await screen.findByText(/The shared demo account/)).toBeTruthy();
+    expect(await screen.findByText(/Your private demo space/)).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Edit' })).toBeNull();
     expect(screen.queryByText('Linked sign-in methods')).toBeNull();
     expect(screen.queryByText('demo-builder@demo.invalid')).toBeNull();

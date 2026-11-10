@@ -98,11 +98,27 @@ host's to keep or not.
 | `exports/<id>.zip` | data downloads | n/a (it is the download) |
 | `BACKUPS_DIR/cbld-*.sqlite.gz` | nightly database copies (7 daily, 3 weekly, 12 monthly) | no: they are copies of the above |
 
-## The demo account
+## The demo
 
-The one shared demo account (`users.is_demo_account`) holds sample
-layouts and resets on a schedule. It belongs to nobody, so it can't
-download its data.
+"Try the demo" makes a private demo space for each visitor: a `users` row
+with `is_demo_account` set, a made-up name ("Demo builder 7f3a"), a
+`demo-…@demo.invalid` address (no real email, no password) and
+`demo_expires_at`, the end of its one sign-in. Its `sessions` row records
+no user agent, device name or IP. The space gets a copy of the samples, and anything the
+visitor makes is stored like anyone's. It can't invite, share, make public
+links, join clubs, send to the catalog, upload parts or connect a desktop
+app, so nothing it makes outlives it; a background picture is at most 2 MB.
+
+The space, everything it owns (layouts and their history, modules and their
+versions, venues, background pictures, preferences) and its sign-in are
+deleted when its time is up: at the next demo reset, or after 24 hours at
+most, or a minute after its sign-in ends. The clean-up runs at start-up and
+every few minutes, by the clock, so a closed tab or a restart leaves nothing
+behind. Each deletion writes one `demo_space_deleted` audit event with the
+counts (no names or contents); audit events are kept as above.
+
+The samples live under the template account `demo-account`, which belongs
+to nobody and is never signed in to, so it can't download its data.
 
 ## The desktop app
 

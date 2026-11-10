@@ -1,6 +1,8 @@
-// The demo account: an admin switches it on in Admin › Settings, "Try the
-// demo" signs visitors in to it, it resets itself (deleting only its own
-// things and putting the samples back), and it can't reach anyone else.
+// The demo: an admin switches it on in Admin › Settings, "Try the demo"
+// gives each visitor a private demo space (a throwaway account with a copy
+// of the samples), spaces are deleted when their time is up, a reset puts
+// the template's samples back under the same ids, and no demo account can
+// reach anyone else.
 import Fastify, { type FastifyInstance } from 'fastify';
 import cookie from '@fastify/cookie';
 import fastifyMultipart from '@fastify/multipart';
@@ -9,14 +11,15 @@ import { WebSocket } from 'ws';
 import type { AddressInfo } from 'node:net';
 import { randomUUID } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { and, eq } from 'drizzle-orm';
+import rateLimit from '@fastify/rate-limit';
+import { and, eq, ne } from 'drizzle-orm';
 import { db, loginAs, resetDb, schema } from '../test/helpers.js';
 import { attachUser } from '../auth/cookie.js';
 import { registerApiRoutes } from '../routes/all.js';
 import { registerChangeHints } from '../events/routeHints.js';
 import { closeAll } from '../events/hub.js';
-import { DEMO_DISPLAY_NAME, DEMO_USER_ID, demoResetDue, demoStatus, isDemoUser, nextDemoReset } from './demoAccount.js';
-import { DEMO_SAMPLE_IDS, DEMO_SAMPLES, uuidV5 } from './reset.js';
+import { DEMO_DISPLAY_NAME, DEMO_USER_ID, demoResetDue, demoStatus, isDemoSpace, isDemoUser, nextDemoReset } from './demoAccount.js';
+import { DEMO_SAMPLE_IDS, DEMO_SAMPLES, sweepDemoSpaces, uuidV5 } from './reset.js';
 import * as Y from 'yjs';
 import { docToBbm } from '@cld/ydoc';
 import { demoTick } from '../workers/index.js';
@@ -59,12 +62,23 @@ const cookieOf = (res: { headers: Record<string, unknown> }) => {
   const sc = res.headers['set-cookie'];
   return Array.isArray(sc) ? sc.join('; ') : String(sc ?? '');
 };
+/** "Try the demo": the visitor's sign-in cookie. */
 async function tryDemo(): Promise<string> {
+  return (await visit()).cookie;
+}
+/** "Try the demo": the visitor's sign-in cookie and their demo space's account id. */
+async function visit(): Promise<{ cookie: string; id: string }> {
   const res = await call({ method: 'POST', url: '/api/auth/demo', payload: {} });
   expect(res.statusCode).toBe(200);
   expect(res.headers['content-type']).toContain('application/json');
-  return cookieOf(res);
+  const cookie = cookieOf(res);
+  const me = (await call({ url: '/api/auth/me', cookie })).json() as { user: { id: string } };
+  return { cookie, id: me.user.id };
 }
+/** Every visitor's demo space (not the template). */
+const spaces = () => db.select().from(schema.users).where(and(eq(schema.users.isDemoAccount, true), ne(schema.users.id, DEMO_USER_ID))).all();
+/** The sign-ins of every demo account. */
+const demoSessionRows = () => db.select({ s: schema.sessions }).from(schema.sessions).innerJoin(schema.users, eq(schema.users.id, schema.sessions.userId)).where(eq(schema.users.isDemoAccount, true)).all().map((r) => r.s);
 const owned = (table: typeof schema.layouts | typeof schema.modules | typeof schema.venueLibrary | typeof schema.customParts, userId: string) =>
   db.select().from(table).where(eq(table.ownerUserId, userId)).all();
 const titles = (userId: string) => (owned(schema.layouts, userId) as { title: string }[]).map((l) => l.title).sort();
@@ -75,7 +89,7 @@ describe('the demo account is off until an admin turns it on', () => {
     expect((await call({ method: 'POST', url: '/api/auth/demo' })).statusCode).toBe(404);
     expect(db.select().from(schema.users).where(eq(schema.users.id, DEMO_USER_ID)).get()).toBeUndefined();
     const settings = (await call({ url: '/api/admin/settings', cookie: admin.cookie })).json() as { demo: Record<string, unknown> };
-    expect(settings.demo).toEqual({ enabled: false, resetEvery: 'daily', lastResetAt: null, nextResetAt: null, items: 0 });
+    expect(settings.demo).toEqual({ enabled: false, resetEvery: 'daily', lastResetAt: null, nextResetAt: null, items: 0, maxSpaces: 100, liveSpaces: 0 });
   });
 
   it('only site admins may change it or reset it, and changes are audited', async () => {
@@ -103,7 +117,7 @@ describe('the demo account is off until an admin turns it on', () => {
 });
 
 describe('turning it on', () => {
-  it('makes the demo account with fresh samples, and Try the demo signs in to it', async () => {
+  it('makes the template account with fresh samples, and Try the demo opens a private space with a copy of them', async () => {
     expect((await setDemo({ demoEnabled: true })).statusCode).toBe(200);
     const user = db.select().from(schema.users).where(eq(schema.users.id, DEMO_USER_ID)).get()!;
     expect(user).toMatchObject({ displayName: DEMO_DISPLAY_NAME, passwordHash: null, isDemoAccount: true, isGlobalAdmin: false });
@@ -123,8 +137,19 @@ describe('turning it on', () => {
     expect((await call({ url: '/api/auth/providers' })).json()).toMatchObject({ demoEnabled: true });
 
     const demo = await tryDemo();
-    const me = (await call({ url: '/api/auth/me', cookie: demo })).json() as { user: { id: string; isDemoAccount: boolean; demo: { resetEvery: string; nextResetAt: number } } };
-    expect(me.user).toMatchObject({ id: DEMO_USER_ID, isDemoAccount: true, demo: { resetEvery: 'daily', nextResetAt: settings.demo.nextResetAt } });
+    const me = (await call({ url: '/api/auth/me', cookie: demo })).json() as { user: { id: string; displayName: string; isDemoAccount: boolean; demo: { resetEvery: string; nextResetAt: number } } };
+    expect(me.user).toMatchObject({ isDemoAccount: true, demo: { resetEvery: 'daily', nextResetAt: settings.demo.nextResetAt } });
+    expect(me.user.id).not.toBe(DEMO_USER_ID);
+    expect(me.user.displayName).toMatch(/^Demo builder [0-9a-f]{4}$/);
+    // Its own copy of each sample, each remembering which sample it came from.
+    const space = db.select().from(schema.users).where(eq(schema.users.id, me.user.id)).get()!;
+    expect(space).toMatchObject({ passwordHash: null, isGlobalAdmin: false, isModerator: false });
+    expect(space.email).toMatch(/^demo-[0-9a-f]+@demo\.invalid$/);
+    expect(space.demoExpiresAt!.getTime()).toBe(settings.demo.nextResetAt);
+    expect(owned(schema.layouts, me.user.id).map((l) => (l as { copiedFromId: string }).copiedFromId)).toEqual([DEMO_SAMPLE_IDS.layout]);
+    expect(owned(schema.modules, me.user.id).map((l) => (l as { copiedFromId: string }).copiedFromId)).toEqual([DEMO_SAMPLE_IDS.module]);
+    expect(owned(schema.venueLibrary, me.user.id).map((l) => (l as { copiedFromId: string }).copiedFromId)).toEqual([DEMO_SAMPLE_IDS.venue]);
+    expect(owned(schema.layouts, me.user.id).map((l) => l.id)).not.toContain(DEMO_SAMPLE_IDS.layout);
     // Everyone else's /me has no demo block.
     expect(((await call({ url: '/api/auth/me', cookie: alice.cookie })).json() as { user: object }).user).not.toHaveProperty('demo');
     const list = (await call({ url: '/api/layouts', cookie: demo })).json() as { layouts: { title: string }[] };
@@ -162,14 +187,16 @@ describe('turning it on', () => {
     expect(db.select().from(schema.users).where(eq(schema.users.id, DEMO_USER_ID)).get()).toMatchObject({ isGlobalAdmin: false, isModerator: false });
   });
 
-  it('turning it off signs the demo out everywhere and hides Try the demo', async () => {
+  it('turning it off signs the demo out everywhere, deletes every space and hides Try the demo', async () => {
     await setDemo({ demoEnabled: true });
     const one = await tryDemo();
     const two = await tryDemo();
     expect(((await call({ url: '/api/auth/me', cookie: one })).json() as { user: unknown }).user).not.toBeNull();
+    expect(spaces()).toHaveLength(2);
     await setDemo({ demoEnabled: false });
     for (const c of [one, two]) expect(((await call({ url: '/api/auth/me', cookie: c })).json() as { user: unknown }).user).toBeNull();
-    expect(db.select().from(schema.sessions).where(eq(schema.sessions.userId, DEMO_USER_ID)).all()).toHaveLength(0);
+    expect(demoSessionRows()).toHaveLength(0);
+    expect(spaces()).toHaveLength(0);
     expect((await call({ method: 'POST', url: '/api/auth/demo', payload: {} })).statusCode).toBe(404);
     expect((await call({ url: '/api/auth/providers' })).json()).toMatchObject({ demoEnabled: false });
     expect((await resetNow()).statusCode).toBe(409);
@@ -179,17 +206,21 @@ describe('turning it on', () => {
 });
 
 describe('a reset', () => {
-  it('deletes only what the demo account owns and puts the samples back', async () => {
+  it('deletes every demo space, only what demo accounts own, and puts the samples back', async () => {
     // Alice's things, which must survive.
     const aliceLayout = (await call({ method: 'POST', url: '/api/layouts', cookie: alice.cookie, payload: { title: 'Alice layout' } })).json() as { id: string };
     await call({ method: 'POST', url: '/api/modules', cookie: alice.cookie, payload: { title: 'Alice module' } });
     await call({ method: 'POST', url: '/api/venues', cookie: alice.cookie, payload: { name: 'Alice room', data: { name: 'Alice room', edges: [] } } });
 
     await setDemo({ demoEnabled: true });
-    const demo = await tryDemo();
+    const visitor = await visit();
+    const demo = visitor.cookie;
     const sample = owned(schema.layouts, DEMO_USER_ID)[0] as { id: string };
-    // The visitor builds things: renames the sample, makes a layout, a module and a room.
-    expect((await call({ method: 'PATCH', url: `/api/layouts/${sample.id}`, cookie: demo, payload: { title: 'Visitor was here' } })).statusCode).toBe(200);
+    const copy = owned(schema.layouts, visitor.id)[0] as { id: string };
+    // The sample itself is the template's: a visitor can't change it.
+    expect((await call({ method: 'PATCH', url: `/api/layouts/${sample.id}`, cookie: demo, payload: { title: 'Visitor was here' } })).statusCode).toBe(403);
+    // The visitor builds things: renames their copy, makes a layout, a module and a room.
+    expect((await call({ method: 'PATCH', url: `/api/layouts/${copy.id}`, cookie: demo, payload: { title: 'Visitor was here' } })).statusCode).toBe(200);
     expect((await call({ method: 'POST', url: '/api/layouts', cookie: demo, payload: { title: 'Visitor layout' } })).statusCode).toBe(201);
     expect((await call({ method: 'POST', url: '/api/modules', cookie: demo, payload: { title: 'Visitor module' } })).statusCode).toBe(201);
     expect((await call({ method: 'POST', url: '/api/venues', cookie: demo, payload: { name: 'Visitor room', data: { name: 'Visitor room', edges: [] } } })).statusCode).toBe(201);
@@ -197,7 +228,8 @@ describe('a reset', () => {
     const now = new Date();
     db.insert(schema.customParts).values({ id: randomUUID(), partNumber: 'DEMO.1', displayName: 'Demo part', ownerUserId: DEMO_USER_ID, createdBy: DEMO_USER_ID, xmlBlob: Buffer.from('<part/>'), spriteBlob: Buffer.from('GIF89a'), spriteMime: 'image/gif', createdAt: now, updatedAt: now }).run();
     db.insert(schema.userPreferences).values({ userId: DEMO_USER_ID, prefs: '{}', updatedAt: now }).run();
-    expect(titles(DEMO_USER_ID)).toEqual(['Visitor layout', 'Visitor was here']);
+    expect(titles(visitor.id)).toEqual(['Visitor layout', 'Visitor was here']);
+    expect(titles(DEMO_USER_ID)).toEqual([DEMO_SAMPLES.layout.title]);
 
     const res = await resetNow();
     expect(res.statusCode).toBe(200);
@@ -205,6 +237,13 @@ describe('a reset', () => {
     expect(res.json()).toMatchObject({ ok: true, items: 3 });
 
     expect(titles(DEMO_USER_ID)).toEqual([DEMO_SAMPLES.layout.title]);
+    // The visitor's space and everything in it are gone, with one audit event saying how much.
+    expect(spaces()).toHaveLength(0);
+    for (const t of [schema.layouts, schema.modules, schema.venueLibrary] as const) expect(owned(t, visitor.id)).toHaveLength(0);
+    const gone = db.select().from(schema.auditEvents).where(eq(schema.auditEvents.eventType, 'demo_space_deleted')).all();
+    expect(gone).toHaveLength(1);
+    expect(JSON.parse(String(gone[0]!.payload))).toEqual({ why: 'reset', layouts: 2, modules: 2, venues: 2, parts: 0 });
+    expect(db.select().from(schema.auditEvents).where(eq(schema.auditEvents.eventType, 'layout_delete')).all()).toHaveLength(0);
     // The same id as before the reset: links to the sample keep working.
     expect((owned(schema.layouts, DEMO_USER_ID)[0] as { id: string }).id).toBe(sample.id);
     expect((owned(schema.modules, DEMO_USER_ID) as { title: string }[]).map((m) => m.title)).toEqual([DEMO_SAMPLES.module.title]);
@@ -260,21 +299,21 @@ describe('a reset', () => {
     expect(DEMO_SAMPLE_IDS.layout).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
   });
 
-  it('tells the demo visitors and admins at once, and nobody else', async () => {
+  it('tells admins at once (and their count of spaces), and nobody else', async () => {
     await setDemo({ demoEnabled: true });
-    const demo = await tryDemo();
     await app.listen({ port: 0, host: '127.0.0.1' });
     const port = (app.server.address() as AddressInfo).port;
-    const streams = await Promise.all([demo, admin.cookie, alice.cookie].map((c) => openStream(port, c)));
+    const streams = await Promise.all([admin.cookie, alice.cookie].map((c) => openStream(port, c)));
+    const [a, other] = streams;
+    // A new space: Admin › Settings › Demo account's count changes.
+    await tryDemo();
+    await until(() => a!.hints().some((h) => h.kind === 'admin' && h.action === 'demo-space'));
+    expect(a!.hints().some((h) => h.kind === 'admin' && h.action === 'demo-space')).toBe(true);
     await resetNow();
-    const [d, a, other] = streams;
-    await until(() => d!.hints().length >= 5 && a!.hints().length >= 1);
-    const demoKinds = d!.hints().filter((h) => h.action === 'demo-reset').map((h) => h.kind);
-    expect(demoKinds).toEqual(expect.arrayContaining(['layout', 'module', 'venue', 'me']));
-    expect(d!.hints().find((h) => h.kind === 'layout')).toMatchObject({ owner: { kind: 'user', id: DEMO_USER_ID } });
+    await until(() => a!.hints().some((h) => h.kind === 'admin' && h.action === 'demo-reset'));
     expect(a!.hints().some((h) => h.kind === 'admin' && h.action === 'demo-reset')).toBe(true);
     await new Promise((r) => setTimeout(r, 100));
-    expect(other!.hints().filter((h) => h.action === 'demo-reset')).toEqual([]);
+    expect(other!.hints().filter((h) => h.action === 'demo-reset' || h.action === 'demo-space')).toEqual([]);
     for (const s of streams) s.close();
   });
 
@@ -310,19 +349,21 @@ describe('when a reset is due', () => {
   });
 });
 
-describe('what the demo account can and cannot do', () => {
+describe('what a demo space can and cannot do', () => {
   let demo: string;
+  let demoId: string;
   let sampleId: string;
   let moduleId: string;
   beforeEach(async () => {
     await setDemo({ demoEnabled: true });
-    demo = await tryDemo();
-    sampleId = (owned(schema.layouts, DEMO_USER_ID)[0] as { id: string }).id;
-    moduleId = (owned(schema.modules, DEMO_USER_ID)[0] as { id: string }).id;
+    ({ cookie: demo, id: demoId } = await visit());
+    // The visitor's own copies: everything below is refused even on what they own.
+    sampleId = (owned(schema.layouts, demoId)[0] as { id: string }).id;
+    moduleId = (owned(schema.modules, demoId)[0] as { id: string }).id;
   });
 
   it('never acts as an admin or moderator, even if the database says it is', async () => {
-    db.update(schema.users).set({ isGlobalAdmin: true, isModerator: true }).where(eq(schema.users.id, DEMO_USER_ID)).run();
+    db.update(schema.users).set({ isGlobalAdmin: true, isModerator: true }).where(eq(schema.users.id, demoId)).run();
     const me = (await call({ url: '/api/auth/me', cookie: demo })).json() as { user: { isGlobalAdmin: boolean; isModerator: boolean } };
     expect(me.user).toMatchObject({ isGlobalAdmin: false, isModerator: false });
     expect((await call({ url: '/api/admin/users', cookie: demo })).statusCode).toBe(403);
@@ -330,10 +371,13 @@ describe('what the demo account can and cannot do', () => {
     expect(db.select().from(schema.users).where(eq(schema.users.id, alice.id)).get()!.isGlobalAdmin).toBe(false);
   });
 
-  it('is the only account the helper calls a demo', () => {
+  it('is the only kind of account the helpers call a demo', () => {
     expect(isDemoUser({ isDemoAccount: true })).toBe(true);
     expect(isDemoUser({ isDemoAccount: false })).toBe(false);
     expect(isDemoUser(null)).toBe(false);
+    expect(isDemoSpace({ id: demoId, isDemoAccount: true })).toBe(true);
+    expect(isDemoSpace({ id: DEMO_USER_ID, isDemoAccount: true })).toBe(false);
+    expect(isDemoSpace({ id: alice.id, isDemoAccount: false })).toBe(false);
   });
 
   it('can build, edit, save and export layouts, rooms and modules', async () => {
@@ -372,9 +416,9 @@ describe('what the demo account can and cannot do', () => {
     await call({ method: 'POST', url: '/api/orgs', cookie: demo, payload: { name: 'Demo club' } });
     await call({ method: 'POST', url: `/api/layouts/${sampleId}/public-share`, cookie: demo });
     await call({ method: 'PATCH', url: '/api/auth/me', cookie: demo, payload: { displayName: 'Me now' } });
-    expect(db.select().from(schema.orgMembers).where(eq(schema.orgMembers.userId, DEMO_USER_ID)).all()).toHaveLength(0);
+    expect(db.select().from(schema.orgMembers).where(eq(schema.orgMembers.userId, demoId)).all()).toHaveLength(0);
     expect(db.select().from(schema.layouts).where(and(eq(schema.layouts.id, sampleId))).get()!.publicShareToken).toBeNull();
-    expect(db.select().from(schema.users).where(eq(schema.users.id, DEMO_USER_ID)).get()!.displayName).toBe(DEMO_DISPLAY_NAME);
+    expect(db.select().from(schema.users).where(eq(schema.users.id, demoId)).get()!.displayName).toMatch(/^Demo builder [0-9a-f]{4}$/);
   });
 
   it('a normal account can still do these', async () => {
@@ -386,7 +430,7 @@ describe('what the demo account can and cannot do', () => {
 });
 
 describe('demo sign-ins', () => {
-  const demoSessions = () => db.select().from(schema.sessions).where(eq(schema.sessions.userId, DEMO_USER_ID)).all();
+  const demoSessions = demoSessionRows;
   const signedIn = async (c: string) => ((await call({ url: '/api/auth/me', cookie: c })).json() as { user: unknown }).user !== null;
   const HOUR = 60 * 60 * 1000;
 
@@ -400,7 +444,7 @@ describe('demo sign-ins', () => {
     for (let i = 0; i < 3; i++) expect(await signedIn(demo)).toBe(true);
     expect(demoSessions()[0]!.expiresAt.getTime()).toBe(next);
     // At the reset time it has ended, even before the timer gets round to the reset.
-    db.update(schema.sessions).set({ expiresAt: new Date(Date.now() - 1) }).where(eq(schema.sessions.userId, DEMO_USER_ID)).run();
+    db.update(schema.sessions).set({ expiresAt: new Date(Date.now() - 1) }).where(eq(schema.sessions.id, demoSessions()[0]!.id)).run();
     expect(await signedIn(demo)).toBe(false);
   });
 
@@ -411,7 +455,7 @@ describe('demo sign-ins', () => {
     // A day and a bit old with an end far away (as a database edit could leave it): ended.
     db.update(schema.sessions)
       .set({ createdAt: new Date(Date.now() - 25 * HOUR), expiresAt: new Date(Date.now() + 30 * 24 * HOUR) })
-      .where(eq(schema.sessions.userId, DEMO_USER_ID))
+      .where(eq(schema.sessions.id, demoSessions()[0]!.id))
       .run();
     expect(await signedIn(demo)).toBe(false);
     expect(demoSessions()).toHaveLength(0);
@@ -419,19 +463,19 @@ describe('demo sign-ins', () => {
 
   it('a reset signs every demo visitor out, web sessions and tokens, and nobody else', async () => {
     await setDemo({ demoEnabled: true });
-    const one = await tryDemo();
+    const { cookie: one, id: oneId } = await visit();
     const two = await tryDemo();
     // The demo can't get a desktop token, but one made anyway (a database edit) goes too.
     const now = new Date();
     db.insert(schema.apiTokens)
-      .values({ id: randomUUID(), userId: DEMO_USER_ID, name: 'x', tokenHash: randomUUID(), prefix: 'bld_pat_x', last4: 'xxxx', scopes: 'layouts:read', createdAt: now, lastUsedAt: null, expiresAt: new Date(now.getTime() + HOUR), revokedAt: null })
+      .values({ id: randomUUID(), userId: oneId, name: 'x', tokenHash: randomUUID(), prefix: 'bld_pat_x', last4: 'xxxx', scopes: 'layouts:read', createdAt: now, lastUsedAt: null, expiresAt: new Date(now.getTime() + HOUR), revokedAt: null })
       .run();
     expect(await signedIn(one)).toBe(true);
     expect((await resetNow()).statusCode).toBe(200);
     expect(await signedIn(one)).toBe(false);
     expect(await signedIn(two)).toBe(false);
     expect(demoSessions()).toHaveLength(0);
-    expect(db.select().from(schema.apiTokens).where(eq(schema.apiTokens.userId, DEMO_USER_ID)).all().every((t) => t.revokedAt !== null)).toBe(true);
+    expect(db.select().from(schema.apiTokens).where(eq(schema.apiTokens.userId, oneId)).all()).toEqual([]);
     // Other people stay signed in.
     expect(await signedIn(alice.cookie)).toBe(true);
     expect(await signedIn(admin.cookie)).toBe(true);
@@ -443,8 +487,9 @@ describe('demo sign-ins', () => {
 
   it('a visitor with a live layout open is closed with the reason demo_reset', async () => {
     await setDemo({ demoEnabled: true });
-    const demo = await tryDemo();
-    const sample = owned(schema.layouts, DEMO_USER_ID)[0] as { id: string };
+    const visitor = await visit();
+    const demo = visitor.cookie;
+    const sample = owned(schema.layouts, visitor.id)[0] as { id: string };
     await app.listen({ port: 0, host: '127.0.0.1' });
     const port = (app.server.address() as AddressInfo).port;
     const ws = new WebSocket(`ws://127.0.0.1:${port}/ws/layout/${sample.id}`, { headers: { cookie: demo } });
@@ -470,6 +515,177 @@ describe('demo sign-ins', () => {
     expect(after).toBeGreaterThan(old.getTime());
     expect(await signedIn(demo)).toBe(true);
     expect(demoSessions()[0]!.expiresAt.getTime()).toBe(after + HOUR);
+  });
+});
+
+describe('each visitor has a private demo space', () => {
+  beforeEach(async () => {
+    await setDemo({ demoEnabled: true });
+  });
+  const layoutsOf = async (c: string) => ((await call({ url: '/api/layouts', cookie: c })).json() as { layouts: { id: string }[] }).layouts.map((l) => l.id);
+
+  it('two visitors never see or change each other’s things, and have different names', async () => {
+    const a = await visit();
+    const b = await visit();
+    expect(a.id).not.toBe(b.id);
+    const nameOf = (id: string) => db.select().from(schema.users).where(eq(schema.users.id, id)).get()!.displayName;
+    expect(nameOf(a.id)).not.toBe(nameOf(b.id));
+    const aLayouts = await layoutsOf(a.cookie);
+    const bLayouts = await layoutsOf(b.cookie);
+    expect(aLayouts).toHaveLength(1);
+    expect(bLayouts).toHaveLength(1);
+    expect(aLayouts[0]).not.toBe(bLayouts[0]);
+    const mine = aLayouts[0]!;
+    expect((await call({ url: `/api/layouts/${mine}`, cookie: b.cookie })).statusCode).toBe(404);
+    expect((await call({ method: 'PATCH', url: `/api/layouts/${mine}`, cookie: b.cookie, payload: { title: 'B was here' } })).statusCode).toBeGreaterThanOrEqual(403);
+    expect((await call({ method: 'DELETE', url: `/api/layouts/${mine}`, cookie: b.cookie })).statusCode).toBeGreaterThanOrEqual(403);
+    const aModule = (owned(schema.modules, a.id)[0] as { id: string }).id;
+    expect((await call({ url: `/api/modules/${aModule}`, cookie: b.cookie })).statusCode).toBe(404);
+    const aVenue = (owned(schema.venueLibrary, a.id)[0] as { id: string }).id;
+    expect((await call({ url: `/api/venues/${aVenue}`, cookie: b.cookie })).statusCode).toBe(404);
+    // A's own layout is A's to change.
+    expect((await call({ method: 'PATCH', url: `/api/layouts/${mine}`, cookie: a.cookie, payload: { title: 'A’s yard' } })).statusCode).toBe(200);
+    expect(db.select().from(schema.layouts).where(eq(schema.layouts.id, bLayouts[0]!)).get()!.title).toBe(DEMO_SAMPLES.layout.title);
+  });
+
+  it('one visitor using up a limit leaves another visitor alone', async () => {
+    // The real server's limits (index.ts registers the same plugin).
+    const limited = Fastify();
+    await limited.register(rateLimit, { global: false });
+    await limited.register(cookie);
+    await limited.register(fastifyMultipart);
+    limited.addHook('preHandler', attachUser);
+    await registerApiRoutes(limited);
+    try {
+      const go = async () => cookieOf(await limited.inject({ method: 'POST', url: '/api/auth/demo', payload: {} }));
+      const a = await go();
+      const b = await go();
+      const copyOf = async (c: string) => {
+        const mine = await layoutsOf(c);
+        return limited.inject({ method: 'POST', url: `/api/layouts/${mine[0]}/copy`, headers: { cookie: c }, payload: {} });
+      };
+      // Copying is 30 a minute per person.
+      for (let i = 0; i < 30; i++) expect((await copyOf(a)).statusCode).toBe(201);
+      expect((await copyOf(a)).statusCode).toBe(429);
+      expect((await copyOf(b)).statusCode).toBe(201);
+    } finally {
+      await limited.close();
+    }
+  });
+
+  it('a link to a sample opens it read-only, pointing at the visitor’s own copy, before and after a reset', async () => {
+    for (let round = 0; round < 2; round++) {
+      const v = await visit();
+      const layout = (await call({ url: `/api/layouts/${DEMO_SAMPLE_IDS.layout}`, cookie: v.cookie })).json() as { role: string; demoCopyId: string };
+      expect(layout.role).toBe('viewer');
+      expect(layout.demoCopyId).toBe((owned(schema.layouts, v.id)[0] as { id: string }).id);
+      const module = (await call({ url: `/api/modules/${DEMO_SAMPLE_IDS.module}`, cookie: v.cookie })).json() as { role: string; demoCopyId: string };
+      expect(module.role).toBe('viewer');
+      expect(module.demoCopyId).toBe((owned(schema.modules, v.id)[0] as { id: string }).id);
+      // The sample can't be changed or deleted by a visitor.
+      expect((await call({ method: 'PATCH', url: `/api/layouts/${DEMO_SAMPLE_IDS.layout}`, cookie: v.cookie, payload: { title: 'x' } })).statusCode).toBe(403);
+      expect((await call({ method: 'DELETE', url: `/api/layouts/${DEMO_SAMPLE_IDS.layout}`, cookie: v.cookie })).statusCode).toBeGreaterThanOrEqual(403);
+      expect((await call({ method: 'PATCH', url: `/api/modules/${DEMO_SAMPLE_IDS.module}`, cookie: v.cookie, payload: { title: 'x' } })).statusCode).toBeGreaterThanOrEqual(403);
+      // Their own copy has no pointer, and other people see no demo copy.
+      expect((await call({ url: `/api/layouts/${layout.demoCopyId}`, cookie: v.cookie })).json()).not.toHaveProperty('demoCopyId');
+      expect((await call({ url: `/api/layouts/${DEMO_SAMPLE_IDS.layout}`, cookie: alice.cookie })).statusCode).toBe(404);
+      expect((await resetNow()).statusCode).toBe(200);
+    }
+  });
+
+  it('the clean-up deletes spaces whose time is up, or whose sign-in ended, and nothing else', async () => {
+    const expired = await visit();
+    const closedTab = await visit();
+    const live = await visit();
+    const aliceLayout = (await call({ method: 'POST', url: '/api/layouts', cookie: alice.cookie, payload: { title: 'Alice layout' } })).json() as { id: string };
+    // One space's time is up (its visitor just closed the tab, the sign-in never formally ended).
+    db.update(schema.users).set({ demoExpiresAt: new Date(Date.now() - 1000) }).where(eq(schema.users.id, expired.id)).run();
+    // Another's sign-in is gone, and it is more than a minute old.
+    db.delete(schema.sessions).where(eq(schema.sessions.userId, closedTab.id)).run();
+    db.update(schema.users).set({ createdAt: new Date(Date.now() - 5 * 60_000) }).where(eq(schema.users.id, closedTab.id)).run();
+    expect(await sweepDemoSpaces()).toBe(2);
+    expect(spaces().map((u) => u.id)).toEqual([live.id]);
+    for (const id of [expired.id, closedTab.id]) {
+      for (const t of [schema.layouts, schema.modules, schema.venueLibrary] as const) expect(owned(t, id)).toHaveLength(0);
+      expect(db.select().from(schema.sessions).where(eq(schema.sessions.userId, id)).all()).toHaveLength(0);
+    }
+    // One audit event per space, with counts.
+    const events = db.select().from(schema.auditEvents).where(eq(schema.auditEvents.eventType, 'demo_space_deleted')).all();
+    expect(events.map((e) => e.resourceId).sort()).toEqual([expired.id, closedTab.id].sort());
+    for (const e of events) expect(JSON.parse(String(e.payload))).toEqual({ why: 'expired', layouts: 1, modules: 1, venues: 1, parts: 0 });
+    // The live visitor, the template and everyone else are untouched.
+    expect(((await call({ url: '/api/auth/me', cookie: live.cookie })).json() as { user: { id: string } }).user.id).toBe(live.id);
+    expect(owned(schema.layouts, live.id)).toHaveLength(1);
+    expect(owned(schema.layouts, DEMO_USER_ID)).toHaveLength(1);
+    expect(db.select().from(schema.layouts).where(eq(schema.layouts.id, aliceLayout.id)).get()).toBeDefined();
+    // A brand-new space (its sign-in is made just after it) isn't swept.
+    expect(await sweepDemoSpaces()).toBe(0);
+  });
+
+  it('the timer’s tick sweeps too, by the clock', async () => {
+    const v = await visit();
+    expect(await demoTick(new Date())).toBe(false);
+    expect(spaces()).toHaveLength(1);
+    // A day later the space is past its time, whether or not the reset ran.
+    await demoTick(new Date(Date.now() + 25 * 3600_000));
+    expect(spaces().map((u) => u.id)).not.toContain(v.id);
+  });
+
+  it('at the most spaces at once, Try the demo says the demo is busy', async () => {
+    expect((await setDemo({ demoMaxSpaces: 2 })).statusCode).toBe(200);
+    const first = await visit();
+    await visit();
+    const busy = await call({ method: 'POST', url: '/api/auth/demo', payload: {} });
+    expect(busy.statusCode).toBe(503);
+    expect(busy.json()).toEqual({ error: 'demo_busy', message: 'The demo is busy right now. Try again in a few minutes.' });
+    expect(busy.headers['set-cookie']).toBeUndefined();
+    expect(spaces()).toHaveLength(2);
+    // A space whose time is up makes room.
+    db.update(schema.users).set({ demoExpiresAt: new Date(Date.now() - 1000) }).where(eq(schema.users.id, first.id)).run();
+    await visit();
+    expect(spaces()).toHaveLength(2);
+  });
+
+  it('the most spaces at once is a whole number from 1 to 10,000, and Settings shows how many are in use', async () => {
+    for (const bad of [0, -1, 10_001, 2.5, '50', null]) expect((await setDemo({ demoMaxSpaces: bad })).statusCode).toBe(400);
+    expect((await setDemo({ demoMaxSpaces: 7 }, alice)).statusCode).toBe(403);
+    expect((await setDemo({ demoMaxSpaces: 7 })).statusCode).toBe(200);
+    await visit();
+    const settings = (await call({ url: '/api/admin/settings', cookie: admin.cookie })).json() as { demo: { maxSpaces: number; liveSpaces: number } };
+    expect(settings.demo).toMatchObject({ maxSpaces: 7, liveSpaces: 1 });
+  });
+
+  it('stays out of the admin’s people list and user count', async () => {
+    const v = await visit();
+    const users = (await call({ url: '/api/admin/users?limit=100', cookie: admin.cookie })).json() as { users: { id: string }[]; total: number };
+    expect(users.users.map((u) => u.id)).not.toContain(v.id);
+    expect(users.users.map((u) => u.id)).toContain(alice.id);
+    // The template account stays, labelled as the demo.
+    expect(users.users.find((u) => u.id === DEMO_USER_ID)).toMatchObject({ isDemoAccount: true });
+    expect(users.total).toBe(users.users.length);
+    const search = (await call({ url: '/api/admin/users?q=demo', cookie: admin.cookie })).json() as { users: { id: string }[] };
+    expect(search.users.map((u) => u.id)).not.toContain(v.id);
+    const stats = (await call({ url: '/api/admin/stats', cookie: admin.cookie })).json() as { users: number };
+    expect(stats.users).toBe(users.total);
+  });
+
+  it('keeps no device name, and a background picture is at most 2 MB', async () => {
+    const v = await visit();
+    await call({ url: '/api/auth/me', cookie: v.cookie, });
+    expect(db.select().from(schema.sessions).where(eq(schema.sessions.userId, v.id)).all().map((r) => r.device)).toEqual([null]);
+    const layoutId = (owned(schema.layouts, v.id)[0] as { id: string }).id;
+    const upload = (bytes: number, who: string) => {
+      const boundary = '----DemoBoundary';
+      const head = Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="bg.png"\r\nContent-Type: image/png\r\n\r\n`);
+      const png = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(bytes - 8)]);
+      const tail = Buffer.from(`\r\n--${boundary}--\r\n`);
+      return app.inject({ method: 'POST', url: `/api/layouts/${layoutId}/background-image`, headers: { cookie: who, 'content-type': `multipart/form-data; boundary=${boundary}` }, payload: Buffer.concat([head, png, tail]) });
+    };
+    const big = await upload(3 * 1024 * 1024, v.cookie);
+    expect(big.statusCode).toBe(413);
+    expect(big.json()).toEqual({ error: 'file_too_large', message: 'In the demo, a background picture can be up to 2 MB.' });
+    const small = await upload(64 * 1024, v.cookie);
+    expect(small.statusCode).toBe(200);
   });
 });
 
