@@ -507,6 +507,14 @@ async function getBytes(path: string): Promise<{ bytes: Uint8Array; docVersion: 
   };
 }
 
+/** A module save refused: someone else saved it since this editor opened it (409 module_changed). */
+export class ModuleChangedError extends Error {
+  constructor(public readonly docVersion: number | undefined) {
+    super('Someone else saved this module while you were working on it.');
+    this.name = 'ModuleChangedError';
+  }
+}
+
 async function putBytes(path: string, bytes: Uint8Array): Promise<{ updatedAt: number }> {
   const res = await reach(fetch(path, {
     method: 'PUT',
@@ -1004,11 +1012,27 @@ export const api = {
     create: (body: { title?: string; orgSlug?: string }) =>
       post<{ id: string; title: string }>('/api/modules', body),
     /** Save the module's contents; each save is a new version, with an optional "What changed" note. */
-    saveSnapshot: (id: string, bytes: Uint8Array, note?: string) =>
-      putBytes(`/api/modules/${id}/snapshot${note?.trim() ? `?note=${encodeURIComponent(note.trim())}` : ''}`, bytes) as Promise<{
-        updatedAt: number;
-        version?: number;
-      }>,
+    /**
+     * Save the module's contents. `base`: the docVersion the editor started
+     * from; someone else's save since then refuses it (ModuleChangedError)
+     * instead of overwriting theirs. Without it, it's saved over whatever is there.
+     */
+    saveSnapshot: async (id: string, bytes: Uint8Array, note?: string, base?: number) => {
+      const path = `/api/modules/${id}/snapshot${note?.trim() ? `?note=${encodeURIComponent(note.trim())}` : ''}`;
+      const res = await reach(fetch(path, {
+        method: 'PUT',
+        credentials: 'include',
+        headers: { 'content-type': 'application/octet-stream', ...(base !== undefined ? { 'if-match': `"${base}"` } : {}) },
+        body: bytes as Uint8Array<ArrayBuffer>,
+      }));
+      if (res.status === 409) {
+        const body = (await res.clone().json().catch(() => ({}))) as { error?: string; docVersion?: number };
+        if (body.error === 'module_changed') throw new ModuleChangedError(body.docVersion);
+      }
+      if (!res.ok) throw new Error(await friendlyErrorMessage(res, 'PUT', path));
+      noteWrite('PUT', path);
+      return res.json() as Promise<{ updatedAt: number; version?: number; docVersion?: number }>;
+    },
     versions: (id: string) =>
       get<{ role: 'owner' | 'editor' | 'viewer'; versions: ModuleVersion[] }>(`/api/modules/${encodeURIComponent(id)}/versions`),
     /** One version's Y.Doc bytes. */
@@ -1022,10 +1046,13 @@ export const api = {
     restoreVersion: (id: string, version: number) =>
       post<{ ok: true; version: number }>(`/api/modules/${encodeURIComponent(id)}/versions/${version}/restore`, {}),
     /** The module's Y.Doc bytes (for the module editor). */
-    snapshot: async (id: string): Promise<Uint8Array> => {
+    snapshot: async (id: string): Promise<Uint8Array> => (await api.modules.snapshotAt(id)).bytes,
+    /** The module's Y.Doc bytes and which save they are (its docVersion, for the next save's If-Match). */
+    snapshotAt: async (id: string): Promise<{ bytes: Uint8Array; docVersion: number | undefined }> => {
       const res = await reach(fetch(`/api/modules/${encodeURIComponent(id)}/snapshot`, { credentials: 'include' }));
       if (!res.ok) throw new Error(await friendlyErrorMessage(res));
-      return new Uint8Array(await res.arrayBuffer());
+      const v = Number(res.headers.get('x-doc-version'));
+      return { bytes: new Uint8Array(await res.arrayBuffer()), docVersion: Number.isInteger(v) ? v : undefined };
     },
     /** The module's picture, as base64 in JSON (never octet-stream: the site's firewall). */
     setThumbnail: (id: string, thumb: { mime: 'image/png' | 'image/webp'; data: string }) =>
