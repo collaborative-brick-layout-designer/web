@@ -11,7 +11,8 @@
 //     picture itself, unknown sidecar fields, the venue's notes, and the
 //     budget (how many of each part a club has is its own business).
 //   - A venue keeps its plan (walls, doors, openings, obstacles, power,
-//     measurements) and leaves out its notes and any field we don't know.
+//     measurements, the unit its lengths show in) and leaves out its notes
+//     and any field we don't know.
 //   - A summary for the public page: the size, and a layout's parts list.
 //
 // Routes (anyone may see a public item when the site lets signed-out
@@ -23,7 +24,7 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { and, eq, inArray } from 'drizzle-orm';
 import sharp from 'sharp';
-import { writeBbm, type Sidecar, type Venue } from '@cld/bbm';
+import { venueLengthUnit, writeBbm, type Sidecar, type Venue } from '@cld/bbm';
 import type { BbmMap } from '@cld/model';
 import { BUDGET_LIMITS_KEY, decodeDoc, encodeDoc, exportBbmFromDoc, exportSidecarFromDoc, importSidecarIntoDoc, seedFromBbm } from '@cld/ydoc';
 import { db, schema } from '../db/index.js';
@@ -62,6 +63,8 @@ export function publicVenue(v: Venue): Venue {
     obstacles: (Array.isArray(v.obstacles) ? v.obstacles : []).map((o) => pick(o, ['label', 'poly', 'kind', 'upDegrees']) as Venue['obstacles'][number]),
   };
   if (Array.isArray(v.power) && v.power.length) out.power = v.power.map((p) => pick(p, ['x', 'y', 'kind', 'label', 'amps', 'volts']) as NonNullable<Venue['power']>[number]);
+  // The unit its lengths show in, so the public page reads as its owner drew it.
+  if (venueLengthUnit(v) !== 'ftin') out.lengthUnit = venueLengthUnit(v);
   if (Array.isArray(v.dimensions) && v.dimensions.length) out.dimensions = v.dimensions.map((d) => pick(d, ['from', 'to', 'label', 'estimated']) as NonNullable<Venue['dimensions']>[number]);
   return out;
 }

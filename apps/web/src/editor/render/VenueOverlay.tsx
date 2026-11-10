@@ -19,7 +19,7 @@
 // sidecar regardless.
 
 import { Circle, Group, Line, Rect, Text } from 'react-konva';
-import type { Venue, VenueDimension, VenueNote, VenueObstacle as VenueObstacleT, VenuePower } from '@cld/bbm';
+import { venueLengthUnit, type Venue, type VenueDimension, type VenueNote, type VenueObstacle as VenueObstacleT, type VenuePower } from '@cld/bbm';
 import { studToPx } from './coords';
 import {
   DIMENSION_COLOR,
@@ -57,7 +57,7 @@ interface Props {
   pointer?: Pt | null;
   /** Drawn on a dark canvas (the Venue Designer in the dark theme): dark colors drawn light. */
   darkCanvas?: boolean;
-  /** The unit the wall lengths are shown in (the Venue Designer's Units pick); feet by default. */
+  /** The unit the wall lengths are shown in; the venue's own (its Venue Designer Units pick) when not given. */
   unit?: LengthUnit;
 }
 
@@ -67,7 +67,7 @@ export function VenueOverlay({ venue, labelFontPx = 28, onDoubleClick, selectedE
   if (!venue || !venue.enabled) return null;
   const ink = darkCanvas ? onDarkCanvas : asIs;
   const groupProps = onDoubleClick ? { listening: true, onDblClick: onDoubleClick } : { listening: false };
-  const labels = { selectedEdge, handles, handleHalfPx, pointer, ...(unit ? { unit } : {}) };
+  const labels = { selectedEdge, handles, handleHalfPx, pointer, unit: unit ?? venueLengthUnit(venue) };
   return (
     <Group {...groupProps}>
       {venue.edges.map((edge, i) => (

@@ -26,6 +26,13 @@ Readers must accept both, and must ignore entries they don't know.
   one machine. Only a writer that couldn't read the image keeps `path`, and it
   warns that it did.
 
+## Venue
+
+`sidecar.json`'s `venue` is the venue model in `references/VENUE-MODEL.md`.
+It may carry `lengthUnit` (`"m"` or `"studs"`; absent means feet and
+inches): the unit the Venue Designer was set to, which both apps show the
+venue's wall lengths in. Stored lengths are always studs.
+
 ## Budget
 
 `sidecar.json` (and the `.bbm.bld` sidecar) carries the layout's budget, how
