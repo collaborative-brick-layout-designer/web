@@ -1,0 +1,120 @@
+name: Lockfile refresh
+
+# Once a week, bring every dependency up to the newest version its range in
+# package.json already allows (`pnpm update -r`: patch and minor only, never
+# a new range or a major), and hand the result over as a pull request. CI's
+# --frozen-lockfile otherwise keeps the lock where it was, and production
+# slowly falls behind the versions it was already running (#512 rolled 33
+# packages back that way).
+#
+# Dependabot can't refresh a lockfile within ranges, and Renovate needs an
+# app installed on the org, so this is a plain workflow. If the repo
+# doesn't let Actions open pull requests ("Allow GitHub Actions to create
+# and approve pull requests", a repo setting), it opens or updates an issue
+# with the branch and the diff instead.
+
+on:
+  schedule:
+    - cron: '0 5 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+env:
+  BRANCH: deps/lockfile-refresh
+  TITLE: 'build(deps): refresh the lockfile within ranges'
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+
+      - name: Update within ranges
+        id: update
+        run: |
+          pnpm install --frozen-lockfile
+          node .github/scripts/lock-versions.mjs pnpm-lock.yaml > /tmp/before.txt
+          pnpm update -r
+          node .github/scripts/lock-versions.mjs pnpm-lock.yaml > /tmp/after.txt
+          if git diff --quiet -- pnpm-lock.yaml; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "The lockfile is already as new as its ranges allow."
+            exit 0
+          fi
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+          {
+            echo "On behalf of @aronwk-aaron (written by Claude)."
+            echo
+            echo "Every dependency moved to the newest version its range in package.json already allows (\`pnpm update -r\`): patch and minor only, no range or major changes. CI's \`--frozen-lockfile\` keeps the lock where it is between these refreshes."
+            echo
+            echo "| Package | Before | After |"
+            echo "|---|---|---|"
+            node .github/scripts/lock-versions.mjs --table /tmp/before.txt /tmp/after.txt
+            echo
+            echo "🤖 Generated with [Claude Code](https://claude.com/claude-code)"
+          } > /tmp/body.md
+          echo "$(node .github/scripts/lock-versions.mjs --count /tmp/before.txt /tmp/after.txt) package(s) changed."
+
+      - name: Push the branch
+        if: steps.update.outputs.changed == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -B "$BRANCH"
+          git add pnpm-lock.yaml
+          git commit -q -F - <<EOF
+          $TITLE
+
+          pnpm update -r: the newest versions the ranges in package.json
+          already allow. No range or major changes.
+          EOF
+          git push --force origin "$BRANCH"
+
+      # A pull request when the repo lets Actions open one; otherwise an
+      # issue that names the branch, updated each week it changes.
+      - name: Open the pull request, or the issue
+        if: steps.update.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          existing=$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number')
+          if [ -n "$existing" ]; then
+            gh pr edit "$existing" --body-file /tmp/body.md
+            echo "Updated pull request #$existing."
+            exit 0
+          fi
+          if gh pr create --head "$BRANCH" --base main --title "$TITLE" --body-file /tmp/body.md 2>/tmp/pr-error.txt; then
+            echo "Opened a pull request."
+            exit 0
+          fi
+          echo "Couldn't open a pull request:"; cat /tmp/pr-error.txt
+          {
+            echo "The branch \`$BRANCH\` holds this week's lockfile refresh. Open a pull request from it (this repo doesn't let Actions open one): https://github.com/$GH_REPO/compare/main...$BRANCH?expand=1"
+            echo
+            cat /tmp/body.md
+          } > /tmp/issue.md
+          title="Lockfile refresh: a pull request to open"
+          issue=$(gh issue list --state open --search "in:title \"$title\"" --json number,title --jq ".[] | select(.title == \"$title\") | .number" | head -1)
+          if [ -n "$issue" ]; then
+            gh issue edit "$issue" --body-file /tmp/issue.md
+            echo "Updated issue #$issue."
+          else
+            gh issue create --title "$title" --body-file /tmp/issue.md
+          fi
