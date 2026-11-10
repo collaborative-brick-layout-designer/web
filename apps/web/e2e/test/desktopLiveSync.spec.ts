@@ -6,7 +6,7 @@
 //
 // Needs BLD_SYNC_DRIVER (path to the built driver); skipped without it.
 // BLD_SYNC_SERVER is where the driver finds the API server (default
-// http://127.0.0.1:3000). Not in CI: it needs both repos built.
+// http://127.0.0.1:3000). CI runs it on main and nightly (live-smoke.yml).
 
 import { test, expect, type APIRequestContext, type Page } from '@playwright/test';
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
@@ -25,6 +25,7 @@ const TIGHT_CORNER_BBM = readFileSync(
 const EMAIL = `desktop-sync-${Date.now()}@example.com`;
 const WEB_NAME = 'Web Tester';
 const DESKTOP_NAME = 'Desktop Driver';
+const DESKTOP_EMAIL = `desktop-sync-driver-${Date.now()}@example.com`;
 const STUD_PX = 8; // apps/web/src/editor/render/coords.ts
 
 interface Pose {
@@ -227,13 +228,21 @@ function movedBrick(before: Poses, after: Poses): string[] {
 test.describe('desktop and web live editing', () => {
   test.skip(!DRIVER, 'BLD_SYNC_DRIVER is not set: build bld_sync_driver in the desktop repo (-DBLD_SYNC=ON), see references/DESKTOP-SYNC-E2E.md');
 
-  test('both end up identical: edits, undo, presence, offline and resolve', async ({ page, request }) => {
+  test('both end up identical: edits, undo, presence, offline and resolve', async ({ page, request, browser }) => {
     test.setTimeout(180_000);
     await signIn(page, EMAIL, WEB_NAME);
     const created = await page.request.post('/api/layouts', { data: { title: 'Desktop Sync E2E', bbm: TIGHT_CORNER_BBM } });
     expect(created.ok()).toBe(true);
     const { id } = (await created.json()) as { id: string };
-    const token = await desktopToken(page, request);
+    // The desktop is someone else, an editor (the web doesn't draw your own
+    // other app's cursor as someone else's).
+    const desk = await browser.newContext();
+    await signIn(desk, DESKTOP_EMAIL, DESKTOP_NAME);
+    const deskPage = await desk.newPage();
+    const invite = await page.request.post(`/api/layouts/${id}/invites`, { data: { email: DESKTOP_EMAIL, role: 'editor' } });
+    expect((await deskPage.request.post(`/api/invites/${((await invite.json()) as { token: string }).token}`)).ok()).toBe(true);
+    const token = await desktopToken(deskPage, request);
+    await desk.close();
     const driver = new Driver(DRIVER!, token);
 
     try {
