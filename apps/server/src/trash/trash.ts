@@ -6,11 +6,12 @@
 //
 //   layout: the layout (its history folded in), who it's shared with, and
 //           its background picture
-//   module: the module, its versions, who it's shared with
+//   module: the module, its versions, who it's shared with, and which
+//           collections it was in (put back on restore; one that's gone
+//           meanwhile is skipped, and the restore says so)
 //   venue:  the venue
 //
-// Not kept: open invites and hand-over offers (they're re-sent), and a
-// module's place in collections (curators were told it went).
+// Not kept: open invites and hand-over offers (they're re-sent).
 
 import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, readdirSync, unlinkSync, writeFileSync } from 'node:fs';
@@ -29,10 +30,20 @@ export type TrashKind = 'layout' | 'module' | 'venue';
 
 type Row = Record<string, unknown>;
 
+/** A module's place in one collection when it was deleted. */
+interface Membership {
+  id: string;
+  position: number;
+  /** It was the collection's chosen cover. */
+  wasCover: boolean;
+}
+
 interface Payload {
   rows: Record<string, Row[]>;
   /** A layout's background picture: file name and bytes. */
   picture?: { name: string; data: string };
+  /** A module's collections (recorded before it left them). */
+  collections?: Membership[];
 }
 
 // JSON with Buffers and Dates kept as such.
@@ -79,12 +90,14 @@ interface Deleting {
   ownerOrgId: string | null;
   rows: Partial<Record<TableName, Row[]>>;
   picture?: { name: string; bytes: Buffer };
+  collections?: Membership[];
 }
 
 async function keep(d: Deleting, actorId: string, now: Date): Promise<string> {
   const payload: Payload = { rows: {} };
   for (const [t, rows] of Object.entries(d.rows)) payload.rows[t] = rows.map(datesOut);
   if (d.picture) payload.picture = { name: d.picture.name, data: d.picture.bytes.toString('base64') };
+  if (d.collections?.length) payload.collections = d.collections;
   const bytes = pack(payload);
   const id = randomUUID();
   await db.insert(schema.trashItems).values({
@@ -135,11 +148,23 @@ export async function trashLayout(layoutId: string, doc: Uint8Array, actorId: st
   );
 }
 
+/**
+ * Keep a module in Recently deleted (call before deleting it, and before
+ * it's taken out of its collections, so they can be put back).
+ */
 export async function trashModule(moduleId: string, actorId: string, now = new Date()): Promise<string | null> {
   const row = await db.select().from(schema.modules).where(eq(schema.modules.id, moduleId)).get();
   if (!row) return null;
   const versions = await db.select().from(schema.moduleVersions).where(eq(schema.moduleVersions.moduleId, moduleId)).all();
   const collaborators = await db.select().from(schema.moduleCollaborators).where(eq(schema.moduleCollaborators.moduleId, moduleId)).all();
+  const collections = (
+    await db
+      .select({ id: schema.catalogCollectionModules.collectionId, position: schema.catalogCollectionModules.position, cover: schema.catalogCollections.coverModuleId })
+      .from(schema.catalogCollectionModules)
+      .innerJoin(schema.catalogCollections, eq(schema.catalogCollections.id, schema.catalogCollectionModules.collectionId))
+      .where(eq(schema.catalogCollectionModules.moduleId, moduleId))
+      .all()
+  ).map((c) => ({ id: c.id, position: c.position, wasCover: c.cover === moduleId }));
   return keep(
     {
       kind: 'module',
@@ -148,6 +173,7 @@ export async function trashModule(moduleId: string, actorId: string, now = new D
       ownerUserId: row.ownerUserId,
       ownerOrgId: row.ownerOrgId,
       rows: { modules: [row], moduleVersions: versions, moduleCollaborators: collaborators },
+      collections,
     },
     actorId,
     now,
@@ -218,7 +244,47 @@ async function mine(userId: string, trashId: string) {
   return row.ownerUserId === userId ? row : null;
 }
 
-export type RestoreResult = { ok: true; kind: TrashKind; itemId: string } | { ok: false; code: number; error: string };
+/** A restored module's collections: those it's back in, and how many it was in that are gone since. */
+export interface CollectionsBack {
+  back: { id: string; title: string }[];
+  gone: number;
+}
+
+export type RestoreResult =
+  | { ok: true; kind: TrashKind; itemId: string; collections?: CollectionsBack }
+  | { ok: false; code: number; error: string };
+
+// Matches routes/collections.ts (MAX_NOTE); not imported, to keep the trash
+// free of the routes.
+const MAX_CURATOR_NOTE = 1500;
+
+/**
+ * Put a restored module back into the collections it was in, in its old
+ * place; a collection deleted meanwhile is skipped and counted. Its
+ * curators were told it left, so they're told it's back.
+ */
+function restoreMemberships(tx: Parameters<Parameters<typeof db.transaction>[0]>[0], moduleId: string, title: string, kept: Membership[]): CollectionsBack {
+  const out: CollectionsBack = { back: [], gone: 0 };
+  const line = `“${title}” was restored from Recently deleted, so it's back in this collection.`;
+  for (const m of kept) {
+    const c = tx.select().from(schema.catalogCollections).where(eq(schema.catalogCollections.id, m.id)).get();
+    if (!c) {
+      out.gone += 1;
+      continue;
+    }
+    tx.insert(schema.catalogCollectionModules).values({ collectionId: c.id, moduleId, position: m.position }).onConflictDoNothing().run();
+    tx.update(schema.catalogCollections)
+      .set({
+        curatorNote: (c.curatorNote ? `${c.curatorNote}\n${line}` : line).slice(-MAX_CURATOR_NOTE),
+        coverModuleId: m.wasCover && !c.coverModuleId ? moduleId : c.coverModuleId,
+        updatedAt: new Date(),
+      })
+      .where(eq(schema.catalogCollections.id, c.id))
+      .run();
+    out.back.push({ id: c.id, title: c.title });
+  }
+  return out;
+}
 
 /** Put it back, under its own id. */
 export async function restoreFromTrash(userId: string, trashId: string): Promise<RestoreResult> {
@@ -231,6 +297,7 @@ export async function restoreFromTrash(userId: string, trashId: string): Promise
   // Collaborators who've since left the site are left out.
   const users = new Set((await db.select({ id: schema.users.id }).from(schema.users).all()).map((u) => u.id));
   const order: TableName[] = ['layouts', 'modules', 'venueLibrary', 'layoutCollaborators', 'moduleVersions', 'moduleCollaborators'];
+  let collections: CollectionsBack | undefined;
   db.transaction((tx) => {
     for (const name of order) {
       const rows = payload.rows[name];
@@ -240,6 +307,7 @@ export async function restoreFromTrash(userId: string, trashId: string): Promise
       if (kept.length === 0) continue;
       tx.insert(TABLES[name]).values(kept as never).run();
     }
+    if (row.kind === 'module' && payload.collections?.length) collections = restoreMemberships(tx, row.itemId, row.title, payload.collections);
     tx.delete(schema.trashItems).where(eq(schema.trashItems.id, row.id)).run();
   });
   if (payload.picture) {
@@ -248,7 +316,7 @@ export async function restoreFromTrash(userId: string, trashId: string): Promise
     const path = join(dir, payload.picture.name);
     if (!existsSync(path)) writeFileSync(path, Buffer.from(payload.picture.data, 'base64'));
   }
-  return { ok: true, kind: row.kind, itemId: row.itemId };
+  return { ok: true, kind: row.kind, itemId: row.itemId, ...(collections ? { collections } : {}) };
 }
 
 /** Erase it now, before its 30 days are up. */

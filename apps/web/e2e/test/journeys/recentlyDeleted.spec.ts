@@ -6,6 +6,11 @@
 //   go for good. Restore puts the layout back in her list; Delete now erases
 //   the venue after asking. Bob, signed in elsewhere, never sees her trash.
 //
+//   Then a module that's in two of Ada's collections: deleting it takes it
+//   out of both; one collection is deleted while the module waits; Restore
+//   puts the module back into the collection that's left, and the toast
+//   says so, and that the other collection is gone.
+//
 // SHOTS=<dir> saves light and dark pictures of each step.
 
 import { test, expect, type Page } from '@playwright/test';
@@ -88,4 +93,51 @@ test('a deleted layout or venue waits in Recently deleted, and comes back', asyn
   await expect(dialog.getByRole('heading')).toHaveText(`Delete “${VENUE}” for good?`);
   await dialog.getByRole('button', { name: 'Delete now' }).click();
   await expect(page.getByTestId('recently-deleted')).toHaveCount(0, { timeout: 10000 });
+});
+
+test('a restored module goes back into its collections, and says which are gone', async ({ page }) => {
+  test.setTimeout(120_000);
+  const ADA2 = `j-trash-coll-${ts}@example.com`;
+  const MODULE = `Siding ${ts}`;
+  const KEPT = `Yard picks ${ts}`;
+  const GONE = `Old picks ${ts}`;
+  await signIn(page, ADA2, 'Ada Curator');
+  const module = ((await (await page.request.post('/api/modules', { data: { title: MODULE } })).json()) as { id: string }).id;
+  const collection = async (title: string) => {
+    const r = await page.request.post('/api/catalog/collections', {
+      data: { title, audience: 'private', entries: [{ source: 'library', kind: 'module', id: module }] },
+    });
+    expect(r.status()).toBe(201);
+    return ((await r.json()) as { id: string }).id;
+  };
+  const kept = await collection(KEPT);
+  const gone = await collection(GONE);
+  const inKept = async () => (((await (await page.request.get(`/api/catalog/collections/${kept}`)).json()) as { items: { id: string }[] }).items.map((i) => i.id));
+  expect(await inKept()).toEqual([module]);
+
+  // Delete the module from Home: it leaves both collections.
+  await page.goto('/');
+  await page.getByRole('button', { name: `More for ${MODULE}` }).first().click();
+  await page.getByRole('menuitem', { name: 'Delete' }).click();
+  const dialog = page.getByTestId('confirm-dialog');
+  await expect(dialog).toContainText('it leaves any collections it was in');
+  await dialog.getByRole('button', { name: 'Delete' }).click();
+  await expect(page.getByRole('button', { name: `More for ${MODULE}` })).toHaveCount(0, { timeout: 10000 });
+  expect(await inKept()).toEqual([]);
+  // One of its collections is deleted while the module waits.
+  expect((await page.request.delete(`/api/catalog/collections/${gone}`)).ok()).toBe(true);
+
+  // Restore: back in the collection that's left, and the toast says so.
+  const trash = page.getByTestId('recently-deleted');
+  await expect(trash).toContainText('Recently deleted (1)');
+  await trash.getByText(/Recently deleted/).click();
+  await trash.locator('li', { hasText: MODULE }).getByRole('button', { name: 'Restore' }).click();
+  const toast = page.getByTestId('toast');
+  await expect(toast).toContainText(
+    `Restored “${MODULE}”. It’s back in “${KEPT}”. The other collection it was in has been deleted since, so it isn’t in that one.`,
+  );
+  await shot(page, 'restored-into-collection');
+  await expect(page.getByRole('button', { name: `More for ${MODULE}` }).first()).toBeVisible({ timeout: 10000 });
+  await expect(page.getByTestId('recently-deleted')).toHaveCount(0);
+  expect(await inKept()).toEqual([module]);
 });

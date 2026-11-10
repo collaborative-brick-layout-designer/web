@@ -343,7 +343,7 @@ export function LayoutsPage() {
                       type="button"
                       onClick={async () => {
                         if (await confirmDelete(m.title, MODULE_DELETE_WORDING))
-                          removeModule.mutate(m.id, { onSuccess: (r) => toastDeleted(m.title, r.trashId ? () => void restoreDeleted(r.trashId) : undefined) });
+                          removeModule.mutate(m.id, { onSuccess: (r) => toastDeleted(m.title, r.trashId ? () => void restoreDeleted(r.trashId, m.title) : undefined) });
                       }}
                       className={`${MORE_ITEM} text-danger`}
                     >
