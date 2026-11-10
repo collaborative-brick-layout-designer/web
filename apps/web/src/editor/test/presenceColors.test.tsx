@@ -2,9 +2,6 @@
 // both apps give the people here the same colors, two people share one only
 // when more than eight are here, and you aren't listed as someone else.
 
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { render, screen } from '@testing-library/react';
 import * as Y from 'yjs';
 import { Awareness, applyAwarenessUpdate, encodeAwarenessUpdate } from 'y-protocols/awareness';
@@ -12,10 +9,9 @@ import { describe, expect, it } from 'vitest';
 import { PRESENCE_PALETTE, firstChoice, presenceColors } from '../presenceColors';
 import { PresencePanel } from '../PresencePanel';
 import { newLivePresence } from '../useLayoutDoc';
+import contractText from '../../../../../fixtures/contracts/presence-colors.json?raw';
 
-const CONTRACT = JSON.parse(
-  readFileSync(join(dirname(fileURLToPath(import.meta.url)), '../../../../../fixtures/contracts/presence-colors.json'), 'utf8'),
-) as {
+const CONTRACT = JSON.parse(contractText) as {
   palette: string[];
   firstChoices: { userId: string; layoutId: string; color: string }[];
   groups: { layoutId: string; userIds: string[]; colors: Record<string, string> }[];
