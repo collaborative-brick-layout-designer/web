@@ -36,6 +36,7 @@ import {
   type Seg,
 } from './venueDraw';
 import { VENUE_LABEL, VENUE_LABEL_THEME, venueEdgeLabels, type VenueLabel, type VenueLabelOptions } from './venueLabels';
+import type { LengthUnit } from '../../venues/designer/units';
 import { measureBold } from './ModuleOverlay';
 import { MAP_FONT_STACK } from './mapText';
 import { useDarkTheme } from './useDarkTheme';
@@ -56,15 +57,17 @@ interface Props {
   pointer?: Pt | null;
   /** Drawn on a dark canvas (the Venue Designer in the dark theme): dark colors drawn light. */
   darkCanvas?: boolean;
+  /** The unit the wall lengths are shown in (the Venue Designer's Units pick); feet by default. */
+  unit?: LengthUnit;
 }
 
 type Pt = { x: number; y: number };
 
-export function VenueOverlay({ venue, labelFontPx = 28, onDoubleClick, selectedEdge = null, handles = [], handleHalfPx = 0, pointer = null, darkCanvas = false }: Props) {
+export function VenueOverlay({ venue, labelFontPx = 28, onDoubleClick, selectedEdge = null, handles = [], handleHalfPx = 0, pointer = null, darkCanvas = false, unit }: Props) {
   if (!venue || !venue.enabled) return null;
   const ink = darkCanvas ? onDarkCanvas : asIs;
   const groupProps = onDoubleClick ? { listening: true, onDblClick: onDoubleClick } : { listening: false };
-  const labels = { selectedEdge, handles, handleHalfPx, pointer };
+  const labels = { selectedEdge, handles, handleHalfPx, pointer, ...(unit ? { unit } : {}) };
   return (
     <Group {...groupProps}>
       {venue.edges.map((edge, i) => (

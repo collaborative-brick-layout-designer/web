@@ -358,6 +358,7 @@ export function DesignerCanvas({
                 venue={shown}
                 labelFontPx={(13 / v.scale) * px}
                 darkCanvas={dark}
+                unit={state.unit}
                 selectedEdge={sel?.kind === 'edge' ? sel.index : null}
                 handles={handles}
                 handleHalfPx={(hs + 2 / v.scale) * px}

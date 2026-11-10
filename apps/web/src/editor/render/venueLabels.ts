@@ -13,6 +13,7 @@
 
 import type { VenueEdge } from '@cld/bbm';
 import { estimatedText } from './venueDraw';
+import { formatLength, type LengthUnit } from '../../venues/designer/units';
 
 type Pt = { x: number; y: number };
 
@@ -46,6 +47,8 @@ export interface VenueLabelOptions {
   /** Selection handles (studs) and their half size (scene px): labels keep clear of them. */
   handles?: readonly Pt[];
   handleHalfPx?: number;
+  /** The unit the lengths are shown in (the Venue Designer's Units pick); feet by default. */
+  unit?: LengthUnit;
 }
 
 export interface VenueLabel {
@@ -63,8 +66,9 @@ export interface VenueLabel {
   height: number;
 }
 
-/** "24.50 ft", or inches under a foot. */
-export function venueDistanceText(lenStuds: number): string {
+/** "24.50 ft" (or inches under a foot), "7.47 m" or "280 studs", in the chosen unit. */
+export function venueDistanceText(lenStuds: number, unit: LengthUnit = 'ftin'): string {
+  if (unit !== 'ftin') return formatLength(lenStuds, unit);
   const lenFt = lenStuds * 0.026248;
   return lenFt < 1 ? `${(lenFt * 12).toFixed(1)}"` : `${lenFt.toFixed(2)} ft`;
 }
@@ -129,7 +133,7 @@ export function venueEdgeLabels(edges: readonly VenueEdge[], opts: VenueLabelOpt
     const dx = b.x - a.x, dy = b.y - a.y;
     const len = Math.hypot(dx, dy);
     if (len <= 0.5) return;
-    const distance = venueDistanceText(len);
+    const distance = venueDistanceText(len, opts.unit);
     const base = edge.label ? `${edge.label} — ${distance}` : distance;
     const full = edge.estimated ? estimatedText(base) : base;
     const short = edge.estimated ? estimatedText(distance) : distance;
