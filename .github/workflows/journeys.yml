@@ -51,6 +51,18 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # Specs share one server. One that changes site settings and doesn't
+      # put them back changes what the next spec sees: clubDeletion turned
+      # catalog review off, and the modules journey failed after it.
+      - name: Specs that change site settings put them back
+        run: |
+          bad=$(grep -rlE "patch\('/api/admin/settings'" apps/web/e2e/test | xargs -r grep -L 'siteSettingsAtDefaults()' || true)
+          if [ -n "$bad" ]; then
+            echo "::error::These specs change site settings without siteSettingsAtDefaults() (e2e/dbHelpers.ts):"
+            echo "$bad"
+            exit 1
+          fi
+
       - uses: ./.github/actions/e2e-stack
         with:
           parts-sha: ${{ env.BLUEBRICK_PARTS_SHA }}
@@ -87,6 +99,30 @@ jobs:
           e2e/test/bigLayoutWork.spec.ts
           e2e/test/a11y.spec.ts
           --workers=2 --retries=1 --reporter=list,html
+
+      # The e2e specs this pull request adds or changes, beyond the two sets
+      # above, so a spec changed in a PR runs before the night does. One at
+      # a time, since some of them change site-wide settings.
+      - name: Specs this pull request changed
+        if: github.event_name == 'pull_request'
+        working-directory: apps/web
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          core=" auth layouts editor flexTouch snapping snapTouchReplay layoutFile savedViews moduleEditor moduleVersions modulesPanel orgs partsOnHome publicShare desktopParity tours livePresence bigLayoutWork a11y "
+          specs=""
+          for f in $(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR/files" --paginate --jq '.[] | select(.status != "removed") | .filename'); do
+            case "$f" in
+              apps/web/e2e/test/journeys/*) ;;
+              apps/web/e2e/test/*.spec.ts)
+                name=$(basename "$f" .spec.ts)
+                case "$core" in *" $name "*) ;; *) specs="$specs ${f#apps/web/}" ;; esac ;;
+            esac
+          done
+          if [ -z "$specs" ]; then echo "No other e2e specs changed."; exit 0; fi
+          echo "Running:$specs"
+          npx playwright test $specs --workers=1 --retries=1 --reporter=list,html
 
       # The big-layout spec once more, on the production build (vite build,
       # vite preview) as the live site runs it: a click right after a pan
@@ -297,3 +333,41 @@ jobs:
           name: playwright-report
           path: apps/web/playwright-report/
           retention-days: 14
+
+  # A red night says so: an issue opens (or gets a comment) when the
+  # scheduled run fails, and closes when a later night passes. Nothing
+  # else reported a red nightly, and one stayed red unseen (2026-11-09).
+  nightly-alert:
+    name: Nightly e2e alert
+    needs: [every-spec-plan, every-spec, every-spec-report]
+    if: ${{ always() && github.event_name == 'schedule' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      issues: write
+    steps:
+      - name: Open, update or close the issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RESULTS: ${{ needs.every-spec-plan.result }} ${{ needs.every-spec.result }} ${{ needs.every-spec-report.result }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          title="Nightly e2e run is red"
+          issue=$(gh issue list --state open --search "in:title \"$title\"" --json number,title --jq ".[] | select(.title == \"$title\") | .number" | head -1)
+          echo "Results: $RESULTS; open issue: ${issue:-none}"
+          case " $RESULTS " in
+            *" failure "*|*" cancelled "*)
+              body="The nightly run of every e2e spec failed on $(date -u +%Y-%m-%d): $RUN_URL
+
+          The run page's summary lists the failed specs, and the merged report and traces are its artifacts."
+              if [ -n "$issue" ]; then
+                gh issue comment "$issue" --body "$body"
+              else
+                gh issue create --title "$title" --body "$body"
+              fi ;;
+            *)
+              if [ -n "$issue" ]; then
+                gh issue close "$issue" --comment "The nightly run passed again: $RUN_URL"
+              fi ;;
+          esac

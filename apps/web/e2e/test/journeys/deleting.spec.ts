@@ -8,8 +8,10 @@
 
 import { test, expect, type Browser, type BrowserContext, type Page } from '@playwright/test';
 import { signIn } from '../../helpers';
-import { makeGlobalAdmin } from '../../dbHelpers';
+import { makeGlobalAdmin, siteSettingsAtDefaults } from '../../dbHelpers';
 import { watch4xx } from '../../quietNetwork';
+
+siteSettingsAtDefaults();
 
 const ts = Date.now();
 test.setTimeout(180_000);

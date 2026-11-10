@@ -110,7 +110,7 @@ test.describe('desktop sign-in (device code)', () => {
     await expect(page.getByText('Playwright Desktop')).toBeVisible();
     await page.getByRole('button', { name: 'Revoke Playwright Desktop' }).click();
     await confirmInDialog(page);
-    await expect(page.getByText('No devices signed in.')).toBeVisible();
+    await expect(page.getByText('No desktop apps signed in.')).toBeVisible();
     expect(await Promise.race([closed, new Promise((r) => setTimeout(() => r('open'), 5000))])).toBe(1008);
   });
 });

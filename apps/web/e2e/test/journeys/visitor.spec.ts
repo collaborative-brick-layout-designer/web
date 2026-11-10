@@ -10,8 +10,10 @@
 
 import { test, expect } from '@playwright/test';
 import { signIn } from '../../helpers';
-import { makeGlobalAdmin } from '../../dbHelpers';
+import { makeGlobalAdmin, siteSettingsAtDefaults } from '../../dbHelpers';
 import { watch4xx } from '../../quietNetwork';
+
+siteSettingsAtDefaults();
 
 const ts = Date.now();
 const ADMIN = `j-visitor-admin-${ts}@example.com`;

@@ -14,6 +14,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { resolve } from 'node:path';
 import Database from 'better-sqlite3';
+import { test, type TestInfo } from '@playwright/test';
 import * as Y from 'yjs';
 
 function dbPath(): string {
@@ -96,6 +97,45 @@ export function makeGlobalAdmin(email: string): void {
   } finally {
     db.close();
   }
+}
+
+/**
+ * The site's catalog settings back at the defaults a fresh server starts
+ * with (auth/platformSettings.ts): every catalog off, review by moderators,
+ * anyone may browse. These are read from the database on every request, so
+ * a direct write takes effect at once. Specs run one after another on one
+ * server, and a spec that turned review off used to leave it off for the
+ * next one (clubDeletion before modules, 2026-11-09).
+ */
+export function resetCatalogSettings(): void {
+  const db = new Database(dbPath());
+  try {
+    db.prepare(
+      `UPDATE platform_settings
+       SET module_catalog_enabled = 0, parts_catalog_enabled = 0,
+           layout_catalog_enabled = 0, venue_catalog_enabled = 0,
+           catalog_review = 'moderators', catalog_anonymous_browse = 1`,
+    ).run();
+  } finally {
+    db.close();
+  }
+}
+
+/**
+ * For a spec that changes site settings: start from the defaults and put
+ * them back afterwards, whatever the spec did or however it ended. Call it
+ * once at the top of the file. Only when one spec runs at a time
+ * (--workers=1, as the journeys and the nightly run): with more workers
+ * another file's spec could be mid-way through on the same server.
+ */
+export function siteSettingsAtDefaults(): void {
+  // Playwright reads the fixtures a hook asks for from its first argument.
+  // eslint-disable-next-line no-empty-pattern
+  const reset = ({}, testInfo: TestInfo) => {
+    if (testInfo.config.workers === 1) resetCatalogSettings();
+  };
+  test.beforeAll(reset);
+  test.afterAll(reset);
 }
 
 /** Give an account a stored name directly, as older accounts got their email as their name. */
