@@ -160,17 +160,14 @@ export const PartsPanel = memo(function PartsPanel({
       if (hasBudget && showOnlyBudgeted && effectiveLimit(budgetLimits!, p.key, defaultInfinite) <= 0) continue;
       scored.push({ score, part: p });
     }
+    // By name, as the desktop's grid sorts its captions (the part's name,
+    // else its number: PartsBrowser.cpp sortItems); the number breaks ties.
+    const byName = (x: PartWire, y: PartWire) => (x.description || x.key).localeCompare(y.description || y.key) || x.key.localeCompare(y.key);
     if (needle.length === 0) {
-      // Empty filter → alphabetical by key, like desktop's
-      // grid_->sortItems(Qt::AscendingOrder) (PartsBrowser.cpp:353).
-      scored.sort((a, b) => a.part.key.localeCompare(b.part.key));
+      scored.sort((a, b) => byName(a.part, b.part));
     } else {
-      // Stable sort by descending score, alphabetical tie-break by key
-      // (PartsBrowser.cpp:336-341).
-      scored.sort((a, b) => {
-        if (a.score !== b.score) return b.score - a.score;
-        return a.part.key.localeCompare(b.part.key);
-      });
+      // Best match first, then by name.
+      scored.sort((a, b) => (a.score !== b.score ? b.score - a.score : byName(a.part, b.part)));
     }
     return scored.map((s) => s.part);
   }, [data, filter, category, hasBudget, showOnlyBudgeted, budgetLimits, defaultInfinite, inOpenSet, showHidden, selectedTile]);

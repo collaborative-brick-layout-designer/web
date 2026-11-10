@@ -1,4 +1,4 @@
-// Admin › Part libraries: the base library, downloads and manual installs.
+// Admin › Parts library: the base library, downloads and manual installs.
 
 import { useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -81,7 +81,7 @@ export function PartsSetupCard() {
             >
               {get.status === 'downloading' ? 'Getting the parts library…' : 'Get the parts library'}
             </button>
-            <a href="/admin?tab=libraries" className="text-accent-text hover:underline">Open Part libraries</a>
+            <a href="/admin?tab=libraries" className="text-accent-text hover:underline">Open Parts library</a>
           </div>
           {get.status === 'err' && <p className="text-danger">{get.err}</p>}
         </>
@@ -455,10 +455,10 @@ export function PartLibrariesTab() {
           )}
           {baseStatus === 'err' && <p className="text-xs text-danger">{baseErr}</p>}
 
-          {/* Another package server */}
+          {/* Another list of part packs */}
           <div>
-            <h3 className="text-sm font-semibold text-neutral-300">Another package server</h3>
-            <p className="mt-1 text-xs text-muted">The address of a BlueBrick package list. More part packs then searches it too.</p>
+            <h3 className="text-sm font-semibold text-neutral-300">Another list of part packs</h3>
+            <p className="mt-1 text-xs text-muted">The address of a BlueBrick list of part packs. More part packs then searches it too.</p>
             <label className="mt-2 flex items-center gap-2 text-xs text-neutral-300">
               <input
                 type="checkbox"
@@ -472,7 +472,7 @@ export function PartLibrariesTab() {
                 onChange={(e) => setCustomUrl(e.target.value)}
                 disabled={!selectedSources.has('custom')}
                 placeholder="https://example.com/parts/"
-                aria-label="Package server address"
+                aria-label="Address of the list of part packs"
                 className="ml-1 flex-1 rounded-lg border border-border bg-panel px-2 py-0.5 text-xs disabled:opacity-40"
               />
             </label>
@@ -482,7 +482,7 @@ export function PartLibrariesTab() {
           <div>
             <h3 className="mb-1 text-sm font-semibold text-neutral-300">Install a pack from a zip</h3>
             <p className="mb-3 text-xs text-muted">
-              From a zip&apos;s web address or a file on this computer, for packs that aren&apos;t on a package server.
+              From a zip&apos;s web address or a file on this computer, for packs that aren&apos;t on a list.
             </p>
             <div className="mb-3 flex gap-2">
               {(['url', 'upload'] as const).map((mode) => (
@@ -567,12 +567,12 @@ export function PartLibrariesTab() {
       <section>
         <div className="mb-3 flex items-center justify-between gap-4">
           <h2 className="text-sm font-semibold text-neutral-300">
-            Installed libraries ({libs.data?.libraries.length ?? '…'})
+            Installed part packs ({libs.data?.libraries.length ?? '…'})
           </h2>
           <button
             onClick={() => reloadParts.mutate()}
             disabled={reloadParts.isPending}
-            title="Rescan all part library directories without restarting the server"
+            title="Look through every parts folder again, without restarting the server"
             className="rounded-lg border border-border px-2 py-1 text-xs text-neutral-300 hover:bg-soft disabled:opacity-50"
           >
             {reloadParts.isPending ? 'Reloading…' : 'Reload parts'}
@@ -580,7 +580,7 @@ export function PartLibrariesTab() {
         </div>
         {libs.isLoading && <Loading />}
         {libs.data && libs.data.libraries.length === 0 && (
-          <p className="text-xs text-muted">No part libraries installed yet.</p>
+          <p className="text-xs text-muted">No part packs installed yet.</p>
         )}
         {libs.data && libs.data.libraries.length > 0 && (
           <div className="overflow-x-auto rounded-lg border border-line">

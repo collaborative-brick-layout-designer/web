@@ -104,7 +104,7 @@ const DIALOGS: DialogCase[] = [
     ['General info…'],
     ['Background color…'],
     ['Background image…'],
-    ['Find…'],
+    ['Find & Replace…'],
     ['Insert', 'Text…'],
     ['Insert', 'Anchored label…'],
     ['Modules & sets', 'Save selection as set…'],

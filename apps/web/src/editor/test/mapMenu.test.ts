@@ -38,7 +38,7 @@ describe('Map menu', () => {
     const { menu } = setup();
     expect(outline(menu).map((e) => (typeof e === 'object' && e !== null ? Object.keys(e)[0] : e))).toEqual([
       'File', '—',
-      'General info…', 'Background color…', 'Background image…', 'Find…', '—',
+      'General info…', 'Background color…', 'Background image…', 'Find & Replace…', '—',
       'Insert', 'Modules & sets', 'Venue', 'View', 'Budget', 'Download & export', '—',
       'Preferences…',
     ]);
@@ -117,7 +117,7 @@ describe('Map menu', () => {
 
   it('shows shortcuts beside the label, not in it', () => {
     const { menu } = setup();
-    expect(find(menu, 'Find…')).toMatchObject({ label: 'Find…', shortcut: 'Ctrl+F' });
+    expect(find(menu, 'Find & Replace…')).toMatchObject({ label: 'Find & Replace…', shortcut: 'Ctrl+F' });
     expect(find(menu, 'Insert', 'Text…')).toMatchObject({ shortcut: 'T' });
     expect(find(menu, 'Insert', 'Anchored label…')).toMatchObject({ shortcut: 'Ctrl+L' });
     expect(find(menu, 'View', 'Fit to view')).toMatchObject({ shortcut: 'F' });

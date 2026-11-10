@@ -279,6 +279,9 @@ function ModuleEditor({ moduleId }: { moduleId: string }) {
   );
 }
 
+/** The site's name, after the layout's in the browser tab. */
+const APP_NAME = 'Collaborative Brick Layout Designer';
+
 /** Sent along when a demo visitor is sent from a sample to their own copy of it. */
 const DEMO_COPY_STATE = { demoCopy: true };
 /** What the status bar says then. */
@@ -374,6 +377,16 @@ function Editor({ layoutId, docState, moduleMode }: { layoutId: string; docState
     enabled: moduleMode,
   });
   const moduleCredit = creditLabel(moduleInfo.data?.module.credit);
+  // The browser tab names the layout or module, as the desktop's title bar does.
+  const shownTitle = meta.data?.layout.title;
+  useEffect(() => {
+    if (!shownTitle) return;
+    const before = document.title;
+    document.title = `${shownTitle} · ${APP_NAME}`;
+    return () => {
+      document.title = before;
+    };
+  }, [shownTitle]);
   // The parts catalog, for Save's offline download (declared further down).
   const partsRef = useRef<readonly PartWire[] | undefined>(undefined);
   // Save / Ctrl+S: every edit is already persisted server-side while the

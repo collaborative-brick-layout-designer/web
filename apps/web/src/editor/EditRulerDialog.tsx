@@ -5,7 +5,7 @@
 //   - guideline color / thickness / dash pattern
 //   - measure font (family, size, bold, italic) / measure font color
 //   - linear-only: allowOffset / offsetDistance / Detach endpoint buttons
-//   - circular-only: radius / Detach centre button
+//   - circular-only: radius / Detach center button
 //
 // Commits via `editRulerItem` + `attachRulerEndpoint` mutations.
 
@@ -31,13 +31,14 @@ interface Props {
   onClose: () => void;
 }
 
-const UNITS = [
-  { value: 0, label: 'STUD' },
-  { value: 1, label: 'LDU' },
-  { value: 2, label: 'STRAIGHT_TRACK' },
-  { value: 3, label: 'MODULE' },
-  { value: 4, label: 'METER' },
-  { value: 5, label: 'FEET' },
+/** The distance's unit, in the words the desktop's ruler uses (EditDialogs.cpp). */
+const RULER_UNITS = [
+  { value: 0, label: 'Studs' },
+  { value: 1, label: 'LDraw units (LDU)' },
+  { value: 2, label: 'Straight tracks (16 studs)' },
+  { value: 3, label: 'AFOL modules (96 studs)' },
+  { value: 4, label: 'Meters' },
+  { value: 5, label: 'Feet' },
 ];
 
 export function EditRulerDialog({ item, layerId, doc, onClose }: Props) {
@@ -150,7 +151,7 @@ export function EditRulerDialog({ item, layerId, doc, onClose }: Props) {
               onChange={(e) => setUnit(parseInt(e.target.value, 10))}
               className="rounded-lg border border-border bg-soft px-2 py-1 text-xs"
             >
-              {UNITS.map((u) => (
+              {RULER_UNITS.map((u) => (
                 <option key={u.value} value={u.value}>
                   {u.label}
                 </option>
@@ -202,9 +203,10 @@ export function EditRulerDialog({ item, layerId, doc, onClose }: Props) {
               max={RULER_LIMITS.guidelineThickness.max}
             />
           </Row>
-          <Row label="Dash (px,px,…)">
+          <Row label="Dashes">
             <input
-              aria-label="Dash pattern"
+              aria-label="Dashes: dash and gap lengths in pixels, such as 4, 2 (empty for a solid line)"
+              placeholder="4, 2"
               value={dashCsv}
               onChange={(e) => setDashCsv(e.target.value)}
               className="w-32 rounded-lg border border-border bg-soft px-2 py-1"
@@ -225,9 +227,9 @@ export function EditRulerDialog({ item, layerId, doc, onClose }: Props) {
             <Row label="Offset (studs)">
               <NumberField value={offsetDistance} setValue={setOffsetDistance} step={0.5} min={-RULER_LIMITS.distance} max={RULER_LIMITS.distance} />
             </Row>
-            <Row label="Endpoint 1">
+            <Row label="Start">
               <span className="text-xs text-muted">
-                {linear.attachedBrick1Id ? `attached to ${linear.attachedBrick1Id.slice(0, 8)}…` : 'free'}
+                {linear.attachedBrick1Id ? 'Attached to a part' : 'Not attached'}
               </span>
               <button
                 disabled={!linear.attachedBrick1Id}
@@ -237,9 +239,9 @@ export function EditRulerDialog({ item, layerId, doc, onClose }: Props) {
                 Detach
               </button>
             </Row>
-            <Row label="Endpoint 2">
+            <Row label="End">
               <span className="text-xs text-muted">
-                {linear.attachedBrick2Id ? `attached to ${linear.attachedBrick2Id.slice(0, 8)}…` : 'free'}
+                {linear.attachedBrick2Id ? 'Attached to a part' : 'Not attached'}
               </span>
               <button
                 disabled={!linear.attachedBrick2Id}
@@ -258,9 +260,9 @@ export function EditRulerDialog({ item, layerId, doc, onClose }: Props) {
             <Row label="Radius (studs)">
               <NumberField value={radius} setValue={setRadius} step={0.5} min={0} max={RULER_LIMITS.distance} />
             </Row>
-            <Row label="Centre">
+            <Row label="Center">
               <span className="text-xs text-muted">
-                {circular.attachedBrickId ? `attached to ${circular.attachedBrickId.slice(0, 8)}…` : 'free'}
+                {circular.attachedBrickId ? 'Attached to a part' : 'Not attached'}
               </span>
               <button
                 disabled={!circular.attachedBrickId}

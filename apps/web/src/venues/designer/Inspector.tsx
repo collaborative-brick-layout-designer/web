@@ -7,11 +7,10 @@ import { useEffect, useId, useState, type Dispatch, type ReactNode } from 'react
 import type { Venue, VenueObstacleKind } from '@cld/bbm';
 import { venueOf, type Action, type DesignerState } from './designerState';
 import { bbox, dist, estimateCount, polylineLength, resizeObstacle, roomSize, updatePart, type Pt, type Selection } from './model';
-import { formatLength, parseLength, STUDS_PER_INCH, type LengthUnit } from './units';
+import { formatArea, formatLength, parseLength, type LengthUnit } from './units';
 import { HelpButton } from '../../help/HelpButton';
 import type { HelpKey } from '../../help/helpTexts';
 
-const FT = 12 * STUDS_PER_INCH;
 
 const field = 'h-9 w-full rounded-md border border-neutral-600 bg-soft px-2.5 text-sm';
 const label = 'flex flex-col gap-1 text-xs text-muted';
@@ -292,7 +291,7 @@ function VenueFields({ venue, unit, set }: { venue: Venue; unit: LengthUnit; set
         <span className="text-muted">Size</span>
         <span className="font-mono">{size ? `${formatLength(size.w, unit)} × ${formatLength(size.h, unit)}` : '—'}</span>
         <span className="text-muted">Floor area</span>
-        <span className="font-mono">{size ? `${Math.round(size.area / (FT * FT)).toLocaleString()} sq ft` : '—'}</span>
+        <span className="font-mono">{size ? formatArea(size.area, unit) : '—'}</span>
         <span className="text-muted">Walls, doors, openings</span>
         <span className="font-mono">{venue.edges.length}</span>
         <span className="text-muted">Obstacles</span>

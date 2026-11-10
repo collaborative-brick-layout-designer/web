@@ -47,7 +47,7 @@ describe('Help menu', () => {
     const { user } = setup(true);
     await user.click(screen.getByRole('button', { name: 'Help' }));
     await user.click(screen.getByRole('button', { name: 'Keyboard shortcuts' }));
-    expect(screen.getByText('Turn the selected pieces')).toBeTruthy();
+    expect(screen.getByText('Turn the selected pieces left (counterclockwise)')).toBeTruthy();
     await user.click(screen.getByRole('button', { name: '← Help' }));
     await user.click(screen.getByRole('button', { name: 'Getting started' }));
     expect(screen.getByText(/Drag a part from the Parts panel/)).toBeTruthy();

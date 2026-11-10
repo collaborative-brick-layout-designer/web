@@ -146,7 +146,7 @@ const DIALOGS: DialogCase[] = [
     ready: editorReady,
     open: (p) => mapMenu(p, ...path),
     // Find and the Budget stay open beside the map (modeless).
-    ...(path.at(-1) === 'Find…' ? { dialog: /Find/, modeless: true } : {}),
+    ...(path.at(-1) === 'Find & Replace…' ? { dialog: /Find/, modeless: true } : {}),
     ...(path.at(-1) === 'Edit budget…' ? { dialog: 'Budget', modeless: true } : {}),
   })),
   {

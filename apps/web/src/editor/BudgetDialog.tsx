@@ -155,7 +155,7 @@ export function BudgetDialog({ map, limits, onLimitsChange, resolvePart = (id) =
       {/* Toolbar */}
       <div className="flex gap-2 border-b border-line px-3 py-2">
         {/* The budget lives in the layout, so desktop's New and Close both mean: no limits. */}
-        <button onClick={handleNew} title="Remove every limit (desktop New / Close Budget)"
+        <button onClick={handleNew} title="Start again: remove every limit"
           className="rounded-lg border border-border px-2 py-0.5 text-xs hover:bg-soft">New</button>
         <button onClick={handleOpen}
           className="rounded-lg border border-border px-2 py-0.5 text-xs hover:bg-soft">Open…</button>
@@ -164,7 +164,7 @@ export function BudgetDialog({ map, limits, onLimitsChange, resolvePart = (id) =
         <button onClick={handleSave}
           className="rounded-lg border border-border px-2 py-0.5 text-xs hover:bg-soft">Save…</button>
         <button onClick={() => setRefreshKey((k) => k + 1)}
-          className="rounded-lg border border-border px-2 py-0.5 text-xs hover:bg-soft" title="Re-count parts from current map">Refresh</button>
+          className="rounded-lg border border-border px-2 py-0.5 text-xs hover:bg-soft" title="Count the parts on the map again">Refresh</button>
       </div>
 
       {/* Table */}
@@ -174,7 +174,7 @@ export function BudgetDialog({ map, limits, onLimitsChange, resolvePart = (id) =
             <tr className="border-b border-line text-left text-muted">
               <th className="px-2 py-1">Part</th>
               <th className="px-2 py-1 text-right">Used</th>
-              <th className="px-2 py-1">Limit (blank=unlimited)</th>
+              <th className="px-2 py-1">Limit <span className="font-normal">(empty: no limit)</span></th>
             </tr>
           </thead>
           <tbody>

@@ -122,7 +122,7 @@ export function AboutPage() {
         </section>
 
         <section>
-          <h2 className="text-lg font-semibold">Licence</h2>
+          <h2 className="text-lg font-semibold">License</h2>
           <p className="mt-2 text-sm text-neutral-300">
             {LICENCE}. The bundled BlueBrickParts library is a
             git submodule of the upstream project and retains its
