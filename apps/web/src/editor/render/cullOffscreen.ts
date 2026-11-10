@@ -91,11 +91,14 @@ export function drawCulled(canvas: unknown, rect: { x0: number; y0: number; x1: 
 export function cullOffscreen(layer: Konva.Layer): () => void {
   patchGroups();
   type Draw = (canvas?: unknown, top?: unknown) => Konva.Layer;
-  const own = layer as unknown as { drawScene: Draw; drawHit: Draw };
-  const scene = own.drawScene;
-  const hit = own.drawHit;
-  const culled = (base: Draw, ownCanvas: () => unknown): Draw =>
+  type Own = { drawScene: Draw; drawHit: Draw };
+  const own = layer as unknown as Own;
+  // The layer's class's own drawing, looked up at each draw (so a wrapper
+  // put on the class later, a test's counter say, still runs).
+  const proto = Object.getPrototypeOf(layer) as Own;
+  const culled = (which: keyof Own, ownCanvas: () => unknown): Draw =>
     function (this: Konva.Layer, canvas?: unknown, top?: unknown) {
+      const base = proto[which];
       const target = canvas ?? ownCanvas.call(this);
       // Only on the layer's own canvases: exports and prints get every part.
       if (target !== ownCanvas.call(this)) return base.call(this, canvas, top);
@@ -107,14 +110,14 @@ export function cullOffscreen(layer: Konva.Layer): () => void {
         culling = before;
       }
     };
-  own.drawScene = culled(scene, function (this: Konva.Layer) {
+  own.drawScene = culled('drawScene', function (this: Konva.Layer) {
     return this.getCanvas();
   });
-  own.drawHit = culled(hit, function (this: Konva.Layer) {
+  own.drawHit = culled('drawHit', function (this: Konva.Layer) {
     return this.hitCanvas;
   });
   return () => {
-    own.drawScene = scene;
-    own.drawHit = hit;
+    delete (own as Partial<Own>).drawScene;
+    delete (own as Partial<Own>).drawHit;
   };
 }
