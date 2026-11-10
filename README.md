@@ -593,9 +593,11 @@ GitHub Actions workflows:
 - **`secret-scan.yml`**: gitleaks.
 - **`nightly.yml`**: on every push to `main`, pushes the `:nightly` image to
   GHCR and uploads a Trivy report.
-- **`release.yml`**: on `v*` tags, publishes `:vX.Y.Z` and `:latest`, stops
-  on CRITICAL Trivy findings, and writes release notes grouped by
-  conventional-commit type.
+- **`release.yml`**: on `v*` tags, builds the image under its `sha-<commit>`
+  tag, scans it with Trivy, and only when no CRITICAL finding turns up adds
+  `:vX.Y.Z` and `:latest` to it. Then it writes release notes grouped by
+  conventional-commit type, under the annotated tag's message. A tag with a
+  `-` (`v1.2.0-rc1`) is published as a pre-release.
 
 Cut a release:
 
