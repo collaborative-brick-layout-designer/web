@@ -164,7 +164,7 @@ jobs:
           docker exec cbld-ci-u sh -c 'for d in /data /parts /backups; do : > "$d/.ci-write" && rm "$d/.ci-write"; done'
           [ "$(docker exec cbld-ci-u stat -c %u:%g /data/cbld.sqlite)" = "99:100" ]
           # The native modules load for this user.
-          docker exec -w /app/apps/server cbld-ci-u node -e "require('sharp'); require('argon2'); require('better-sqlite3'); console.log('native modules ok')"
+          docker exec -w /app/apps/server cbld-ci-u node -e "require('sharp'); require('@node-rs/argon2'); require('better-sqlite3'); console.log('native modules ok')"
           # Nothing in a home folder, and no package manager cache anywhere it could write.
           docker exec cbld-ci-u sh -c 'echo "HOME=$HOME"; [ "$HOME" = /tmp ]'
           docker exec cbld-ci-u sh -c '! find /home /tmp \( -name ".npm" -o -name ".pnpm*" -o -name ".cache" -o -name ".corepack" \) 2>/dev/null | grep .'
