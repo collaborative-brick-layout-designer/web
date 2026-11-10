@@ -112,9 +112,18 @@ test("an idle person doesn't send everyone's cursor back, so a busy layout keeps
   await shareWith(alice.page, id, bob.page, `live-ben-${ts}@example.com`, 'editor');
   await shareWith(alice.page, id, carol.page, `live-cat-${ts}@example.com`, 'viewer');
   const carolSent = countPresenceSent(carol.page);
-  const carolCloses: number[] = [];
-  // (The layout's live connection only: not the page's other sockets.)
-  carol.page.on('websocket', (ws) => ws.url().includes('/ws/layout/') && ws.on('close', () => carolCloses.push(Date.now())));
+  // How the layout's live connection closed, if it did (1013: sending too fast).
+  await carol.ctx.addInitScript(() => {
+    const W = window.WebSocket;
+    const codes: number[] = [];
+    (window as unknown as { __layoutCloses: number[] }).__layoutCloses = codes;
+    window.WebSocket = class extends W {
+      constructor(...a: ConstructorParameters<typeof WebSocket>) {
+        super(...a);
+        if (String(a[0]).includes('/ws/layout/')) this.addEventListener('close', (e) => codes.push(e.code));
+      }
+    };
+  });
   await openEditor(carol.page, id);
   await openEditor(alice.page, id);
   await openEditor(bob.page, id);
@@ -133,7 +142,8 @@ test("an idle person doesn't send everyone's cursor back, so a busy layout keeps
   const sent = carolSent.n - before;
   // Before: about 20 a second per person moving (160 here). Now: none of theirs.
   expect(sent).toBeLessThan(5);
-  expect(carolCloses).toEqual([]);
+  // Never closed for sending too fast (it was, three times in 36 s, with 16 people).
+  expect(await carol.page.evaluate(() => (window as unknown as { __layoutCloses: number[] }).__layoutCloses)).not.toContain(1013);
   // And she still sees both of them.
   await expect(people(carol.page)).toHaveCount(2);
   for (const p of [alice, bob, carol]) await p.ctx.close();
