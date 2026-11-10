@@ -106,7 +106,7 @@ jobs:
         id: notes
         run: |
           CURRENT_TAG="${GITHUB_REF#refs/tags/}"
-          PREV_TAG=$(git tag --sort=-creatordate | grep -A1 "^${CURRENT_TAG}$" | tail -1)
+          PREV_TAG=$(git tag -l 'v*' --sort=-creatordate | grep -A1 "^${CURRENT_TAG}$" | tail -1)
           # The tag's own message only when it has one: a lightweight tag's
           # "contents" are the commit's message ("Merge pull request #…").
           # checkout can leave the tag lightweight locally; fetch the real one.
