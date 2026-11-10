@@ -95,5 +95,11 @@ COPY --from=builder /app/packages/bbm/tests/fixtures/oracle/flex-a.bbm ./package
 
 EXPOSE 3000
 WORKDIR /app/apps/server
+# Healthy once the server answers and its database does (GET
+# /api/health/ready), on the port the server itself listens on. Node's own
+# fetch, as the image has no curl. The start period covers the migrations
+# a new version runs before it listens.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
+  CMD node -e "fetch('http://127.0.0.1:'+(process.env.HTTP_PORT||process.env.PORT||3000)+'/api/health/ready',{signal:AbortSignal.timeout(4000)}).then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"
 ENTRYPOINT ["/usr/bin/tini", "--"]
 CMD ["node", "dist/index.js"]

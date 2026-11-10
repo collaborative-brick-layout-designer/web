@@ -41,6 +41,21 @@ jobs:
         id: ver
         run: echo "version=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
 
+      # OCI labels (source, revision, version, licenses...), so GHCR links
+      # the image to this repo and `docker inspect` says what it is.
+      - name: Image labels
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: |
+            ghcr.io/${{ steps.repo.outputs.name }}
+            ghcr.io/${{ steps.repo.outputs.web }}
+          tags: |
+            type=raw,value=${{ steps.ver.outputs.version }}
+          labels: |
+            org.opencontainers.image.title=Collaborative Brick Layout Designer (web)
+            org.opencontainers.image.description=A web app for planning LEGO train and town layouts together, and the server for the desktop app
+
       # The image goes out first under its commit's tag only. :vX.Y.Z and
       # :latest point at it once the scan below has passed, so a CRITICAL
       # finding never leaves a vulnerable :latest for self-hosters to pull.
@@ -56,6 +71,7 @@ jobs:
             ghcr.io/${{ steps.repo.outputs.web }}:sha-${{ github.sha }}
           build-args: |
             APP_VERSION=${{ steps.ver.outputs.version }}
+          labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
