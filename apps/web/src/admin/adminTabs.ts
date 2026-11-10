@@ -14,7 +14,7 @@ export const ADMIN_MENU_LABELS: Record<AdminTab, string> = {
   orgs: 'Clubs',
   layouts: 'Layouts',
   parts: 'Parts',
-  libraries: 'Part libraries',
+  libraries: 'Parts library',
   moderation: 'Moderation',
   privacy: 'Privacy requests',
   audit: 'Audit log',

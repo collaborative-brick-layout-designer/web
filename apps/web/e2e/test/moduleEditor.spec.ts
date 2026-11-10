@@ -58,8 +58,8 @@ test.describe('module editor', () => {
     await expect(page.getByRole('button', { name: 'Share', exact: true })).toHaveCount(0);
     await page.getByRole('button', { name: 'Map', exact: true }).click();
     const map = page.getByRole('menu', { name: 'Map' });
-    await expect(map.getByRole('menuitem', { name: 'Find…' })).toBeVisible();
-    await expect(map.getByRole('menuitem', { name: 'Find…' })).toContainText('Ctrl+F');
+    await expect(map.getByRole('menuitem', { name: 'Find & Replace…' })).toBeVisible();
+    await expect(map.getByRole('menuitem', { name: 'Find & Replace…' })).toContainText('Ctrl+F');
     await expect(map.getByRole('menuitem', { name: 'Venue' })).toHaveCount(0);
     await expect(map.getByRole('menuitem', { name: 'Budget' })).toHaveCount(0);
     await expect(page.getByRole('navigation', { name: 'Build tools' }).getByRole('button', { name: 'Select' })).toBeVisible();

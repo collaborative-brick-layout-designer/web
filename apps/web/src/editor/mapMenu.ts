@@ -96,7 +96,7 @@ export function mapMenuEntries(a: MapMenuActions, t: MapMenuToggles, mod = modKe
     { kind: 'item', id: 'general-info', label: 'General info…', onSelect: a.generalInfo },
     { kind: 'item', id: 'background-color', label: 'Background color…', onSelect: a.backgroundColor },
     { kind: 'item', id: 'background-image', label: 'Background image…', onSelect: a.backgroundImage },
-    { kind: 'item', id: 'find', label: 'Find…', shortcut: `${mod}+F`, onSelect: a.find },
+    { kind: 'item', id: 'find', label: 'Find & Replace…', shortcut: `${mod}+F`, onSelect: a.find },
     sep,
     {
       kind: 'submenu', id: 'insert', label: 'Insert', items: [
@@ -216,7 +216,7 @@ export function phoneMapEntries(a: PhoneMapActions, t: PhoneMapToggles, editing:
     { kind: 'item', id: 'general-info', label: 'General info…', hidden: viewing, onSelect: a.generalInfo },
     { kind: 'item', id: 'background-color', label: 'Background color…', hidden: viewing, onSelect: a.backgroundColor },
     { kind: 'item', id: 'background-image', label: 'Background image…', hidden: viewing, onSelect: a.backgroundImage },
-    { kind: 'item', id: 'find', label: 'Find…', onSelect: a.find },
+    { kind: 'item', id: 'find', label: 'Find & Replace…', onSelect: a.find },
     sep,
     {
       kind: 'submenu', id: 'insert', label: 'Insert', hidden: viewing, items: [

@@ -84,6 +84,17 @@ export function formatLength(studs: number, unit: LengthUnit = 'ftin'): string {
   return `${sign}${feet}′ ${inches}${q}″`;
 }
 
+/** A floor area (square studs) in the chosen unit: "1,234 sq ft", "114.6 m²", "12,000 square studs". */
+export function formatArea(squareStuds: number, unit: LengthUnit = 'ftin'): string {
+  if (unit === 'm') {
+    const m2 = squareStuds / (STUDS_PER_MM * STUDS_PER_MM) / 1_000_000;
+    return `${(Math.round(m2 * 10) / 10).toLocaleString()} m²`;
+  }
+  if (unit === 'studs') return `${Math.round(squareStuds).toLocaleString()} square studs`;
+  const ft = 12 * STUDS_PER_INCH;
+  return `${Math.round(squareStuds / (ft * ft)).toLocaleString()} sq ft`;
+}
+
 /** Degrees clockwise from east, as shown next to the cursor (0–359). */
 export function formatAngle(deg: number): string {
   return `${((Math.round(deg) % 360) + 360) % 360}°`;

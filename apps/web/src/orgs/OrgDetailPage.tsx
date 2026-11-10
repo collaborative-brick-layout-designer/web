@@ -91,7 +91,7 @@ function OrgDetail({ slug }: { slug: string }) {
         )}
 
         <section className="space-y-2 rounded-section border border-line bg-panel p-4">
-          <h2 className="text-lg font-semibold">Part libraries</h2>
+          <h2 className="text-lg font-semibold">Part packs</h2>
           <OrgPartLibraries slug={slug} />
         </section>
 
@@ -111,7 +111,7 @@ function OrgPartLibraries({ slug }: { slug: string }) {
   if (!libs.data || libs.data.libraries.length === 0) {
     return (
       <p className="text-sm text-muted">
-        No part libraries installed.
+        No part packs installed.
       </p>
     );
   }

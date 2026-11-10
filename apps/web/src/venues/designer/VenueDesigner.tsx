@@ -10,7 +10,7 @@ import { Inspector } from './Inspector';
 import { initialState, reducer, TOOLS, venueOf, type Layer } from './designerState';
 import { estimateCount, roomSize, type Pt } from './model';
 import { calibrate, loadPlan, planOf, withPlan, type FloorPlan } from './plan';
-import { formatLength, parseLength, STUDS_PER_INCH, type LengthUnit } from './units';
+import { formatArea, formatLength, parseLength, STUDS_PER_INCH, type LengthUnit } from './units';
 import { HelpButton } from '../../help/HelpButton';
 import { HelpMenu } from '../../editor/EditorChrome';
 import { askConfirm } from '../../ui/ConfirmDialog';
@@ -175,7 +175,7 @@ export function VenueDesigner({
             className="h-8 rounded-md border border-neutral-600 bg-soft px-2 text-sm"
           >
             <option value="ftin">Feet &amp; inches</option>
-            <option value="m">Metres</option>
+            <option value="m">Meters</option>
             <option value="studs">Studs</option>
           </select>
         </label>
@@ -275,7 +275,7 @@ export function VenueDesigner({
             <span className="font-mono pointer-coarse:hidden">{cursor ? `${formatLength(cursor.x, state.unit)}, ${formatLength(cursor.y, state.unit)}` : '—'}</span>
             {size && (
               <span>
-                Venue {formatLength(size.w, state.unit)} × {formatLength(size.h, state.unit)} · {Math.round(size.area / (FT * FT)).toLocaleString()} sq ft
+                Venue {formatLength(size.w, state.unit)} × {formatLength(size.h, state.unit)} · {formatArea(size.area, state.unit)}
               </span>
             )}
             <span className={`min-w-0 truncate ${state.message ? 'text-amber-300' : ''}`}>

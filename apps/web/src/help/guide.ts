@@ -11,8 +11,8 @@ export const SHORTCUT_GROUPS: { title: string; items: Shortcut[] }[] = [
   {
     title: 'Pieces',
     items: [
-      { keys: 'R', does: 'Turn the selected pieces' },
-      { keys: 'Shift+R', does: 'Turn them the other way' },
+      { keys: 'R', does: 'Turn the selected pieces left (counterclockwise)' },
+      { keys: 'Shift+R', does: 'Turn them right (clockwise)' },
       { keys: 'Arrow keys', does: 'Nudge the selected pieces' },
       { keys: 'Delete', does: 'Remove the selected pieces' },
       { keys: 'Ctrl+D', does: 'Make a copy' },

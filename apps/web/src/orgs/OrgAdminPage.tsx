@@ -173,7 +173,7 @@ function OrgAdmin({ slug }: { slug: string }) {
         {shownTab === 'parts' && (
           <div className="space-y-5">
             {isClubAdmin && (
-              <Section title="Part libraries" hint="Which part libraries the club’s members see in the parts panel.">
+              <Section title="Part packs" hint="Which part packs the club’s members see in the parts panel.">
                 <LibrariesTab slug={slug} />
               </Section>
             )}
@@ -209,7 +209,7 @@ function LibrariesTab({ slug }: { slug: string }) {
   if (!libs.data || libs.data.libraries.length === 0) {
     return (
       <p className="text-sm text-muted">
-        No part libraries installed. Ask a platform admin to install libraries.
+        No part packs installed. Ask a site admin to install some.
       </p>
     );
   }

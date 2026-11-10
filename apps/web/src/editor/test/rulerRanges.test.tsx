@@ -76,7 +76,7 @@ describe('ruler settings stay in what the server takes', () => {
     fireEvent.change(lineThickness!, { target: { value: '900' } });
     fireEvent.change(guideThickness!, { target: { value: '900' } });
     fireEvent.change(offset!, { target: { value: '99999999999' } });
-    fireEvent.change(screen.getByLabelText('Dash pattern'), { target: { value: '4, 99999, 2' } });
+    fireEvent.change(screen.getByLabelText(/^Dashes/), { target: { value: '4, 99999, 2' } });
     fireEvent.click(screen.getByRole('button', { name: 'OK' }));
     const r = ruler() as LinearRulerItem;
     expect(serverTakes(r as unknown as Record<string, unknown>)).toEqual([]);

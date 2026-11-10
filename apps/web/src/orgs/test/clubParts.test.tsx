@@ -78,7 +78,7 @@ describe('the club Parts tab', () => {
     fireEvent.click(tab);
     expect(await screen.findByText('club-1')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Upload part' })).toBeTruthy();
-    expect(screen.queryByText('Part libraries')).toBeNull();
+    expect(screen.queryByText('Part packs')).toBeNull();
     expect(calls.some((c) => c.path.includes('/part-libraries'))).toBe(false);
 
     fireEvent.click(screen.getByRole('button', { name: 'delete' }));
@@ -89,7 +89,7 @@ describe('the club Parts tab', () => {
     role = 'admin';
     show();
     fireEvent.click(await screen.findByRole('tab', { name: 'Parts' }));
-    expect(await screen.findByText('Part libraries')).toBeTruthy();
+    expect(await screen.findByText('Part packs')).toBeTruthy();
     expect(await screen.findByText('club-1')).toBeTruthy();
     expect(screen.getByRole('tab', { name: 'Settings' })).toBeTruthy();
   });
