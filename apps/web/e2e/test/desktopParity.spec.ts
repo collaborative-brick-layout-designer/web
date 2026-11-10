@@ -397,8 +397,11 @@ test.describe('insert text', () => {
     const num = (tag: string) => Number(new RegExp(`<${tag}>([^<]+)</${tag}>`).exec(cellXml)![1]);
     expect(num('X') + num('Width') / 2).toBeCloseTo(centre.x, 1);
     expect(num('Y') + num('Height') / 2).toBeCloseTo(centre.y, 1);
-    expect(num('Height')).toBe(10);
-    expect(num('Width')).toBe(24); // max(10 * 0.6 * 4 characters, 20)
+    // Sized from 12 pt (a point is 4/3 of a stud): one line of 16-stud text,
+    // as wide as "Yard" measures plus a sixth of the size each side.
+    expect(num('Height')).toBeCloseTo(16 * (2355 / 2048), 2);
+    expect(num('Width')).toBeGreaterThan(16 / 3 + 16);
+    expect(num('Width')).toBeLessThan(16 / 3 + 16 * 4 * 0.8);
     expect(cellXml).toMatch(/<FontColor>\s*<IsKnownColor>true<\/IsKnownColor>\s*<Name>Black<\/Name>/);
     expect(cellXml).toMatch(/<Size>12<\/Size>/);
     expect(xml).toMatch(/<Layer type="text" id="[^"]+">\s*<Name>Labels<\/Name>/);
