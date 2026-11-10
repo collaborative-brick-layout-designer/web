@@ -3,6 +3,10 @@
 //     and drawing it blanked the editor of everyone already in the layout.
 //     Now that tab shares nothing until the layout opens, the server drops a
 //     presence that isn't a person's, and the editor skips one if it comes.
+//   - Bug 2: every tab sent everyone else's presence back to the server,
+//     about 20 messages a second per person moving the mouse, so an idle
+//     person in a crowded layout was closed for sending too fast. Now a tab
+//     sends only its own.
 
 import { test, expect, type BrowserContext, type Page } from '@playwright/test';
 import { signIn } from '../helpers';
@@ -96,5 +100,51 @@ test('a tab still opening the layout, or an empty presence, leaves everyone else
   await expect(people(alice.page).filter({ hasText: 'Carol Builder' })).toHaveCount(1);
   expect(alice.errors).toEqual([]);
   expect(bob.errors).toEqual([]);
+  for (const p of [alice, bob, carol]) await p.ctx.close();
+});
+
+test("an idle person doesn't send everyone's cursor back, so a busy layout keeps them connected", async ({ browser }) => {
+  const alice = await person(browser, 'Ann');
+  const bob = await person(browser, 'Ben');
+  const carol = await person(browser, 'Cat');
+  const res = await alice.page.request.post('/api/layouts', { data: { title: 'Busy layout' } });
+  const { id } = (await res.json()) as { id: string };
+  await shareWith(alice.page, id, bob.page, `live-ben-${ts}@example.com`, 'editor');
+  await shareWith(alice.page, id, carol.page, `live-cat-${ts}@example.com`, 'viewer');
+  const carolSent = countPresenceSent(carol.page);
+  // How the layout's live connection closed, if it did (1013: sending too fast).
+  await carol.ctx.addInitScript(() => {
+    const W = window.WebSocket;
+    const codes: number[] = [];
+    (window as unknown as { __layoutCloses: number[] }).__layoutCloses = codes;
+    window.WebSocket = class extends W {
+      constructor(...a: ConstructorParameters<typeof WebSocket>) {
+        super(...a);
+        if (String(a[0]).includes('/ws/layout/')) this.addEventListener('close', (e) => codes.push(e.code));
+      }
+    };
+  });
+  await openEditor(carol.page, id);
+  await openEditor(alice.page, id);
+  await openEditor(bob.page, id);
+  await expect(people(carol.page)).toHaveCount(2, { timeout: 10000 });
+
+  // Ann and Ben move their mouse over the map for 4 s; Cat sits still.
+  const before = carolSent.n;
+  const wiggle = async (page: Page): Promise<void> => {
+    const box = (await page.locator('.konvajs-content').first().boundingBox())!;
+    for (let i = 0; i < 80; i++) {
+      await page.mouse.move(box.x + 200 + 150 * Math.cos(i / 5), box.y + 200 + 150 * Math.sin(i / 5));
+      await page.waitForTimeout(50);
+    }
+  };
+  await Promise.all([wiggle(alice.page), wiggle(bob.page)]);
+  const sent = carolSent.n - before;
+  // Before: about 20 a second per person moving (160 here). Now: none of theirs.
+  expect(sent).toBeLessThan(5);
+  // Never closed for sending too fast (it was, three times in 36 s, with 16 people).
+  expect(await carol.page.evaluate(() => (window as unknown as { __layoutCloses: number[] }).__layoutCloses)).not.toContain(1013);
+  // And she still sees both of them.
+  await expect(people(carol.page)).toHaveCount(2);
   for (const p of [alice, bob, carol]) await p.ctx.close();
 });

@@ -5,13 +5,16 @@
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as Y from 'yjs';
+import { Awareness } from 'y-protocols/awareness';
 
 type Handler = (arg: unknown) => void;
 const providers: FakeProvider[] = [];
 
 class FakeProvider {
   handlers = new Map<string, Handler[]>();
-  awareness = {};
+  awareness: Awareness;
+  // (sendOnlyOwnPresence swaps it for its own.)
+  _awarenessUpdateHandler = (): void => undefined;
   wsconnected = true;
   synced = false;
   ws: { bufferedAmount: number } | null = { bufferedAmount: 0 };
@@ -21,7 +24,9 @@ class FakeProvider {
     _url: string,
     readonly room: string,
     readonly doc: Y.Doc,
+    opts: { awareness?: Awareness } = {},
   ) {
+    this.awareness = opts.awareness ?? new Awareness(doc);
     providers.push(this);
   }
   on(event: string, h: Handler) {
