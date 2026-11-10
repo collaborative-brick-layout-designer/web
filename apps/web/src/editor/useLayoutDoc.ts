@@ -23,6 +23,7 @@ import { Awareness } from 'y-protocols/awareness';
 import { canReadDoc, removeDuplicateItems, repairSidecarCache } from '@cld/ydoc';
 import { keepRefusedCopy, type RefusedWhy } from './refusedCopies';
 import { announceSignInEnded } from '../demo/demoVisitor';
+import { notePresenceLayout } from './awareness';
 
 export type SaveStatus =
   | { kind: 'connecting' }
@@ -189,9 +190,10 @@ function finishSending(layoutId: string, provider: WebsocketProvider, doc: Y.Doc
  * opening a big layout used to blank everyone's editor), and re-sends it
  * every 15 s. usePublishAwareness fills it once the layout is open.
  */
-export function newLivePresence(doc: Y.Doc): Awareness {
+export function newLivePresence(doc: Y.Doc, layoutId = ''): Awareness {
   const awareness = new Awareness(doc);
   awareness.setLocalState(null);
+  notePresenceLayout(awareness, layoutId);
   return awareness;
 }
 
@@ -293,7 +295,7 @@ export function useLayoutDoc(layoutId: string, canEdit?: boolean): LayoutDocStat
     const provider = new WebsocketProvider(`${wsUrlBase()}/ws/layout`, layoutId, fresh, {
       // params: we rely on the session cookie for auth; nothing else.
       connect: true,
-      awareness: newLivePresence(fresh),
+      awareness: newLivePresence(fresh, layoutId),
     });
     sendOnlyOwnPresence(provider);
     providerRef.current = provider;
