@@ -21,6 +21,38 @@ export const PRESENCE_PALETTE = [
   '#f472b6', // pink
 ] as const;
 
+/** The two text colors a name is drawn in on a presence color: dark ink, or white. */
+export const PRESENCE_TEXT = { dark: '#111827', light: '#ffffff' } as const;
+
+/** The least contrast a name needs on its presence color (WCAG AA for small text). */
+export const PRESENCE_MIN_CONTRAST = 4.5;
+
+/** WCAG 2 relative luminance of a `#rrggbb` color. */
+export function relativeLuminance(hex: string): number {
+  const n = parseInt(hex.replace('#', ''), 16);
+  const chan = (v: number) => {
+    const c = v / 255;
+    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  };
+  return 0.2126 * chan((n >> 16) & 255) + 0.7152 * chan((n >> 8) & 255) + 0.0722 * chan(n & 255);
+}
+
+/** WCAG 2 contrast ratio between two `#rrggbb` colors (1 to 21). */
+export function contrastRatio(a: string, b: string): number {
+  const la = relativeLuminance(a), lb = relativeLuminance(b);
+  return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
+}
+
+/**
+ * The text color for a name drawn on `color`: dark ink on a light color,
+ * white on a dark one, whichever reads better (the same in both apps;
+ * fixtures/contracts/presence-colors.json "textOn"). White on the yellow
+ * used to be 1.4:1.
+ */
+export function presenceTextColor(color: string): string {
+  return contrastRatio(color, PRESENCE_TEXT.dark) >= contrastRatio(color, PRESENCE_TEXT.light) ? PRESENCE_TEXT.dark : PRESENCE_TEXT.light;
+}
+
 /** FNV-1a over the UTF-16 code units, then murmur3's finalizer. */
 function mix(seed: string): number {
   let h = 0x811c9dc5;

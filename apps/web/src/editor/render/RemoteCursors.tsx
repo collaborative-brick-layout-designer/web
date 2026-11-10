@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { presenceTextColor } from '../presenceColors';
 import { Group, Line, Rect, Text } from 'react-konva';
 import type { Awareness } from 'y-protocols/awareness';
 import type { BbmMap, Brick } from '@cld/model';
@@ -98,7 +99,7 @@ export function RemoteCursors({
                   x={20}
                   y={5}
                   fontSize={10}
-                  fill="#fff"
+                  fill={presenceTextColor(state.user.color)}
                   listening={false}
                 />
               </Group>
