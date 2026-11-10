@@ -166,6 +166,26 @@ function Group({ title, rows, saving, onSave }: { title: string; rows: SignInSet
   );
 }
 
+/**
+ * The addresses to register with a GitHub OAuth app, a Google client or a
+ * single sign-on provider, with this server's own site address filled in.
+ */
+function CallbackAddresses({ publicUrl }: { publicUrl: string }) {
+  const base = publicUrl.replace(/\/$/, '');
+  return (
+    <div className="space-y-1" data-testid="sign-in-callbacks">
+      <p>Signing in with GitHub, Google or single sign-on is set up on the server. Give the provider this callback address:</p>
+      <ul className="space-y-0.5">
+        {(['github', 'google', 'oidc'] as const).map((id) => (
+          <li key={id}>
+            <code className="break-all text-[12px]">{`${base}/api/auth/${id}/callback`}</code>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 export function SignInSettingsSection() {
   const qc = useQueryClient();
   const settings = useQuery({ queryKey: ['admin-settings'], queryFn: api.admin.settings });
@@ -174,6 +194,7 @@ export function SignInSettingsSection() {
     onSuccess: () => void qc.invalidateQueries({ queryKey: ['admin-settings'] }),
   });
   const rows = settings.data?.signIn?.settings;
+  const publicUrl = settings.data?.signIn?.publicUrl ?? '';
   if (!rows) return null;
   const onSave = (key: string, v: SignInValue | null) => save.mutate({ [key]: v });
   return (
@@ -181,7 +202,7 @@ export function SignInSettingsSection() {
       <div>
         <h2 id="sign-in-settings-title" className="flex items-center gap-1.5 text-sm font-semibold text-neutral-300">
           Sign-in
-          <HelpButton helpKey="admin.signIn" target='[data-testid="sign-in-settings"]' />
+          <HelpButton helpKey="admin.signIn" target='[data-testid="sign-in-settings"]' extra={<CallbackAddresses publicUrl={publicUrl} />} />
         </h2>
         <p className="text-xs text-muted">
           How long people stay signed in. A change applies to everyone the next time they use the site; nobody is signed out when you save.

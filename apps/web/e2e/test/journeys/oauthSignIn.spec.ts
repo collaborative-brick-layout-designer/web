@@ -2,7 +2,8 @@
 //
 // Nina has never been here: "Continue with GitHub" from a club invite's
 // sign-in page signs her up and brings her back where she was going, and
-// her Profile shows GitHub linked. Ola does the same with Google. Ada
+// her Profile shows GitHub linked. Ola does the same with Google, and Mira
+// with her workplace's single sign-on (any OpenID Connect provider). Ada
 // already has an account with a password: her GitHub account has the
 // same email, so signing in with it doesn't take her account over; it
 // asks, and once she's signed in to her account she links GitHub from
@@ -37,8 +38,8 @@ async function me(page: Page) {
 test.beforeEach(async ({ page }) => {
   const providers = (await (await page.request.get('/api/auth/providers')).json()) as { providers: { id: string; enabled: boolean }[] };
   test.skip(
-    !providers.providers.find((p) => p.id === 'github')?.enabled || !providers.providers.find((p) => p.id === 'google')?.enabled,
-    'GitHub and Google sign-in are off on this server (start it with the e2e OAuth env from journeys.yml)',
+    !['github', 'google', 'oidc'].every((id) => providers.providers.find((p) => p.id === id)?.enabled),
+    'GitHub, Google and single sign-on are off on this server (start it with the e2e OAuth env from journeys.yml)',
   );
 });
 
@@ -62,6 +63,18 @@ test('a new person signs in with Google', async ({ page }) => {
   await page.getByRole('link', { name: 'Continue with Google' }).click();
   await expect(page).toHaveURL(/\/$/);
   expect(await me(page)).toMatchObject({ email, displayName: 'Ola Track', linkedProviders: ['google'] });
+});
+
+test('a new person signs in with single sign-on, and Profile shows it linked', async ({ page }) => {
+  const email = `j-oauth-mira-${ts}@example.com`;
+  mock.next('oidc', { sub: `sso-${ts}`, email, name: 'Mira Switch' });
+  await page.goto('/login?next=%2Fsettings');
+  await page.getByRole('link', { name: 'Continue with Single sign-on' }).click();
+  await expect(page).toHaveURL(/\/settings$/);
+  expect(await me(page)).toMatchObject({ email, displayName: 'Mira Switch', linkedProviders: ['oidc'] });
+
+  await page.goto('/profile');
+  await expect(page.locator('#sign-in li', { hasText: 'Single sign-on' }).getByText('linked')).toBeVisible();
 });
 
 test('a GitHub account with an existing account’s email links only once that account says yes', async ({ page }) => {

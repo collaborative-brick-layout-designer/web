@@ -12,7 +12,7 @@
 // so toolbars that scroll sideways and panels that clip don't cut them
 // off, and they're kept inside the screen on a phone.
 
-import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type SyntheticEvent } from 'react';
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode, type SyntheticEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { usePreferences } from '../theme/PrefsProvider';
 import { HELP_TEXTS, type HelpEntry, type HelpKey } from './helpTexts';
@@ -70,9 +70,14 @@ interface Props {
    */
   target?: string;
   className?: string;
+  /**
+   * Shown in the popover under the entry's text: details the words can't
+   * hold, such as this server's own addresses.
+   */
+  extra?: ReactNode;
 }
 
-export function HelpButton({ helpKey, target, className = '' }: Props) {
+export function HelpButton({ helpKey, target, className = '', extra }: Props) {
   const { prefs } = usePreferences();
   const entry = helpEntryFor(helpKey);
   const id = useId();
@@ -244,6 +249,7 @@ export function HelpButton({ helpKey, target, className = '' }: Props) {
               {entry.title}
             </div>
             <p className="text-sm leading-[1.45] opacity-90">{entry.more}</p>
+            {extra && <div className="text-sm leading-[1.45] opacity-90">{extra}</div>}
             <div className="mt-1 flex flex-wrap items-center gap-2">
               <button
                 type="button"

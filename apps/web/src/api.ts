@@ -1814,7 +1814,7 @@ export interface AdminSettings {
     contact?: { value: string | null; setting: string | null; forcedBy: string | null };
   };
   /** Sign-in: how long web and desktop sign-ins last unused, and the longest they can last. */
-  signIn?: { settings: SignInSettingState[] };
+  signIn?: { settings: SignInSettingState[]; publicUrl: string };
   /** The server's env-only settings, read only (never a secret's value). */
   serverSetup?: { name: string; value: string; env: string; why: ServerSetupWhy }[];
   updatedAt: number;

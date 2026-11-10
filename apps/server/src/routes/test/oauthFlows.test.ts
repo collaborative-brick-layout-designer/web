@@ -11,20 +11,25 @@ import { eq } from 'drizzle-orm';
 import { resetDb } from '../../test/helpers.js';
 import { db, schema } from '../../db/index.js';
 
-// Before env.ts is read: both providers switched on.
+// Before env.ts is read: all three providers switched on.
 vi.hoisted(() => {
   process.env.GITHUB_CLIENT_ID = 'gh-client';
   process.env.GITHUB_CLIENT_SECRET = 'gh-secret';
   process.env.GOOGLE_CLIENT_ID = 'google-client';
   process.env.GOOGLE_CLIENT_SECRET = 'google-secret';
+  process.env.OIDC_ISSUER_URL = 'https://sso.test';
+  process.env.OIDC_CLIENT_ID = 'oidc-client';
+  process.env.OIDC_CLIENT_SECRET = 'oidc-secret';
 });
 
 let oauth: typeof import('../auth/oauth.js');
+let providers: typeof import('../../auth/providers.js');
 let app: FastifyInstance;
 const realFetch = globalThis.fetch;
 
 beforeAll(async () => {
   oauth = await import('../auth/oauth.js');
+  providers = await import('../../auth/providers.js');
 });
 
 beforeEach(async () => {
@@ -56,14 +61,24 @@ function base64url(v: object | string): string {
 }
 
 /** An ID token as Google's token endpoint returns it (the signature isn't checked over TLS). */
-function idToken(claims: Record<string, unknown>): string {
+function idToken(claims: Record<string, unknown>, iss = 'https://accounts.google.com', aud = 'google-client'): string {
   const now = Math.floor(Date.now() / 1000);
   return [
     base64url({ alg: 'RS256', kid: 'test', typ: 'JWT' }),
-    base64url({ iss: 'https://accounts.google.com', aud: 'google-client', iat: now, exp: now + 3600, ...claims }),
+    base64url({ iss, aud, iat: now, exp: now + 3600, ...claims }),
     base64url('not-checked'),
   ].join('.');
 }
+
+/** The single sign-on provider's discovery document, as openid-client reads it. */
+const SSO_DISCOVERY = {
+  issuer: 'https://sso.test',
+  authorization_endpoint: 'https://sso.test/authorize',
+  token_endpoint: 'https://sso.test/token',
+  userinfo_endpoint: 'https://sso.test/userinfo',
+  jwks_uri: 'https://sso.test/jwks',
+  code_challenge_methods_supported: ['S256'],
+};
 
 interface Seen {
   url: string;
@@ -199,5 +214,72 @@ describe('Google sign-in', () => {
     back = await app.inject({ method: 'GET', url: `/api/auth/google/callback?code=x&state=${s.state}`, headers: { cookie: s.cookie } });
     expect(back.headers.location).toBe('/login?error=email_not_verified');
     expect(db.select().from(schema.users).where(eq(schema.users.email, 'u@example.com')).get()).toBeUndefined();
+  });
+});
+
+describe('Single sign-on (OpenID Connect)', () => {
+  beforeEach(() => providers.forgetOidcDiscovery());
+
+  it('reads the provider by discovery, goes there with PKCE and a nonce, and signs in from the ID token and UserInfo', async () => {
+    let sentNonce = '';
+    const seen = provider({
+      'https://sso.test/.well-known/openid-configuration': () => json(SSO_DISCOVERY),
+      // The ID token carries the nonce the server sent, and no email.
+      'https://sso.test/token': () =>
+        json({ access_token: 'sso-token', token_type: 'Bearer', expires_in: 3599, id_token: idToken({ sub: 'u-9', nonce: sentNonce }, 'https://sso.test', 'oidc-client') }),
+      'https://sso.test/userinfo': () => json({ sub: 'u-9', email: 'mira@example.com', name: 'Mira Switch' }),
+    });
+    const { to, cookie, state } = await start('/api/auth/oidc?next=%2Fsettings');
+    expect(to.origin + to.pathname).toBe('https://sso.test/authorize');
+    expect(to.searchParams.get('client_id')).toBe('oidc-client');
+    expect(to.searchParams.get('redirect_uri')).toBe('http://localhost:3000/api/auth/oidc/callback');
+    expect(to.searchParams.get('scope')).toBe('openid email profile');
+    expect(to.searchParams.get('code_challenge_method')).toBe('S256');
+    sentNonce = to.searchParams.get('nonce')!;
+    expect(sentNonce).toMatch(/^[\w-]{20,}$/);
+
+    const back = await app.inject({ method: 'GET', url: `/api/auth/oidc/callback?code=sso-code&state=${state}`, headers: { cookie } });
+    expect(back.statusCode, back.body).toBe(302);
+    expect(back.headers.location).toBe('/settings');
+    expect(setCookies(back).some((c) => /^cld_session=[^;]+;/.test(c))).toBe(true);
+    expect(seen.find((s) => s.url === 'https://sso.test/userinfo')!.auth).toBe('Bearer sso-token');
+
+    const user = db.select().from(schema.users).where(eq(schema.users.email, 'mira@example.com')).get();
+    expect(user?.displayName).toBe('Mira Switch');
+    const linked = db.select().from(schema.oauthAccounts).where(eq(schema.oauthAccounts.providerUserId, 'u-9')).get();
+    expect(linked?.provider).toBe('oidc');
+  });
+
+  it('a provider whose discovery document can’t be read says so on the sign-in page, and is asked again next time', async () => {
+    provider({ 'https://sso.test/.well-known/openid-configuration': () => new Response('down', { status: 503 }) });
+    let res = await app.inject({ method: 'GET', url: '/api/auth/oidc' });
+    expect(res.statusCode).toBe(302);
+    expect(res.headers.location).toBe('/login?error=sso_unavailable');
+
+    // Back up: the next sign-in reads the document again and goes through.
+    provider({ 'https://sso.test/.well-known/openid-configuration': () => json(SSO_DISCOVERY) });
+    res = await app.inject({ method: 'GET', url: '/api/auth/oidc' });
+    expect(res.statusCode).toBe(302);
+    expect(res.headers.location).toMatch(/^https:\/\/sso\.test\/authorize\?/);
+  });
+
+  it('an ID token with the wrong nonce, or an address the provider marks unverified, does not sign in', async () => {
+    provider({
+      'https://sso.test/.well-known/openid-configuration': () => json(SSO_DISCOVERY),
+      'https://sso.test/token': () => json({ access_token: 't', token_type: 'Bearer', id_token: idToken({ sub: 'u-1', nonce: 'replayed' }, 'https://sso.test', 'oidc-client') }),
+    });
+    let s = await start('/api/auth/oidc');
+    let back = await app.inject({ method: 'GET', url: `/api/auth/oidc/callback?code=x&state=${s.state}`, headers: { cookie: s.cookie } });
+    expect(back.headers.location).toBe('/login?error=oauth_error');
+
+    s = await start('/api/auth/oidc');
+    const nonce = s.to.searchParams.get('nonce')!;
+    provider({
+      'https://sso.test/.well-known/openid-configuration': () => json(SSO_DISCOVERY),
+      'https://sso.test/token': () => json({ access_token: 't', token_type: 'Bearer', id_token: idToken({ sub: 'u-2', nonce, email: 'v@example.com', email_verified: false }, 'https://sso.test', 'oidc-client') }),
+    });
+    back = await app.inject({ method: 'GET', url: `/api/auth/oidc/callback?code=x&state=${s.state}`, headers: { cookie: s.cookie } });
+    expect(back.headers.location).toBe('/login?error=email_not_verified');
+    expect(db.select().from(schema.users).where(eq(schema.users.email, 'v@example.com')).get()).toBeUndefined();
   });
 });

@@ -30,10 +30,14 @@ export interface GooglePerson {
   email_verified?: boolean;
 }
 
+/** Any OpenID Connect provider (the server reads it through discovery). */
+export type OidcPerson = GooglePerson;
+
 interface Grant {
-  provider: 'github' | 'google';
+  provider: 'github' | 'google' | 'oidc';
   person: GithubPerson | GooglePerson;
   challenge?: string;
+  nonce?: string;
   clientId: string;
 }
 
@@ -49,14 +53,15 @@ const b64 = (v: object | string) => Buffer.from(typeof v === 'string' ? v : JSON
 
 export class OAuthMock {
   private server: Server | null = null;
-  private queued: { github?: GithubPerson; google?: GooglePerson } = {};
+  private queued: { github?: GithubPerson; google?: GooglePerson; oidc?: OidcPerson } = {};
   private grants = new Map<string, Grant>();
   private tokens = new Map<string, Grant>();
 
   /** Who signs in at the provider next. */
   next(provider: 'github', person: GithubPerson): void;
   next(provider: 'google', person: GooglePerson): void;
-  next(provider: 'github' | 'google', person: GithubPerson | GooglePerson): void {
+  next(provider: 'oidc', person: OidcPerson): void;
+  next(provider: 'github' | 'google' | 'oidc', person: GithubPerson | GooglePerson): void {
     (this.queued as Record<string, unknown>)[provider] = person;
   }
 
@@ -69,9 +74,24 @@ export class OAuthMock {
       };
       const bearer = (req.headers.authorization ?? '').replace(/^Bearer /i, '');
 
+      // The single sign-on provider's discovery document (openid-client reads it).
+      if (url.pathname === '/oidc/.well-known/openid-configuration') {
+        return send(200, {
+          issuer: `${OAUTH_MOCK_ORIGIN}/oidc`,
+          authorization_endpoint: `${OAUTH_MOCK_ORIGIN}/oidc/auth`,
+          token_endpoint: `${OAUTH_MOCK_ORIGIN}/oidc/token`,
+          userinfo_endpoint: `${OAUTH_MOCK_ORIGIN}/oidc/userinfo`,
+          jwks_uri: `${OAUTH_MOCK_ORIGIN}/oidc/jwks`,
+          response_types_supported: ['code'],
+          subject_types_supported: ['public'],
+          id_token_signing_alg_values_supported: ['RS256'],
+          code_challenge_methods_supported: ['S256'],
+        });
+      }
+
       // The consent screen, already answered: back to the app with a code.
-      if (url.pathname === '/github/login/oauth/authorize' || url.pathname === '/google/auth') {
-        const provider = url.pathname.startsWith('/github') ? 'github' : 'google';
+      if (url.pathname === '/github/login/oauth/authorize' || url.pathname === '/google/auth' || url.pathname === '/oidc/auth') {
+        const provider = url.pathname.startsWith('/github') ? 'github' : url.pathname.startsWith('/google') ? 'google' : 'oidc';
         const person = this.queued[provider];
         delete this.queued[provider];
         const back = new URL(url.searchParams.get('redirect_uri')!);
@@ -83,6 +103,7 @@ export class OAuthMock {
             provider,
             person,
             challenge: url.searchParams.get('code_challenge') ?? undefined,
+            nonce: url.searchParams.get('nonce') ?? undefined,
             clientId: url.searchParams.get('client_id') ?? '',
           });
           back.searchParams.set('code', code);
@@ -93,7 +114,7 @@ export class OAuthMock {
         return;
       }
 
-      if (req.method === 'POST' && (url.pathname === '/github/login/oauth/access_token' || url.pathname === '/google/token')) {
+      if (req.method === 'POST' && (url.pathname === '/github/login/oauth/access_token' || url.pathname === '/google/token' || url.pathname === '/oidc/token')) {
         const form = new URLSearchParams(await body(req));
         const grant = this.grants.get(form.get('code') ?? '');
         this.grants.delete(form.get('code') ?? '');
@@ -110,7 +131,17 @@ export class OAuthMock {
         const p = grant.person as GooglePerson;
         const idToken = [
           b64({ alg: 'RS256', typ: 'JWT' }),
-          b64({ iss: `${OAUTH_MOCK_ORIGIN}/google`, aud: grant.clientId, sub: p.sub, email: p.email, iat: now, exp: now + 3600 }),
+          b64({
+            iss: `${OAUTH_MOCK_ORIGIN}/${grant.provider}`,
+            aud: grant.clientId,
+            sub: p.sub,
+            iat: now,
+            exp: now + 3600,
+            ...(grant.nonce ? { nonce: grant.nonce } : {}),
+            // The single sign-on token carries no email, as many workplace
+            // providers' don't: the server asks the UserInfo endpoint.
+            ...(grant.provider === 'google' ? { email: p.email } : { name: p.name }),
+          }),
           b64('unsigned'),
         ].join('.');
         return send(200, { access_token: token, token_type: 'Bearer', expires_in: 3599, id_token: idToken });
@@ -126,7 +157,7 @@ export class OAuthMock {
         const p = grant.person as GithubPerson;
         return send(200, [{ email: p.email, primary: true, verified: p.verified ?? true }]);
       }
-      if (url.pathname === '/google/userinfo') {
+      if (url.pathname === '/google/userinfo' || url.pathname === '/oidc/userinfo') {
         const p = grant.person as GooglePerson;
         return send(200, { sub: p.sub, email: p.email, email_verified: p.email_verified ?? true, name: p.name });
       }

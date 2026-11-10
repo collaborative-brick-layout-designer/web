@@ -96,6 +96,36 @@ function githubProvider(): OAuthProvider | null {
 export const google = googleProvider();
 export const github = githubProvider();
 
+// ---- Single sign-on (any OpenID Connect provider) --------------------------
+//
+// OIDC_ISSUER_URL names the provider (Microsoft Entra, Auth0, Keycloak…); its
+// endpoints come from the discovery document, read the first time someone
+// signs in and kept. A read that fails isn't kept, so the next sign-in tries
+// again: a provider that is down for a minute doesn't need a restart here.
+
+let oidcDiscovery: Promise<client.Configuration> | null = null;
+
+/** The single sign-on provider's configuration, from its discovery document. */
+export function oidcConfig(): Promise<client.Configuration> {
+  if (!env.oidc) return Promise.reject(new Error('single sign-on is not set up'));
+  if (!oidcDiscovery) {
+    const mock = mockOrigin();
+    const insecure = mock !== null && env.oidc.issuerUrl.startsWith(`${mock}/`);
+    oidcDiscovery = client
+      .discovery(new URL(env.oidc.issuerUrl), env.oidc.clientId, env.oidc.clientSecret, undefined, insecure ? { execute: [client.allowInsecureRequests] } : undefined)
+      .catch((err: unknown) => {
+        oidcDiscovery = null;
+        throw err;
+      });
+  }
+  return oidcDiscovery;
+}
+
+/** Tests only: forget the discovery document, so the next sign-in reads it again. */
+export function forgetOidcDiscovery(): void {
+  oidcDiscovery = null;
+}
+
 export interface ProviderInfo {
   id: ProviderId;
   label: string;
