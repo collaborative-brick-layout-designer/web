@@ -25,7 +25,6 @@ import { keepRefusedCopy, type RefusedWhy } from './refusedCopies';
 import { announceSignInEnded } from '../demo/demoVisitor';
 import { notePresenceLayout } from './awareness';
 import { OfflineEditWatch, replacedText } from './offlineEdits';
-import { useEditorStore } from './editorStore';
 
 export type SaveStatus =
   | { kind: 'connecting' }
@@ -388,7 +387,11 @@ export function useLayoutDoc(layoutId: string, canEdit?: boolean): LayoutDocStat
           // (Once our edits and theirs have both been applied: the repairs run 50 ms after.)
           setTimeout(() => {
             const { replaced, of } = offlineEdits.settle(fresh);
-            if (replaced > 0) useEditorStore.getState().showNotice(replacedText(replaced, of), 'error', 12000);
+            // (The editor's store, loaded when it's needed: this file is also read where it isn't.)
+            if (replaced > 0)
+              void import('./editorStore').then(({ useEditorStore }) =>
+                useEditorStore.getState().showNotice(replacedText(replaced, of), 'error', 12000),
+              );
           }, 300);
         }
         setLoading(false);
