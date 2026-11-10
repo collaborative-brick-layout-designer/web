@@ -68,6 +68,7 @@ import { SheetsSheet, TextEditSheet } from './TouchSheets';
 import { placeModuleAsking, SheetChoiceHost } from './SheetChoiceDialog';
 import { addSidecarModule, editAnchoredLabel, editTextCell, setExportElectricCircuit, updateSidecarModule } from './mutations';
 import { brickIdsInDoc, parseTextKey, stillPicked } from './mixedSelection';
+import { startSignedOutPoll } from './signedOutPoll';
 import { PHONE_MIN_TEXT_PX } from './textLegibility';
 import { sanitizeFilename } from '../bbmFiles';
 import { downloadLocalLayout, saveFile } from './localLayoutFile';
@@ -6139,30 +6140,24 @@ function RotationPicker() {
  * Signed out while the layout was open (a sign-out in another browser, a
  * sign-in that ran out): it stays open, read only, behind this card, and
  * nothing is lost. Signing in again, in another tab, picks up where it
- * left off: this page notices (when it's looked at again, and every few
- * seconds) and sends what wasn't sent.
+ * left off: this page notices (when it's looked at again, when the browser
+ * comes back online, and now and then while it's visible; see
+ * signedOutPoll.ts) and sends what wasn't sent.
  */
 function SignedOutCard({ what, reconnect }: { what: 'layout' | 'module'; reconnect: (() => void) | undefined }) {
   const qc = useQueryClient();
   const here = `${window.location.pathname}${window.location.search}`;
-  useEffect(() => {
-    let stopped = false;
-    const check = async (): Promise<void> => {
-      const me = await api.me().catch(() => null);
-      if (stopped || !me?.user) return;
-      stopped = true;
-      void qc.invalidateQueries();
-      reconnect?.();
-    };
-    const onFocus = (): void => void check();
-    window.addEventListener('focus', onFocus);
-    const t = setInterval(() => void check(), 5000);
-    return () => {
-      stopped = true;
-      window.removeEventListener('focus', onFocus);
-      clearInterval(t);
-    };
-  }, [qc, reconnect]);
+  useEffect(
+    () =>
+      startSignedOutPoll({
+        check: async () => !!(await api.me().catch(() => null))?.user,
+        onSignedIn: () => {
+          void qc.invalidateQueries();
+          reconnect?.();
+        },
+      }),
+    [qc, reconnect],
+  );
   return (
     <div className="pointer-events-none fixed inset-x-0 top-16 z-40 flex justify-center px-4">
       <div role="alert" data-testid="signed-out" className="pointer-events-auto w-full max-w-md rounded-card border border-line bg-panel p-4 text-sm text-ink shadow-pop">
