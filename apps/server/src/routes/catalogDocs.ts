@@ -8,7 +8,8 @@
 //     chat, collaborators and share links live in other tables and aren't
 //     copied. Left out: local file paths (modules' source files, the
 //     export path, a desktop background picture's path), the background
-//     picture itself, unknown sidecar fields, and the venue's notes.
+//     picture itself, unknown sidecar fields, the venue's notes, and the
+//     budget (how many of each part a club has is its own business).
 //   - A venue keeps its plan (walls, doors, openings, obstacles, power,
 //     measurements) and leaves out its notes and any field we don't know.
 //   - A summary for the public page: the size, and a layout's parts list.
@@ -24,7 +25,7 @@ import { and, eq, inArray } from 'drizzle-orm';
 import sharp from 'sharp';
 import { writeBbm, type Sidecar, type Venue } from '@cld/bbm';
 import type { BbmMap } from '@cld/model';
-import { decodeDoc, encodeDoc, exportBbmFromDoc, exportSidecarFromDoc, importSidecarIntoDoc, seedFromBbm } from '@cld/ydoc';
+import { BUDGET_LIMITS_KEY, decodeDoc, encodeDoc, exportBbmFromDoc, exportSidecarFromDoc, importSidecarIntoDoc, seedFromBbm } from '@cld/ydoc';
 import { db, schema } from '../db/index.js';
 import { can } from '../access/clubPermissions.js';
 import { layoutFileBytes, smallZip } from '../privacy/exportFiles.js';
@@ -65,7 +66,7 @@ export function publicVenue(v: Venue): Venue {
   return out;
 }
 
-/** A layout's sidecar as it's published: no local paths, background picture, venue notes or unknown fields. */
+/** A layout's sidecar as it's published: no local paths, background picture, venue notes, budget or unknown fields. */
 export function publicSidecar(s: Sidecar): Sidecar {
   const out: Sidecar = { schemaVersion: s.schemaVersion, bbmHashSha256: '' };
   if (s.anchoredLabels?.length) out.anchoredLabels = s.anchoredLabels;
@@ -77,7 +78,6 @@ export function publicSidecar(s: Sidecar): Sidecar {
   }
   if (s.venue) out.venue = publicVenue(s.venue);
   if (s.views?.length) out.views = s.views;
-  if (s.budgetLimits) out.budgetLimits = s.budgetLimits;
   return out;
 }
 
@@ -146,6 +146,18 @@ export function publishLayoutDoc(docBytes: Uint8Array, sidecarSnapshot: Uint8Arr
   } finally {
     src.destroy();
   }
+}
+
+/**
+ * A published copy as it's handed out. Copies made before the budget was
+ * left out still hold one, so those are cleaned again on the way out; any
+ * other copy goes as it is (the key's name is in the bytes of a document
+ * that has it, so most are never opened here).
+ */
+export function publishedDoc(stored: Uint8Array): Buffer {
+  const bytes = Buffer.from(stored);
+  if (!bytes.includes(BUDGET_LIMITS_KEY)) return bytes;
+  return publishLayoutDoc(bytes, null)?.doc ?? bytes;
 }
 
 const WALL = 0;
@@ -251,7 +263,7 @@ export async function catalogDocRoutes(app: FastifyInstance): Promise<void> {
     if ('code' in r) return reply.code(r.code).send({ error: r.error });
     reply.header('Cache-Control', 'private, max-age=300');
     reply.header('Content-Type', 'application/octet-stream');
-    return reply.send(Buffer.from(r.v.docSnapshot as Uint8Array));
+    return reply.send(publishedDoc(r.v.docSnapshot as Uint8Array));
   });
 
   // "Download .bld-layout" / ".bbm": the published layout as a file.
@@ -272,7 +284,7 @@ export async function catalogDocRoutes(app: FastifyInstance): Promise<void> {
       }
     }
     // Named with the parts its owner could use when they published it.
-    const bytes = await layoutFileBytes(r.v.docSnapshot as Uint8Array, null, null, null, smallZip, {
+    const bytes = await layoutFileBytes(publishedDoc(r.v.docSnapshot as Uint8Array), null, null, null, smallZip, {
       userId: r.item.ownerUserId,
       orgId: r.item.ownerOrgId,
     });
