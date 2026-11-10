@@ -2,6 +2,10 @@ services:
   app:
     image: ghcr.io/collaborative-brick-layout-designer/web:latest
     restart: unless-stopped
+    # The server runs as the image's `node` user (1000:1000). Any other
+    # uid:gid works, such as Unraid's nobody:users; the volumes must then
+    # belong to that user (README › Volumes).
+    # user: "99:100"
     # HTTP_PORT in .env is the port on this computer; the container itself
     # always listens on 3000 (set again below, because `environment` wins
     # over the .env file), where the image's health check looks too.

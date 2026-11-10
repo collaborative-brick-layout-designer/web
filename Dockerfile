@@ -93,6 +93,29 @@ COPY --from=builder /app/packages/bbm/tests/fixtures/tight-corner.bbm \
                     /app/packages/bbm/tests/fixtures/grand-lobby.bld-venue ./packages/bbm/tests/fixtures/
 COPY --from=builder /app/packages/bbm/tests/fixtures/oracle/flex-a.bbm ./packages/bbm/tests/fixtures/oracle/
 
+# Run as the base image's unprivileged `node` user (uid 1000, gid 1000), not
+# root. The folders it writes to belong to it, so a new named volume starts
+# out owned by node too. A volume an older image made is root's: the
+# entrypoint says so and how to hand it over (README › Volumes).
+#
+# Any other uid:gid works as well (`docker run --user 99:100`, compose's
+# `user:`), with or without a passwd entry: the server writes only to its
+# volumes and /tmp, never to a home folder, and needs no npm, pnpm or
+# corepack at runtime (removed above). HOME points at /tmp so nothing that
+# looks for a home folder finds an unwritable or missing one.
+#
+# The data folders are world-writable with the sticky bit (1777, like /tmp):
+# Docker fills a new, empty named volume from the image's folder, owner and
+# mode included, so a fresh volume is writable by whichever uid the
+# container runs as, with nothing to chown. A volume made by an older image
+# (root's, 0755) still stops the entrypoint with the chown to run.
+ENV HOME=/tmp
+COPY --chmod=0755 docker/entrypoint.sh /usr/local/bin/cbld-entrypoint
+RUN mkdir -p /data /parts /backups /app/apps/server/data \
+ && chown node:node /data /parts /backups /app/apps/server/data \
+ && chmod 1777 /data /parts /backups /app/apps/server/data
+USER node
+
 EXPOSE 3000
 WORKDIR /app/apps/server
 # Healthy once the server answers and its database does (GET
@@ -101,5 +124,5 @@ WORKDIR /app/apps/server
 # a new version runs before it listens.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
   CMD node -e "fetch('http://127.0.0.1:'+(process.env.HTTP_PORT||process.env.PORT||3000)+'/api/health/ready',{signal:AbortSignal.timeout(4000)}).then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"
-ENTRYPOINT ["/usr/bin/tini", "--"]
+ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/cbld-entrypoint"]
 CMD ["node", "dist/index.js"]

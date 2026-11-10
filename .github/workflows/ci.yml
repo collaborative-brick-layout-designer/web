@@ -106,6 +106,96 @@ jobs:
           docker inspect -f '{{json .State.Health}}' cbld-ci | jq .
           [ "$status" = healthy ]
           curl -sf http://localhost:3000/api/health/ready
+          # It runs as node (1000:1000), not root.
+          [ "$(docker exec cbld-ci id -u):$(docker exec cbld-ci id -g)" = "1000:1000" ]
+          docker rm -f cbld-ci >/dev/null
+
+      # A volume an older image made belongs to root: the server stops at
+      # once and says why, and the README's chown lets it start.
+      - name: A root-owned volume stops it with a clear message
+        run: |
+          docker volume create cbld-ci-old >/dev/null
+          docker run --rm -v cbld-ci-old:/data alpine:3.22 sh -c 'touch /data/cbld.sqlite && chown -R 0:0 /data && chmod 755 /data'
+          set +e
+          docker run --name cbld-ci-old -e DB_PATH=/data/cbld.sqlite -e PARTS_DIR=/parts -e BACKUPS_DIR=/backups \
+            -v cbld-ci-old:/data cbld-web:ci > old.log 2>&1
+          code=$?
+          set -e
+          cat old.log
+          [ "$code" -ne 0 ]
+          grep -q 'cbld: ERROR: the database folder /data is not writable by uid 1000 (gid 1000); it is owned by 0:0.' old.log
+          docker rm -f cbld-ci-old >/dev/null
+          # The README's fix, then it starts.
+          docker run --rm -v cbld-ci-old:/data alpine:3.22 chown -R 1000:1000 /data
+          docker run -d --name cbld-ci-old -p 3001:3000 -e DB_PATH=/data/cbld.sqlite -e PARTS_DIR=/parts -e BACKUPS_DIR=/backups \
+            -e PUBLIC_URL=http://localhost:3001 -e COOKIE_SECURE=false -v cbld-ci-old:/data cbld-web:ci
+          for i in $(seq 60); do curl -sf http://localhost:3001/api/health/ready && exit 0; sleep 2; done
+          docker logs cbld-ci-old; exit 1
+
+      # The image works as any uid:gid, with no account inside the image
+      # (Unraid's nobody:users is 99:100): on fresh named volumes, with no
+      # chown (Docker fills them from the image's 1777 folders), it starts,
+      # reports healthy, writes to all three folders, loads its native
+      # modules, and leaves nothing in a home folder or a package manager's
+      # cache.
+      - name: The image runs as an arbitrary user (99:100)
+        run: |
+          docker rm -f cbld-ci-old >/dev/null 2>&1 || true
+          for v in data parts backups; do docker volume create cbld-ci-u-$v >/dev/null; done
+          docker run -d --name cbld-ci-u -p 3002:3000 --user 99:100 \
+            -e DB_PATH=/data/cbld.sqlite -e PARTS_DIR=/parts -e BACKUPS_DIR=/backups \
+            -e PUBLIC_URL=http://localhost:3002 -e COOKIE_SECURE=false \
+            -v cbld-ci-u-data:/data -v cbld-ci-u-parts:/parts -v cbld-ci-u-backups:/backups \
+            cbld-web:ci
+          for i in $(seq 60); do
+            status=$(docker inspect -f '{{.State.Health.Status}}' cbld-ci-u 2>/dev/null || echo gone)
+            [ "$status" = healthy ] && break
+            [ "$status" = gone ] && break
+            sleep 3
+          done
+          echo "Health: $status"
+          docker logs cbld-ci-u 2>&1 | tail -40
+          [ "$status" = healthy ]
+          curl -sf http://localhost:3002/api/health/ready
+          # It really is 99:100, and the start line says so.
+          [ "$(docker exec cbld-ci-u id -u):$(docker exec cbld-ci-u id -g)" = "99:100" ]
+          docker logs cbld-ci-u 2>&1 | grep -q 'cbld: running as uid 99, gid 100'
+          # Writes to every folder, as that user; the database it made is its own.
+          docker exec cbld-ci-u sh -c 'for d in /data /parts /backups; do : > "$d/.ci-write" && rm "$d/.ci-write"; done'
+          [ "$(docker exec cbld-ci-u stat -c %u:%g /data/cbld.sqlite)" = "99:100" ]
+          # The native modules load for this user.
+          docker exec -w /app/apps/server cbld-ci-u node -e "require('sharp'); require('@node-rs/argon2'); require('better-sqlite3'); console.log('native modules ok')"
+          # Nothing in a home folder, and no package manager cache anywhere it could write.
+          docker exec cbld-ci-u sh -c 'echo "HOME=$HOME"; [ "$HOME" = /tmp ]'
+          docker exec cbld-ci-u sh -c '! find /home /tmp \( -name ".npm" -o -name ".pnpm*" -o -name ".cache" -o -name ".corepack" \) 2>/dev/null | grep .'
+          docker exec cbld-ci-u sh -c '[ -z "$(find /home -newer /app/apps/server/dist -type f 2>/dev/null)" ]'
+          docker rm -f cbld-ci-u >/dev/null
+
+      # The same stop, for a user with no account in the image, on volumes
+      # an older image left behind (root's, 0755, with files in them): the
+      # message names the chown for the uid and gid it runs as, not a fixed 1000.
+      - name: Root-owned volumes stop it as 12345:12345, naming that user's chown
+        run: |
+          for v in data parts backups; do
+            docker volume create cbld-ci-r-$v >/dev/null
+            docker run --rm -v cbld-ci-r-$v:/mnt alpine:3.22 sh -c 'touch /mnt/.old && chown -R 0:0 /mnt && chmod 755 /mnt'
+          done
+          set +e
+          docker run --name cbld-ci-r --user 12345:12345 \
+            -e DB_PATH=/data/cbld.sqlite -e PARTS_DIR=/parts -e BACKUPS_DIR=/backups \
+            -v cbld-ci-r-data:/data -v cbld-ci-r-parts:/parts -v cbld-ci-r-backups:/backups \
+            cbld-web:ci > root-owned.log 2>&1
+          code=$?
+          set -e
+          cat root-owned.log
+          echo "Exit code: $code"
+          [ "$code" -ne 0 ]
+          grep -q 'cbld: running as uid 12345, gid 12345' root-owned.log
+          grep -q 'cbld: ERROR: the database folder /data is not writable by uid 12345 (gid 12345); it is owned by 0:0' root-owned.log
+          grep -q 'cbld: ERROR: the parts folder /parts is not writable by uid 12345' root-owned.log
+          grep -q 'cbld: ERROR: the backups folder /backups is not writable by uid 12345' root-owned.log
+          grep -q 'chown -R 12345:12345 /data /parts /backups' root-owned.log
+          docker rm -f cbld-ci-r >/dev/null
 
   osv-scan:
     name: OSV-Scanner (deps + actions)
