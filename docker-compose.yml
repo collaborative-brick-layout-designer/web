@@ -2,10 +2,14 @@ services:
   app:
     image: ghcr.io/collaborative-brick-layout-designer/web:latest
     restart: unless-stopped
+    # HTTP_PORT in .env is the port on this computer; the container itself
+    # always listens on 3000 (set again below, because `environment` wins
+    # over the .env file), where the image's health check looks too.
     ports:
       - "${HTTP_PORT:-3000}:3000"
     env_file: .env
     environment:
+      - HTTP_PORT=3000
       - DB_PATH=/data/cbld.sqlite
       - PARTS_DIR=/parts
       - BACKUPS_DIR=/backups

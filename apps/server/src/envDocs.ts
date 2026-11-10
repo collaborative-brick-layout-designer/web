@@ -20,7 +20,7 @@ export interface EnvVarDoc {
 
 export const ENV_VARS: readonly EnvVarDoc[] = [
   { name: 'PUBLIC_URL', default: '`http://localhost:3000`', inApp: '', notes: 'The address people type, scheme, host and port. Used for sign-in callbacks, emailed links and the desktop sign-in page; browser WebSockets are only accepted from this origin.' },
-  { name: 'HTTP_PORT', default: '`3000`', inApp: '', notes: 'The port the server listens on (`PORT` also works).' },
+  { name: 'HTTP_PORT', default: '`3000`', inApp: '', notes: 'The port the server listens on (`PORT` also works). With `docker-compose.yml` it is the port on your computer instead: the container listens on 3000.' },
   { name: 'DB_PATH', default: '`./data/cbld.sqlite`', inApp: '', notes: 'The SQLite database. `/data/cbld.sqlite` in Docker.' },
   { name: 'PARTS_DIR', default: '`./data/parts`', inApp: '', notes: 'Where part libraries and uploaded parts live. `/parts` in Docker.' },
   { name: 'COOKIE_SECURE', default: '`true` when `NODE_ENV=production`', inApp: '', notes: 'Send sign-in cookies over HTTPS only. Turn on behind TLS.' },

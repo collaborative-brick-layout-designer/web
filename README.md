@@ -128,8 +128,9 @@ curl -fsSL -o .env https://raw.githubusercontent.com/collaborative-brick-layout-
 docker compose up -d
 ```
 
-Then open `PUBLIC_URL` (by default http://localhost:3000) and sign in as the
-bootstrap admin. The image is `ghcr.io/collaborative-brick-layout-designer/web`:
+Then open `PUBLIC_URL` (http://localhost:8080 with the example `.env`; `HTTP_PORT`
+there is the port on your computer, and the container listens on 3000) and sign
+in as the bootstrap admin. The image is `ghcr.io/collaborative-brick-layout-designer/web`:
 `:latest` is the newest release, `:nightly` follows `main`, and `:vX.Y.Z`
 pins a release.
 
@@ -378,7 +379,7 @@ when they fall behind.
 | Variable | When unset | Also in the app | Notes |
 |---|---|---|---|
 | `PUBLIC_URL` | `http://localhost:3000` | — | The address people type, scheme, host and port. Used for sign-in callbacks, emailed links and the desktop sign-in page; browser WebSockets are only accepted from this origin. |
-| `HTTP_PORT` | `3000` | — | The port the server listens on (`PORT` also works). |
+| `HTTP_PORT` | `3000` | — | The port the server listens on (`PORT` also works). With `docker-compose.yml` it is the port on your computer instead: the container listens on 3000. |
 | `DB_PATH` | `./data/cbld.sqlite` | — | The SQLite database. `/data/cbld.sqlite` in Docker. |
 | `PARTS_DIR` | `./data/parts` | — | Where part libraries and uploaded parts live. `/parts` in Docker. |
 | `COOKIE_SECURE` | `true` when `NODE_ENV=production` | — | Send sign-in cookies over HTTPS only. Turn on behind TLS. |
