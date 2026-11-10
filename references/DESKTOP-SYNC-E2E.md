@@ -7,10 +7,19 @@ real server, end up with the same layout. The desktop side is
 the desktop's own `SyncSession` and `LayoutMerge` and is driven by
 commands on stdin. The web side is the editor in the browser.
 
-**It is not run in CI.** It needs both repos: the desktop repo's driver,
-built with `-DBLD_SYNC=ON` (Rust and Qt), and this repo's server and web
-app. Without `BLD_SYNC_DRIVER` set, the spec skips with a message saying
-so.
+It needs both repos: the desktop repo's driver (Rust and Qt) and this
+repo's server and web app. CI runs it on main and at night
+(`.github/workflows/live-smoke.yml`, which builds the driver from the
+desktop repo's main), with `liveSmoke.spec.ts` below. Without
+`BLD_SYNC_DRIVER` set, both specs skip with a message saying so.
+
+`apps/web/e2e/test/liveSmoke.spec.ts` (full review area 4, Idea 1) is the
+live collaboration smoke test: two browsers and the driver on one layout.
+Presence (each browser lists the other and the desktop; the desktop sees
+both), a move each way, a drop and reconnect on each side (the edits
+arrive), a role change (lowered to view only, the desktop changes nothing
+on the server) and a sign-out (its sign-in revoked on the website ends its
+connection; the browsers carry on).
 
 ## What it covers
 

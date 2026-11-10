@@ -1,0 +1,117 @@
+name: Live smoke
+
+# Live collaboration end to end: two browsers and the desktop (the desktop
+# repo's headless bld_sync_driver: its own SyncSession, driven over stdin) on
+# one layout on a real server. Presence, a move each way, a drop and
+# reconnect on each side, a role change and a sign-out (liveSmoke.spec.ts),
+# and the desktop/web merge spec (desktopLiveSync.spec.ts). Full review
+# area 4, Idea 1.
+#
+# Building the driver takes Qt and Rust, so this runs on main and at night,
+# not on every pull request (only those that change it; workflow_dispatch
+# runs it on a branch).
+
+on:
+  push:
+    branches: [main]
+  # A pull request that changes this check runs it too.
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/live-smoke.yml
+      - apps/web/e2e/test/liveSmoke.spec.ts
+      - apps/web/e2e/test/desktopLiveSync.spec.ts
+  schedule:
+    - cron: '47 7 * * *'
+  workflow_dispatch:
+    inputs:
+      desktop-ref:
+        description: The desktop repo's branch or commit to build the driver from
+        default: main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: live-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  BLUEBRICK_PARTS_SHA: 85b41f50adea006686a3bf70e0727026a8f0971b
+
+jobs:
+  live-smoke:
+    name: Live collaboration smoke (two browsers + desktop)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    env:
+      DB_PATH: ${{ github.workspace }}/.e2e/e2e.sqlite
+      PARTS_DIR: ${{ github.workspace }}/.e2e/BlueBrickParts
+      BACKUPS_DIR: ${{ github.workspace }}/.e2e/backups
+      ENABLE_PASSWORD_AUTH: 'true'
+      COOKIE_SECURE: 'false'
+      PUBLIC_URL: http://localhost:5173
+      LIMIT_NEW_ACCOUNT_CLUBS: '1000'
+      LIMIT_CLUBS_PER_USER: '1000'
+      PLAYWRIGHT_HTML_OPEN: never
+      BLD_SYNC_DRIVER: ${{ github.workspace }}/.desktop/build/src/app/bld_sync_driver
+      BLD_SYNC_SERVER: http://127.0.0.1:3000
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Check out the desktop repo
+        uses: actions/checkout@v7
+        with:
+          repository: collaborative-brick-layout-designer/desktop
+          ref: ${{ inputs.desktop-ref || 'main' }}
+          path: .desktop
+          submodules: recursive
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          # As the desktop repo's CI: aqtinstall 3.3.0 cannot find Qt >= 6.11.
+          aqtsource: git+https://github.com/miurahr/aqtinstall.git@076e1659807d0b362a3ed684d54c2e9c775eb9c7
+          version: '6.12.*'
+          modules: qtwebsockets qtimageformats
+          cache: true
+
+      # The desktop's sync library needs Rust for yrs.
+      - name: Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Compiler cache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: live-smoke-driver
+          max-size: 500M
+
+      - name: Build the desktop's sync driver
+        working-directory: .desktop
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgl1-mesa-dev libxkbcommon-dev libcups2-dev libsecret-1-dev ninja-build
+          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+          cmake --build build --target bld_sync_driver --parallel
+
+      - uses: ./.github/actions/e2e-stack
+        with:
+          parts-sha: ${{ env.BLUEBRICK_PARTS_SHA }}
+
+      - name: Live smoke
+        working-directory: apps/web
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: npx playwright test e2e/test/liveSmoke.spec.ts e2e/test/desktopLiveSync.spec.ts --workers=1 --retries=1 --reporter=list,html
+
+      - name: Upload the Playwright report and traces
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: live-smoke-report
+          path: |
+            apps/web/playwright-report/
+            apps/web/test-results/
+            .e2e/server.log
+          retention-days: 14

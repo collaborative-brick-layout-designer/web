@@ -6,7 +6,7 @@
 //
 // Needs BLD_SYNC_DRIVER (path to the built driver); skipped without it.
 // BLD_SYNC_SERVER is where the driver finds the API server (default
-// http://127.0.0.1:3000). Not in CI: it needs both repos built.
+// http://127.0.0.1:3000). CI runs it on main and nightly (live-smoke.yml).
 
 import { test, expect, type APIRequestContext, type Page } from '@playwright/test';
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
