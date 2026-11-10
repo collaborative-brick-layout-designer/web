@@ -294,11 +294,12 @@ export async function moduleRoutes(app: FastifyInstance): Promise<void> {
     if (!hasAtLeast(role, 'owner')) {
       return reply.code(403).send({ error: 'forbidden' });
     }
-    // Club collections it's in lose it; their curators get a note.
+    // Kept in Recently deleted for 30 days (trash/trash.ts), with the
+    // collections it's in, so a restore puts it back into them.
+    const trashId = await trashModule(req.params.id, user.id);
+    // Collections it's in lose it; their curators get a note.
     const gone = await db.select({ id: schema.modules.id, title: schema.modules.title }).from(schema.modules).where(eq(schema.modules.id, req.params.id)).get();
     if (gone) await dropModuleFromCollections(gone, 'deleted', null, user.id);
-    // Kept in Recently deleted for 30 days (trash/trash.ts).
-    const trashId = await trashModule(req.params.id, user.id);
     await db.delete(schema.modules).where(eq(schema.modules.id, req.params.id));
     await writeAuditEvent({
       resourceKind: 'module',

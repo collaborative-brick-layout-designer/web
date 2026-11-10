@@ -1085,7 +1085,8 @@ export const api = {
   /** Recently deleted: layouts, modules and venues kept 30 days after they're deleted. */
   trash: {
     list: () => get<{ days: number; items: TrashItem[] }>('/api/trash'),
-    restore: (id: string) => post<{ ok: true; kind: TrashItem['kind']; id: string }>(`/api/trash/${encodeURIComponent(id)}/restore`, {}),
+    /** Put it back. A module says which collections it's back in, and how many it was in that are gone since. */
+    restore: (id: string) => post<RestoreResult>(`/api/trash/${encodeURIComponent(id)}/restore`, {}),
     remove: (id: string) => del(`/api/trash/${encodeURIComponent(id)}`),
   },
 
@@ -2280,6 +2281,15 @@ export interface DeletedLayout {
   club: string | null;
   /** Events in its history. */
   events: number;
+}
+
+/** What a restore from Recently deleted answers. */
+export interface RestoreResult {
+  ok: true;
+  kind: TrashItem['kind'];
+  id: string;
+  /** A restored module's collections (absent for a layout or venue, or a module that was in none). */
+  collections?: { back: { id: string; title: string }[]; gone: number };
 }
 
 /** One thing in Recently deleted. */

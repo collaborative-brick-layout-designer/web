@@ -15,6 +15,7 @@ import { layoutRoutes } from '../layouts.js';
 import { moduleRoutes } from '../modules.js';
 import { venueRoutes } from '../venues.js';
 import { trashRoutes } from '../trash.js';
+import { collectionRoutes } from '../collections.js';
 import { purgeTrash } from '../../trash/trash.js';
 
 type Who = { cookie: string; id: string };
@@ -29,7 +30,7 @@ beforeEach(async () => {
   app = Fastify({ bodyLimit: 10 * 1024 * 1024 });
   await app.register(cookie);
   app.addHook('preHandler', attachUser);
-  for (const r of [passwordRoutes, layoutRoutes, moduleRoutes, venueRoutes, trashRoutes]) await app.register(r);
+  for (const r of [passwordRoutes, layoutRoutes, moduleRoutes, venueRoutes, trashRoutes, collectionRoutes]) await app.register(r);
   ada = await loginAs(app, 'ada@example.com');
   bob = await loginAs(app, 'bob@example.com');
 });
@@ -83,6 +84,50 @@ describe('Recently deleted', () => {
     expect((await db.select().from(schema.moduleVersions).where(eq(schema.moduleVersions.moduleId, mod)).all()).length).toBe(versions);
     expect((await call(ada, 'POST', `/api/trash/${v.trashId}/restore`)).statusCode).toBe(200);
     expect(await db.select().from(schema.venueLibrary).where(eq(schema.venueLibrary.id, venue)).get()).toMatchObject({ name: 'Hall' });
+  });
+
+  it('a module goes back into its collections, in its old place; one deleted meanwhile is skipped and counted', async () => {
+    const mk = async (title: string) => ((await call(ada, 'POST', '/api/modules', { title })).json() as { id: string }).id;
+    const siding = await mk('Siding');
+    const shed = await mk('Shed');
+    const collection = async (title: string, ids: string[]) => {
+      const r = await call(ada, 'POST', '/api/catalog/collections', { title, audience: 'private', entries: ids.map((id) => ({ source: 'library', kind: 'module', id })), coverModuleId: siding });
+      expect(r.statusCode).toBe(201);
+      return (r.json() as { id: string }).id;
+    };
+    const yard = await collection('Yard', [shed, siding]);
+    const town = await collection('Town', [siding]);
+    const goner = await collection('Old picks', [siding]);
+    const members = async (cid: string) =>
+      (await db.select().from(schema.catalogCollectionModules).where(eq(schema.catalogCollectionModules.collectionId, cid)).all()).sort((a, b) => a.position - b.position).map((m) => m.moduleId);
+    expect(await members(yard)).toEqual([shed, siding]);
+
+    // Deleting takes it out of all three; curators are told.
+    const { trashId } = (await call(ada, 'DELETE', `/api/modules/${siding}`)).json() as { trashId: string };
+    expect(await members(yard)).toEqual([shed]);
+    expect(await members(town)).toEqual([]);
+    expect((await db.select().from(schema.catalogCollections).where(eq(schema.catalogCollections.id, yard)).get())?.coverModuleId).toBeNull();
+    // One of its collections is deleted while the module waits.
+    expect((await call(ada, 'DELETE', `/api/catalog/collections/${goner}`)).statusCode).toBe(200);
+
+    const back = await call(ada, 'POST', `/api/trash/${trashId}/restore`);
+    expect(back.statusCode).toBe(200);
+    const body = back.json() as { ok: true; collections: { back: { id: string; title: string }[]; gone: number } };
+    expect(body.collections.gone).toBe(1);
+    expect(body.collections.back.map((c) => c.title).sort()).toEqual(['Town', 'Yard']);
+    expect(await members(yard)).toEqual([shed, siding]);
+    expect(await members(town)).toEqual([siding]);
+    const y = await db.select().from(schema.catalogCollections).where(eq(schema.catalogCollections.id, yard)).get();
+    expect(y?.coverModuleId).toBe(siding);
+    expect(y?.curatorNote).toContain("“Siding” was restored from Recently deleted, so it's back in this collection.");
+    // A collection's page shows it again.
+    const page = (await call(ada, 'GET', `/api/catalog/collections/${yard}`)).json() as { items: { id: string }[] };
+    expect(page.items.map((i) => i.id)).toEqual([shed, siding]);
+
+    // A module that was in no collection says nothing about them.
+    const lone = await mk('Lone');
+    const t2 = ((await call(ada, 'DELETE', `/api/modules/${lone}`)).json() as { trashId: string }).trashId;
+    expect((await call(ada, 'POST', `/api/trash/${t2}/restore`)).json()).toEqual({ ok: true, kind: 'module', id: lone });
   });
 
   it('Delete now erases it; after 30 days the clean-up does', async () => {

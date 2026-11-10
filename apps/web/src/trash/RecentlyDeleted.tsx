@@ -4,17 +4,36 @@
 // toast's Undo, point here.
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { api, type TrashItem } from '../api';
-import { confirmDelete } from '../ui/ConfirmDialog';
+import { api, type RestoreResult, type TrashItem } from '../api';
+import { confirmDelete, showToast } from '../ui/ConfirmDialog';
 import { invalidateFor } from '../live/invalidate';
 
 
 const KIND_WORD: Record<TrashItem['kind'], string> = { layout: 'Layout', module: 'Module', venue: 'Venue' };
 
+const andList = (parts: string[]) => (parts.length <= 2 ? parts.join(' and ') : `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}`);
+
+/**
+ * What the toast says after a restore: the name, then (a module) the
+ * collections it's back in, and any it was in that have since been deleted.
+ */
+export function restoredWords(title: string, r: Pick<RestoreResult, 'collections'>): string {
+  const c = r.collections;
+  if (!c || (c.back.length === 0 && c.gone === 0)) return `Restored “${title}”`;
+  const parts = [`Restored “${title}”.`];
+  if (c.back.length > 3) parts.push(`It’s back in its ${c.back.length} collections.`);
+  else if (c.back.length > 0) parts.push(`It’s back in ${andList(c.back.map((b) => `“${b.title}”`))}.`);
+  const other = c.back.length ? 'other ' : '';
+  if (c.gone === 1) parts.push(`The ${other}collection it was in has been deleted since, so it isn’t in that one.`);
+  else if (c.gone > 1) parts.push(`${c.gone} ${other}collections it was in have been deleted since, so it isn’t in those.`);
+  return parts.join(' ');
+}
+
 /** Put a just-deleted thing back (the toast's Undo). */
-export async function restoreDeleted(trashId: string | null | undefined): Promise<void> {
+export async function restoreDeleted(trashId: string | null | undefined, title?: string): Promise<void> {
   if (!trashId) return;
-  await api.trash.restore(trashId);
+  const r = await api.trash.restore(trashId);
+  if (title && r.collections) showToast(restoredWords(title, r));
 }
 
 function when(ms: number): string {
@@ -28,7 +47,13 @@ export function RecentlyDeleted() {
     void qc.invalidateQueries({ queryKey: ['trash'] });
     if (kind) void invalidateFor(qc, kind);
   };
-  const restore = useMutation({ mutationFn: (t: TrashItem) => api.trash.restore(t.id), onSuccess: (_r, t) => refresh(t.kind) });
+  const restore = useMutation({
+    mutationFn: (t: TrashItem) => api.trash.restore(t.id),
+    onSuccess: (r, t) => {
+      refresh(t.kind);
+      showToast(restoredWords(t.title, r));
+    },
+  });
   const erase = useMutation({ mutationFn: (t: TrashItem) => api.trash.remove(t.id), onSuccess: () => refresh() });
   const items = list.data?.items ?? [];
   if (items.length === 0) return null;

@@ -117,7 +117,7 @@ export function ModuleLibraryPanel({ doc, isViewer, editingModuleId = null }: Pr
               onDelete={async () => {
                 if (!(await confirmDelete(m.title, MODULE_DELETE_WORDING))) return;
                 void api.modules.remove(m.id).then((r) => {
-                  toastDeleted(m.title, r.trashId ? () => void restoreDeleted(r.trashId) : undefined);
+                  toastDeleted(m.title, r.trashId ? () => void restoreDeleted(r.trashId, m.title) : undefined);
                   return qc.invalidateQueries({ queryKey: ['modules'] });
                 });
               }}

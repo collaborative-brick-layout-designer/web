@@ -1,6 +1,6 @@
 // Recently deleted (trash/trash.ts):
 //   GET    /api/trash               → what you can restore: yours, and your clubs' where you may delete club items
-//   POST   /api/trash/:id/restore   → put it back
+//   POST   /api/trash/:id/restore   → put it back (a module: into its collections too; `collections` says which, and how many are gone)
 //   DELETE /api/trash/:id           → erase it now
 
 import type { FastifyInstance } from 'fastify';
@@ -18,12 +18,13 @@ export async function trashRoutes(app: FastifyInstance): Promise<void> {
     const user = requireUser(req);
     const r = await restoreFromTrash(user.id, req.params.id);
     if (!r.ok) return reply.code(r.code).send({ error: r.error });
+    const payload = r.collections ? { collectionsBack: r.collections.back.map((c) => c.id), collectionsGone: r.collections.gone } : {};
     await writeAuditEvent(
       r.kind === 'layout'
-        ? { layoutId: r.itemId, userId: user.id, eventType: 'restore_deleted', payload: {} }
-        : { resourceKind: r.kind, resourceId: r.itemId, userId: user.id, eventType: 'restore_deleted', payload: {} },
+        ? { layoutId: r.itemId, userId: user.id, eventType: 'restore_deleted', payload }
+        : { resourceKind: r.kind, resourceId: r.itemId, userId: user.id, eventType: 'restore_deleted', payload },
     );
-    return { ok: true, kind: r.kind, id: r.itemId };
+    return { ok: true, kind: r.kind, id: r.itemId, ...(r.collections ? { collections: r.collections } : {}) };
   });
 
   app.delete<{ Params: { id: string } }>('/api/trash/:id', async (req, reply) => {
