@@ -6,13 +6,16 @@ import { render, screen } from '@testing-library/react';
 import * as Y from 'yjs';
 import { Awareness, applyAwarenessUpdate, encodeAwarenessUpdate } from 'y-protocols/awareness';
 import { describe, expect, it } from 'vitest';
-import { PRESENCE_PALETTE, firstChoice, presenceColors } from '../presenceColors';
+import { PRESENCE_MIN_CONTRAST, PRESENCE_PALETTE, PRESENCE_TEXT, contrastRatio, firstChoice, presenceColors, presenceTextColor } from '../presenceColors';
 import { PresencePanel } from '../PresencePanel';
 import { newLivePresence } from '../useLayoutDoc';
 import contractText from '../../../../../fixtures/contracts/presence-colors.json?raw';
 
 const CONTRACT = JSON.parse(contractText) as {
   palette: string[];
+  textColors: { dark: string; light: string };
+  minContrast: number;
+  textOn: Record<string, string>;
   firstChoices: { userId: string; layoutId: string; color: string }[];
   groups: { layoutId: string; userIds: string[]; colors: Record<string, string> }[];
 };
@@ -40,6 +43,21 @@ describe('presence colors', () => {
     expect([...PRESENCE_PALETTE]).toEqual(CONTRACT.palette);
     for (const f of CONTRACT.firstChoices) expect(PRESENCE_PALETTE[firstChoice(f.userId, f.layoutId)]).toBe(f.color);
     for (const g of CONTRACT.groups) expect(Object.fromEntries(presenceColors(g.userIds, g.layoutId))).toEqual(g.colors);
+  });
+
+  // A name on its presence color reads: dark ink on a light color, white on
+  // a dark one, the same in both apps, and at least WCAG AA (4.5:1). White
+  // on the yellow used to be 1.5:1.
+  it('draw names in a color that contrasts with every palette color (the contract\'s textOn)', () => {
+    expect(PRESENCE_TEXT).toEqual(CONTRACT.textColors);
+    expect(PRESENCE_MIN_CONTRAST).toBe(CONTRACT.minContrast);
+    for (const color of PRESENCE_PALETTE) {
+      const text = presenceTextColor(color);
+      expect(text).toBe(CONTRACT.textOn[color]);
+      expect(contrastRatio(color, text)).toBeGreaterThanOrEqual(PRESENCE_MIN_CONTRAST);
+    }
+    expect(contrastRatio('#000000', '#ffffff')).toBeCloseTo(21, 5);
+    expect(presenceTextColor('#1e3a8a')).toBe(PRESENCE_TEXT.light);
   });
 
   it('never give two of up to eight people the same color', () => {
@@ -77,6 +95,8 @@ describe('People here now', () => {
     const bob = presenceColors(['u-alice', 'u-bob'], 'L1').get('u-bob')!;
     expect(bob).not.toBe(PRESENCE_PALETTE[firstChoice('u-alice', 'L1')]);
     expect((avatars[0] as HTMLElement).style.backgroundColor).toBe(hexToRgb(bob));
+    // Initials in the color that reads on it (dark ink on these light colors), not white.
+    expect((avatars[0] as HTMLElement).style.color).toBe(hexToRgb(presenceTextColor(bob)));
     mine.destroy();
   });
 });

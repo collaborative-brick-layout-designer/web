@@ -1,4 +1,5 @@
 import type { Awareness } from 'y-protocols/awareness';
+import { presenceTextColor } from './presenceColors';
 import { onePerPerson, useRemotePeers } from './useAwareness';
 import { HelpButton } from '../help/HelpButton';
 
@@ -14,8 +15,8 @@ export function PresencePanel({ awareness }: { awareness: Awareness | null }) {
         <span
           key={clientId}
           title={`${state.user.displayName}${isIdle ? ' · idle' : ''}`}
-          className={`flex h-[30px] w-[30px] items-center justify-center rounded-full border-2 border-panel text-xs font-bold text-white ${i > 0 ? '-ml-2' : ''}`}
-          style={{ backgroundColor: state.user.color, opacity: isIdle ? 0.45 : 1 }}
+          className={`flex h-[30px] w-[30px] items-center justify-center rounded-full border-2 border-panel text-xs font-bold ${i > 0 ? '-ml-2' : ''}`}
+          style={{ backgroundColor: state.user.color, color: presenceTextColor(state.user.color), opacity: isIdle ? 0.45 : 1 }}
         >
           <span aria-hidden>{initials(state.user.displayName)}</span>
           <span className="sr-only">{state.user.displayName}</span>
