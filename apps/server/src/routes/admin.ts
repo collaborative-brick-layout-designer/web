@@ -1243,7 +1243,9 @@ export async function adminRoutes(app: FastifyInstance): Promise<void> {
       // Sign-in: how long a web or desktop sign-in lasts unused, and the
       // longest it can last (hours or 'never'), each with where its value
       // comes from. Demo sign-ins end at each reset (24 hours at most).
-      signIn: { settings: await signInSettingStates() },
+      // publicUrl: the site address, so the page can show the callback
+      // addresses a GitHub or Google sign-in app must be given.
+      signIn: { settings: await signInSettingStates(), publicUrl: env.publicUrl },
       // The server's own settings that can't be changed from this page,
       // with why: secrets, things read once at start, the deployment's own
       // paths and ports, and the first admin (needed before there is a DB).

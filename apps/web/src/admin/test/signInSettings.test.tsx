@@ -25,7 +25,7 @@ beforeEach(() => {
   vi.stubGlobal('fetch', async (input: string, init?: RequestInit) => {
     const method = init?.method ?? 'GET';
     if (method === 'GET' && input === '/api/admin/settings') {
-      return new Response(JSON.stringify({ signIn: { settings: rows } }), { headers: { 'content-type': 'application/json' } });
+      return new Response(JSON.stringify({ signIn: { settings: rows, publicUrl: 'https://bricks.example' } }), { headers: { 'content-type': 'application/json' } });
     }
     if (method === 'PATCH' && input === '/api/admin/settings') {
       patches.push(JSON.parse(init!.body as string));
@@ -65,6 +65,15 @@ describe('Admin › Settings › Sign-in', () => {
     expect(screen.getByTestId('sign-in-demo').textContent).toBe('Demo visitors are signed out at each demo reset, and after 24 hours at most.');
     // Nothing changed: no Save buttons.
     expect(screen.queryByRole('button', { name: 'Save' })).toBeNull();
+  });
+
+  it('the help shows the callback addresses to register, with this site’s address', async () => {
+    renderSection();
+    fireEvent.click(await screen.findByRole('button', { name: 'Help: How long sign-ins last' }));
+    const callbacks = await screen.findByTestId('sign-in-callbacks');
+    expect(callbacks.textContent).toContain('https://bricks.example/api/auth/github/callback');
+    expect(callbacks.textContent).toContain('https://bricks.example/api/auth/google/callback');
+    expect(callbacks.textContent).toContain('https://bricks.example/api/auth/oidc/callback');
   });
 
   it('saves a change in hours', async () => {

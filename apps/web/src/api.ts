@@ -557,6 +557,10 @@ export interface ApiTokenSummary {
 
 export const api = {
   me: () => get<{ user: Me | null }>('/api/auth/me'),
+  /** A GitHub/Google sign-in whose email matched an account, waiting to be linked to it. */
+  pendingLink: () => get<{ provider: ProviderId; signedInAsTarget: boolean }>('/api/auth/link'),
+  confirmLink: () => post<{ ok: true; provider: ProviderId }>('/api/auth/link'),
+  cancelLink: () => del('/api/auth/link'),
   updateDisplayName: (displayName: string) =>
     patch<{ ok: true; displayName: string }>('/api/auth/me', { displayName }),
   providers: () =>
@@ -1810,7 +1814,7 @@ export interface AdminSettings {
     contact?: { value: string | null; setting: string | null; forcedBy: string | null };
   };
   /** Sign-in: how long web and desktop sign-ins last unused, and the longest they can last. */
-  signIn?: { settings: SignInSettingState[] };
+  signIn?: { settings: SignInSettingState[]; publicUrl: string };
   /** The server's env-only settings, read only (never a secret's value). */
   serverSetup?: { name: string; value: string; env: string; why: ServerSetupWhy }[];
   updatedAt: number;
