@@ -182,11 +182,24 @@ export async function resolveResourceRole(
 
   if (res.collaboratorRole) role = strongerOf(role, res.collaboratorRole);
 
+  // The demo's samples (the template account's): any demo visitor may look
+  // at them, so a link to "Sample layout" always opens (read only); their
+  // own copies are theirs to change (demo/demoAccount.ts).
+  if (role === null && res.ownerUserId === DEMO_TEMPLATE_ID && (await isDemoVisitor(userId))) role = 'viewer';
+
   // A restricted person's own things are frozen (privacy: restriction):
   // anyone who may see them still can, but nobody changes them.
   if (role !== null && role !== 'viewer' && res.ownerUserId && (await isRestricted(res.ownerUserId))) role = 'viewer';
 
   return { role };
+}
+
+/** The demo's template account (demo/demoAccount.ts DEMO_USER_ID; not imported here, to keep the import graph flat). */
+const DEMO_TEMPLATE_ID = 'demo-account';
+
+async function isDemoVisitor(userId: string): Promise<boolean> {
+  const row = await db.select({ d: schema.users.isDemoAccount }).from(schema.users).where(eq(schema.users.id, userId)).get();
+  return !!row?.d;
 }
 
 async function isRestricted(userId: string): Promise<boolean> {

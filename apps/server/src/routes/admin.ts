@@ -36,8 +36,8 @@ import { readPlan, requestClubDeletion } from '../privacy/clubDeletion.js';
 import { catalogChoice } from './orgs.js';
 import { invalidatePrivacyCache, mergePrivacyPatch, privacySettingStates } from '../privacy/settings.js';
 import { invalidateSignInCache, mergeSignInPatch, signInSettingStates } from '../auth/signInSettings.js';
-import { DEMO_RESET_CHOICES, demoStatus, ensureDemoUser, isDemoUser, signOutDemo, type DemoResetEvery } from '../demo/demoAccount.js';
-import { demoItemCount, runDemoReset } from '../demo/reset.js';
+import { DEMO_RESET_CHOICES, demoStatus, ensureDemoUser, isDemoUser, liveDemoSpaces, notDemoSpace, signOutDemo, type DemoResetEvery } from '../demo/demoAccount.js';
+import { deleteAllDemoSpaces, demoItemCount, runDemoReset } from '../demo/reset.js';
 import { perPerson } from '../utils/rateLimits.js';
 
 function safeParse(json: string): unknown {
@@ -89,12 +89,16 @@ export async function adminRoutes(app: FastifyInstance): Promise<void> {
     const offset = clampOffset(req.query.offset);
     const needle = (req.query.q ?? '').trim();
     const safe = `%${escapeLike(needle)}%`;
-    const where = needle
-      ? or(
-          sql`${schema.users.email} LIKE ${safe} ESCAPE '\\'`,
-          sql`${schema.users.displayName} LIKE ${safe} ESCAPE '\\'`,
-        )
-      : undefined;
+    // Visitors' demo spaces are throwaway and many: Settings › Demo counts them instead.
+    const where = and(
+      notDemoSpace(),
+      needle
+        ? or(
+            sql`${schema.users.email} LIKE ${safe} ESCAPE '\\'`,
+            sql`${schema.users.displayName} LIKE ${safe} ESCAPE '\\'`,
+          )
+        : undefined,
+    );
     const rows = await db
       .select({
         id: schema.users.id,
@@ -1151,7 +1155,7 @@ export async function adminRoutes(app: FastifyInstance): Promise<void> {
   app.get('/api/admin/stats', async (req) => {
     requireGlobalAdmin(req);
     const [usersRow, orgsRow, layoutsRow, partsRow, modulesRow, adminRow, sessionsRow] = await Promise.all([
-      db.select({ n: count() }).from(schema.users).get(),
+      db.select({ n: count() }).from(schema.users).where(notDemoSpace()).get(),
       db.select({ n: count() }).from(schema.orgs).get(),
       db.select({ n: count() }).from(schema.layouts).get(),
       db.select({ n: count() }).from(schema.customParts).get(),
@@ -1228,7 +1232,7 @@ export async function adminRoutes(app: FastifyInstance): Promise<void> {
       jobs: await backgroundJobs(),
       // The demo account: on or off, how often it resets, when it last
       // did and how many things it has now.
-      demo: { ...demoStatus(settings), items: await demoItemCount() },
+      demo: { ...demoStatus(settings), items: await demoItemCount(), maxSpaces: settings.demoMaxSpaces, liveSpaces: await liveDemoSpaces() },
       // Privacy: data downloads (and, later, deleting accounts and keeping
       // records), each with where its value comes from.
       privacy: {
@@ -1268,6 +1272,7 @@ export async function adminRoutes(app: FastifyInstance): Promise<void> {
       dailyCompactionEnabled?: boolean;
       demoEnabled?: boolean;
       demoResetEvery?: string;
+      demoMaxSpaces?: unknown;
       collectionCoverMaxBytes?: number;
       /** Admin › Settings › Privacy: key -> number, or null for the default (privacy/settings.ts). */
       privacy?: Record<string, number | null>;
@@ -1327,6 +1332,11 @@ export async function adminRoutes(app: FastifyInstance): Promise<void> {
     if (typeof body.backupsEnabled === 'boolean') patch.backupsEnabled = body.backupsEnabled;
     if (typeof body.dailyCompactionEnabled === 'boolean') patch.dailyCompactionEnabled = body.dailyCompactionEnabled;
     if (typeof body.demoEnabled === 'boolean') patch.demoEnabled = body.demoEnabled;
+    if ('demoMaxSpaces' in body) {
+      const n = body.demoMaxSpaces;
+      if (typeof n !== 'number' || !Number.isInteger(n) || n < 1 || n > 10_000) return reply.code(400).send({ error: 'invalid_input' });
+      patch.demoMaxSpaces = n;
+    }
     if ('demoResetEvery' in body) {
       if (!DEMO_RESET_CHOICES.includes(body.demoResetEvery as DemoResetEvery)) return reply.code(400).send({ error: 'invalid_input' });
       patch.demoResetEvery = body.demoResetEvery as DemoResetEvery;
@@ -1395,6 +1405,8 @@ export async function adminRoutes(app: FastifyInstance): Promise<void> {
       await runDemoReset();
     } else if (patch.demoEnabled === false && before.demoEnabled) {
       await signOutDemo();
+      // Every visitor's space goes with the demo.
+      await deleteAllDemoSpaces('demo_off');
     }
 
     await writeAuditEvent({

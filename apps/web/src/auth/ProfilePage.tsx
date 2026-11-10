@@ -101,7 +101,7 @@ export function ProfilePage() {
             )}
             {error && <p className="mt-1 text-sm text-danger">{error}</p>}
             {user.isDemoAccount ? (
-              <p className="text-xs text-amber-400">The shared demo account: it resets itself, and its name, password, sign-in and desktop app can’t be changed.</p>
+              <p className="text-xs text-amber-400">Your private demo space: it’s deleted when you leave or at the next reset, and its name, password, sign-in and desktop app can’t be changed.</p>
             ) : (
               <p className="text-sm text-muted">{user.email}</p>
             )}

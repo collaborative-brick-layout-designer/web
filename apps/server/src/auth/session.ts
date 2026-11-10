@@ -61,8 +61,13 @@ export async function isSessionActive(sessionId: string): Promise<boolean> {
 
 /** When a new session ends: the idle window, or for the demo the next reset (24 hours at most). */
 async function firstExpiry(userId: string, now: number): Promise<Date> {
-  const { DEMO_USER_ID, demoSessionEnd } = await import('../demo/demoAccount.js');
-  if (userId === DEMO_USER_ID) return new Date(await demoSessionEnd(now));
+  // A demo space (or the template): its sign-in ends at the next reset, 24 hours at most.
+  const user = await db.select({ demo: schema.users.isDemoAccount, until: schema.users.demoExpiresAt }).from(schema.users).where(eq(schema.users.id, userId)).get();
+  if (user?.demo) {
+    const { demoSessionEnd } = await import('../demo/demoAccount.js');
+    const end = await demoSessionEnd(now);
+    return new Date(user.until ? Math.min(end, user.until.getTime()) : end);
+  }
   return new Date(signInEnd((await signInLimits(now)).web, now, now).slid);
 }
 
@@ -159,7 +164,8 @@ export async function validateSession(
   // For Profile › Browsers and devices: when it was last used, and roughly what it is.
   const last = row.session.lastUsedAt?.getTime() ?? 0;
   if (now - last >= LAST_USED_EVERY_MS) {
-    const device = row.session.device ?? deviceName(userAgent);
+    // A demo space keeps no device name (docs/PRIVACY-DATA.md, The demo).
+    const device = row.user.isDemoAccount ? null : (row.session.device ?? deviceName(userAgent));
     await db.update(schema.sessions).set({ lastUsedAt: new Date(now), device }).where(eq(schema.sessions.id, id));
   }
 

@@ -15,7 +15,7 @@ import { createDefaultLayoutDoc, decodeDoc, encodeDoc, exportBbmFromDoc, exportS
 import { db, schema } from '../db/index.js';
 import { writeAuditEvent } from '../audit/writeAuditEvent.js';
 import { requireUser } from '../auth/cookie.js';
-import { isDemoUser } from '../demo/demoAccount.js';
+import { DEMO_USER_ID, isDemoUser } from '../demo/demoAccount.js';
 import { hasAtLeast, resolveResourceRole } from '../access/resolveResourceRole.js';
 import { env } from '../env.js';
 import { docHub } from '../ws/docHub.js';
@@ -77,6 +77,17 @@ const BG_TYPE_EXT: Record<string, (typeof BG_EXTS)[number]> = {
   'image/webp': 'webp',
 };
 const BG_MAX_BYTES = 10 * 1024 * 1024;
+/** A demo space's background picture: small, since anyone can make a demo space. */
+export const DEMO_BG_MAX_BYTES = 2 * 1024 * 1024;
+const DEMO_TOO_LARGE = { error: 'file_too_large', message: 'In the demo, a background picture can be up to 2 MB.' };
+/** The largest background picture this person may send. */
+function bgMaxFor(user: { isDemoAccount: boolean }): number {
+  return isDemoUser(user) ? DEMO_BG_MAX_BYTES : BG_MAX_BYTES;
+}
+/** The 413 for a picture over that size. */
+function tooLargeFor(user: { isDemoAccount: boolean }) {
+  return isDemoUser(user) ? DEMO_TOO_LARGE : { error: 'file_too_large' };
+}
 
 export async function layoutRoutes(app: FastifyInstance) {
   // Accept raw octet-stream bodies (binary Y.Doc snapshots). Without this,
@@ -165,9 +176,19 @@ export async function layoutRoutes(app: FastifyInstance) {
     touchLayoutOpened(layout.id);
 
     const credit = (await creditLookup('layout', [layout.id], user.id))(layout.id);
+    // One of the demo's samples, opened by a demo visitor: their own copy of it (the editor goes there).
+    const demoCopy =
+      user.isDemoAccount && layout.ownerUserId === DEMO_USER_ID && user.id !== DEMO_USER_ID
+        ? await db
+            .select({ id: schema.layouts.id })
+            .from(schema.layouts)
+            .where(and(eq(schema.layouts.ownerUserId, user.id), eq(schema.layouts.copiedFromId, layout.id)))
+            .get()
+        : undefined;
     return {
       layout: { ...toListItem(layout, role.role), credit },
       role: role.role,
+      ...(demoCopy ? { demoCopyId: demoCopy.id } : {}),
     };
   });
 
@@ -191,7 +212,7 @@ export async function layoutRoutes(app: FastifyInstance) {
       if (!ext) return reply.code(415).send({ error: 'unsupported_image_type' });
       const bytes = Buffer.from(body.backgroundImage.data ?? '', 'base64');
       if (bytes.length === 0) return reply.code(400).send({ error: 'invalid_image' });
-      if (bytes.length > BG_MAX_BYTES) return reply.code(413).send({ error: 'file_too_large' });
+      if (bytes.length > bgMaxFor(user)) return reply.code(413).send(tooLargeFor(user));
       if (!isImageOfType(bytes, body.backgroundImage.type)) return reply.code(415).send({ error: 'unsupported_image_type' });
       background = { ext, bytes };
     }
@@ -762,7 +783,7 @@ export async function layoutRoutes(app: FastifyInstance) {
 
       // One file and nothing else: text fields would otherwise be held in
       // memory (up to 1000 of 1 MB each by default) before the file arrives.
-      const data = await req.file({ limits: { fileSize: 10 * 1024 * 1024, files: 1, fields: 0, parts: 1 } });
+      const data = await req.file({ limits: { fileSize: bgMaxFor(user), files: 1, fields: 0, parts: 1 } });
       if (!data) return reply.code(400).send({ error: 'no_file' });
 
       const mime = data.mimetype ?? '';
@@ -796,7 +817,7 @@ export async function layoutRoutes(app: FastifyInstance) {
         await pipeline(data.file as any, createWriteStream(tmp));
         if (data.file.truncated) {
           await unlink(tmp).catch(() => {});
-          return reply.code(413).send({ error: 'file_too_large' });
+          return reply.code(413).send(tooLargeFor(user));
         }
         // Stored and served as sent, so it must be the picture it says it is.
         const head = Buffer.alloc(16);

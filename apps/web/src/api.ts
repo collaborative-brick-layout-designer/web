@@ -17,7 +17,7 @@ export interface Me {
   /** A starting point for that prompt: the part of the email before '@'. */
   suggestedName?: string;
   avatarUrl: string | null;
-  /** The shared demo account (Admin › Settings › Demo account). */
+  /** A demo visitor (Admin › Settings › Demo account). */
   isDemoAccount: boolean;
   isGlobalAdmin: boolean;
   /** Reviews the public catalogs (global admins can too). */
@@ -111,6 +111,8 @@ const ERROR_MESSAGES: Record<string, string> = {
   forbidden: "You don't have permission to do that.",
   not_found: 'That item could not be found.',
   payload_too_large: 'That file is too large.',
+  file_too_large: 'That picture is too large. Choose one up to 10 MB.',
+  demo_busy: 'The demo is busy right now. Try again in a few minutes.',
   email_not_verified: 'Please verify your email before signing in — check your inbox for the confirmation link.',
   verification_not_found: 'That verification link is invalid.',
   verification_expired: 'That verification link has expired. Request a new one below.',
@@ -149,7 +151,7 @@ const ERROR_MESSAGES: Record<string, string> = {
 };
 
 /** Errors whose server message is the sentence to show (privacy: "You can ask again after …"). */
-const MESSAGE_ERRORS = new Set(['invalid_logo', 'only_club_admins', 'only_admins_edit_roles', 'admin_role_fixed', 'builtin_role', 'role_in_use', 'role_name_taken', 'too_many_roles', 'only_admins_set_roles', 'last_admin', 'only_club_admins_can_give_back', 'export_too_soon', 'export_gone', 'demo_account', 'confirm_mismatch', 'deletion_blocked', 'account_pending_deletion', 'account_restricted', 'invalid_contact', 'no_account', 'subject_required', 'heir_not_member', 'sign_in_max_below_idle']);
+const MESSAGE_ERRORS = new Set(['invalid_logo', 'only_club_admins', 'only_admins_edit_roles', 'admin_role_fixed', 'builtin_role', 'role_in_use', 'role_name_taken', 'too_many_roles', 'only_admins_set_roles', 'last_admin', 'only_club_admins_can_give_back', 'export_too_soon', 'export_gone', 'demo_account', 'confirm_mismatch', 'deletion_blocked', 'account_pending_deletion', 'account_restricted', 'invalid_contact', 'no_account', 'subject_required', 'heir_not_member', 'sign_in_max_below_idle', 'file_too_large', 'demo_busy']);
 
 /** A 403 the site's firewall answered (empty or non-JSON body), not the app. */
 /** What a request says when it never reached the server (no Wi-Fi, server down). */
@@ -194,7 +196,7 @@ function humanizeErrorCode(code: string): string {
  * `path → status`, which used to leak straight into forms (e.g. a
  * failed login showing "/api/auth/password/login → 401").
  */
-async function friendlyErrorMessage(res: Response, method = 'GET', path = res.url): Promise<string> {
+export async function friendlyErrorMessage(res: Response, method = 'GET', path = res.url): Promise<string> {
   type ErrorBody = { error?: unknown; message?: unknown };
   let body: ErrorBody | null = null;
   try {
@@ -572,7 +574,7 @@ export const api = {
     forgetDemoVisitor();
     return post<{ ok: true }>('/api/auth/logout');
   },
-  /** "Try the demo": sign in as the shared demo account (JSON, empty object body). */
+  /** "Try the demo": open a private demo space for this visitor (JSON, empty object body). */
   tryDemo: () => post<{ ok: true }>('/api/auth/demo', {}),
   passwordLogin: (email: string, password: string) =>
     post<{ ok: true }>('/api/auth/password/login', { email, password }),
@@ -628,7 +630,8 @@ export const api = {
     /** Copy into your own layouts (no `orgSlug`) or a club's. */
     copy: (id: string, orgSlug?: string) =>
       post<{ id: string; title: string }>(`/api/layouts/${encodeURIComponent(id)}/copy`, orgSlug ? { orgSlug } : {}),
-    get: (id: string) => get<{ layout: LayoutSummary; role: 'owner' | 'editor' | 'viewer' }>(
+    /** `demoCopyId`: one of the demo's samples, opened in a demo space; the visitor's own copy of it. */
+    get: (id: string) => get<{ layout: LayoutSummary; role: 'owner' | 'editor' | 'viewer'; demoCopyId?: string }>(
       `/api/layouts/${id}`,
     ),
     /** `backgroundImage` is a .bld-layout's image: the server keeps it and points the sidecar at it. */
@@ -1006,7 +1009,7 @@ export const api = {
     copy: (id: string, orgSlug?: string) =>
       post<{ id: string; title: string }>(`/api/modules/${encodeURIComponent(id)}/copy`, orgSlug ? { orgSlug } : {}),
     get: (id: string) =>
-      get<{ module: ModuleSummary; role: 'owner' | 'editor' | 'viewer' }>(
+      get<{ module: ModuleSummary; role: 'owner' | 'editor' | 'viewer'; demoCopyId?: string }>(
         `/api/modules/${id}`,
       ),
     create: (body: { title?: string; orgSlug?: string }) =>
@@ -1230,6 +1233,7 @@ export const api = {
       dailyCompactionEnabled?: boolean;
       demoEnabled?: boolean;
       demoResetEvery?: DemoResetEvery;
+      demoMaxSpaces?: number;
       collectionCoverMaxBytes?: number;
       /** Admin › Settings › Privacy: key -> number, or null for the default. */
       privacy?: Record<string, number | null>;
@@ -1796,7 +1800,7 @@ export interface AdminSettings {
     dailyCompaction: AdminJobSetting<boolean>;
   };
   /** The demo account: on or off, how often it resets, and what it has now. */
-  demo?: DemoStatus & { items: number };
+  demo?: DemoStatus & { items: number; maxSpaces: number; liveSpaces: number };
   /** Privacy: data downloads (and more), each with its default and whether the server forces it. */
   privacy?: {
     settings: PrivacySettingState[];

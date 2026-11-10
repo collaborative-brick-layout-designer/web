@@ -251,7 +251,10 @@ export function ModuleEditorPage() {
 function LayoutEditor({ layoutId }: { layoutId: string }) {
   // (The same query the editor reads its role from.)
   const meta = useQuery({ queryKey: ['layout', layoutId], queryFn: () => api.layouts.get(layoutId) });
-  const docState = useLayoutDoc(layoutId, meta.data ? meta.data.role !== 'viewer' : undefined);
+  const demoCopyId = meta.data?.demoCopyId;
+  const docState = useLayoutDoc(layoutId, meta.data && !demoCopyId ? meta.data.role !== 'viewer' : undefined);
+  // A link to the demo's sample, opened in a demo space: open the visitor's own copy instead.
+  if (demoCopyId) return <Navigate to={`/editor/${demoCopyId}`} replace state={DEMO_COPY_STATE} />;
   return (
     <EditorErrorBoundary what="layout" layoutId={layoutId} docState={docState}>
       <Editor layoutId={layoutId} docState={docState} moduleMode={false} />
@@ -260,7 +263,11 @@ function LayoutEditor({ layoutId }: { layoutId: string }) {
 }
 
 function ModuleEditor({ moduleId }: { moduleId: string }) {
+  const info = useQuery({ queryKey: ['module', moduleId, 'info'], queryFn: () => api.modules.get(moduleId) });
   const docState = useModuleDoc(moduleId);
+  const demoCopyId = info.data?.demoCopyId;
+  // A link to the demo's sample module, opened in a demo space: open the visitor's own copy instead.
+  if (demoCopyId) return <Navigate to={`/modules/${demoCopyId}`} replace state={DEMO_COPY_STATE} />;
   return (
     <>
       <EditorErrorBoundary what="module" layoutId={moduleId} docState={docState}>
@@ -270,6 +277,11 @@ function ModuleEditor({ moduleId }: { moduleId: string }) {
     </>
   );
 }
+
+/** Sent along when a demo visitor is sent from a sample to their own copy of it. */
+const DEMO_COPY_STATE = { demoCopy: true };
+/** What the status bar says then. */
+const DEMO_COPY_NOTICE = 'This is your own copy of the demo sample. Change anything you like.';
 
 /** A module's details in the shape the editor reads a layout's. */
 async function moduleMeta(id: string): Promise<{ layout: LayoutSummary; role: 'owner' | 'editor' | 'viewer' }> {
@@ -344,6 +356,10 @@ function Editor({ layoutId, docState, moduleMode }: { layoutId: string; docState
   };
   // Opened from ⋯ › Refresh picture: say when the new picture is in.
   const refreshingPicture = new URLSearchParams(location.search).get('refresh') === 'picture';
+  const openedDemoCopy = (location.state as { demoCopy?: boolean } | null)?.demoCopy === true;
+  useEffect(() => {
+    if (doc && openedDemoCopy) useEditorStore.getState().showStatusMessage(DEMO_COPY_NOTICE, 8000);
+  }, [doc, openedDemoCopy]);
   useEffect(() => {
     if (doc && openWarnings?.length) useEditorStore.getState().showStatusMessage(`Opened with warnings: ${openWarnings.join('; ')}`, 10000);
   }, [doc, openWarnings]);

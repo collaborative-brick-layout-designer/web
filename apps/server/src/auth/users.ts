@@ -73,6 +73,7 @@ export async function resolveOauthUser(
     avatarUrl: profile.avatarUrl,
     passwordHash: null,
     isDemoAccount: false,
+    demoExpiresAt: null,
     isGlobalAdmin: false,
     isModerator: false,
     // OAuth/OIDC providers have already proven control of this email.

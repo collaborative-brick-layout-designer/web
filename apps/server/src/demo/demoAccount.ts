@@ -1,8 +1,11 @@
-// The one demo account. An admin switches it on in Admin › Settings ›
-// Demo account; then the sign-in page offers "Try the demo", which signs
-// the visitor in as this account (no password, not a normal sign-in).
-// Everything it owns is wiped and the samples put back on a timer
-// (demo/reset.ts), so visitors can build, edit and export freely.
+// The demo. An admin switches it on in Admin › Settings › Demo account;
+// then the sign-in page offers "Try the demo". Each visitor gets a private
+// demo space of their own: a throwaway account (isDemoAccount, a `.invalid`
+// address, a name like "Demo builder 7f3a") with a copy of the samples. The
+// samples themselves live in the template account `demo-account`, at fixed
+// ids, so a link to them always opens (read only for visitors). A space is
+// deleted with everything in it when its sign-in ends: at the next reset,
+// or 24 hours at most (demo/reset.ts sweeps them).
 //
 // It can't reach anyone else: no invites, public links, clubs, custom
 // part uploads, catalog submissions, transfers, profile changes or
@@ -12,7 +15,8 @@
 // is never pushed back (auth/session.ts). Each reset signs every visitor
 // out, and the web says "The demo was reset. Start again?".
 
-import { eq } from 'drizzle-orm';
+import { randomBytes } from 'node:crypto';
+import { and, count, eq, ne, or, type SQL } from 'drizzle-orm';
 import { db, schema } from '../db/index.js';
 import type { PlatformSettings, User } from '../db/schema.js';
 import { invalidateAllSessions } from '../auth/session.js';
@@ -95,7 +99,7 @@ export async function ensureDemoUser(): Promise<User> {
     await db.delete(schema.oauthAccounts).where(eq(schema.oauthAccounts.userId, DEMO_USER_ID));
     return { ...existing, ...fields };
   }
-  const row: User = { id: DEMO_USER_ID, email: DEMO_EMAIL, createdAt: new Date(), lastSeenAt: null, deletionRequestedAt: null, deletionDueAt: null, restrictedAt: null, ...fields };
+  const row: User = { id: DEMO_USER_ID, email: DEMO_EMAIL, createdAt: new Date(), lastSeenAt: null, deletionRequestedAt: null, deletionDueAt: null, restrictedAt: null, demoExpiresAt: null, ...fields };
   const taken = await db.select({ id: schema.users.id }).from(schema.users).where(eq(schema.users.email, DEMO_EMAIL)).get();
   // Somebody already has the address (it can't be signed up for, but an
   // admin could have typed it): give the demo account its own.
@@ -121,6 +125,56 @@ export async function demoSessionEnd(now: number): Promise<number> {
  * reset), which the web turns into "The demo was reset. Start again?".
  */
 export async function signOutDemo(reason: 'demo_reset' | 'demo_off' = 'demo_off'): Promise<void> {
-  await invalidateAllSessions(DEMO_USER_ID, reason);
-  await revokeAllApiTokens(DEMO_USER_ID);
+  for (const { id } of await db.select({ id: schema.users.id }).from(schema.users).where(eq(schema.users.isDemoAccount, true)).all()) {
+    await invalidateAllSessions(id, reason);
+    await revokeAllApiTokens(id);
+  }
+}
+
+/** Is this a visitor's own demo space (not the template that holds the samples)? */
+export function isDemoSpace(user: Pick<User, 'id' | 'isDemoAccount'> | null | undefined): boolean {
+  return user?.isDemoAccount === true && user.id !== DEMO_USER_ID;
+}
+
+/** Users that aren't a visitor's demo space (the admin's people list and counts leave those out). */
+export function notDemoSpace(): SQL {
+  return or(eq(schema.users.isDemoAccount, false), eq(schema.users.id, DEMO_USER_ID)) as SQL;
+}
+
+/** How many visitors' demo spaces there are now. */
+export async function liveDemoSpaces(): Promise<number> {
+  const row = await db
+    .select({ n: count() })
+    .from(schema.users)
+    .where(and(eq(schema.users.isDemoAccount, true), ne(schema.users.id, DEMO_USER_ID)))
+    .get();
+  return row?.n ?? 0;
+}
+
+/**
+ * A new visitor's demo space: its own account, ending with its sign-in
+ * (`expiresAt`). No password and a `.invalid` address: the only way in is
+ * the sign-in "Try the demo" hands it.
+ */
+export async function createDemoSpace(expiresAt: Date, now = new Date()): Promise<User> {
+  const tag = randomBytes(6).toString('hex');
+  const row: User = {
+    id: `demo-${tag}`,
+    email: `demo-${tag}@demo.invalid`,
+    displayName: `${DEMO_DISPLAY_NAME} ${tag.slice(0, 4)}`,
+    avatarUrl: null,
+    passwordHash: null,
+    isDemoAccount: true,
+    demoExpiresAt: expiresAt,
+    isGlobalAdmin: false,
+    isModerator: false,
+    emailVerified: true,
+    createdAt: now,
+    lastSeenAt: null,
+    deletionRequestedAt: null,
+    deletionDueAt: null,
+    restrictedAt: null,
+  };
+  await db.insert(schema.users).values(row);
+  return row;
 }
