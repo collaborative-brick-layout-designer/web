@@ -113,7 +113,8 @@ test("an idle person doesn't send everyone's cursor back, so a busy layout keeps
   await shareWith(alice.page, id, carol.page, `live-cat-${ts}@example.com`, 'viewer');
   const carolSent = countPresenceSent(carol.page);
   const carolCloses: number[] = [];
-  carol.page.on('websocket', (ws) => ws.on('close', () => carolCloses.push(Date.now())));
+  // (The layout's live connection only: not the page's other sockets.)
+  carol.page.on('websocket', (ws) => ws.url().includes('/ws/layout/') && ws.on('close', () => carolCloses.push(Date.now())));
   await openEditor(carol.page, id);
   await openEditor(alice.page, id);
   await openEditor(bob.page, id);
