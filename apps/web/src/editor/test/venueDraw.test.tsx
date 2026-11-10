@@ -112,4 +112,29 @@ describe('VenueOverlay', () => {
     expect(texts).toContain('Fire door — 6.3"');
     await act(async () => root.unmount());
   });
+
+  it('shows wall lengths in the chosen unit, not always feet', async () => {
+    const venue = {
+      name: 'Hall',
+      enabled: true,
+      minWalkwayStuds: 30,
+      bounds: { x: 0, y: 0, w: 400, h: 200 },
+      edges: [
+        { kind: 0 as const, doorWidthStuds: 0, label: 'North', poly: [{ x: 0, y: 0 }, { x: 400, y: 0 }] },
+        { kind: 0 as const, doorWidthStuds: 0, label: 'East', poly: [{ x: 400, y: 0 }, { x: 400, y: 200 }] },
+      ],
+      obstacles: [],
+    };
+    const root = createRoot(document.createElement('div'));
+    const textsFor = async (unit?: 'ftin' | 'm' | 'studs') => {
+      drawn = [];
+      await act(async () => root.render(h(VenueOverlay, { venue, ...(unit ? { unit } : {}) })));
+      return drawn.filter((d) => d.type === 'Text').map((d) => String(d.props.text));
+    };
+    expect(await textsFor()).toEqual(['North — 10.50 ft', 'East — 5.25 ft']);
+    expect(await textsFor('ftin')).toEqual(['North — 10.50 ft', 'East — 5.25 ft']);
+    expect(await textsFor('m')).toEqual(['North — 3.20 m', 'East — 1.60 m']);
+    expect(await textsFor('studs')).toEqual(['North — 400 studs', 'East — 200 studs']);
+    await act(async () => root.unmount());
+  });
 });
