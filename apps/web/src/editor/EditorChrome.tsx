@@ -131,8 +131,13 @@ export function SavePill({ status }: { status: SaveStatus }) {
       break;
     case 'reconnecting':
       tone = 'bg-amber-950 text-amber-300';
-      text = 'Reconnecting…';
-      title = status.lastSyncedAt ? `Last saved ${timeAgo(status.lastSyncedAt)}` : undefined;
+      // Retrying for a while (the Wi-Fi is down): offline, and nothing is lost.
+      text = status.longer ? 'Offline: changes kept here' : 'Reconnecting…';
+      title = status.longer
+        ? `Edits are kept on this computer and will save when you reconnect${status.lastSyncedAt ? ` (last saved ${timeAgo(status.lastSyncedAt)})` : ''}`
+        : status.lastSyncedAt
+          ? `Last saved ${timeAgo(status.lastSyncedAt)}`
+          : undefined;
       break;
     case 'offline':
       tone = 'bg-amber-950 text-amber-300';

@@ -412,6 +412,7 @@ function Editor({ layoutId, docState, moduleMode }: { layoutId: string; docState
   const undo = useUndoManager(doc);
   // Signed out while it was open: read only until signed in again (SignedOutCard).
   const role = docState.signedOut ? 'viewer' : (meta.data?.role ?? 'viewer');
+  useAccessChangeNotice(meta.data?.role, meta.data?.layout.title, moduleMode);
   // A club's layout or module the club's roles only let me look at: say which permission would let me edit it.
   const viewOnlyReason = role === 'viewer' && meta.data?.layout.ownerOrgId ? askForPermission(moduleMode ? 'edit_modules' : 'edit_layouts') : undefined;
   // A phone opens a layout in View mode (the phone viewer). People who
@@ -6169,6 +6170,27 @@ function SignedOutCard({ what, reconnect }: { what: 'layout' | 'module'; reconne
       </div>
     </div>
   );
+}
+
+/** Said when someone's access changes while the layout is open (the desktop says the same). */
+export function accessChangedText(nowViewer: boolean, title: string | undefined, what: 'layout' | 'module'): string {
+  const name = title ? `“${title}”` : `this ${what}`;
+  return nowViewer
+    ? `You can only view this ${what} now. Your access to ${name} changed to view only, so changes can't be made here. Ask its owner, or a club admin, if you need to edit it.`
+    : `You can edit this ${what} now. Your access to ${name} changed: your changes go to everyone again.`;
+}
+
+/** While the layout is open: say so when the owner lowers or raises this person's access. */
+function useAccessChangeNotice(role: 'owner' | 'editor' | 'viewer' | undefined, title: string | undefined, moduleMode: boolean): void {
+  const was = useRef<boolean | undefined>(undefined);
+  useEffect(() => {
+    if (role === undefined) return;
+    const viewer = role === 'viewer';
+    const before = was.current;
+    was.current = viewer;
+    if (before === undefined || before === viewer) return;
+    useEditorStore.getState().showNotice(accessChangedText(viewer, title, moduleMode ? 'module' : 'layout'), viewer ? 'error' : 'done', 12000);
+  }, [role, title, moduleMode]);
 }
 
 function ErrorScreen({ err, what }: { err: Error; what: 'layout' | 'module' }) {

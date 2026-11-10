@@ -64,7 +64,7 @@ test('switching layouts in the app keeps each layout to itself, online and offli
   await expect.poll(() => brickCount(page)).toBe(1);
   await page.waitForLoadState('networkidle');
   await context.setOffline(true);
-  await expect(page.getByText(/^(Reconnecting…|Offline)$/)).toBeVisible({ timeout: 45000 });
+  await expect(page.getByText(/^(Reconnecting…|Offline.*)$/)).toBeVisible({ timeout: 45000 });
   await placePart(page);
   await expect.poll(() => brickCount(page)).toBe(2);
 
