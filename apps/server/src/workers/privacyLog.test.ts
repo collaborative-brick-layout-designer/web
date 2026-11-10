@@ -26,6 +26,7 @@ const result = (r: Partial<PrivacyTickResult>, retention: Partial<PrivacyTickRes
   exportsPurged: 0,
   accountsErased: 0,
   clubsErased: 0,
+  trashErased: 0,
   ...r,
   retention: { ...none, ...retention },
 });

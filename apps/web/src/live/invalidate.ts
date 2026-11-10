@@ -46,9 +46,9 @@ const MEMBERSHIP_CHANGE = /part-libraries|members|join|approve|org-invites|^dele
 const COLLECTIONS: QueryKey[] = [['catalog-collections'], ['catalog-collection'], ['catalog-collections-mine'], ['club-collections']];
 
 const KEYS: Record<HintKind, (h: Hint) => QueryKey[]> = {
-  layout: () => [['admin-audit'], ['admin-deleted-layouts'], ['layouts'], ['layout'], ['collaborators'], ['audit'], ['club-summary'], ['transfer-preview'], ...ADMIN_LISTS],
-  module: () => [['modules'], ['module'], ['module-versions'], ['module-collaborators'], ['catalog-copies'], ['club-summary'], ...COLLECTIONS, ...ADMIN_LISTS],
-  venue: () => [['venues'], ['venue'], ['venue-library'], ['club-summary']],
+  layout: () => [['trash'], ['admin-audit'], ['admin-deleted-layouts'], ['layouts'], ['layout'], ['collaborators'], ['audit'], ['club-summary'], ['transfer-preview'], ...ADMIN_LISTS],
+  module: () => [['trash'], ['modules'], ['module'], ['module-versions'], ['module-collaborators'], ['catalog-copies'], ['club-summary'], ...COLLECTIONS, ...ADMIN_LISTS],
+  venue: () => [['trash'], ['venues'], ['venue'], ['venue-library'], ['club-summary']],
   'custom-part': () => [['custom-parts'], ['custom-part-collaborators'], ['set-move-plan'], ['parts-catalog'], ['catalog-copies'], ['club-summary'], ...COLLECTIONS],
   catalog: () => [
     ['catalog-items'], ['catalog-mine'], ['catalog-copies'], ['moderation'], ['modules'], ['custom-parts'],
@@ -76,7 +76,7 @@ const KEYS: Record<HintKind, (h: Hint) => QueryKey[]> = {
     ...(MEMBERSHIP_CHANGE.test(h.action ?? '') ? [['parts-catalog']] : []),
     ...ADMIN_LISTS,
   ],
-  me: () => [['me'], ['preferences'], ['api-tokens'], ['sessions'], ['providers'], ['my-exports'], ['my-deletion'], ['club-exports'], ['my-org-invites']],
+  me: () => [['trash'], ['me'], ['preferences'], ['api-tokens'], ['sessions'], ['providers'], ['my-exports'], ['my-deletion'], ['club-exports'], ['my-org-invites']],
   transfer: () => [['layouts'], ['modules'], ['transfer-preview']],
   // …and the demo account's last reset (Admin › Settings and the dashboard).
   admin: () => [
@@ -160,6 +160,8 @@ const WRITE_RULES: Array<[RegExp, HintKind[]]> = [
   [/^\/api\/modules\/[^/]+\/transfer\b/, ['module', 'transfer']],
   [/^\/api\/(modules|module-invites)\b/, ['module']],
   [/^\/api\/venues\b/, ['venue']],
+  // Recently deleted: a restore brings a layout, module or venue back; erasing empties the list.
+  [/^\/api\/trash\b/, ['layout', 'module', 'venue']],
   [/^\/api\/(custom-parts|part-invites)\b/, ['custom-part']],
   // Adding or updating a catalog item puts a module or a part in your things.
   [/^\/api\/catalog\/((items|collections)\/[^/]+\/add|copies)\b/, ['catalog', 'module', 'custom-part', 'layout', 'venue']],

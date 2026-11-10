@@ -20,6 +20,7 @@ import { confirmDelete, toastDeleted } from '../ui/ConfirmDialog';
 import { VENUE_DELETE_WORDING } from '../ui/deleteWording';
 import { RenameDialog } from '../ui/RenameDialog';
 import { useYjsSnapshot } from './useYjsSnapshot';
+import { restoreDeleted } from '../trash/RecentlyDeleted';
 
 interface Props {
   doc: Y.Doc;
@@ -182,7 +183,7 @@ export function VenueLibraryPanel({ doc, isViewer, onDrawOutline, onDimensions, 
               onClick={async () => {
                 if (!current || !(await confirmDelete(current.name, VENUE_DELETE_WORDING))) return;
                 const name = current.name;
-                remove.mutate(current.id, { onSuccess: () => toastDeleted(name) });
+                remove.mutate(current.id, { onSuccess: (r) => toastDeleted(name, r.trashId ? () => void restoreDeleted(r.trashId) : undefined) });
               }}
             >
               Delete

@@ -60,6 +60,7 @@ host's to keep or not.
 | `custom_part_invites` | who invited which email to a custom part, and the role | yes (no token) | Pending ones go when the part changes hands. |
 | `custom_part_set_shares` | which custom parts someone has only because a set of them was shared with them | yes | Go with the set's share: taking the set back, leaving it or deleting it removes them, and the parts too. |
 | `venue_library` | owner, creator, the venue | yes, own venues as JSON | |
+| `trash_items` | a layout, module or venue its owner deleted (all of it, gzipped), who deleted it, when, and when it goes for good | yes (what, when and when it goes; not the contents) | Recently deleted: kept 30 days so it can be restored, then erased by the hourly privacy clean-up. Erasing an account or a club erases its trash with it. Deleting from Recently deleted erases it at once. |
 | `part_libraries` | none | no | Installed by site admins. |
 
 ## Public catalog

@@ -34,6 +34,7 @@ import { checkUpdate } from '../ws/updateGuard.js';
 import { checkGridSizes } from '../ws/gridGuard.js';
 import { snapshotBackgroundProblem } from '../ws/backgroundGuard.js';
 import { snapshotWork } from '../ws/yjsWork.js';
+import { trashModule } from '../trash/trash.js';
 
 type ModuleRow = typeof schema.modules.$inferSelect;
 
@@ -296,15 +297,17 @@ export async function moduleRoutes(app: FastifyInstance): Promise<void> {
     // Club collections it's in lose it; their curators get a note.
     const gone = await db.select({ id: schema.modules.id, title: schema.modules.title }).from(schema.modules).where(eq(schema.modules.id, req.params.id)).get();
     if (gone) await dropModuleFromCollections(gone, 'deleted', null, user.id);
+    // Kept in Recently deleted for 30 days (trash/trash.ts).
+    const trashId = await trashModule(req.params.id, user.id);
     await db.delete(schema.modules).where(eq(schema.modules.id, req.params.id));
     await writeAuditEvent({
       resourceKind: 'module',
       resourceId: req.params.id,
       userId: user.id,
       eventType: 'delete',
-      payload: {},
+      payload: { trashId },
     });
-    return { ok: true };
+    return { ok: true, trashId };
   });
 
   // ---- snapshot (read) --------------------------------------------------

@@ -186,6 +186,27 @@ export async function collectUserData(userId: string): Promise<DataSection[]> {
     await select(s.venueLibrary, or(eq(s.venueLibrary.ownerUserId, userId), eq(s.venueLibrary.createdBy, userId))),
   );
 
+  add(
+    'recently-deleted',
+    'Layouts, modules and venues you deleted (or that were yours), kept 30 days so they can be restored: what, when, and when they go for good.',
+    (
+      await db
+        .select({
+          kind: s.trashItems.kind,
+          itemId: s.trashItems.itemId,
+          title: s.trashItems.title,
+          ownerUserId: s.trashItems.ownerUserId,
+          ownerOrgId: s.trashItems.ownerOrgId,
+          deletedBy: s.trashItems.deletedBy,
+          deletedAt: s.trashItems.deletedAt,
+          purgeAt: s.trashItems.purgeAt,
+        })
+        .from(s.trashItems)
+        .where(or(eq(s.trashItems.ownerUserId, userId), eq(s.trashItems.deletedBy, userId)))
+        .all()
+    ) as Record<string, unknown>[],
+  );
+
   // ---- the public catalog ---------------------------------------------------
   add('catalog-items', 'Modules, parts, layouts and venues you shared in the public catalog.', await select(s.catalogItems, eq(s.catalogItems.ownerUserId, userId)));
   add(
@@ -268,6 +289,7 @@ export const READ_TABLES = [
   'custom_part_invites',
   'custom_part_set_shares',
   'venue_library',
+  'trash_items',
   'catalog_items',
   'catalog_item_versions',
   'catalog_copies',

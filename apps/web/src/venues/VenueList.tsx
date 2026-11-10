@@ -19,6 +19,7 @@ import { confirmDelete, showToast, toastDeleted } from '../ui/ConfirmDialog';
 import { RenameDialog } from '../ui/RenameDialog';
 import { VENUE_DELETE_WORDING } from '../ui/deleteWording';
 import { CatalogBadge, ShareToCatalogDialog, useCatalogStatus } from '../catalog/ShareToCatalog';
+import { restoreDeleted } from '../trash/RecentlyDeleted';
 
 /** May change it: the server says so; older servers: yours, or a club you manage. */
 export function canManageVenue(v: VenueSummary, orgs: readonly OrgSummary[] | undefined): boolean {
@@ -190,7 +191,7 @@ export function VenueList({
                             className={`${MORE_ITEM} text-danger`}
                             onClick={async () => {
                               if (await confirmDelete(v.name, VENUE_DELETE_WORDING))
-                                remove.mutate(v.id, { onSuccess: () => toastDeleted(v.name) });
+                                remove.mutate(v.id, { onSuccess: (r) => toastDeleted(v.name, r.trashId ? () => void restoreDeleted(r.trashId) : undefined) });
                             }}
                           >
                             Delete

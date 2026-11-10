@@ -33,6 +33,7 @@ import { attachment, safeFileName } from '../utils/contentDisposition.js';
 import { clampTitle, titleTooLong, trimmed } from '../utils/validate.js';
 import { allowedBackgroundUrl, backgroundImageUrl, dropForeignBackgroundUrl } from '../ws/backgroundGuard.js';
 import { applyStoredUpdate } from '../ws/yjsWork.js';
+import { trashLayout } from '../trash/trash.js';
 
 interface CreateLayoutBody {
   title?: string;
@@ -358,11 +359,14 @@ export async function layoutRoutes(app: FastifyInstance) {
           : { title: gone.title, owner: gone.ownerUserId === user.id ? 'self' : 'person' },
       });
     }
+    // Kept in Recently deleted for 30 days (trash/trash.ts), live edits folded in.
+    const snapshot = await db.select({ s: schema.layouts.docSnapshot }).from(schema.layouts).where(eq(schema.layouts.id, req.params.id)).get();
+    const trashId = snapshot ? await trashLayout(req.params.id, await currentDocBytes(req.params.id, snapshot.s as Uint8Array), user.id) : null;
     await db.delete(schema.layouts).where(eq(schema.layouts.id, req.params.id));
     // Shut any open editor sockets; otherwise their next update hits a
     // foreign-key failure against the deleted row.
     await docHub.close(req.params.id);
-    return { ok: true };
+    return { ok: true, trashId };
   });
 
   // ---- copy to yourself or a club -------------------------------------------
