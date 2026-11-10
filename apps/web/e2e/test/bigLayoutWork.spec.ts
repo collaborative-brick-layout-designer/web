@@ -280,7 +280,8 @@ test('a big layout: while the view moves the map is one moving picture, kept up 
   await page.mouse.up({ button: 'middle' });
   await page.waitForTimeout(300);
   const stopped = await done();
-  expect(stopped.partsScene, 'the parts are drawn sharp again when the view stops').toBeGreaterThan(900);
+  // (Those the pan moved off screen aren't drawn: render/cullOffscreen.ts.)
+  expect(stopped.partsScene, 'the parts are drawn sharp again when the view stops').toBeGreaterThan(700);
 
   // ── A click straight after the pan picks the part under it. ──
   const part = await partNearCentre(page);

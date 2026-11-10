@@ -23,6 +23,7 @@
 // layer's own `drawScene` is swapped for one that draws the picture. A draw
 // into another canvas (an export) goes through as usual.
 
+import { drawCulled } from './cullOffscreen';
 import Konva from 'konva';
 import { SceneCanvas } from 'konva/lib/Canvas';
 
@@ -334,9 +335,37 @@ export class ViewBitmap {
     const ctx = canvas.getContext();
     ctx.save();
     ctx.translate(m * w, m * h);
-    for (const layer of layers) {
-      if (!layer.isVisible()) continue;
-      for (const child of layer.getChildren()) child.drawScene(canvas);
+    const drawAll = (): void => {
+      for (const layer of layers) {
+        if (!layer.isVisible()) continue;
+        for (const child of layer.getChildren()) child.drawScene(canvas);
+      }
+    };
+    /** Draws only the parts in this part of the picture (px from the view's corner), clipped to it (cullOffscreen.ts). */
+    const drawIn = (x: number, y: number, rw: number, rh: number): void => {
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(x, y, rw, rh);
+      ctx.clip();
+      drawCulled(canvas, { x0: (x - s.x()) / scale, y0: (y - s.y()) / scale, x1: (x + rw - s.x()) / scale, y1: (y + rh - s.y()) / scale }, drawAll);
+      ctx.restore();
+    };
+    // The sheets were drawn for this very view a moment ago (not frozen,
+    // nothing waiting to be drawn): the view is copied from them, and only
+    // the margin around it is drawn. On a big layout that is most of the
+    // work saved after each change (anyone's): it used to draw every part again.
+    const current = !this.frozen && layers.every((l) => !l.isVisible() || !(l as unknown as { _waitingForDraw?: boolean })._waitingForDraw);
+    if (current) {
+      for (const layer of layers) if (layer.isVisible()) ctx.drawImage(layer.getCanvas()._canvas, 0, 0, w, h);
+      const mw = m * w;
+      const mh = m * h;
+      drawIn(-mw, -mh, w + 2 * mw, mh);
+      drawIn(-mw, h, w + 2 * mw, mh);
+      drawIn(-mw, 0, mw, h);
+      drawIn(w, 0, mw, h);
+    } else {
+      // Only the parts in the picture (the view and its margin).
+      drawIn(-m * w, -m * h, cw, ch);
     }
     ctx.restore();
     (canvas as unknown as { _trimIsolationCanvas?: () => void })._trimIsolationCanvas?.();

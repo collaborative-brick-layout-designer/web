@@ -1,4 +1,5 @@
 import { Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { cullOffscreen } from './render/cullOffscreen';
 import { EditorErrorBoundary } from './EditorErrorBoundary';
 import { lazyRetry, preloadLazy } from '../ui/lazyRetry';
 import { RenameDialog } from '../ui/RenameDialog';
@@ -1723,6 +1724,13 @@ function Canvas({
   onMakeModule: () => void;
 }) {
   const stageRef = useRef<Konva.Stage | null>(null);
+  // The parts layer draws only what's on screen, and its hit canvas when it's
+  // asked (render/cullOffscreen.ts): a change on a big layout redraws far less.
+  const partsLayerRef = useRef<Konva.Layer | null>(null);
+  useEffect(() => {
+    const layer = partsLayerRef.current;
+    return layer ? cullOffscreen(layer) : undefined;
+  }, []);
   const hudLayerRef = useRef<Konva.Layer | null>(null);
   const { width, height } = size;
   // Touch, on phones and tablets alike: two fingers pan and zoom, one
@@ -4592,7 +4600,7 @@ function Canvas({
 
       {/* Layer 2 — interactive content: bricks, text, rulers, labels.
           Hit-testing is enabled so clicks/drags on bricks and text work. */}
-      <KonvaLayer name="parts-layer" perfectDrawEnabled={false}>
+      <KonvaLayer ref={partsLayerRef} name="parts-layer" perfectDrawEnabled={false}>
         {!isViewer && tool === 'select' && (
           <BendHandles
             halo
