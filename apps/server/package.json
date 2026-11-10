@@ -29,7 +29,6 @@
     "@fastify/static": "10.1.10",
     "@fastify/websocket": "11.3.7",
     "@node-rs/argon2": "2.2.2",
-    "arctic": "3.7.0",
     "better-sqlite3": "13.0.3",
     "drizzle-orm": "0.45.4",
     "fastify": "5.12.8",

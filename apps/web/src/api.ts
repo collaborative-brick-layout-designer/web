@@ -557,6 +557,10 @@ export interface ApiTokenSummary {
 
 export const api = {
   me: () => get<{ user: Me | null }>('/api/auth/me'),
+  /** A GitHub/Google sign-in whose email matched an account, waiting to be linked to it. */
+  pendingLink: () => get<{ provider: ProviderId; signedInAsTarget: boolean }>('/api/auth/link'),
+  confirmLink: () => post<{ ok: true; provider: ProviderId }>('/api/auth/link'),
+  cancelLink: () => del('/api/auth/link'),
   updateDisplayName: (displayName: string) =>
     patch<{ ok: true; displayName: string }>('/api/auth/me', { displayName }),
   providers: () =>

@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
-import { generateCodeVerifier, generateState, OAuth2RequestError } from 'arctic';
-import { google, github, type NormalisedProfile, type ProviderId } from '../../auth/providers.js';
+import * as client from 'openid-client';
+import { callbackUrl, google, github, type NormalisedProfile, type OAuthProvider, type ProviderId } from '../../auth/providers.js';
 import { and, eq } from 'drizzle-orm';
 import { linkProvider, resolveOauthUser } from '../../auth/users.js';
 import { createSession } from '../../auth/session.js';
@@ -33,69 +33,9 @@ export function oauthFailure(reply: import('fastify').FastifyReply, error: 'inva
 }
 
 export async function oauthRoutes(app: FastifyInstance) {
-  // ---- Google ------------------------------------------------------------
-  const googleClient = google;
-  if (googleClient) {
-    // codeql[js/missing-rate-limiting] - rate limited via Fastify config.rateLimit
-    app.get<{ Querystring: { next?: string } }>('/api/auth/google', { config: { rateLimit: { max: 20, timeWindow: '1 minute' } } }, async (req, reply) => {
-      const state = generateState();
-      const codeVerifier = generateCodeVerifier();
-      const url = googleClient.createAuthorizationURL(state, codeVerifier, [
-        'openid',
-        'email',
-        'profile',
-      ]);
-      setStateCookies(reply, state, codeVerifier, req.query.next);
-      return reply.redirect(url.toString());
-    });
-
-    // codeql[js/missing-rate-limiting] - rate limited via Fastify config.rateLimit
-    app.get('/api/auth/google/callback', { config: { rateLimit: { max: 20, timeWindow: '1 minute' } } }, async (req, reply) => {
-      const params = req.query as { code?: string; state?: string };
-      const stored = takeStateCookies(req, reply);
-      if (!params.code || !params.state || !stored.state || params.state !== stored.state) {
-        return oauthFailure(reply, 'invalid_state');
-      }
-      try {
-        const tokens = await googleClient.validateAuthorizationCode(params.code, stored.verifier);
-        const profile = await fetchGoogleProfile(tokens.accessToken());
-        return await completeLogin(reply, 'google', profile, stored.next);
-      } catch (e) {
-        if (e instanceof OAuth2RequestError) return oauthFailure(reply, 'oauth_error');
-        if (e instanceof UnverifiedEmailError) return oauthFailure(reply, 'email_not_verified');
-        throw e;
-      }
-    });
-  }
-
-  // ---- GitHub ------------------------------------------------------------
-  const githubClient = github;
-  if (githubClient) {
-    // codeql[js/missing-rate-limiting] - rate limited via Fastify config.rateLimit
-    app.get<{ Querystring: { next?: string } }>('/api/auth/github', { config: { rateLimit: { max: 20, timeWindow: '1 minute' } } }, async (req, reply) => {
-      const state = generateState();
-      const url = githubClient.createAuthorizationURL(state, ['read:user', 'user:email']);
-      setStateCookies(reply, state, '', req.query.next);
-      return reply.redirect(url.toString());
-    });
-
-    // codeql[js/missing-rate-limiting] - rate limited via Fastify config.rateLimit
-    app.get('/api/auth/github/callback', { config: { rateLimit: { max: 20, timeWindow: '1 minute' } } }, async (req, reply) => {
-      const params = req.query as { code?: string; state?: string };
-      const stored = takeStateCookies(req, reply);
-      if (!params.code || !params.state || !stored.state || params.state !== stored.state) {
-        return oauthFailure(reply, 'invalid_state');
-      }
-      try {
-        const tokens = await githubClient.validateAuthorizationCode(params.code);
-        const profile = await fetchGithubProfile(tokens.accessToken());
-        return await completeLogin(reply, 'github', profile, stored.next);
-      } catch (e) {
-        if (e instanceof OAuth2RequestError) return oauthFailure(reply, 'oauth_error');
-        if (e instanceof GithubEmailUnavailableError) return oauthFailure(reply, 'email_unavailable');
-        throw e;
-      }
-    });
+  // ---- Google and GitHub ---------------------------------------------------
+  for (const provider of [google, github]) {
+    if (provider) providerRoutes(app, provider);
   }
 
   // ---- Account linking ----------------------------------------------------
@@ -148,9 +88,69 @@ export async function oauthRoutes(app: FastifyInstance) {
     return { ok: true };
   });
 
-  // OIDC is plumbed through openid-client; deferred from this scaffold pass
-  // so the file doesn't grow unbounded. Provider listing already advertises it
-  // when env.oidc is set; the route handlers go in `oidc.ts` next.
+}
+
+/**
+ * /api/auth/<provider> sends the person to the provider; its callback trades
+ * the code for an access token (openid-client checks the state, PKCE and,
+ * for Google, the ID token), reads the profile and signs them in.
+ */
+function providerRoutes(app: FastifyInstance, provider: OAuthProvider) {
+  const id = provider.id;
+  // codeql[js/missing-rate-limiting] - rate limited via Fastify config.rateLimit
+  app.get<{ Querystring: { next?: string } }>(`/api/auth/${id}`, { config: { rateLimit: { max: 20, timeWindow: '1 minute' } } }, async (req, reply) => {
+    const state = client.randomState();
+    const verifier = provider.pkce ? client.randomPKCECodeVerifier() : '';
+    const params: Record<string, string> = { redirect_uri: callbackUrl(id), scope: provider.scope, state };
+    if (provider.pkce) {
+      params.code_challenge = await client.calculatePKCECodeChallenge(verifier);
+      params.code_challenge_method = 'S256';
+    }
+    setStateCookies(reply, state, verifier, req.query.next);
+    return reply.redirect(client.buildAuthorizationUrl(provider.config, params).toString());
+  });
+
+  // codeql[js/missing-rate-limiting] - rate limited via Fastify config.rateLimit
+  app.get(`/api/auth/${id}/callback`, { config: { rateLimit: { max: 20, timeWindow: '1 minute' } } }, async (req, reply) => {
+    const params = req.query as { code?: string; state?: string };
+    const stored = takeStateCookies(req, reply);
+    if (!params.code || !params.state || !stored.state || params.state !== stored.state) {
+      return oauthFailure(reply, 'invalid_state');
+    }
+    let accessToken: string;
+    try {
+      accessToken = await exchangeCode(provider, req.url, stored.state, stored.verifier);
+    } catch (err) {
+      // The provider refused the code, or answered with something that isn't
+      // a token: the sign-in page says it didn't work.
+      req.log.warn({ err, provider: id }, 'sign-in code exchange failed');
+      return oauthFailure(reply, 'oauth_error');
+    }
+    let profile: NormalisedProfile;
+    try {
+      profile = id === 'google' ? await fetchGoogleProfile(accessToken, provider.profileUrls.user) : await fetchGithubProfile(accessToken, provider.profileUrls);
+    } catch (e) {
+      if (e instanceof UnverifiedEmailError) return oauthFailure(reply, 'email_not_verified');
+      if (e instanceof GithubEmailUnavailableError) return oauthFailure(reply, 'email_unavailable');
+      req.log.warn({ err: e, provider: id }, 'sign-in profile read failed');
+      return oauthFailure(reply, 'oauth_error');
+    }
+    return await completeLogin(reply, id, profile, stored.next);
+  });
+}
+
+/** The callback's code for an access token, at the provider's token endpoint. */
+export async function exchangeCode(provider: OAuthProvider, requestUrl: string, state: string, verifier: string): Promise<string> {
+  // The address the provider sent the person back to, with its code and
+  // state: openid-client checks them, and sends the same redirect_uri.
+  const current = new URL(callbackUrl(provider.id));
+  current.search = new URL(requestUrl, 'http://callback.invalid').search;
+  const tokens = await client.authorizationCodeGrant(provider.config, current, {
+    expectedState: state,
+    ...(provider.pkce ? { pkceCodeVerifier: verifier } : {}),
+    idTokenExpected: provider.id === 'google',
+  });
+  return tokens.access_token;
 }
 
 export async function completeLogin(
@@ -230,8 +230,11 @@ export class UnverifiedEmailError extends Error {
   }
 }
 
-export async function fetchGoogleProfile(accessToken: string): Promise<NormalisedProfile> {
-  const res = await fetch('https://openidconnect.googleapis.com/v1/userinfo', {
+export async function fetchGoogleProfile(
+  accessToken: string,
+  url = 'https://openidconnect.googleapis.com/v1/userinfo',
+): Promise<NormalisedProfile> {
+  const res = await fetch(url, {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
   if (!res.ok) throw new Error('google userinfo failed');
@@ -255,8 +258,11 @@ export async function fetchGoogleProfile(accessToken: string): Promise<Normalise
   };
 }
 
-async function fetchGithubProfile(accessToken: string): Promise<NormalisedProfile> {
-  const userRes = await fetch('https://api.github.com/user', {
+export async function fetchGithubProfile(
+  accessToken: string,
+  urls: { user: string; emails?: string } = { user: 'https://api.github.com/user', emails: 'https://api.github.com/user/emails' },
+): Promise<NormalisedProfile> {
+  const userRes = await fetch(urls.user, {
     headers: { Authorization: `Bearer ${accessToken}`, 'User-Agent': 'collaborative-brick-layout-designer' },
   });
   if (!userRes.ok) throw new Error('github user failed');
@@ -269,7 +275,7 @@ async function fetchGithubProfile(accessToken: string): Promise<NormalisedProfil
   };
   let email = user.email;
   if (!email) {
-    const emailRes = await fetch('https://api.github.com/user/emails', {
+    const emailRes = await fetch(urls.emails ?? 'https://api.github.com/user/emails', {
       headers: { Authorization: `Bearer ${accessToken}`, 'User-Agent': 'collaborative-brick-layout-designer' },
     });
     if (emailRes.ok) {

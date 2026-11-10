@@ -48,6 +48,13 @@ jobs:
       LIMIT_NEW_ACCOUNT_CLUBS: '1000'
       LIMIT_CLUBS_PER_USER: '1000'
       PLAYWRIGHT_HTML_OPEN: never
+      # GitHub and Google sign-in, against the specs' stand-in
+      # (apps/web/e2e/oauthMock.ts; journeys/oauthSignIn.spec.ts starts it).
+      GITHUB_CLIENT_ID: e2e-github
+      GITHUB_CLIENT_SECRET: e2e-github-secret
+      GOOGLE_CLIENT_ID: e2e-google
+      GOOGLE_CLIENT_SECRET: e2e-google-secret
+      OAUTH_MOCK_ORIGIN: http://127.0.0.1:3999
     steps:
       - uses: actions/checkout@v7
 
