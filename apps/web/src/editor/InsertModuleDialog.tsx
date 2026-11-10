@@ -161,14 +161,20 @@ export function InsertModuleDialog({ doc, onClose }: Props) {
               >
                 <ModuleThumb module={m} size="md" />
                 <div className="min-w-0 flex-1 px-3">
-                  <p className="break-words">{m.title}</p>
+                  <p className={`break-words ${m.empty ? 'text-muted' : ''}`}>{m.title}</p>
                   <p className="text-xs text-muted">
                     v{m.docVersion} · updated {new Date(m.updatedAt).toLocaleString()}
                   </p>
+                  {m.empty && (
+                    <p className="text-xs font-semibold text-muted" data-testid="module-empty">
+                      No parts yet: open it to add some.
+                    </p>
+                  )}
                 </div>
                 <button
                   onClick={() => insert.mutate(m.id)}
-                  disabled={insert.isPending}
+                  disabled={insert.isPending || m.empty}
+                  title={m.empty ? 'No parts yet' : undefined}
                   className="rounded-lg bg-accent text-accent-ink px-3 py-1 text-xs hover:bg-accent-hover disabled:opacity-50"
                 >
                   Insert

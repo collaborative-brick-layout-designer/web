@@ -178,7 +178,7 @@ function ModuleLibraryRow({
 
   return (
     <li
-      draggable={!editing && !isEditingThis}
+      draggable={!editing && !isEditingThis && !module.empty}
       onDragStart={(e) => {
         if (!e.dataTransfer) return;
         e.dataTransfer.effectAllowed = 'copy';
@@ -198,7 +198,7 @@ function ModuleLibraryRow({
       {/* The name and details, with the buttons on their own line under them,
           so a big picture in a narrow panel never squeezes the name away. */}
       <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-        <div className="min-w-0 leading-tight" onDoubleClick={isViewer || isEditingThis ? undefined : onInsert}>
+        <div className="min-w-0 leading-tight" onDoubleClick={isViewer || isEditingThis || module.empty ? undefined : onInsert}>
           {editing ? (
             <input
               autoFocus
@@ -221,6 +221,11 @@ function ModuleLibraryRow({
           <p className="text-[11px] text-muted">
             v{module.docVersion} · {new Date(module.updatedAt).toLocaleDateString()}
           </p>
+          {module.empty && (
+            <p className="text-[11px] font-semibold text-muted" data-testid="module-empty" title="Open it to add some parts, then it can go in a layout.">
+              No parts yet
+            </p>
+          )}
           <CreditLine credit={module.credit} className="!text-[11px] truncate" />
         </div>
         {isEditingThis ? (
@@ -234,8 +239,8 @@ function ModuleLibraryRow({
               <button
                 type="button"
                 onClick={onInsert}
-                disabled={isInserting}
-                title={insertLabel}
+                disabled={isInserting || module.empty}
+                title={module.empty ? 'No parts yet: open it to add some' : insertLabel}
                 className="min-h-8 min-w-0 flex-1 truncate rounded-control border border-line px-2 text-xs font-semibold text-ink hover:bg-soft disabled:opacity-40 pointer-coarse:min-h-11"
               >
                 {isInserting ? 'Adding…' : insertLabel}

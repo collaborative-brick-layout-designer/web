@@ -1993,6 +1993,8 @@ export interface ModuleSummary {
   ownerOrgId: string | null;
   docVersion: number;
   hasSidecar: boolean;
+  /** True when it has no parts yet, so inserting it would place nothing (older servers leave it out). */
+  empty?: boolean;
   /** When its picture was made (the picture URL's cache key); null or missing: none yet. */
   thumbnailAt?: number | null;
   /** The picture's longest side in pixels (older servers leave it out). */

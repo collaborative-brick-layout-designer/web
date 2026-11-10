@@ -11,6 +11,7 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import cookie from '@fastify/cookie';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
+import * as Y from 'yjs';
 import { createDefaultLayoutDoc, encodeDoc } from '@cld/ydoc';
 import { db, resetDb, schema, testVerificationToken } from '../../test/helpers.js';
 import { attachUser } from '../../auth/cookie.js';
@@ -96,6 +97,27 @@ describe('modules — list', () => {
     const res = await app.inject({ method: 'GET', url: '/api/modules', headers: { cookie: bobCookie } });
     const modules = (res.json() as { modules: { id: string }[] }).modules;
     expect(modules.some((m) => m.id === id)).toBe(true);
+  });
+
+  it('flags a module with no parts as empty, and clears it once a part is added', async () => {
+    const cookie = await registerAndLogin(app, 'alice@example.com');
+    const id = await createModule(app, cookie, 'Blank');
+    const one = async () => {
+      const res = await app.inject({ method: 'GET', url: '/api/modules', headers: { cookie } });
+      return (res.json() as { modules: { id: string; empty: boolean }[] }).modules.find((m) => m.id === id)!;
+    };
+    expect((await one()).empty).toBe(true);
+    const detail = await app.inject({ method: 'GET', url: `/api/modules/${id}`, headers: { cookie } });
+    expect((detail.json() as { module: { empty: boolean } }).module.empty).toBe(true);
+
+    const doc = createDefaultLayoutDoc();
+    const sheet = [...doc.getMap<Y.Map<unknown>>('layerData').values()].find((l) => l.get('type') === 'brick')!;
+    const brick = new Y.Map<unknown>();
+    brick.set('id', 'b1');
+    brick.set('partNumber', '3001.1.0');
+    (sheet.get('bricks') as Y.Array<Y.Map<unknown>>).push([brick]);
+    await db.update(schema.modules).set({ docSnapshot: Buffer.from(encodeDoc(doc)) }).where(eq(schema.modules.id, id));
+    expect((await one()).empty).toBe(false);
   });
 
   it('returns 401 when unauthenticated', async () => {
