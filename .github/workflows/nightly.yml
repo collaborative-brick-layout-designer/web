@@ -42,6 +42,21 @@ jobs:
           echo "name=$owner/collaborative-brick-layout-designer" >> "$GITHUB_OUTPUT"
           echo "web=$owner/web" >> "$GITHUB_OUTPUT"
 
+      # OCI labels (source, revision, version, licenses...), so GHCR links
+      # the image to this repo and `docker inspect` says what it is.
+      - name: Image labels
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: |
+            ghcr.io/${{ steps.repo.outputs.name }}
+            ghcr.io/${{ steps.repo.outputs.web }}
+          tags: |
+            type=raw,value=nightly-${{ github.sha }}
+          labels: |
+            org.opencontainers.image.title=Collaborative Brick Layout Designer (web)
+            org.opencontainers.image.description=A web app for planning LEGO train and town layouts together, and the server for the desktop app
+
       - name: Short SHA
         id: sha
         run: echo "short=${GITHUB_SHA::8}" >> "$GITHUB_OUTPUT"
@@ -62,6 +77,7 @@ jobs:
             ghcr.io/${{ steps.repo.outputs.web }}:nightly-${{ steps.sha.outputs.short }}
           build-args: |
             APP_VERSION=nightly-${{ github.sha }}
+          labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 

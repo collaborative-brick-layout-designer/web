@@ -78,8 +78,34 @@ jobs:
           context: .
           platforms: linux/amd64
           push: false
+          load: true
+          tags: cbld-web:ci
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      # The image starts on empty volumes, as a self-hoster's first run does,
+      # and its HEALTHCHECK reports healthy.
+      - name: The image starts and reports healthy
+        run: |
+          docker volume create cbld-ci-data >/dev/null
+          docker volume create cbld-ci-parts >/dev/null
+          docker volume create cbld-ci-backups >/dev/null
+          docker run -d --name cbld-ci -p 3000:3000 \
+            -e DB_PATH=/data/cbld.sqlite -e PARTS_DIR=/parts -e BACKUPS_DIR=/backups \
+            -e PUBLIC_URL=http://localhost:3000 -e COOKIE_SECURE=false \
+            -v cbld-ci-data:/data -v cbld-ci-parts:/parts -v cbld-ci-backups:/backups \
+            cbld-web:ci
+          for i in $(seq 60); do
+            status=$(docker inspect -f '{{.State.Health.Status}}' cbld-ci 2>/dev/null || echo gone)
+            [ "$status" = healthy ] && break
+            [ "$status" = gone ] && break
+            sleep 3
+          done
+          echo "Health: $status"
+          docker logs cbld-ci 2>&1 | tail -40
+          docker inspect -f '{{json .State.Health}}' cbld-ci | jq .
+          [ "$status" = healthy ]
+          curl -sf http://localhost:3000/api/health/ready
 
   osv-scan:
     name: OSV-Scanner (deps + actions)
