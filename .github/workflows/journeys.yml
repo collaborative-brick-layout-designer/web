@@ -272,6 +272,10 @@ jobs:
     if: ${{ !cancelled() && needs.every-spec-plan.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    permissions:
+      contents: read
+      actions: read
+      issues: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -312,6 +316,7 @@ jobs:
         working-directory: apps/web
         env:
           PLAN: ${{ needs.every-spec-plan.outputs.matrix }}
+          FLAKY_OUT: ${{ github.workspace }}/flaky.json
         run: |
           node ../../.github/scripts/e2e-summary.mjs merged.json all-blob-reports \
             "${{ needs.every-spec-plan.outputs.count }}" >> "$GITHUB_STEP_SUMMARY"
@@ -333,6 +338,34 @@ jobs:
           name: e2e-timings
           path: shard-timings.json
           retention-days: 30
+
+      # Retries hide flaky tests: a test that failed and then passed leaves
+      # the night green. Each scheduled night with any adds them to one
+      # issue, "Flaky e2e tests", which stays open until someone fixes them
+      # and closes it.
+      - name: Flaky tests to their issue
+        if: ${{ github.event_name == 'schedule' && hashFiles('flaky.json') != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          count=$(jq length flaky.json)
+          echo "Flaky tonight: $count"
+          [ "$count" -gt 0 ] || exit 0
+          {
+            echo "$(date -u +%Y-%m-%d): $count test(s) failed, then passed on the retry ($RUN_URL):"
+            echo
+            jq -r '.[] | "- `\(.where)` \(.title): \(.error[0:160])"' flaky.json
+          } > flaky.md
+          title="Flaky e2e tests"
+          issue=$(gh issue list --state open --search "in:title \"$title\"" --json number,title --jq ".[] | select(.title == \"$title\") | .number" | head -1)
+          if [ -n "$issue" ]; then
+            gh issue comment "$issue" --body-file flaky.md
+          else
+            { echo "Tests the nightly run of every e2e spec saw fail and then pass on the retry. Each night with any adds a comment; close this once they're fixed."; echo; cat flaky.md; } > body.md
+            gh issue create --title "$title" --body-file body.md
+          fi
 
       - name: Upload the merged HTML report
         if: ${{ !cancelled() }}
