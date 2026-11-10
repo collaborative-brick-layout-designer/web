@@ -289,9 +289,23 @@ copy of everything somewhere else.
 
 To restore the pictures: `tar -xzf cbld-2026-10-01.bgimages.tar.gz -C /data/bgimages`.
 
-To restore: stop the container, unzip a backup over the database
-(`gunzip -c cbld-2026-10-01.sqlite.gz > /data/cbld.sqlite`, and delete any
-`cbld.sqlite-wal` and `cbld.sqlite-shm` beside it), then start it again.
+To restore: stop the container, unzip a backup over the database and delete
+the `cbld.sqlite-wal` and `cbld.sqlite-shm` beside it, then start it again.
+The volumes aren't folders on the host, so do it from a throwaway container
+that mounts them. From the folder with `docker-compose.yml` (Compose names the
+volumes `<folder>_cbld-data` and so on; `docker volume ls` lists them):
+
+```sh
+docker compose stop
+docker run --rm \
+  -v brick-layouts_cbld-data:/data \
+  -v brick-layouts_cbld-backups:/backups \
+  alpine sh -c 'gunzip -c /backups/cbld-2026-10-01.sqlite.gz > /data/cbld.sqlite && rm -f /data/cbld.sqlite-wal /data/cbld.sqlite-shm'
+docker compose start
+```
+
+With host folders instead of volumes, run the same `gunzip` and `rm` on the
+host's paths.
 
 ### Repair tools
 
@@ -511,11 +525,13 @@ include.
 
 ## Developing
 
-Requirements: **Node.js 24+** and **pnpm 10+**.
+Requirements: **Node.js 24+** (CI and the Docker image run the release in
+`.node-version`, 26.12.1 today) and **pnpm**: `corepack enable` gives you the
+version `package.json`'s `packageManager` names, the one CI uses.
 
 ```sh
 git clone https://github.com/collaborative-brick-layout-designer/web.git
-cd collaborative-brick-layout-designer
+cd web
 pnpm install
 cp .env.example .env      # set BOOTSTRAP_ADMIN_*, and ENABLE_PASSWORD_AUTH=true for local sign-in
 pnpm --filter @cld/server db:migrate
