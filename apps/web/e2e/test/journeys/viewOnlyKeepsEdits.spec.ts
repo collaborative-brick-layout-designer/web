@@ -62,7 +62,7 @@ test('edits the server didn’t take after your role went down to view only are 
   // Offline, a second part waits on his computer…
   await ben.waitForLoadState('networkidle');
   await benContext.setOffline(true);
-  await expect(ben.getByText(/^(Reconnecting…|Offline)$/)).toBeVisible({ timeout: 45000 });
+  await expect(ben.getByText(/^(Reconnecting…|Offline.*)$/)).toBeVisible({ timeout: 45000 });
   await placePart(ben);
   await expect.poll(() => brickCount(ben)).toBe(2);
 

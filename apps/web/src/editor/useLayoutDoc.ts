@@ -24,11 +24,14 @@ import { canReadDoc, removeDuplicateItems, repairSidecarCache } from '@cld/ydoc'
 import { keepRefusedCopy, type RefusedWhy } from './refusedCopies';
 import { announceSignInEnded } from '../demo/demoVisitor';
 import { notePresenceLayout } from './awareness';
+import { OfflineEditWatch, replacedText } from './offlineEdits';
+import { useEditorStore } from './editorStore';
 
 export type SaveStatus =
   | { kind: 'connecting' }
   | { kind: 'synced' }
-  | { kind: 'reconnecting'; lastSyncedAt: number | null }
+  /** `longer`: still not back OFFLINE_AFTER_MS after it dropped (the pill says "Offline"). */
+  | { kind: 'reconnecting'; lastSyncedAt: number | null; longer?: boolean }
   | { kind: 'offline'; lastSyncedAt: number | null }
   | { kind: 'error'; message: string }
   /** The module editor: changes not saved yet (Save sends them). */
@@ -86,6 +89,9 @@ const SYNC_TIMEOUT_MS = 10_000;
  * show Wi-Fi can take a while to arrive and be read.
  */
 const SYNCING_TIMEOUT_MS = 60_000;
+
+/** Retrying this long after the connection dropped: the pill says "Offline". */
+export const OFFLINE_AFTER_MS = 5_000;
 
 /** Why a layout won't open when its doc is newer than this page reads. */
 export const UNREADABLE_LAYOUT =
@@ -315,6 +321,12 @@ export function useLayoutDoc(layoutId: string, canEdit?: boolean): LayoutDocStat
     let unsent = false;
     // Refused by the server: the doc is handed to refusedCopies, not destroyed.
     let refused = false;
+    // Parts changed while not in step, to say if someone else's change replaced them.
+    const offlineEdits = new OfflineEditWatch();
+    const onOfflineEdit = (tr: Y.Transaction): void => {
+      if (tr.origin === LOCAL_ORIGIN && lastSyncedAt !== null && !(provider.wsconnected && provider.synced)) offlineEdits.note(tr);
+    };
+    fresh.on('afterTransaction', onOfflineEdit);
     const onDocUpdate = (_u: Uint8Array, origin: unknown): void => {
       if (origin !== provider && !(provider.wsconnected && provider.synced)) unsent = true;
     };
@@ -372,6 +384,13 @@ export function useLayoutDoc(layoutId: string, canEdit?: boolean): LayoutDocStat
           setLoadError(null);
         }
         lastSyncedAt = Date.now();
+        if (offlineEdits.size > 0) {
+          // (Once our edits and theirs have both been applied: the repairs run 50 ms after.)
+          setTimeout(() => {
+            const { replaced, of } = offlineEdits.settle(fresh);
+            if (replaced > 0) useEditorStore.getState().showNotice(replacedText(replaced, of), 'error', 12000);
+          }, 300);
+        }
         setLoading(false);
         setDoc(fresh);
         setAwareness(provider.awareness);
@@ -379,7 +398,15 @@ export function useLayoutDoc(layoutId: string, canEdit?: boolean): LayoutDocStat
       }
     };
 
+    // Still not back this long after the connection dropped: say "Offline"
+    // (y-websocket keeps saying "connecting" while it retries).
+    let offlineTimer: ReturnType<typeof setTimeout> | null = null;
+    const clearOffline = (): void => {
+      if (offlineTimer) clearTimeout(offlineTimer);
+      offlineTimer = null;
+    };
     const onStatus = (event: { status: 'disconnected' | 'connecting' | 'connected' }): void => {
+      if (event.status !== 'connecting') clearOffline();
       switch (event.status) {
         case 'connected':
           // 'sync' follows once the layout has arrived and been read:
@@ -388,6 +415,11 @@ export function useLayoutDoc(layoutId: string, canEdit?: boolean): LayoutDocStat
           break;
         case 'connecting':
           setStatus({ kind: 'reconnecting', lastSyncedAt });
+          if (lastSyncedAt !== null && !offlineTimer)
+            offlineTimer = setTimeout(() => {
+              offlineTimer = null;
+              setStatus({ kind: 'reconnecting', lastSyncedAt, longer: true });
+            }, OFFLINE_AFTER_MS);
           break;
         case 'disconnected':
           setStatus({ kind: 'offline', lastSyncedAt });
@@ -472,6 +504,7 @@ export function useLayoutDoc(layoutId: string, canEdit?: boolean): LayoutDocStat
     fresh.on('afterTransaction', onTransaction);
 
     return () => {
+      clearOffline();
       if (syncTimer) clearTimeout(syncTimer);
       meta.unobserve(onMeta);
       provider.off('sync', onSync);
@@ -479,6 +512,7 @@ export function useLayoutDoc(layoutId: string, canEdit?: boolean): LayoutDocStat
       provider.off('connection-close', onConnectionClose);
       fresh.off('afterTransaction', onTransaction);
       fresh.off('update', onDocUpdate);
+      fresh.off('afterTransaction', onOfflineEdit);
       if (repairTimer) clearTimeout(repairTimer);
       if (providerRef.current === provider) providerRef.current = null;
       if (restarting.current) {
