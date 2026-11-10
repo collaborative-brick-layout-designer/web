@@ -7,7 +7,7 @@
 // index.ts and Admin › Settings › "Reset now" both run it through
 // `runDemoReset`, so two resets never overlap.
 
-import { randomUUID } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import { Buffer } from 'node:buffer';
 import { readFileSync } from 'node:fs';
 import { unlink } from 'node:fs/promises';
@@ -34,6 +34,30 @@ export const DEMO_SAMPLES = {
   module: { file: 'oracle/flex-a.bbm', title: 'Sample module' },
   /** A hall, named as one would be (an install without the file gets an empty one by this name). */
   venue: { file: 'grand-lobby.bld-venue', name: 'Community Hall' },
+} as const;
+
+/** The namespace the samples' ids are made in (UUIDv5, RFC 4122). Never change it: links to the samples use these ids. */
+const DEMO_NAMESPACE = '6f0c2d1e-9a4b-5c3d-8e7f-0a1b2c3d4e5f';
+
+/** A UUIDv5 of `name` in `namespace`: the same every time. */
+export function uuidV5(name: string, namespace = DEMO_NAMESPACE): string {
+  const ns = Buffer.from(namespace.replace(/-/g, ''), 'hex');
+  const hash = createHash('sha1').update(ns).update(name, 'utf8').digest();
+  hash[6] = (hash[6]! & 0x0f) | 0x50;
+  hash[8] = (hash[8]! & 0x3f) | 0x80;
+  const h = hash.subarray(0, 16).toString('hex');
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20, 32)}`;
+}
+
+/**
+ * Each sample's id, the same after every reset (UUIDv5 of the demo account
+ * and the sample's key), so a link, share or bookmark to "Sample layout"
+ * keeps working from one day to the next.
+ */
+export const DEMO_SAMPLE_IDS = {
+  layout: uuidV5('demo-account:layout'),
+  module: uuidV5('demo-account:module'),
+  venue: uuidV5('demo-account:venue'),
 } as const;
 
 /** The sample venue's data from its file (its own name, else "Community Hall"); an empty hall when it's missing or unreadable. */
@@ -111,10 +135,12 @@ async function seedSamples(now: Date): Promise<void> {
   const venue = sampleVenue(sample(DEMO_SAMPLES.venue.file));
   const base = { ownerUserId: DEMO_USER_ID, ownerOrgId: null, createdBy: DEMO_USER_ID, createdAt: now, updatedAt: now, docVersion: 0, sidecarSnapshot: null };
   db.transaction((tx) => {
-    tx.insert(schema.layouts).values({ ...base, id: randomUUID(), title: DEMO_SAMPLES.layout.title, docSnapshot: Buffer.from(layoutDoc) }).run();
-    tx.insert(schema.modules).values({ ...base, id: randomUUID(), title: DEMO_SAMPLES.module.title, docSnapshot: Buffer.from(moduleDoc) }).run();
+    // Under the same ids as yesterday's (deleteDemoThings took the old rows,
+    // with their live updates, versions, collaborators and share links).
+    tx.insert(schema.layouts).values({ ...base, id: DEMO_SAMPLE_IDS.layout, title: DEMO_SAMPLES.layout.title, docSnapshot: Buffer.from(layoutDoc) }).run();
+    tx.insert(schema.modules).values({ ...base, id: DEMO_SAMPLE_IDS.module, title: DEMO_SAMPLES.module.title, docSnapshot: Buffer.from(moduleDoc) }).run();
     tx.insert(schema.venueLibrary)
-      .values({ id: randomUUID(), ownerUserId: DEMO_USER_ID, ownerOrgId: null, name: String(venue.name), data: JSON.stringify(venue), createdBy: DEMO_USER_ID, createdAt: now })
+      .values({ id: DEMO_SAMPLE_IDS.venue, ownerUserId: DEMO_USER_ID, ownerOrgId: null, name: String(venue.name), data: JSON.stringify(venue), createdBy: DEMO_USER_ID, createdAt: now })
       .run();
   });
 }

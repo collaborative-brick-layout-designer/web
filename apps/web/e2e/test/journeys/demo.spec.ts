@@ -9,7 +9,8 @@
 //      the editor. The reset signs every visitor out: the live layout
 //      closes and the page says "The demo was reset. Start again?" instead
 //      of an error. One click brings them back in, to a Home where their
-//      layout is gone and the sample is back, unedited.
+//      layout is gone and the sample is back, unedited, under the same id
+//      (the link to it still opens it).
 //   4. Turning the demo off signs the visitor out and hides Try the demo;
 //      their page says the demo has ended.
 
@@ -110,11 +111,17 @@ test('an admin turns on the demo, a visitor tries it, Reset now signs them out a
     await expect(visitor.getByText(`Visitor layout ${ts}`)).toHaveCount(0);
     await expect(visitor.getByRole('alertdialog')).toHaveCount(0);
 
-    // The sample is back as it was: a fresh copy, without the added part.
+    // The sample is back as it was, without the added part, under the same
+    // id: the link the visitor had still opens it.
     const after = await myLayouts(visitor);
     expect(after.map((l) => l.title)).toEqual([SAMPLE]);
-    expect(after[0]!.id).not.toBe(sample!.id);
+    expect(after[0]!.id).toBe(sample!.id);
     expect(await savedBricks(visitor, after[0]!.id)).toBe(original);
+    await visitor.goto(`/editor/${sample!.id}`);
+    await expect(visitor.locator('canvas').first()).toBeVisible({ timeout: 15000 });
+    await expect.poll(() => brickCount(visitor), { timeout: 15000 }).toBe(original);
+    await expect(visitor.getByText(/This layout isn't here/)).toHaveCount(0);
+    await visitor.goto('/');
 
     // The demo can't share: the server says so in plain words.
     const share = await visitor.request.post(`/api/layouts/${after[0]!.id}/public-share`);
