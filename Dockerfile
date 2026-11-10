@@ -97,6 +97,13 @@ COPY --from=builder /app/packages/bbm/tests/fixtures/oracle/flex-a.bbm ./package
 # root. The folders it writes to belong to it, so a new named volume starts
 # out owned by node too. A volume an older image made is root's: the
 # entrypoint says so and how to hand it over (README › Volumes).
+#
+# Any other uid:gid works as well (`docker run --user 99:100`, compose's
+# `user:`), with or without a passwd entry: the server writes only to its
+# volumes and /tmp, never to a home folder, and needs no npm, pnpm or
+# corepack at runtime (removed above). HOME points at /tmp so nothing that
+# looks for a home folder finds an unwritable or missing one.
+ENV HOME=/tmp
 COPY --chmod=0755 docker/entrypoint.sh /usr/local/bin/cbld-entrypoint
 RUN mkdir -p /data /parts /backups /app/apps/server/data \
  && chown node:node /data /parts /backups /app/apps/server/data

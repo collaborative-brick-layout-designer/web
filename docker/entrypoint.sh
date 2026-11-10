@@ -1,14 +1,19 @@
 #!/bin/sh
-# The image runs as the unprivileged `node` user (uid 1000, gid 1000). Before
-# the server starts, check that it can write where it keeps things: the
-# database's folder, the parts folder and the backups folder. A volume made
-# while the image still ran as root is owned by root, and the server would
-# otherwise fail later with an error that doesn't say why.
+# The image runs as the unprivileged `node` user (uid 1000, gid 1000) unless
+# started with another uid:gid (`--user 99:100`; no passwd entry needed).
+# Before the server starts, check that whoever it runs as can write where it
+# keeps things: the database's folder, the parts folder and the backups
+# folder, each by a real write probe. A volume made while the image still
+# ran as root is owned by root, and the server would otherwise fail later
+# with an error that doesn't say why. The uid and gid come from the running
+# process (id -u, id -g), never from a fixed number, so the chown the
+# message gives is the right one for this container.
 set -eu
 
 uid=$(id -u)
 gid=$(id -g)
 failed=0
+echo "cbld: running as uid $uid, gid $gid (HOME=${HOME:-unset}, TMPDIR=${TMPDIR:-/tmp})" >&2
 
 check() {
   what=$1
@@ -32,8 +37,9 @@ check backups "${BACKUPS_DIR:-/backups}"
 if [ "$failed" -ne 0 ]; then
   cat >&2 <<MSG
 cbld: The server runs as uid $uid, gid $gid, and stops here rather than fail later.
-cbld: If these volumes were made by an older image (which ran as root), give
-cbld: them to that user once. With docker compose, from the folder with docker-compose.yml:
+cbld: If these volumes were made by an older image (which ran as root), or you
+cbld: started the container as another user, give them to uid $uid, gid $gid once.
+cbld: With docker compose, from the folder with docker-compose.yml:
 cbld:   docker compose run --rm --user root --entrypoint chown app -R $uid:$gid /data /parts /backups
 cbld: With plain docker (volume names from: docker volume ls):
 cbld:   docker run --rm -v <data volume>:/data -v <parts volume>:/parts -v <backups volume>:/backups \\

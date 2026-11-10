@@ -168,11 +168,31 @@ gid 1000**, not as root. New named volumes start out owned by that user, so
 a fresh install needs nothing. Host folders must be writable by 1000:1000
 (`sudo chown -R 1000:1000 /mnt/user/appdata/cbld`).
 
+**Any user works.** To run as another uid:gid (Unraid's `nobody:users` is
+99:100; Synology and others have their own), set it on the container and give
+it the volumes:
+
+```yaml
+    user: "99:100"      # in docker-compose.yml, under the service
+```
+
+or `docker run --user 99:100 …`. The user needs no account inside the image:
+the server writes only to its three volumes and `/tmp`, never to a home
+folder, and uses no npm or pnpm at runtime. Pick the uid:gid that owns the
+host folders (or that your NAS runs its apps as), and make the volumes
+writable by it: `sudo chown -R 99:100 /mnt/user/appdata/cbld` for host
+folders, or the commands below with `99:100` in place of `1000:1000` for
+named volumes. At start the server logs `cbld: running as uid 99, gid 100`
+and checks each folder with a real write; if one isn't writable it stops
+with the exact `chown` to run for that uid and gid (CI starts the image as
+99:100 and as 12345:12345 to keep this true).
+
 **Upgrading from an image that ran as root** (any release up to v2.0.0, and
 `:nightly` before this change): the volumes it made belong to root, and the
 server stops at start with a line like `cbld: ERROR: the database folder
 /data is not writable by uid 1000 (gid 1000); it is owned by 0:0.` Give them
-to the server's user once, with it stopped:
+to the server's user once, with it stopped (`1000:1000` below is the
+default; use the uid:gid you run the container as):
 
 ```sh
 docker compose stop
