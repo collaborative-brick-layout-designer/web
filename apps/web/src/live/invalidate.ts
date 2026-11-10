@@ -32,6 +32,8 @@ export interface Hint {
   owner?: { kind: 'user' | 'org'; id: string };
   id?: string;
   action?: string;
+  /** The thing's version after the change (a module's save), when the server says. */
+  v?: number;
 }
 
 // Admin pages that count or list people's things.

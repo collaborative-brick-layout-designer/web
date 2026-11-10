@@ -34,6 +34,12 @@ export interface Hint {
   owner?: HintOwner;
   id?: string;
   action: string;
+  /**
+   * The thing's version after the change, when the route says (a module's
+   * save). Two saves close together are then two hints, not squashed into
+   * one, so a tab showing the module always hears about the second.
+   */
+  v?: number;
 }
 
 /** One open event stream. `write` returns false once the socket is gone. */
@@ -94,6 +100,7 @@ export function formatHint(hint: Hint): string {
   const body: Hint = { kind: hint.kind, action: hint.action };
   if (hint.owner) body.owner = { kind: hint.owner.kind, id: hint.owner.id };
   if (hint.id) body.id = hint.id;
+  if (typeof hint.v === 'number') body.v = hint.v;
   return `data: ${JSON.stringify(body)}\n\n`;
 }
 
