@@ -19,6 +19,8 @@ jobs:
   image:
     name: Build & push image
     runs-on: ubuntu-latest
+    outputs:
+      latest: ${{ steps.tip.outputs.latest }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -155,6 +157,8 @@ jobs:
   release-assets:
     name: Update :latest pre-release
     needs: image
+    # Only the build of the commit still at the tip of main, as for :nightly.
+    if: needs.image.outputs.latest == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -166,10 +170,24 @@ jobs:
           mkdir -p release
           cp .env.example release/
 
+      # The release only replaced its files; the tag stayed on an April
+      # commit, so "Source code" was months old. Move it to this commit.
+      - name: Move the latest tag to this commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/latest" > /dev/null 2>&1; then
+            gh api -X PATCH "repos/$GITHUB_REPOSITORY/git/refs/tags/latest" -f sha="$GITHUB_SHA" -F force=true > /dev/null
+          else
+            gh api -X POST "repos/$GITHUB_REPOSITORY/git/refs" -f ref=refs/tags/latest -f sha="$GITHUB_SHA" > /dev/null
+          fi
+          echo "latest -> $GITHUB_SHA"
+
       - name: Update pre-release
         uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3.0.4
         with:
           tag_name: latest
+          target_commitish: ${{ github.sha }}
           name: Latest Build
           body: |
             Automated build from the latest commit on `main`.
@@ -180,3 +198,18 @@ jobs:
           files: release/*
           prerelease: true
           make_latest: false
+
+      # Files an older run uploaded that this one didn't, so the list is
+      # exactly this build's.
+      - name: Remove files this build didn't make
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          keep=$(cd release && ls -1)
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/latest" --jq '.assets[] | "\(.id) \(.name)"' |
+          while read -r id name; do
+            if ! printf '%s\n' "$keep" | grep -qxF "$name"; then
+              echo "Removing $name"
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/releases/assets/$id"
+            fi
+          done
