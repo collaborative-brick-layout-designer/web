@@ -1,6 +1,6 @@
 // Regression tests: layout reads must include realtime edits that have
-// not yet been compacted into layouts.doc_snapshot, and a wholesale
-// snapshot PUT must not race the live editor.
+// not yet been compacted into layouts.doc_snapshot, and there is no
+// wholesale snapshot PUT to race the live editor.
 
 import Fastify, { type FastifyInstance } from 'fastify';
 import cookie from '@fastify/cookie';
@@ -111,35 +111,14 @@ describe('layout reads include unflushed realtime edits', () => {
     expect(readK(res.rawPayload)).toBe('public');
   });
 
-  it('PUT /snapshot is refused (409) while the layout is open in the realtime editor', async () => {
-    await docHub.getOrCreate(layoutId);
+  it('there is no PUT /snapshot: live edits are the only way a layout changes', async () => {
     const res = await app.inject({
       method: 'PUT',
       url: `/api/layouts/${layoutId}/snapshot`,
       headers: { cookie: owner.cookie, 'content-type': 'application/octet-stream' },
       payload: Buffer.from(editOn(snapshot, 'put')),
     });
-    expect(res.statusCode).toBe(409);
-  });
-
-  it('PUT /snapshot supersedes pending updates instead of merging them back in', async () => {
-    await addPendingUpdate('stale');
-    const replacement = new Y.Doc();
-    replacement.getMap('m').set('k', 'replaced');
-    const res = await app.inject({
-      method: 'PUT',
-      url: `/api/layouts/${layoutId}/snapshot`,
-      headers: { cookie: owner.cookie, 'content-type': 'application/octet-stream' },
-      payload: Buffer.from(Y.encodeStateAsUpdate(replacement)),
-    });
-    expect(res.statusCode).toBe(200);
-    const rows = await db.select().from(schema.layoutUpdates).where(eq(schema.layoutUpdates.layoutId, layoutId));
-    expect(rows.length).toBe(0);
-    const get = await app.inject({
-      method: 'GET',
-      url: `/api/layouts/${layoutId}/snapshot`,
-      headers: { cookie: owner.cookie },
-    });
-    expect(readK(get.rawPayload)).toBe('replaced');
+    expect(res.statusCode).toBe(404);
+    expect(readK(Buffer.from((await db.select().from(schema.layouts).where(eq(schema.layouts.id, layoutId)).get())!.docSnapshot as Uint8Array))).not.toBe('put');
   });
 });

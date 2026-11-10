@@ -153,12 +153,10 @@ describe('the work an update takes to apply', () => {
     expect(whole.at(-1)).toBe(0); // no deletions: a delete set goes in its place
     const heavy = repeated(client, len, Math.ceil((2 * MAX_UPDATE_WORK) / structs), whole.slice(0, -1));
     const put = (url: string) => app.inject({ method: 'PUT', url, headers: { cookie: owner.cookie, 'content-type': 'application/octet-stream' }, payload: Buffer.from(heavy) });
-    expect((await put(`/api/layouts/${id}/snapshot`)).json()).toEqual({ error: 'unreadable_snapshot' });
     const mod = await app.inject({ method: 'POST', url: '/api/modules', headers: { cookie: owner.cookie }, payload: { title: 'Siding' } });
     expect((await put(`/api/modules/${mod.json().id}/snapshot`)).json()).toEqual({ error: 'unreadable_snapshot' });
     // The same document without them is taken.
-    await docHub.close(id);
-    const ok = await app.inject({ method: 'PUT', url: `/api/layouts/${id}/snapshot`, headers: { cookie: owner.cookie, 'content-type': 'application/octet-stream' }, payload: Buffer.from(whole) });
+    const ok = await app.inject({ method: 'PUT', url: `/api/modules/${mod.json().id}/snapshot`, headers: { cookie: owner.cookie, 'content-type': 'application/octet-stream' }, payload: Buffer.from(whole) });
     expect(ok.statusCode).toBe(200);
   });
 

@@ -295,105 +295,16 @@ describe('layout routes', () => {
     expect(snap.rawPayload.length).toBeGreaterThan(0);
   });
 
-  it('PUT /snapshot stores new bytes and bumps doc-version', async () => {
+  it('there is no PUT /snapshot: a layout is saved through its live room only', async () => {
     const cookieStr = await registerAndLogin(app, 'snap2@example.com');
-    const create = await app.inject({
-      method: 'POST',
-      url: '/api/layouts',
-      headers: { cookie: cookieStr },
-      payload: { title: 'snap2' },
-    });
-    const id = (create.json() as { id: string }).id;
-
-    const initial = await app.inject({
-      method: 'GET',
-      url: `/api/layouts/${id}/snapshot`,
-      headers: { cookie: cookieStr },
-    });
-    const initialBytes = initial.rawPayload;
-
-    // Build a fresh y-doc with a small mutation, then PUT its bytes.
-    const Y = await import('yjs');
-    const doc = new Y.Doc();
-    Y.applyUpdate(doc, new Uint8Array(initialBytes));
-    doc.getMap('meta').set('event', 'edited via test');
-    const updated = Y.encodeStateAsUpdate(doc);
-
+    const id = ((await app.inject({ method: 'POST', url: '/api/layouts', headers: { cookie: cookieStr }, payload: { title: 'snap2' } })).json() as { id: string }).id;
     const put = await app.inject({
       method: 'PUT',
       url: `/api/layouts/${id}/snapshot`,
       headers: { cookie: cookieStr, 'content-type': 'application/octet-stream' },
-      payload: Buffer.from(updated),
+      payload: Buffer.from([1, 2, 3]),
     });
-    expect(put.statusCode).toBe(200);
-
-    const after = await app.inject({
-      method: 'GET',
-      url: `/api/layouts/${id}/snapshot`,
-      headers: { cookie: cookieStr },
-    });
-    expect(after.headers['x-doc-version']).toBe('1');
-
-    const reread = new Y.Doc();
-    Y.applyUpdate(reread, new Uint8Array(after.rawPayload));
-    expect(reread.getMap('meta').get('event')).toBe('edited via test');
-  });
-
-  it('PUT /snapshot rejects empty bodies', async () => {
-    const cookieStr = await registerAndLogin(app, 'snap3@example.com');
-    const create = await app.inject({
-      method: 'POST',
-      url: '/api/layouts',
-      headers: { cookie: cookieStr },
-      payload: { title: 'snap3' },
-    });
-    const id = (create.json() as { id: string }).id;
-
-    const res = await app.inject({
-      method: 'PUT',
-      url: `/api/layouts/${id}/snapshot`,
-      headers: { cookie: cookieStr, 'content-type': 'application/octet-stream' },
-      payload: Buffer.from([]),
-    });
-    expect(res.statusCode).toBe(400);
-  });
-
-  it('PUT /snapshot rejects non-editor users with 403', async () => {
-    const aliceCookie = await registerAndLogin(app, 'alice-snap@example.com');
-    const bobCookie = await registerAndLogin(app, 'bob-snap@example.com');
-    const create = await app.inject({
-      method: 'POST',
-      url: '/api/layouts',
-      headers: { cookie: aliceCookie },
-      payload: { title: 'alice' },
-    });
-    const id = (create.json() as { id: string }).id;
-
-    // Bob is not a collaborator → returns 404 (existence-leak protection).
-    const noShare = await app.inject({
-      method: 'PUT',
-      url: `/api/layouts/${id}/snapshot`,
-      headers: { cookie: bobCookie, 'content-type': 'application/octet-stream' },
-      payload: Buffer.from([1]),
-    });
-    expect(noShare.statusCode).toBe(404);
-
-    // Now grant Bob viewer; PUT should be 403 (not 404 — he knows the layout exists).
-    const bob = await db.select().from(schema.users).where(eq(schema.users.email, 'bob-snap@example.com')).get();
-    await db.insert(schema.layoutCollaborators).values({
-      layoutId: id,
-      userId: bob!.id,
-      role: 'viewer',
-      addedAt: new Date(),
-    });
-
-    const viewerPut = await app.inject({
-      method: 'PUT',
-      url: `/api/layouts/${id}/snapshot`,
-      headers: { cookie: bobCookie, 'content-type': 'application/octet-stream' },
-      payload: Buffer.from([1]),
-    });
-    expect(viewerPut.statusCode).toBe(403);
+    expect(put.statusCode).toBe(404);
   });
 
   it('a viewer collaborator can read but cannot delete', async () => {
@@ -541,24 +452,5 @@ describe('layout routes', () => {
     expect((res.json() as { error: string }).error).toBe('no_updates');
   });
 
-  it('PUT /snapshot returns 400 when body is not binary', async () => {
-    const cookieStr = await registerAndLogin(app, 'snaptext@example.com');
-    const create = await app.inject({
-      method: 'POST',
-      url: '/api/layouts',
-      headers: { cookie: cookieStr },
-      payload: { title: 'Binary Test' },
-    });
-    const { id } = create.json() as { id: string };
-
-    const res = await app.inject({
-      method: 'PUT',
-      url: `/api/layouts/${id}/snapshot`,
-      headers: { cookie: cookieStr, 'content-type': 'application/json' },
-      payload: { notBinary: true },
-    });
-    expect(res.statusCode).toBe(400);
-    expect((res.json() as { error: string }).error).toBe('expected_binary_body');
-  });
 
 });

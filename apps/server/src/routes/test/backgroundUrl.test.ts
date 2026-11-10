@@ -153,30 +153,7 @@ describe('background image address', () => {
     expect(bgOf(docHub.peek(id)!.doc)?.url).toBe(own(id));
   });
 
-  it('a snapshot PUT with an outside address is refused; one with its own is taken', async () => {
-    const id = await create({ title: 'Snap' });
-    await docHub.close(id);
-    const bad = createDefaultLayoutDoc();
-    bad.transact(() => setBg(bad, TRACKER));
-    const put = (doc: Y.Doc) =>
-      app.inject({ method: 'PUT', url: `/api/layouts/${id}/snapshot`, headers: { cookie: cookieStr, 'content-type': 'application/octet-stream' }, payload: Buffer.from(encodeDoc(doc)) });
-    const refused = await put(bad);
-    expect(refused.statusCode).toBe(400);
-    expect(refused.json()).toEqual({ error: 'invalid_background_image' });
-    const good = createDefaultLayoutDoc();
-    good.transact(() => setBg(good, own(id)));
-    expect((await put(good)).statusCode).toBe(200);
-  });
-
-  it('a snapshot PUT keeping the outside address the layout already had is taken', async () => {
-    const id = await create({ title: 'Snap' });
-    await docHub.close(id);
-    await storeLegacy(id, TRACKER);
-    const doc = createDefaultLayoutDoc();
-    doc.transact(() => setBg(doc, TRACKER));
-    const res = await app.inject({ method: 'PUT', url: `/api/layouts/${id}/snapshot`, headers: { cookie: cookieStr, 'content-type': 'application/octet-stream' }, payload: Buffer.from(encodeDoc(doc)) });
-    expect(res.statusCode).toBe(200);
-  });
+  // (Layouts have no snapshot PUT any more; the live room's background guard checks what arrives: ws/backgroundGuard.)
 
   it("a copy doesn't keep an outside address", async () => {
     const id = await create({ title: 'Legacy' });

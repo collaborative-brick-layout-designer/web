@@ -446,7 +446,6 @@ export const ROUTE_HINTS: Record<string, HintSpec> = {
   'PATCH /api/layouts/:id': resource('layout'),
   'DELETE /api/layouts/:id': resource('layout'),
   'POST /api/layouts/:id/copy': resource('layout', { reply: 'id' }),
-  'PUT /api/layouts/:id/snapshot': resource('layout'),
   'POST /api/layouts/:id/public-share': resource('layout'),
   'DELETE /api/layouts/:id/public-share': resource('layout'),
   'POST /api/layouts/:id/background-image': resource('layout'),
