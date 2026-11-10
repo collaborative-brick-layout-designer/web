@@ -5,8 +5,10 @@
 //   node e2e-summary.mjs <report.json> <blob dir> <shard count>
 //
 // PLAN (the plan's matrix, as JSON) adds each shard's planned minutes.
+// FLAKY_OUT names a file to write the flaky tests to, as JSON, for the
+// nightly's flaky-test issue.
 
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
 
 const [reportPath, blobDir, shardCountArg] = process.argv.slice(2);
 const shardCount = Number(shardCountArg);
@@ -100,6 +102,7 @@ if (report) {
   };
   table('Failed', failed);
   table('Flaky (failed, then passed on the retry)', flaky);
+  if (process.env.FLAKY_OUT) writeFileSync(process.env.FLAKY_OUT, JSON.stringify(flaky));
 } else {
   out.push('');
   out.push('No shard left a report.');
