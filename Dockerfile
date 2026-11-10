@@ -103,10 +103,17 @@ COPY --from=builder /app/packages/bbm/tests/fixtures/oracle/flex-a.bbm ./package
 # volumes and /tmp, never to a home folder, and needs no npm, pnpm or
 # corepack at runtime (removed above). HOME points at /tmp so nothing that
 # looks for a home folder finds an unwritable or missing one.
+#
+# The data folders are world-writable with the sticky bit (1777, like /tmp):
+# Docker fills a new, empty named volume from the image's folder, owner and
+# mode included, so a fresh volume is writable by whichever uid the
+# container runs as, with nothing to chown. A volume made by an older image
+# (root's, 0755) still stops the entrypoint with the chown to run.
 ENV HOME=/tmp
 COPY --chmod=0755 docker/entrypoint.sh /usr/local/bin/cbld-entrypoint
 RUN mkdir -p /data /parts /backups /app/apps/server/data \
- && chown node:node /data /parts /backups /app/apps/server/data
+ && chown node:node /data /parts /backups /app/apps/server/data \
+ && chmod 1777 /data /parts /backups /app/apps/server/data
 USER node
 
 EXPOSE 3000

@@ -133,17 +133,15 @@ jobs:
           docker logs cbld-ci-old; exit 1
 
       # The image works as any uid:gid, with no account inside the image
-      # (Unraid's nobody:users is 99:100): on volumes that user owns it
-      # starts, reports healthy, writes to all three folders, loads its
-      # native modules, and leaves nothing in a home folder or a package
-      # manager's cache.
+      # (Unraid's nobody:users is 99:100): on fresh named volumes, with no
+      # chown (Docker fills them from the image's 1777 folders), it starts,
+      # reports healthy, writes to all three folders, loads its native
+      # modules, and leaves nothing in a home folder or a package manager's
+      # cache.
       - name: The image runs as an arbitrary user (99:100)
         run: |
           docker rm -f cbld-ci-old >/dev/null 2>&1 || true
-          for v in data parts backups; do
-            docker volume create cbld-ci-u-$v >/dev/null
-            docker run --rm -v cbld-ci-u-$v:/mnt alpine:3.22 chown 99:100 /mnt
-          done
+          for v in data parts backups; do docker volume create cbld-ci-u-$v >/dev/null; done
           docker run -d --name cbld-ci-u -p 3002:3000 --user 99:100 \
             -e DB_PATH=/data/cbld.sqlite -e PARTS_DIR=/parts -e BACKUPS_DIR=/backups \
             -e PUBLIC_URL=http://localhost:3002 -e COOKIE_SECURE=false \
@@ -173,11 +171,15 @@ jobs:
           docker exec cbld-ci-u sh -c '[ -z "$(find /home -newer /app/apps/server/dist -type f 2>/dev/null)" ]'
           docker rm -f cbld-ci-u >/dev/null
 
-      # The same stop, for a user with no account in the image: the message
-      # names the chown for the uid and gid it runs as, not a fixed 1000.
+      # The same stop, for a user with no account in the image, on volumes
+      # an older image left behind (root's, 0755, with files in them): the
+      # message names the chown for the uid and gid it runs as, not a fixed 1000.
       - name: Root-owned volumes stop it as 12345:12345, naming that user's chown
         run: |
-          for v in data parts backups; do docker volume create cbld-ci-r-$v >/dev/null; done
+          for v in data parts backups; do
+            docker volume create cbld-ci-r-$v >/dev/null
+            docker run --rm -v cbld-ci-r-$v:/mnt alpine:3.22 sh -c 'touch /mnt/.old && chown -R 0:0 /mnt && chmod 755 /mnt'
+          done
           set +e
           docker run --name cbld-ci-r --user 12345:12345 \
             -e DB_PATH=/data/cbld.sqlite -e PARTS_DIR=/parts -e BACKUPS_DIR=/backups \
