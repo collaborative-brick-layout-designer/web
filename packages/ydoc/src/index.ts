@@ -129,8 +129,51 @@ export function seedFromSidecar(sidecar: Sidecar): Y.Doc {
   const meta = doc.getMap('meta');
   meta.set('schemaVersion', sidecar.schemaVersion);
   meta.set('bbmHashSha256', sidecar.bbmHashSha256);
-  meta.set('cache', sidecar as unknown as Record<string, unknown>);
+  importSidecarIntoDoc(doc, sidecar);
   return doc;
+}
+
+// ---------------------------------------------------------------------------
+// The budget (how many of each part the layout may use) is the one sidecar
+// field that doesn't live in `meta.cache`: the editor keeps it as a Y.Map at
+// `meta.budgetLimits` (part number → limit), so two people changing
+// different rows merge. A sidecar file carries it as `budgetLimits`.
+// ---------------------------------------------------------------------------
+
+export const BUDGET_LIMITS_KEY = 'budgetLimits';
+
+/** The doc's budget as a sidecar field, or undefined when the layout has no budget. */
+export function readBudgetLimitsFromDoc(doc: Y.Doc): Record<string, number> | undefined {
+  const y = doc.getMap('meta').get(BUDGET_LIMITS_KEY);
+  if (!(y instanceof Y.Map)) return undefined;
+  const out: Record<string, number> = {};
+  for (const [part, limit] of y.entries()) {
+    if (typeof limit === 'number' && Number.isFinite(limit) && limit >= 0) out[part] = limit;
+  }
+  return out;
+}
+
+/**
+ * Puts a sidecar into a doc the way the editor reads it: everything but the
+ * budget in `meta.cache`, the budget in `meta.budgetLimits`. With no
+ * budget in the sidecar, the doc's budget is left as it is.
+ */
+export function importSidecarIntoDoc(doc: Y.Doc, sidecar: Sidecar): void {
+  const { budgetLimits, ...rest } = sidecar;
+  const meta = doc.getMap('meta');
+  meta.set('cache', rest as unknown as Record<string, unknown>);
+  if (!budgetLimits) return;
+  const y = new Y.Map<number>();
+  for (const [part, limit] of Object.entries(budgetLimits)) y.set(part, limit);
+  meta.set(BUDGET_LIMITS_KEY, y);
+}
+
+/** `cache` with the doc's budget, as a sidecar. */
+function withBudget(doc: Y.Doc, cache: Record<string, unknown> | null): Sidecar | null {
+  const budgetLimits = readBudgetLimitsFromDoc(doc);
+  if (!cache) return budgetLimits ? { schemaVersion: 1, bbmHashSha256: '', budgetLimits } : null;
+  const { budgetLimits: _inCache, ...rest } = cache;
+  return (budgetLimits ? { ...rest, budgetLimits } : rest) as unknown as Sidecar;
 }
 
 // ---------------------------------------------------------------------------
@@ -382,7 +425,7 @@ function collectExtra(byKey: Map<string, Hit[]>, extra: Hit[]): void {
  * each entry collaboratively, it round-trips verbatim.
  */
 export function readSidecarFromDoc(doc: Y.Doc): Sidecar | null {
-  return readSidecarCache(doc) as Sidecar | null;
+  return withBudget(doc, readSidecarCache(doc));
 }
 
 /** Encode a doc to its binary y-update form — what we persist in the DB. */
@@ -410,5 +453,5 @@ export function exportBbmFromDoc(doc: Y.Doc): BbmMap | null {
 }
 
 export function exportSidecarFromDoc(doc: Y.Doc): Sidecar | null {
-  return (readSidecarCache(doc) as Sidecar | null) ?? null;
+  return withBudget(doc, readSidecarCache(doc));
 }

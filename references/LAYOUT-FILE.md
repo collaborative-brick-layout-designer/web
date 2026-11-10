@@ -15,7 +15,7 @@ Readers must accept both, and must ignore entries they don't know.
 |---|---|---|
 | `manifest.json` | yes | `{"format":"bld-layout","version":1,"generator":"…"}`. Writers put it first and store it uncompressed. |
 | `layout.bbm` | yes | The map exactly as a `.bbm` file holds it (desktop docs/bbm-schema.md). |
-| `sidecar.json` | no | Labels, modules, venue and background image. Same shape as the `.bbm.bld` sidecar (desktop docs/bbm-bld-schema.md), with two differences listed below. Left out when the layout has none of these. |
+| `sidecar.json` | no | Labels, modules, venue, background image, saved views and the budget. Same shape as the `.bbm.bld` sidecar (desktop docs/bbm-bld-schema.md), with two differences listed below. Left out when the layout has none of these. |
 | `background.<ext>` | no | The background image's bytes, named by `sidecar.json`'s `backgroundImage.file`. |
 | `parts/<file>` | no | The parts the layout uses that aren't in the bundled BlueBrick library. Each is a `<PartNumber>.<Color>.xml` (`.set.xml` for a set) with the sprites beside it (`.png`, `.gif`, `.jpg`). Sets bring their subparts too. |
 
@@ -25,6 +25,27 @@ Readers must accept both, and must ignore entries they don't know.
 - In `backgroundImage`, `file` (the entry name) replaces `path`, a location on
   one machine. Only a writer that couldn't read the image keeps `path`, and it
   warns that it did.
+
+## Budget
+
+`sidecar.json` (and the `.bbm.bld` sidecar) carries the layout's budget, how
+many of each part the layout may use, as `budgetLimits`:
+
+```json
+"budgetLimits": { "3001.1": 12, "3005.4": 0 }
+```
+
+- Part number → a whole number of 0 or more. 0 means none of that part. A
+  part without an entry is unlimited or forbidden by the reader's
+  preference, as in BlueBrick.
+- Present, even as `{}`, when the layout has a budget; absent when it has
+  none. The budget is shared with everyone who edits the layout.
+- In the live doc it is a Y.Map at `meta.budgetLimits` (part number →
+  limit), not part of `meta.cache`, so two people changing different rows
+  merge. A sidecar coming in (upload, `.bld-layout`) lands there, and the
+  sidecar going out carries it.
+- A BlueBrick `.bbb` file is the same list in XML; both apps import and
+  export it.
 
 ## Saved views
 

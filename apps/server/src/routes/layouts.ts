@@ -11,7 +11,7 @@ import * as Y from 'yjs';
 import { and, eq, isNull, or, sql } from 'drizzle-orm';
 import { readBbm, readSidecar, writeBbm, writeSidecar, type Sidecar } from '@cld/bbm';
 import { hashBbmBytes } from '@cld/bbm/hash';
-import { createDefaultLayoutDoc, decodeDoc, encodeDoc, exportBbmFromDoc, exportSidecarFromDoc, readSidecarCache, seedFromBbm, seedFromSidecar, writeSidecarCache } from '@cld/ydoc';
+import { createDefaultLayoutDoc, decodeDoc, encodeDoc, exportBbmFromDoc, exportSidecarFromDoc, importSidecarIntoDoc, readSidecarCache, seedFromBbm, seedFromSidecar, writeSidecarCache } from '@cld/ydoc';
 import { db, schema } from '../db/index.js';
 import { writeAuditEvent } from '../audit/writeAuditEvent.js';
 import { requireUser } from '../auth/cookie.js';
@@ -261,8 +261,9 @@ export async function layoutRoutes(app: FastifyInstance) {
       doc = createDefaultLayoutDoc();
     }
     // The editor reads (and edits) the sidecar from the main doc's
-    // `meta.cache`, so an imported sidecar goes there too.
-    if (sidecar) doc.getMap('meta').set('cache', sidecar as unknown as Record<string, unknown>);
+    // `meta.cache` (and its budget from `meta.budgetLimits`), so an
+    // imported sidecar goes there too.
+    if (sidecar) importSidecarIntoDoc(doc, sidecar);
     const docSnapshot = encodeDoc(doc);
 
     // Resolve owner — personal by default, or a club if `orgSlug` provided
