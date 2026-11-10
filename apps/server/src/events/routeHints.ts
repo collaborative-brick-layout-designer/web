@@ -10,7 +10,7 @@
 // after the reply is sent and never fail a request.
 
 import type { FastifyInstance, FastifyRequest } from 'fastify';
-import { eq, inArray } from 'drizzle-orm';
+import { eq, inArray, sql } from 'drizzle-orm';
 import { db, schema } from '../db/index.js';
 import type { Hint, HintOwner } from './hub.js';
 import { orgIdBySlug, ownerOfResource, publish, staffIds, type Reach } from './audience.js';
@@ -129,6 +129,36 @@ function club(
 }
 
 const bySlug = (ctx: HintCtx) => orgIdBySlug(ctx.params.slug ?? '');
+
+/** The account an invite is for, when there is one: their Home lists it ("You're invited to a club"). */
+async function inviteeOf(ctx: HintCtx): Promise<string | null> {
+  let email: string | null = null;
+  if (ctx.params.inviteId) {
+    const inv = await db.select({ e: schema.orgInvites.invitedEmail }).from(schema.orgInvites).where(eq(schema.orgInvites.id, ctx.params.inviteId)).get();
+    email = inv?.e ?? null;
+  } else if (typeof ctx.body.userId === 'string') {
+    return ctx.body.userId;
+  } else if (typeof ctx.body.email === 'string') {
+    email = ctx.body.email;
+  }
+  if (!email) return null;
+  const u = await db.select({ id: schema.users.id }).from(schema.users).where(sql`lower(${schema.users.email}) = ${email.trim().toLowerCase()}`).get();
+  return u?.id ?? null;
+}
+
+/** A club invite made, revoked or sent again: the club's members, and the person invited (their own list). */
+const clubInvite: HintSpec = {
+  before: async (c) => {
+    c.before.invitee = await inviteeOf(c);
+    await club(bySlug).before!(c);
+  },
+  after: async (c) => {
+    const out = await club(bySlug).after(c);
+    const invitee = c.before.invitee as string | null;
+    if (invitee) out.push({ hint: { kind: 'me', owner: { kind: 'user', id: invitee }, action: 'org-invites' } });
+    return out;
+  },
+};
 
 /** Something only the signed-in person sees (their account, settings, devices). */
 const me: HintSpec = {
@@ -550,9 +580,9 @@ export const ROUTE_HINTS: Record<string, HintSpec> = {
     },
   },
   'POST /api/orgs/:slug/hand-over': club(bySlug),
-  'POST /api/orgs/:slug/invites': club(bySlug),
-  'DELETE /api/orgs/:slug/invites/:inviteId': club(bySlug),
-  'POST /api/orgs/:slug/invites/:inviteId/resend': club(bySlug),
+  'POST /api/orgs/:slug/invites': clubInvite,
+  'DELETE /api/orgs/:slug/invites/:inviteId': clubInvite,
+  'POST /api/orgs/:slug/invites/:inviteId/resend': clubInvite,
   'PATCH /api/orgs/:slug/members/:userId': club(bySlug, (c) => [c.params.userId ?? null]),
   // Club roles: what a role allows changes what its holders may do, so every member hears.
   'POST /api/orgs/:slug/roles': club(bySlug),

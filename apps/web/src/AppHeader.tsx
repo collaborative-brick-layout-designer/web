@@ -70,10 +70,10 @@ export function AppHeader({ user }: Props) {
   const link = ({ isActive }: { isActive: boolean }) => `${linkBase} ${isActive ? 'bg-soft text-ink' : 'text-muted'}`;
   return (
     <>
-    <header className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 rounded-section border border-line bg-panel px-4 py-3">
-      <Link to="/" className="tap-target flex min-w-0 flex-1 items-center gap-3 sm:flex-none">
+    <header className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 md:flex-nowrap rounded-section border border-line bg-panel px-4 py-3">
+      <Link to="/" className="tap-target flex min-w-0 flex-1 items-center gap-3 sm:max-w-[13rem] lg:max-w-none lg:flex-none">
         <img src="/logo.png" alt="" className="h-9 w-9 shrink-0 rounded-[9px]" />
-        <span className="line-clamp-2 font-display text-base font-bold leading-tight text-ink sm:text-xl">Collaborative Brick Layout Designer</span>
+        <span className="line-clamp-2 font-display text-base font-bold leading-tight text-ink lg:text-xl">Collaborative Brick Layout Designer</span>
       </Link>
       {/* One menu for everything that isn't a page: Help, Account, Look and
           Admin settings; on a phone the page links go in it too. */}
@@ -83,7 +83,7 @@ export function AppHeader({ user }: Props) {
       <nav
         id="site-nav"
         aria-label="Site"
-        className="hidden sm:ml-auto sm:flex sm:flex-row sm:flex-wrap sm:items-center sm:justify-end sm:gap-1 sm:text-sm"
+        className="hidden sm:ml-auto sm:flex sm:min-w-0 sm:flex-row sm:flex-wrap md:flex-nowrap sm:items-center sm:justify-end sm:gap-1 sm:text-sm"
       >
         <NavLink to="/" end className={link}>
           Home

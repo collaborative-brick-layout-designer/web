@@ -10,6 +10,9 @@ import { api, reach } from '../api';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
+/** What placing a module with no parts says (it was made but never built). */
+export const EMPTY_MODULE = 'This module has no parts yet. Open it from Home and add some first.';
+
 export async function fetchModuleBatches(moduleId: string): Promise<ModuleBatch[]> {
   if (!UUID_RE.test(moduleId)) throw new Error('invalid module id');
   // Same-origin relative fetch; the id is a validated UUID.
@@ -20,11 +23,11 @@ export async function fetchModuleBatches(moduleId: string): Promise<ModuleBatch[
   try {
     Y.applyUpdate(moduleDoc, new Uint8Array(buf));
     const batches = moduleBatchesFromMap(docToBbm(moduleDoc));
-    if (batches.length === 0) throw new Error('module has no bricks');
+    if (batches.length === 0) throw new Error(EMPTY_MODULE);
     return batches;
   } catch (e) {
-    if (e instanceof Error && e.message === 'module has no bricks') throw e;
-    throw new Error('module snapshot is empty or invalid', { cause: e });
+    if (e instanceof Error && e.message === EMPTY_MODULE) throw e;
+    throw new Error('This module couldn’t be read. Open it from Home to check it.', { cause: e });
   } finally {
     moduleDoc.destroy();
   }

@@ -448,7 +448,8 @@ test.describe('budget limits', () => {
     const limitInput = (p: Page) => budgetRow(p).locator('input[placeholder="—"]');
     await openBudget(page);
     await limitInput(page).fill('5');
-    const part = await budgetRow(page).locator('td').first().innerText();
+    // The part's number (its name, when the library knows it, is above it).
+    const part = await budgetRow(page).locator('td').first().locator('.font-mono').innerText();
     await expect(page.locator('footer')).toContainText('Budget: ');
 
     await page.waitForTimeout(500); // let the update reach the server

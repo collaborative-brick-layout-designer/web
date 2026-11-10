@@ -15,6 +15,7 @@ import { SET_DELETE_WORDING } from '../ui/deleteWording';
 import { renameSet } from '../parts/setActions';
 import { HelpButton } from '../help/HelpButton';
 import { hiddenPartNotice, partsInSet, useShowHiddenParts } from './hiddenParts';
+import { useMenuRoles } from '../ui/menu/useMenuRoles';
 
 interface PartContextMenu {
   part: PartWire;
@@ -70,6 +71,7 @@ export const PartsPanel = memo(function PartsPanel({
   const changedParts = () =>
     Promise.all([qc.invalidateQueries({ queryKey: ['custom-parts'] }), qc.invalidateQueries({ queryKey: ['parts-catalog'] })]);
   const menuRef = useRef<HTMLDivElement>(null);
+  useMenuRoles(menuRef, !!ctxMenu, ctxMenu ? `Part ${ctxMenu.part.partNumber}` : 'Part', () => setCtxMenu(null));
   // Picture size: the slider, Ctrl/⌘ + wheel or a pinch over the list.
   const [iconSize, setIconSize] = useListIconSize();
   const listRef = useRef<HTMLDivElement>(null);

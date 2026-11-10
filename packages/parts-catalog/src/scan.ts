@@ -80,12 +80,15 @@ async function parseOne(rootDir: string, xmlPath: string): Promise<PartMetadata>
   return part;
 }
 
-async function* walkXml(dir: string): AsyncIterable<string> {
+async function* walkXml(dir: string, top = true): AsyncIterable<string> {
   const entries = await readdir(dir, { withFileTypes: true });
   for (const entry of entries) {
     const full = join(dir, entry.name);
     if (entry.isDirectory()) {
-      yield* walkXml(full);
+      // A library's own config/ (ConnectionTypeList.xml and the like) holds no parts,
+      // as in BlueBrick, which reads it apart from the parts.
+      if (top && entry.name.toLowerCase() === 'config') continue;
+      yield* walkXml(full, false);
     } else if (entry.isFile() && entry.name.toLowerCase().endsWith('.xml')) {
       yield full;
     }

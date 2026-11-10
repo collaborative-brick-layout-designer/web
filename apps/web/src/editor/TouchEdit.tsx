@@ -183,6 +183,12 @@ export function TouchActionBar({ actions, onAddPart, onPaste, onTools, onSheets,
           Drag a box around the parts to pick. Two fingers move the map.
         </p>
       )}
+      {!area && !oneRuler && count > 0 && (
+        // How many are picked, and when taps add to them (a long press turns that on).
+        <p role="status" data-testid="picked-count" className="px-2 pb-1 text-center text-xs font-semibold text-muted">
+          {more ? `${count} picked · Select more is on: tap more parts to add them` : `${count} picked`}
+        </p>
+      )}
       {!area && oneRuler && (
         <p role="status" className="px-2 pb-1 text-center text-xs font-semibold text-muted">
           Drag the round handles to adjust the ruler. Tap Done when it’s right.

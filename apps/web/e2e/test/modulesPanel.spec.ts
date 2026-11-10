@@ -42,8 +42,8 @@ test('make a module, save it to the Module library, find it on Home', async ({ p
   await page.mouse.click(400, 400);
   await page.getByText(`Siding ${ts}`, { exact: true }).click({ button: 'right' });
   await expect(page.getByText(`Siding ${ts}`, { exact: true }).locator('..')).toContainText('2 parts');
-  await expect(page.getByRole('button', { name: 'Ungroup (keep the parts)' })).toBeVisible();
-  await page.getByRole('button', { name: 'Save to Module library…' }).click();
+  await expect(page.getByRole('menuitem', { name: 'Ungroup (keep the parts)' })).toBeVisible();
+  await page.getByRole('menuitem', { name: 'Save to Module library…' }).click();
   await page.getByRole('dialog', { name: `Save “Siding ${ts}” to the Module library` }).getByRole('button', { name: 'Save', exact: true }).click();
   await expect(page.getByText(`Saved “Siding ${ts}” to the Module library`)).toBeVisible({ timeout: 15000 });
   await expect(page.getByText(`Siding ${ts}`, { exact: true }).locator('..')).toContainText('in the Module library v1');

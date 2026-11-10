@@ -310,6 +310,7 @@ const ACCESS: Record<string, [Access, Scope, Flags?]> = {
   'GET /api/custom-parts/:id/copy-plan': ['shared', null],
   'POST /api/custom-parts/:id/copy': ['shared', 'parts:write', { demo: true }],
   'GET /api/me/privacy/exports': ['user', null],
+  'GET /api/me/org-invites': ['user', null],
   'POST /api/me/privacy/exports': ['user', null, { demo: true }],
   'GET /api/me/deletion': ['user', null],
   'POST /api/me/deletion': ['user', null, { demo: true }],

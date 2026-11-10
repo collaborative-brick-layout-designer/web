@@ -42,3 +42,22 @@ describe('scanCatalog (against vendored BlueBrickParts)', () => {
     expect(Array.isArray(result.errors)).toBe(true);
   });
 });
+
+describe('scanCatalog: a library’s config/ folder', () => {
+  it('is not read as parts, and a broken part is still named', async () => {
+    const { mkdtempSync, mkdirSync, writeFileSync, rmSync } = await import('node:fs');
+    const { tmpdir } = await import('node:os');
+    const root = mkdtempSync(resolve(tmpdir(), 'cbld-scan-'));
+    try {
+      mkdirSync(resolve(root, 'config'));
+      writeFileSync(resolve(root, 'config', 'ConnectionTypeList.xml'), '<ConnectionTypeList><ConnectionType/></ConnectionTypeList>');
+      mkdirSync(resolve(root, 'trains', 'config'), { recursive: true });
+      writeFileSync(resolve(root, 'trains', 'broken.8.xml'), '<not closed');
+      const { errors } = await scanCatalog(root);
+      expect(errors.map((e) => e.path)).not.toContain('config/ConnectionTypeList.xml');
+      expect(errors.map((e) => e.path.replace(/\\/g, '/'))).toContain('trains/broken.8.xml');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
