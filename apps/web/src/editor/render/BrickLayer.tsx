@@ -1263,9 +1263,13 @@ const BrickGlyph = memo(function BrickGlyph({
     isSelected && !isViewer && tool === 'select' && !!meta && meta.connections.length <= 2 &&
     meta.connections.some((c) => connectionHingeAngle(c.type) !== 0);
 
+  // Its reach from the pivot, for leaving it out when it's off screen (cullOffscreen.ts).
+  const cullR = 0.5 * Math.hypot(Math.max(spriteWpx, w), Math.max(spriteHpx, h)) + 32;
+
   return (
     <Group
       ref={groupRef}
+      {...({ cullR } as object)}
       // Stable name so multi-brick drag can find sibling Groups via
       // `stage.findOne('.brick-<id>')` and translate them in step.
       name={`brick-${brick.id}`}
