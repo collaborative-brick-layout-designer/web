@@ -19,7 +19,8 @@ import { db, schema } from '../db/index.js';
 import { checkGrowth, type Subject } from '../limits/limits.js';
 import { requireUser } from '../auth/cookie.js';
 import { hasAtLeast, resolveResourceRole, type Role } from '../access/resolveResourceRole.js';
-import { createDefaultLayoutDoc, encodeDoc } from '@cld/ydoc';
+import * as Y from 'yjs';
+import { createDefaultLayoutDoc, decodeDoc, encodeDoc } from '@cld/ydoc';
 import { writeAuditEvent } from '../audit/writeAuditEvent.js';
 import { destinationOrg, matchesOwner, ownerLookup, resolveOwnerFilter } from './owners.js';
 import { clampTitle, titleTooLong, trimmed } from '../utils/validate.js';
@@ -730,6 +731,27 @@ function looksLike(bytes: Buffer, mime: 'image/png' | 'image/webp'): boolean {
   return bytes.length > 12 && bytes.toString('latin1', 0, 4) === 'RIFF' && bytes.toString('latin1', 8, 12) === 'WEBP';
 }
 
+/** Snapshots up to this size are opened to see whether the module has any parts. */
+const EMPTY_CHECK_BYTES = 16384;
+
+/** True when the module's snapshot holds no parts on any brick layer. A bad snapshot is not "empty". */
+export function snapshotHasNoParts(bytes: Uint8Array | null | undefined): boolean {
+  if (!bytes) return false;
+  try {
+    const doc = decodeDoc(bytes);
+    let any = false;
+    for (const layer of doc.getMap<unknown>('layerData').values()) {
+      if (layer instanceof Y.Map) {
+        const bricks = layer.get('bricks');
+        if (bricks instanceof Y.Array && bricks.length > 0) any = true;
+      }
+    }
+    return !any;
+  } catch {
+    return false;
+  }
+}
+
 const moduleListColumns = {
   id: schema.modules.id,
   title: schema.modules.title,
@@ -737,6 +759,8 @@ const moduleListColumns = {
   ownerOrgId: schema.modules.ownerOrgId,
   docVersion: schema.modules.docVersion,
   hasSidecar: sql<number>`${schema.modules.sidecarSnapshot} IS NOT NULL`,
+  /** The snapshot itself, only when it is small enough to open (see EMPTY_CHECK_BYTES). */
+  smallDoc: sql<Buffer | null>`CASE WHEN length(${schema.modules.docSnapshot}) <= ${EMPTY_CHECK_BYTES} THEN ${schema.modules.docSnapshot} END`,
   thumbnailAt: schema.modules.thumbnailAt,
   /** The picture's first bytes, for its size (imageSide), not the picture. */
   thumbnailHead: sql<Buffer | null>`substr(${schema.modules.thumbnail}, 1, ${HEAD_BYTES})`,
@@ -749,7 +773,7 @@ function toListItem(
   m: Pick<
     typeof schema.modules.$inferSelect,
     'id' | 'title' | 'ownerUserId' | 'ownerOrgId' | 'docVersion' | 'thumbnailAt' | 'latestVersion' | 'createdAt' | 'updatedAt'
-  > & { hasSidecar: number; thumbnailHead?: Buffer | Uint8Array | null },
+  > & { hasSidecar: number; smallDoc?: Buffer | Uint8Array | null; thumbnailHead?: Buffer | Uint8Array | null },
 ) {
   return {
     id: m.id,
@@ -758,6 +782,8 @@ function toListItem(
     ownerOrgId: m.ownerOrgId,
     docVersion: m.docVersion,
     hasSidecar: Boolean(m.hasSidecar),
+    /** No parts in it yet: inserting it would place nothing. */
+    empty: snapshotHasNoParts(m.smallDoc),
     /** When the picture was made (its cache key), or null: show a placeholder. */
     thumbnailAt: m.thumbnailAt ? m.thumbnailAt.getTime() : null,
     /** The picture's longest side in pixels; under 512 is an old, low-resolution one. */
