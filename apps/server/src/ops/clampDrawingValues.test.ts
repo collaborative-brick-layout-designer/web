@@ -482,6 +482,19 @@ describe('the clamp-drawing-values fix on a database', () => {
     expect(log).toEqual([]);
   });
 
+  it('a server with nothing to fix records it as done and says nothing', () => {
+    const log: string[] = [];
+    const run = runDataFixes(sqlite, askedFixes(undefined), (l) => log.push(l));
+    expect(run).toEqual({ ran: [], pending: [] });
+    expect(log).toEqual([]);
+    const rec = sqlite.prepare('select id, summary from data_fixes').all() as { id: string; summary: string }[];
+    expect(rec.map((r) => r.id)).toEqual([CLAMP_FIX_ID]);
+    expect(JSON.parse(rec[0]!.summary)).toMatchObject({ apply: false });
+    // Next start: still quiet.
+    runDataFixes(sqlite, askedFixes(undefined), (l) => log.push(l));
+    expect(log).toEqual([]);
+  });
+
   async function until(what: () => boolean): Promise<void> {
     for (let i = 0; i < 200 && !what(); i++) await sleep(10);
     expect(what()).toBe(true);

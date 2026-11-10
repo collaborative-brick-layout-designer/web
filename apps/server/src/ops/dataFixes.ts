@@ -2,7 +2,8 @@
 // one: CBLD_DATA_FIX=<fix name> (several: comma separated) for one restart.
 // Each fix that ran is recorded in data_fixes and never runs again, even
 // with the variable still set. Without the variable, a fix that hasn't run
-// is noted in one log line and nothing else happens.
+// is looked at (a dry run): with nothing to fix it's recorded as done and
+// says nothing; otherwise one log line notes it and nothing else happens.
 //
 // The fixes (one so far):
 //   clamp-drawing-values  drawing settings saved out of range before the
@@ -37,6 +38,11 @@ export function fixRecorded(sqlite: Database.Database, id: string): Date | null 
   return row ? new Date(row.applied_at) : null;
 }
 
+/** Whether a dry run found anything to change. */
+export function fixNeeded(s: FixSummary): boolean {
+  return s.layouts.changed + s.modules.changed + s.moduleVersions.changed + s.catalogVersions.changed > 0;
+}
+
 /** Record that a fix ran (kept as it is when it already was). */
 export function recordFix(sqlite: Database.Database, id: string, summary: FixSummary, at = Date.now()): void {
   sqlite.prepare('insert or ignore into data_fixes (id, applied_at, summary) values (?, ?, ?)').run(id, at, JSON.stringify(summary));
@@ -60,7 +66,13 @@ export function runDataFixes(
   for (const id of DATA_FIXES) {
     const done = fixRecorded(sqlite, id);
     if (!asked.has(id)) {
-      if (!done) out.pending.push(id);
+      if (done) continue;
+      // Not asked for: a look (nothing written). With nothing to fix (a new
+      // server, or one whose data never needed it) it's recorded as done, so
+      // the start log stays quiet; otherwise it waits for the operator.
+      const look = clampDrawingValues(sqlite, { apply: false, liveDoc });
+      if (fixNeeded(look)) out.pending.push(id);
+      else recordFix(sqlite, id, look);
       continue;
     }
     if (done) {

@@ -23,6 +23,7 @@ import * as Y from 'yjs';
 import { db, schema } from '../db/index.js';
 import { env } from '../env.js';
 import { backgroundJobs } from '../workers/jobs.js';
+import { compactionSkipped } from '../workers/compactionReport.js';
 import { getPlatformSettings } from '../auth/platformSettings.js';
 import { demoItemCount } from '../demo/reset.js';
 import { requireGlobalAdmin } from '../auth/cookie.js';
@@ -363,6 +364,14 @@ export function computeAlerts(now: number = Date.now(), policy: DesktopPolicy = 
       const days = Math.floor((now - last.at) / DAY_MS);
       alerts.push({ level: 'warn', id: 'backup-old', text: `The newest backup is ${days} days old.` });
     }
+  }
+  const skipped = compactionSkipped();
+  if (skipped.length > 0) {
+    alerts.push({
+      level: 'warn',
+      id: 'compaction-skipped',
+      text: `The nightly clean-up skipped ${skipped.length === 1 ? '1 layout' : `${skipped.length} layouts`} whose saved copy can't be read (${skipped.slice(0, 3).join(', ')}${skipped.length > 3 ? ', …' : ''}). The server log has the details.`,
+    });
   }
   const disk = diskUse(dirname(resolve(env.dbPath)));
   if (disk && disk.usedPct > 80) {

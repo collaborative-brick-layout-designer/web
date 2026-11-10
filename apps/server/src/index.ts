@@ -18,6 +18,8 @@ import { registerLimitHooks } from './limits/hooks.js';
 import { registerRequestMetrics } from './metrics/activity.js';
 import { startRollup, stopRollup } from './metrics/rollup.js';
 import { startWorkers, stopWorkers } from './workers/index.js';
+import { backupBeforeMigrating } from './workers/backup.js';
+import { holdServerLock } from './ops/serverLock.js';
 import { failInterruptedExports } from './privacy/exports.js';
 import { registerErrorHandler } from './utils/errorHandler.js';
 import { requestSerializer } from './utils/logRedact.js';
@@ -32,7 +34,13 @@ import { askedFixes, runDataFixes } from './ops/dataFixes.js';
 import { docHub } from './ws/docHub.js';
 
 async function main() {
-  // Run pending migrations on boot. Idempotent.
+  // Run pending migrations on boot. Idempotent. A copy of the database as
+  // it was goes to the backups folder first (the last two kept).
+  try {
+    backupBeforeMigrating(sqlite, resolve('./migrations'), env.backupsDir, (line) => console.log(line));
+  } catch (err) {
+    console.error('[backup] couldn\'t copy the database before migrating; migrating anyway', err);
+  }
   migrate(db, { migrationsFolder: resolve('./migrations') });
   // One-time data fixes: only those an operator asks for (CBLD_DATA_FIX),
   // before anyone connects. Otherwise one log line when one waits.
@@ -170,9 +178,35 @@ async function main() {
   });
   app.addHook('onClose', async () => {
     stopWorkers();
+    // Every open layout's last changes, then the dashboard's counters.
+    const saved = await docHub.flushAll();
+    if (saved > 0) app.log.info(`saved ${saved} open layout${saved === 1 ? '' : 's'} before stopping`);
     stopRollup();
   });
 
+  // A container stop or Ctrl+C: close cleanly (the hooks above) before exiting,
+  // so the last edits and up to a minute of counters aren't lost.
+  let stopping = false;
+  for (const signal of ['SIGTERM', 'SIGINT'] as const) {
+    process.on(signal, () => {
+      if (stopping) return;
+      stopping = true;
+      app.log.info(`${signal}: stopping`);
+      const force = setTimeout(() => process.exit(1), 20_000);
+      force.unref();
+      app.close().then(
+        () => process.exit(0),
+        (err) => {
+          app.log.error({ err }, 'stopping failed');
+          process.exit(1);
+        },
+      );
+    });
+  }
+
+  // The repair tools won't write while this is held (ops/serverLock.ts).
+  const releaseLock = holdServerLock(env.dbPath);
+  app.addHook('onClose', async () => releaseLock());
   await app.listen({ port: env.port, host: '0.0.0.0' });
 }
 

@@ -62,6 +62,9 @@ const DESKTOP = 'BrickLayoutDesigner/1.4.0 (desktop)';
 const sizes: [string, number][] = [];
 const mib = (n: number) => `${(n / 1048576).toFixed(2)} MiB`;
 
+
+/** The four big Fordyce sessions take a few seconds alone and much longer on a busy machine: 30 s, not vitest's 5. */
+const BIG_SESSION_MS = 30_000;
 describe('WS merge guard: large offline sessions', () => {
   let app: FastifyInstance;
   let port: number;
@@ -198,7 +201,7 @@ describe('WS merge guard: large offline sessions', () => {
     expect(layerIds(session.doc)).not.toContain(before[0]);
     // The other client gets the same layout.
     await vi.waitFor(() => expect(layerIds(them)).toEqual(layerIds(session.doc)));
-  });
+  }, BIG_SESSION_MS);
 
   it('a web session offline that replaces the whole layout with a .bbm, then adds Fordyce as a module', async () => {
     const id = await create({ title: 'Fordyce', bbm: FORDYCE_TEXT });
@@ -218,7 +221,7 @@ describe('WS merge guard: large offline sessions', () => {
     undo.undo();
 
     await reconnectAccepted(id, mine, 'web, replace whole layout + Fordyce as module');
-  });
+  }, BIG_SESSION_MS);
 
   it('the largest realistic offline session: Fordyce replaced by itself, imported twice as modules, 1000 parts pasted, undo/redo', async () => {
     const id = await create({ title: 'Fordyce', bbm: FORDYCE_TEXT });
@@ -235,7 +238,7 @@ describe('WS merge guard: large offline sessions', () => {
     const peer = await reconnectAccepted(id, mine, 'web, largest realistic (Fordyce x4 worth of parts)');
     // Well under the 16 MiB message limit.
     expect(peer.largestStep2()).toBeLessThan(WS_MAX_PAYLOAD / 4);
-  });
+  }, BIG_SESSION_MS);
 
   it('the desktop: offline edits kept apart, written after the resync as "Keep mine" with a whole other layout', async () => {
     const id = await create({ title: 'Fordyce', bbm: FORDYCE_TEXT });
@@ -277,7 +280,7 @@ describe('WS merge guard: large offline sessions', () => {
     const bigUpdate = peer.sent.slice(mark).find((s) => s.kind === 'update');
     sizes.push(['desktop, Keep mine with Fordyce x4', bigUpdate?.bytes ?? 0]);
     expect(bigUpdate!.bytes).toBeLessThan(WS_MAX_PAYLOAD / 4);
-  });
+  }, BIG_SESSION_MS);
 
   it('an offline client whose only anchors were deleted and garbage-collected on the server', async () => {
     const id = await create({ title: 'Fordyce', bbm: FORDYCE_TEXT });

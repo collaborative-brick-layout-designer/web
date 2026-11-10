@@ -6,6 +6,7 @@ import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { and, eq, isNull, sql } from 'drizzle-orm';
 import { db, schema } from '../db/index.js';
+import { writeAuditEvent } from '../audit/writeAuditEvent.js';
 import { checkGrowth } from '../limits/limits.js';
 import { requireUser } from '../auth/cookie.js';
 import { addPermission } from '../access/clubPermissions.js';
@@ -137,6 +138,8 @@ export async function venueRoutes(app: FastifyInstance): Promise<void> {
       const { name, data, orgSlug } = req.body;
       if (typeof name !== 'string' || !name.trim() || !data) return reply.code(400).send({ error: 'name and data required' });
       if (titleTooLong(name.trim())) return reply.code(400).send({ error: 'invalid name' });
+      const bad = venueDataProblem(data);
+      if (bad) return reply.code(bad === 'venue_too_large' ? 413 : 400).send({ error: bad });
 
       const dest = await destinationOrg(user.id, orgSlug, addPermission('venue'));
       if (!dest.ok) return reply.code(dest.code).send({ error: dest.error, permission: dest.permission });
@@ -149,16 +152,18 @@ export async function venueRoutes(app: FastifyInstance): Promise<void> {
       if (refusal) return reply.code(refusal.status).send(refusal.body);
 
       const id = randomUUID();
+      // A name already used in that list gets " (2)" and so on, as a copy does.
+      const freeTitle = await freeName(name.trim(), ownerOrgId ? null : user.id, ownerOrgId);
       await db.insert(schema.venueLibrary).values({
         id,
         ownerUserId: ownerOrgId ? null : user.id,
         ownerOrgId,
-        name: name.trim(),
+        name: freeTitle,
         data: JSON.stringify(data),
         createdBy: user.id,
         createdAt: new Date(),
       });
-      return reply.code(201).send({ id, name: name.trim() });
+      return reply.code(201).send({ id, name: freeTitle });
     },
   );
 
@@ -200,7 +205,8 @@ export async function venueRoutes(app: FastifyInstance): Promise<void> {
         updates.name = t;
       }
       if (data !== undefined) {
-        if (!data || typeof data !== 'object') return reply.code(400).send({ error: 'invalid data' });
+        const bad = venueDataProblem(data);
+        if (bad) return reply.code(bad === 'venue_too_large' ? 413 : 400).send({ error: bad });
         updates.data = JSON.stringify(data);
         // The same storage check as saving a new venue, for what the edit adds.
         const refusal = await checkGrowth({
@@ -230,6 +236,13 @@ export async function venueRoutes(app: FastifyInstance): Promise<void> {
     if (!(await canManage(row, user.id))) return reply.code(403).send({ error: 'Forbidden' });
 
     await db.delete(schema.venueLibrary).where(eq(schema.venueLibrary.id, req.params.id));
+    await writeAuditEvent({
+      resourceKind: 'venue',
+      resourceId: row.id,
+      userId: user.id,
+      eventType: 'delete',
+      payload: { name: row.name, ownerUserId: row.ownerUserId ?? null, ownerOrgId: row.ownerOrgId ?? null },
+    });
     return { ok: true };
   });
   // ---- copy a venue to yourself or a club ---------------------------------
@@ -341,4 +354,33 @@ async function canManage(
     if (!has(await clubAccess(userId, row.ownerOrgId), 'manage_venues')) return false;
   }
   return true;
+}
+
+/** The most a saved venue may hold (a big hall with every wall, door and note is a few KB). */
+export const MAX_VENUE_BYTES = 1024 * 1024;
+
+const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
+const finite = (v: unknown) => v === undefined || (typeof v === 'number' && Number.isFinite(v));
+
+/**
+ * Why `data` isn't a venue the editor can use, or null: an object with,
+ * when given, a name, numeric bounds, and lists of edges, obstacles,
+ * power, notes and dimensions (editor/venueFile.ts reads the same).
+ */
+export function venueDataProblem(data: unknown): string | null {
+  if (!isObj(data)) return 'invalid_venue';
+  if (JSON.stringify(data).length > MAX_VENUE_BYTES) return 'venue_too_large';
+  if (data.name !== undefined && typeof data.name !== 'string') return 'invalid_venue';
+  if (data.enabled !== undefined && typeof data.enabled !== 'boolean') return 'invalid_venue';
+  if (!finite(data.minWalkwayStuds)) return 'invalid_venue';
+  if (data.bounds !== undefined) {
+    if (!isObj(data.bounds)) return 'invalid_venue';
+    for (const k of ['x', 'y', 'w', 'h']) if (!finite(data.bounds[k])) return 'invalid_venue';
+  }
+  for (const k of ['edges', 'obstacles', 'power', 'notes', 'dimensions']) {
+    const list = data[k];
+    if (list === undefined) continue;
+    if (!Array.isArray(list) || list.some((x) => !isObj(x))) return 'invalid_venue';
+  }
+  return null;
 }

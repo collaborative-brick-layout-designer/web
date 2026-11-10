@@ -155,7 +155,7 @@ describe('venue edit size', () => {
     });
     expect(made.statusCode).toBe(201);
     await setLimits({ storagePerUser: 100 * 1024 });
-    const big = { walls: [], notes: 'x'.repeat(500 * 1024) };
+    const big = { walls: [], notes: [{ text: 'x'.repeat(500 * 1024) }] };
     const created = await app.inject({ method: 'POST', url: '/api/venues', headers: { cookie: owner.cookie }, payload: { name: 'Big', data: big } });
     expect(created.statusCode).toBe(403);
     const edited = await app.inject({

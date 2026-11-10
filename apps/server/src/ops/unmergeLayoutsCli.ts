@@ -19,6 +19,7 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
 import Database from 'better-sqlite3';
+import { refuseWhileRunning } from './serverLock.js';
 import * as Y from 'yjs';
 import { writeBbm, writeSidecar, type Sidecar } from '@cld/bbm';
 import { exportBbmFromDoc, exportSidecarFromDoc } from '@cld/ydoc';
@@ -117,6 +118,8 @@ export function main(argv = process.argv.slice(2)): number {
       report: { type: 'string' },
       'export-dir': { type: 'string' },
       apply: { type: 'boolean', default: false },
+      // Write even though a server holds the database: only when no layout it changes is open there.
+      'server-running': { type: 'boolean', default: false },
       expect: { type: 'string' },
     },
   });
@@ -164,6 +167,11 @@ export function main(argv = process.argv.slice(2)): number {
     if (!values.apply) {
       process.stdout.write('dry run: nothing written. Stop the server and rerun with --apply --expect <fingerprint> to apply.\n');
       return 0;
+    }
+    const running = values['server-running'] ? null : refuseWhileRunning(values.db);
+    if (running) {
+      process.stderr.write(running);
+      return 4;
     }
     if (values.expect !== fingerprint) {
       process.stderr.write(`refusing: --expect ${values.expect ?? '(none)'} doesn't match this plan (${fingerprint}). Review the dry run again.\n`);

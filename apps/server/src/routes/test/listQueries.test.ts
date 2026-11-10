@@ -140,4 +140,29 @@ describe('dailyCompaction', () => {
     await docHub.close(live);
     await app.close();
   });
+
+  it('one layout whose saved copy can\'t be read is skipped and reported; the others are still compacted', async () => {
+    const app = await buildApp();
+    const u = await loginAs(app, 'c2@x.com');
+    const h = { cookie: u.cookie };
+    const ids: string[] = [];
+    for (let i = 0; i < 3; i++) ids.push((await app.inject({ method: 'POST', url: '/api/layouts', headers: h, payload: {} })).json().id as string);
+    const d = new Y.Doc();
+    d.getMap('m').set('k', 'v');
+    const upd = Buffer.from(Y.encodeStateAsUpdate(d));
+    for (const layoutId of ids) await db.insert(schema.layoutUpdates).values({ layoutId, doc: 'main', updateBytes: upd, createdAt: new Date() });
+    const bad = ids[1]!;
+    await db.update(schema.layouts).set({ docSnapshot: Buffer.from([0xff, 0xfe, 0x01, 0x02, 0x03]) }).where(eq(schema.layouts.id, bad));
+    const quiet = [vi.spyOn(console, 'log').mockImplementation(() => {}), vi.spyOn(console, 'error').mockImplementation(() => {})];
+    try {
+      await dailyCompaction();
+    } finally {
+      for (const q of quiet) q.mockRestore();
+    }
+    const left = await db.select().from(schema.layoutUpdates);
+    expect(left.map((r) => r.layoutId)).toEqual([bad]);
+    const { compactionSkipped } = await import('../../workers/compactionReport.js');
+    expect(compactionSkipped()).toEqual([bad]);
+    await app.close();
+  });
 });
