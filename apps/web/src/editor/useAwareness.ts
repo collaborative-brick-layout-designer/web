@@ -13,6 +13,7 @@ import type { Awareness } from 'y-protocols/awareness';
 import { useEditorStore } from './editorStore';
 import {
   deterministicColor,
+  presenceLayoutOf,
   readPeerPresence,
   IDLE_MS,
   type AwarenessCursor,
@@ -180,7 +181,8 @@ export function useRemotePeers(awareness: Awareness | null): {
   return useMemo(() => {
     if (!awareness) return [];
     const now = Date.now();
-    const selfId = readSelfId(awareness.getLocalState());
+    // (A stand-in awareness in a test may have no local state to read.)
+    const selfId = typeof awareness.getLocalState === 'function' ? readSelfId(awareness.getLocalState()) : null;
     const peers: { clientId: number; state: AwarenessState; isIdle: boolean }[] = [];
     for (const [clientId, raw] of awareness.getStates()) {
       if (clientId === awareness.clientID) continue;
@@ -211,15 +213,8 @@ function readSelfId(local: unknown): string | null {
   return typeof user?.id === 'string' && user.id ? user.id : null;
 }
 
-/** The layout a presence is for (newLivePresence notes it), for the colors. */
-const presenceLayouts = new WeakMap<Awareness, string>();
-
-export function notePresenceLayout(awareness: Awareness, layoutId: string): void {
-  presenceLayouts.set(awareness, layoutId);
-}
-
 function layoutKey(awareness: Awareness): string {
-  return presenceLayouts.get(awareness) ?? '';
+  return presenceLayoutOf(awareness);
 }
 
 /** One entry per person (someone in two tabs is one), the most recently active. */

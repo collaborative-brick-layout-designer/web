@@ -52,6 +52,17 @@ export function deterministicColor(userId: string, layoutId: string): string {
   return PRESENCE_PALETTE[firstChoice(userId, layoutId)] ?? '#888888';
 }
 
+/** The layout a presence is for (newLivePresence notes it), for the colors. */
+const presenceLayouts = new WeakMap<object, string>();
+
+export function notePresenceLayout(awareness: object, layoutId: string): void {
+  presenceLayouts.set(awareness, layoutId);
+}
+
+export function presenceLayoutOf(awareness: object): string {
+  return presenceLayouts.get(awareness) ?? '';
+}
+
 const isObject = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object' && !Array.isArray(v);
 
 /**

@@ -23,7 +23,7 @@ import { Awareness } from 'y-protocols/awareness';
 import { canReadDoc, removeDuplicateItems, repairSidecarCache } from '@cld/ydoc';
 import { keepRefusedCopy, type RefusedWhy } from './refusedCopies';
 import { announceSignInEnded } from '../demo/demoVisitor';
-import { notePresenceLayout } from './useAwareness';
+import { notePresenceLayout } from './awareness';
 
 export type SaveStatus =
   | { kind: 'connecting' }
