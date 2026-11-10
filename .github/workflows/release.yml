@@ -41,7 +41,10 @@ jobs:
         id: ver
         run: echo "version=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
 
-      - name: Build & push
+      # The image goes out first under its commit's tag only. :vX.Y.Z and
+      # :latest point at it once the scan below has passed, so a CRITICAL
+      # finding never leaves a vulnerable :latest for self-hosters to pull.
+      - name: Build & push (commit tag only)
         uses: docker/build-push-action@v7
         with:
           context: .
@@ -49,10 +52,8 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: |
-            ghcr.io/${{ steps.repo.outputs.name }}:v${{ steps.ver.outputs.version }}
-            ghcr.io/${{ steps.repo.outputs.name }}:latest
-            ghcr.io/${{ steps.repo.outputs.web }}:v${{ steps.ver.outputs.version }}
-            ghcr.io/${{ steps.repo.outputs.web }}:latest
+            ghcr.io/${{ steps.repo.outputs.name }}:sha-${{ github.sha }}
+            ghcr.io/${{ steps.repo.outputs.web }}:sha-${{ github.sha }}
           build-args: |
             APP_VERSION=${{ steps.ver.outputs.version }}
           cache-from: type=gha
@@ -67,12 +68,23 @@ jobs:
           TRIVY_JAVA_DB_REPOSITORY: public.ecr.aws/aquasecurity/trivy-java-db,ghcr.io/aquasecurity/trivy-java-db
         with:
           timeout: 10m
-          image-ref: ghcr.io/${{ steps.repo.outputs.name }}:v${{ steps.ver.outputs.version }}
+          image-ref: ghcr.io/${{ steps.repo.outputs.name }}:sha-${{ github.sha }}
           format: table
           severity: CRITICAL
           exit-code: '1'
           ignore-unfixed: true
           skip-dirs: /root/.local/share/pnpm,/home/runner/.local/share/pnpm
+
+      # Only reached when the scan passed. Both names, both tags, the same
+      # multi-arch image (the way nightly.yml moves :nightly).
+      - name: Tag the scanned image :v${{ steps.ver.outputs.version }} and :latest
+        run: |
+          docker buildx imagetools create \
+            -t ghcr.io/${{ steps.repo.outputs.name }}:v${{ steps.ver.outputs.version }} \
+            -t ghcr.io/${{ steps.repo.outputs.name }}:latest \
+            -t ghcr.io/${{ steps.repo.outputs.web }}:v${{ steps.ver.outputs.version }} \
+            -t ghcr.io/${{ steps.repo.outputs.web }}:latest \
+            ghcr.io/${{ steps.repo.outputs.name }}:sha-${{ github.sha }}
 
   release:
     name: Create GitHub Release
@@ -95,7 +107,14 @@ jobs:
         run: |
           CURRENT_TAG="${GITHUB_REF#refs/tags/}"
           PREV_TAG=$(git tag --sort=-creatordate | grep -A1 "^${CURRENT_TAG}$" | tail -1)
-          TAG_MSG=$(git tag -l --format='%(contents)' "$CURRENT_TAG" | head -20)
+          # The tag's own message only when it has one: a lightweight tag's
+          # "contents" are the commit's message ("Merge pull request #…").
+          # checkout can leave the tag lightweight locally; fetch the real one.
+          git fetch --force origin "refs/tags/${CURRENT_TAG}:refs/tags/${CURRENT_TAG}"
+          TAG_MSG=""
+          if [ "$(git cat-file -t "$CURRENT_TAG")" = "tag" ]; then
+            TAG_MSG=$(git tag -l --format='%(contents)' "$CURRENT_TAG" | sed '/-----BEGIN/,$d' | head -20)
+          fi
 
           {
             echo 'BODY<<ENDOFNOTES'
@@ -173,3 +192,5 @@ jobs:
         with:
           files: release/*
           body: ${{ steps.notes.outputs.BODY }}
+          # v2.1.0-rc1 and the like are pre-releases.
+          prerelease: ${{ contains(github.ref_name, '-') }}
