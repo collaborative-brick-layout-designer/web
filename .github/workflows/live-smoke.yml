@@ -8,8 +8,7 @@ name: Live smoke
 # area 4, Idea 1.
 #
 # Building the driver takes Qt and Rust, so this runs on main and at night,
-# not on every pull request (only those that change it; workflow_dispatch
-# runs it on a branch).
+# not on every pull request (only those that change it).
 
 on:
   push:
@@ -24,10 +23,6 @@ on:
   schedule:
     - cron: '47 7 * * *'
   workflow_dispatch:
-    inputs:
-      desktop-ref:
-        description: The desktop repo's branch or commit to build the driver from
-        default: main
 
 permissions:
   contents: read
@@ -63,7 +58,8 @@ jobs:
         uses: actions/checkout@v7
         with:
           repository: collaborative-brick-layout-designer/desktop
-          ref: ${{ inputs.desktop-ref || 'main' }}
+          # Always the desktop's main (never a ref given by whoever runs this).
+          ref: main
           path: .desktop
           submodules: recursive
 
