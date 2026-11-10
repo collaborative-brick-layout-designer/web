@@ -25,6 +25,7 @@ import { keepRefusedCopy, type RefusedWhy } from './refusedCopies';
 import { announceSignInEnded } from '../demo/demoVisitor';
 import { notePresenceLayout } from './awareness';
 import { OfflineEditWatch, replacedText } from './offlineEdits';
+import { DOWNLOAD_ORIGIN, downloadLayout, keepOpenWhileFirstSync } from './layoutDownload';
 
 export type SaveStatus =
   | { kind: 'connecting' }
@@ -299,10 +300,12 @@ export function useLayoutDoc(layoutId: string, canEdit?: boolean): LayoutDocStat
     // `/ws/layout` prefix in `wsUrlBase` and use `layoutId` as room.
     const provider = new WebsocketProvider(`${wsUrlBase()}/ws/layout`, layoutId, fresh, {
       // params: we rely on the session cookie for auth; nothing else.
-      connect: true,
+      // Connected once the layout's first copy is in (downloadLayout, below).
+      connect: false,
       awareness: newLivePresence(fresh, layoutId),
     });
     sendOnlyOwnPresence(provider);
+    keepOpenWhileFirstSync(provider);
     providerRef.current = provider;
 
     let lastSyncedAt: number | null = null;
@@ -327,7 +330,7 @@ export function useLayoutDoc(layoutId: string, canEdit?: boolean): LayoutDocStat
     };
     fresh.on('afterTransaction', onOfflineEdit);
     const onDocUpdate = (_u: Uint8Array, origin: unknown): void => {
-      if (origin !== provider && !(provider.wsconnected && provider.synced)) unsent = true;
+      if (origin !== provider && origin !== DOWNLOAD_ORIGIN && !(provider.wsconnected && provider.synced)) unsent = true;
     };
     fresh.on('update', onDocUpdate);
     let syncTimer: ReturnType<typeof setTimeout> | null = null;
@@ -343,13 +346,15 @@ export function useLayoutDoc(layoutId: string, canEdit?: boolean): LayoutDocStat
         setStatus({ kind: 'error', message: 'connection timed out' });
       }, ms);
     };
-    waitFor(SYNC_TIMEOUT_MS);
 
     // A layout written by a newer (or much older) version than this page
     // reads: stop syncing rather than edit what we don't understand.
     const meta = fresh.getMap('meta');
+    // Not to be connected (a layout this page can't read, or left).
+    let stopped = false;
     const unreadable = (): boolean => {
       if (canReadDoc(meta.get('schemaVersion'))) return false;
+      stopped = true;
       provider.disconnect();
       if (syncTimer) {
         clearTimeout(syncTimer);
@@ -495,7 +500,7 @@ export function useLayoutDoc(layoutId: string, canEdit?: boolean): LayoutDocStat
     let repairTimer: ReturnType<typeof setTimeout> | null = null;
     const onTransaction = (tr: Y.Transaction) => {
       // (Also after an undo: it can take back items meta.cache still has.)
-      if ((tr.origin !== provider && !(tr.origin instanceof Y.UndoManager)) || repairTimer) return;
+      if ((tr.origin !== provider && tr.origin !== DOWNLOAD_ORIGIN && !(tr.origin instanceof Y.UndoManager)) || repairTimer) return;
       repairTimer = setTimeout(() => {
         repairTimer = null;
         repairSidecarCache(fresh, SIDECAR_REPAIR_ORIGIN);
@@ -506,8 +511,21 @@ export function useLayoutDoc(layoutId: string, canEdit?: boolean): LayoutDocStat
     };
     fresh.on('afterTransaction', onTransaction);
 
+    // The layout's first copy over HTTP, with progress (layoutDownload.ts),
+    // then the live connection, which only sends what changed since. Without
+    // the copy (signed out, offline, not shared), the live connection brings
+    // the layout or says why it can't.
+    const leaving = new AbortController();
+    void downloadLayout(layoutId, fresh, leaving.signal).then(() => {
+      if (stopped || leaving.signal.aborted) return;
+      if (lastSyncedAt === null) waitFor(SYNC_TIMEOUT_MS);
+      provider.connect();
+    });
+
     return () => {
       clearOffline();
+      stopped = true;
+      leaving.abort();
       if (syncTimer) clearTimeout(syncTimer);
       meta.unobserve(onMeta);
       provider.off('sync', onSync);
