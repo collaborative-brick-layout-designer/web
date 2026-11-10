@@ -17,7 +17,7 @@
 // PDF: one A3 page, orientation from the layout's aspect, 12 mm margins,
 // map fitted (desktop File ▸ Export as PDF), written without a library.
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { MAX_CANVAS_SIDE, aboutSize, aspectHeight, defaultExportSize, estimateImageBytes, type StudRect } from './exportRender';
 import { useEditorStore, noticeDownloaded } from './editorStore';
@@ -26,6 +26,17 @@ import { loadExportSettings, saveExportSettings } from './exportSettings';
 import { HelpButton } from '../help/HelpButton';
 import { sanitizeFilename } from '../bbmFiles';
 import { useEscape } from './useEscape';
+import { askConfirm } from '../ui/ConfirmDialog';
+
+/** Above this many pages, Print asks first and offers a PDF instead. */
+export const MANY_PRINT_PAGES = 20;
+
+/** About how big the print pages' pictures are, all together (PNG at the DPI). */
+export function estimatePrintBytes(pages: number, tileMm: { w: number; h: number }, dpi: number): number {
+  const w = Math.max(1, Math.round((tileMm.w / 25.4) * dpi));
+  const h = Math.max(1, Math.round((tileMm.h / 25.4) * dpi));
+  return pages * estimateImageBytes(w, h, 'png');
+}
 
 export interface ExportHandle {
   /**
@@ -117,6 +128,9 @@ export function ExportImageDialog({ layoutTitle, exportImageRef, onClose }: Prop
   const [overlapMm, setOverlapMm] = useState(0);
   const [exporting, setExporting] = useState(false);
   const [error, setError] = useState('');
+  /** Print: pages made so far, while they're being made. */
+  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
+  const cancelPrint = useRef(false);
 
   const height = keepAspect && scene ? aspectHeight(width, scene) : customHeight;
   const sizeValid = width >= 1 && height >= 1 && width <= MAX_CANVAS_SIDE && height <= MAX_CANVAS_SIDE;
@@ -178,36 +192,72 @@ export function ExportImageDialog({ layoutTitle, exportImageRef, onClose }: Prop
   const region = exportImageRef.current?.region?.() ?? null;
   const tiling = region ? printTiles(region, paper, marginMm, overlapMm) : null;
 
-  function doTiledPrint() {
+  async function doTiledPrint() {
     const handle = exportImageRef.current;
     if (!handle || !tiling) { setError('The map is empty.'); return; }
+    const total = tiling.tiles.length;
+    if (total > MANY_PRINT_PAGES) {
+      const go = await askConfirm({
+        title: `Print ${total.toLocaleString('en-US')} pages?`,
+        removes: `At actual size this layout takes ${total.toLocaleString('en-US')} pages (${aboutSize(estimatePrintBytes(total, tiling.tileMm, dpi))} of pictures), and making them takes a while. You can stop at any time.`,
+        keeps: 'For a picture of the whole layout on one page, use PDF (A3) instead.',
+        confirmLabel: `Print ${total.toLocaleString('en-US')} pages`,
+        danger: false,
+        cancelLabel: 'Not now',
+      });
+      if (!go) return;
+    }
+    // Opened now, while the click still counts (a window opened after the
+    // pages are made would be blocked), with a word until they're in.
+    const win = window.open('', '_blank');
+    if (!win) { setError('Pop-up blocked: allow pop-ups for this site and try again.'); return; }
+    win.document.write(printHtml(safeTitle(layoutTitle), paper, marginMm, tiling.tileMm));
+    win.document.close();
     setExporting(true);
     setError('');
-
+    cancelPrint.current = false;
+    const urls: string[] = [];
+    const freeUrls = () => { for (const u of urls) URL.revokeObjectURL(u); };
     try {
       // Each page shows a paper-sized piece of the map at 1 stud = 8 mm,
-      // rendered at the chosen DPI (desktop renders page by page too).
+      // rendered at the chosen DPI (desktop renders page by page too), a
+      // page at a time so the page never freezes, each as a file (a blob
+      // URL), not a long data: string.
       const pr = printPixelRatio(dpi);
-      const tiles: string[] = [];
+      setProgress({ done: 0, total });
       for (const t of tiling.tiles) {
+        if (cancelPrint.current || win.closed) {
+          freeUrls();
+          if (!win.closed) win.close();
+          return;
+        }
         const rendered = handle.render({ pixelRatio: pr, transparent: false, regionStuds: t });
-        if (!rendered) { setError('The map is empty.'); return; }
-        tiles.push(rendered.canvas.toDataURL('image/png'));
+        if (!rendered) { setError('The map is empty.'); freeUrls(); win.close(); return; }
+        const blob = await canvasBlob(rendered.canvas, 'image/png');
+        const url = URL.createObjectURL(blob);
+        urls.push(url);
+        const page = win.document.createElement('div');
+        page.className = 'page';
+        const img = win.document.createElement('img');
+        img.src = url;
+        img.alt = `Page ${urls.length}`;
+        page.append(img);
+        win.document.body.append(page);
+        setProgress({ done: urls.length, total });
+        // Let the page breathe between pages.
+        await new Promise((res) => setTimeout(res, 0));
       }
-
-      const win = window.open('', '_blank');
-      if (!win) { setError('Pop-up blocked — allow pop-ups and try again.'); return; }
-      win.document.write(printHtml(safeTitle(layoutTitle), paper, marginMm, tiling.tileMm, tiles));
-      win.document.close();
+      win.document.getElementById('making')?.remove();
+      win.addEventListener('pagehide', freeUrls, { once: true });
       // Printed from here, not from a <script> in the page: the new window
       // inherits the app's CSP, which allows no inline scripts.
-      const print = () => win.setTimeout(() => win.print(), 400);
-      if (win.document.readyState === 'complete') print();
-      else win.addEventListener('load', print, { once: true });
+      win.setTimeout(() => win.print(), 400);
       onClose();
     } catch (e) {
-      setError(String(e));
+      freeUrls();
+      setError(e instanceof Error ? e.message : String(e));
     } finally {
+      setProgress(null);
       setExporting(false);
     }
   }
@@ -447,8 +497,19 @@ export function ExportImageDialog({ layoutTitle, exportImageRef, onClose }: Prop
                 />
               </label>
               <p className="text-xs text-neutral-300" data-testid="print-pages">
-                {tiling ? `${tiling.cols} × ${tiling.rows} = ${tiling.tiles.length} page(s) at actual size (1 stud = 8 mm)` : 'The map is empty.'}
+                {tiling
+                  ? `${tiling.cols} × ${tiling.rows} = ${tiling.tiles.length.toLocaleString('en-US')} ${tiling.tiles.length === 1 ? 'page' : 'pages'} at actual size (1 stud = 8 mm), ${aboutSize(estimatePrintBytes(tiling.tiles.length, tiling.tileMm, dpi))} of pictures`
+                  : 'The map is empty.'}
               </p>
+              {tiling && tiling.tiles.length > MANY_PRINT_PAGES && (
+                <p className="rounded-lg border border-line bg-soft px-2 py-1.5 text-xs text-ink" data-testid="print-many">
+                  That’s a lot of paper. For the whole layout on one page, use{' '}
+                  <button type="button" onClick={() => setMode('pdf')} className="font-semibold text-accent-text underline underline-offset-2">
+                    PDF (A3)
+                  </button>
+                  .
+                </p>
+              )}
               <p className="text-[10px] text-muted">
                 Opens a new tab with one page per tile — print it at 100 % scale (no &quot;fit to page&quot;) to keep the actual size.
               </p>
@@ -457,16 +518,30 @@ export function ExportImageDialog({ layoutTitle, exportImageRef, onClose }: Prop
         </div>
 
         {error && <p className="mt-2 text-xs text-danger">{error}</p>}
+        {progress && (
+          <div className="mt-3 space-y-1" data-testid="print-progress">
+            <p className="text-xs text-ink">
+              Making page {Math.min(progress.done + 1, progress.total).toLocaleString('en-US')} of {progress.total.toLocaleString('en-US')}…
+            </p>
+            <progress value={progress.done} max={progress.total} aria-label="Pages made" className="h-2 w-full accent-accent" />
+          </div>
+        )}
 
         <div className="mt-5 flex justify-end gap-2">
           <button
-            onClick={onClose}
+            onClick={() => {
+              if (progress) {
+                cancelPrint.current = true;
+                return;
+              }
+              onClose();
+            }}
             className="rounded-lg px-3 py-1.5 text-xs text-muted hover:bg-soft"
           >
             Cancel
           </button>
           <button
-            onClick={mode === 'image' ? () => void doExportImage() : mode === 'print' ? doTiledPrint : doExportPdf}
+            onClick={mode === 'image' ? () => void doExportImage() : mode === 'print' ? () => void doTiledPrint() : doExportPdf}
             disabled={exporting || (mode === 'image' && !sizeValid)}
             className="rounded-lg bg-accent px-3 py-1.5 text-xs text-accent-ink hover:bg-accent-hover disabled:opacity-50"
           >
@@ -489,7 +564,6 @@ function printHtml(
   paper: { w: number; h: number },
   marginMm: number,
   tileMm: { w: number; h: number },
-  tiles: readonly string[],
 ): string {
   return `<!DOCTYPE html>
 <html>
@@ -503,11 +577,12 @@ function printHtml(
   .page { width: ${tileMm.w}mm; height: ${tileMm.h}mm; overflow: hidden; break-after: page; background: #fff; }
   .page:last-child { break-after: auto; }
   img { width: ${tileMm.w}mm; height: ${tileMm.h}mm; display: block; }
-  @media print { body { background: #fff; } }
+  #making { font: 16px sans-serif; color: #fff; padding: 16px; }
+  @media print { body { background: #fff; } #making { display: none; } }
 </style>
 </head>
 <body>
-${tiles.map((t) => `<div class="page"><img src="${t}"></div>`).join('\n')}
+<p id="making">Making the pages… The print box opens when they’re all here.</p>
 </body>
 </html>`;
 }

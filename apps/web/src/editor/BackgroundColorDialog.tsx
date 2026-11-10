@@ -41,6 +41,7 @@ export function BackgroundColorDialog({ current, doc, onClose }: Props) {
         <div className="mt-4 flex items-center gap-3 text-sm">
           <input
             type="color"
+            aria-label="Background color"
             value={rgb}
             onChange={(e) => setRgb(e.target.value)}
             className="h-10 w-20 cursor-pointer rounded-lg border border-border bg-transparent"

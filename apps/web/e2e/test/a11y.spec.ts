@@ -11,6 +11,7 @@ import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { ensureUser, signIn, mapMenu } from '../helpers';
 import { makeGlobalAdmin } from '../dbHelpers';
 import { axeProblems } from '../a11y';
+import { mapMenuDialogPaths } from '../../src/editor/mapMenuDialogs';
 
 const SURVEY = process.env.A11Y_SURVEY;
 const ts = Date.now();
@@ -108,8 +109,8 @@ interface DialogCase {
   ready: (page: Page) => Promise<void>;
   /** Opens it; returns the button that opened it (where the focus goes back to). */
   open: (page: Page) => Promise<void>;
-  /** The dialog's accessible name. */
-  dialog: string | RegExp;
+  /** The dialog's accessible name; unset: the newest dialog on the page. */
+  dialog?: string | RegExp;
   /** Escape and the focus going back are checked (off for one opened from a menu that closes). */
   focusBack?: boolean;
   /** Stays open beside the map: the focus isn't kept inside it. */
@@ -137,12 +138,17 @@ const DIALOGS: DialogCase[] = [
   },
   { name: 'add a custom part', path: () => '/#parts', ready: (p) => expect(p.getByRole('button', { name: `More for ${SET}` })).toBeVisible(), open: (p) => p.getByRole('button', { name: 'Upload part', exact: true }).click(), dialog: 'Upload custom part', focusBack: true },
   { name: 'editor share', path: editor, ready: editorReady, open: (p) => p.getByRole('button', { name: 'Share', exact: true }).click(), dialog: 'Share A11y Layout', focusBack: true },
-  { name: 'editor general info', path: editor, ready: editorReady, open: (p) => mapMenu(p, 'General info…'), dialog: 'General info' },
-  { name: 'editor export image', path: editor, ready: editorReady, open: (p) => mapMenu(p, 'Download & export', 'Export as image…'), dialog: 'Export / Print' },
-  { name: 'editor export part list', path: editor, ready: editorReady, open: (p) => mapMenu(p, 'Download & export', 'Export part list…'), dialog: 'Export Part List' },
-  { name: 'editor preferences', path: editor, ready: editorReady, open: (p) => mapMenu(p, 'Preferences…'), dialog: 'Preferences' },
+  // Every dialog in the Map menu, read from the menu itself (mapMenuDialogs.ts).
   // Find stays open while you work on the map (modeless): Tab may leave it.
-  { name: 'editor find', path: editor, ready: editorReady, open: (p) => mapMenu(p, 'Find…'), dialog: /Find/, modeless: true },
+  ...mapMenuDialogPaths().map((path): DialogCase => ({
+    name: `editor ${path.join(' › ').replace(/…/g, '')}`,
+    path: editor,
+    ready: editorReady,
+    open: (p) => mapMenu(p, ...path),
+    // Find and the Budget stay open beside the map (modeless).
+    ...(path.at(-1) === 'Find…' ? { dialog: /Find/, modeless: true } : {}),
+    ...(path.at(-1) === 'Edit budget…' ? { dialog: 'Budget', modeless: true } : {}),
+  })),
   {
     name: 'editor save as set', path: editor, ready: editorReady,
     open: async (p) => {
@@ -185,7 +191,7 @@ for (const scheme of ['light', 'dark'] as const) {
         await page.goto(d.path());
         await d.ready(page);
         await d.open(page);
-        const dialog = page.getByRole('dialog', { name: d.dialog }).last();
+        const dialog = (d.dialog ? page.getByRole('dialog', { name: d.dialog }) : page.getByRole('dialog')).last();
         await expect(dialog).toBeVisible();
         await page.waitForTimeout(300);
         await dialog.evaluate((el) => el.setAttribute('data-a11y-check', ''));

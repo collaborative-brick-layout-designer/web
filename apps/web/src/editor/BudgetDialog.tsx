@@ -5,7 +5,7 @@
 // they persist and sync; .bbb Open/Save import and export them.
 
 import { noticeDownloaded, useEditorStore } from './editorStore';
-import { useState, useMemo, type CSSProperties } from 'react';
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import type { BbmMap } from '@cld/model';
 import { mergeBudgets, parseBbb, writeBbb, type BudgetEntry } from './budgetFile';
 import { budgetRows } from './budgetUsage';
@@ -26,6 +26,12 @@ interface Props {
 
 export function BudgetDialog({ map, limits, onLimitsChange, resolvePart = (id) => id, partName, clearRight = '0px', onClose }: Props) {
   const setLimits = onLimitsChange;
+  // It stays open beside the map, but takes the focus when it opens (and Esc
+  // inside it closes it), so a keyboard can reach it.
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    box.current?.focus({ preventScroll: true });
+  }, []);
   const [fileName, setFileName] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
 
@@ -121,6 +127,14 @@ export function BudgetDialog({ map, limits, onLimitsChange, resolvePart = (id) =
 
   return (
     <div
+      ref={box}
+      tabIndex={-1}
+      onKeyDown={(e) => {
+        if (e.key === 'Escape') {
+          e.stopPropagation();
+          onClose();
+        }
+      }}
       role="dialog"
       aria-label="Budget"
       // On a phone it spans the screen's width, above the touch bar.

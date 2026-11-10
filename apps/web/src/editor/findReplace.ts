@@ -8,6 +8,7 @@ import type * as Y from 'yjs';
 import type { BbmMap } from '@cld/model';
 import type { PartWire } from '../api';
 import { editBrick, editTextCell } from './mutations';
+import { mapLineWidth } from './render/mapText';
 import { LOCAL_ORIGIN } from './useLayoutDoc';
 import type { AnnoSelection } from './editorStore';
 import { textKey } from './mixedSelection';
@@ -142,7 +143,7 @@ export function replaceHits(
       if (h.brickId !== undefined) {
         editBrick(doc, h.layerId, h.brickId, { partNumber: next });
       } else if (h.textIndex !== undefined) {
-        editTextCell(doc, h.layerId, h.textIndex, next);
+        editTextCell(doc, h.layerId, h.textIndex, next, mapLineWidth());
       } else {
         continue;
       }

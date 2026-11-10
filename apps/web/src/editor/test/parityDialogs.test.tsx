@@ -464,43 +464,90 @@ describe('ExportImageDialog', () => {
     useEditorStore.setState({ showExportWatermark: false });
   });
 
-  it('prints at actual size: one render per A4 tile at dpi/25.4 px per scene px', () => {
+  /** A print window: its document, where the pages are added one by one. */
+  function printWindow() {
+    const doc = document.implementation.createHTMLDocument('print');
+    let html = '';
+    const print = vi.fn();
+    const win = {
+      document: Object.assign(doc, {
+        write: (s: string) => { html += s; },
+        close: vi.fn(),
+      }),
+      closed: false,
+      close: vi.fn(),
+      setTimeout: (fn: () => void) => { fn(); return 0; },
+      print,
+      addEventListener: vi.fn(),
+    };
+    return { win, print, html: () => html };
+  }
+
+  it('prints at actual size: one render per A4 tile at dpi/25.4 px per scene px, a page at a time', async () => {
     const { ref, render: renderFn } = handle();
     // 60 × 40 studs = 480 × 320 mm: 3 × 2 A4-portrait tiles of 190 × 277 mm.
     ref.current.region = () => ({ x: -10, y: -5, width: 60, height: 40 });
-    const open = vi.spyOn(window, 'open').mockReturnValue(null);
+    const { win, print } = printWindow();
+    const open = vi.spyOn(window, 'open').mockReturnValue(win as unknown as Window);
     render(<ExportImageDialog layoutTitle="t" exportImageRef={ref} onClose={() => {}} />);
     fireEvent.click(screen.getByRole('button', { name: 'Print (1:1)' }));
     fireEvent.change(screen.getByDisplayValue('A3 (297 × 420 mm)'), { target: { value: 'a4' } });
-    expect(screen.getByTestId('print-pages').textContent).toBe('3 × 2 = 6 page(s) at actual size (1 stud = 8 mm)');
-    fireEvent.click(screen.getByRole('button', { name: 'Open Print Preview' }));
+    expect(screen.getByTestId('print-pages').textContent).toMatch(/^3 × 2 = 6 pages at actual size \(1 stud = 8 mm\), about [\d.]+ MB of pictures$/);
+    // Few pages: no question first.
+    expect(screen.queryByTestId('print-many')).toBeNull();
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Open Print Preview' }));
+    });
+    await vi.waitFor(() => expect(print).toHaveBeenCalledTimes(1));
     expect(renderFn).toHaveBeenCalledTimes(6);
     expect(renderFn).toHaveBeenNthCalledWith(1, {
       pixelRatio: 150 / 25.4,
       transparent: false,
       regionStuds: { x: -10, y: -5, width: 190 / 8, height: 277 / 8 },
     });
+    // Each page a file (blob URL), not a long data: string.
+    const imgs = [...win.document.querySelectorAll('img')];
+    expect(imgs).toHaveLength(6);
+    expect(imgs.every((i) => i.getAttribute('src')!.startsWith('blob:'))).toBe(true);
     open.mockRestore();
   });
 
-  it('prints from the opener, with no inline script the CSP would block', () => {
+  it('prints from the opener, with no inline script the CSP would block', async () => {
     const { ref } = handle();
     ref.current.region = () => ({ x: 0, y: 0, width: 10, height: 10 });
-    let html = '';
-    const print = vi.fn();
-    const win = {
-      document: { write: (s: string) => { html += s; }, close: vi.fn(), readyState: 'complete' },
-      setTimeout: (fn: () => void) => { fn(); return 0; },
-      print,
-      addEventListener: vi.fn(),
-    };
+    const { win, print, html } = printWindow();
     const open = vi.spyOn(window, 'open').mockReturnValue(win as unknown as Window);
     render(<ExportImageDialog layoutTitle="t" exportImageRef={ref} onClose={() => {}} />);
     fireEvent.click(screen.getByRole('button', { name: 'Print (1:1)' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Open Print Preview' }));
-    expect(html).toContain('<img src=');
-    expect(html).not.toMatch(/<script/i);
-    expect(print).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Open Print Preview' }));
+    });
+    await vi.waitFor(() => expect(print).toHaveBeenCalledTimes(1));
+    expect(html()).toContain('Making the pages');
+    expect(html()).not.toMatch(/<script/i);
+    open.mockRestore();
+  });
+
+  it('a print of many pages says so, offers a PDF, and asks first', async () => {
+    const { ref, render: renderFn } = handle();
+    // 400 × 300 studs: dozens of A3 pages.
+    ref.current.region = () => ({ x: 0, y: 0, width: 400, height: 300 });
+    const open = vi.spyOn(window, 'open');
+    render(<ExportImageDialog layoutTitle="t" exportImageRef={ref} onClose={() => {}} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Print (1:1)' }));
+    expect(screen.getByTestId('print-many').textContent).toContain('PDF (A3)');
+    const { closeConfirm } = await import('../../ui/ConfirmDialog');
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Open Print Preview' }));
+    });
+    // Not answered yet: nothing opened or made. Cancelled: still nothing.
+    expect(open).not.toHaveBeenCalled();
+    await act(async () => closeConfirm());
+    expect(open).not.toHaveBeenCalled();
+    expect(renderFn).not.toHaveBeenCalled();
+    // The PDF link switches to PDF (A3).
+    fireEvent.click(screen.getByTestId('print-many').querySelector('button')!);
+    expect(screen.getByRole('button', { name: 'Export PDF' })).toBeTruthy();
     open.mockRestore();
   });
 

@@ -8,6 +8,7 @@
 
 import { test, expect, request as playwrightRequest, type Page } from '@playwright/test';
 import { ensureUser, signIn, mapMenu } from '../helpers';
+import { mapMenuDialogPaths } from '../../src/editor/mapMenuDialogs';
 import { DEVICES, findOverflow, findSmallTargets } from '../mobileChecks';
 
 const SHOTS = process.env.SHOTS_DIR;
@@ -95,20 +96,8 @@ const DIALOGS: DialogCase[] = [
   { name: 'editor layout menu', path: editor, on: 'phone', open: (p) => p.getByRole('button', { name: /Dialog Layout/ }).click() },
   { name: 'editor map menu', path: editor, on: 'tablet', open: (p) => p.getByRole('button', { name: 'Map', exact: true }).click() },
   { name: 'editor map menu venue page', path: editor, on: 'tablet', open: mapItem(['Venue']) },
-  ...[
-    ['General info…'],
-    ['Background color…'],
-    ['Background image…'],
-    ['Find…'],
-    ['Venue', 'Draw outline by dimensions…'],
-    ['Venue', 'Edit venue properties…'],
-    ['Modules & sets', 'Import .bbm as module…'],
-    ['Insert', 'Text…'],
-    ['Insert', 'Anchored label…'],
-    ['Download & export', 'Download as…'],
-    ['Download & export', 'Export as image…'],
-    ['Download & export', 'Export part list…'],
-  ].map((path): DialogCase => ({ name: `editor ${path.at(-1)!.replace(/…/g, '')}`, path: editor, on: 'tablet', open: mapItem(path) })),
+  // Every dialog in the Map menu, read from the menu itself (mapMenuDialogs.ts).
+  ...mapMenuDialogPaths().map((path): DialogCase => ({ name: `editor ${path.join(' › ').replace(/…/g, '')}`, path: editor, on: 'tablet', open: mapItem(path) })),
   // The phone's Map sheet reaches the same dialogs (Map menu entries with no other way in by touch).
   { name: 'editor phone map sheet', path: editor, on: 'phone', open: phoneMapItem([]) },
   ...[
