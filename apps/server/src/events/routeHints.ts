@@ -74,13 +74,15 @@ function resource(
       if (!id) return [];
       const now = await ownerOfResource(kind, id);
       const act = action(ctx.req);
+      // A new version (a module's save): its number, so it is never squashed with the last one.
+      const v = typeof ctx.reply?.docVersion === 'number' ? { v: ctx.reply.docVersion } : {};
       const extra = [...extraUsers(ctx), ...((ctx.before.collaborators as string[] | undefined) ?? [])];
-      if (ctx.before.isGlobal || now?.isGlobal) return [{ hint: { kind, id, action: act }, reach: { everyone: true } }];
+      if (ctx.before.isGlobal || now?.isGlobal) return [{ hint: { kind, id, action: act, ...v }, reach: { everyone: true } }];
       const out: Array<{ hint: Hint; reach?: Reach }> = [];
       const was = ctx.before.owner as HintOwner | undefined;
-      if (was) out.push({ hint: { kind, owner: was, id, action: act }, reach: { users: extra } });
-      if (now?.owner && !sameOwner(was, now.owner)) out.push({ hint: { kind, owner: now.owner, id, action: act }, reach: { users: extra } });
-      if (out.length === 0 && extra.length) out.push({ hint: { kind, id, action: act }, reach: { users: extra } });
+      if (was) out.push({ hint: { kind, owner: was, id, action: act, ...v }, reach: { users: extra } });
+      if (now?.owner && !sameOwner(was, now.owner)) out.push({ hint: { kind, owner: now.owner, id, action: act, ...v }, reach: { users: extra } });
+      if (out.length === 0 && extra.length) out.push({ hint: { kind, id, action: act, ...v }, reach: { users: extra } });
       return out;
     },
   };

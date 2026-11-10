@@ -13,6 +13,7 @@ import { attachUser } from '../auth/cookie.js';
 import { registerApiRoutes } from '../routes/all.js';
 import { NO_HINT, ROUTE_HINTS, registerChangeHints, routeKey } from './routeHints.js';
 import { MAX_CONNECTIONS_PER_USER, closeAll, connectionCount, heartbeatAll } from './hub.js';
+import { createDefaultLayoutDoc, encodeDoc } from '@cld/ydoc';
 
 async function buildApp(collect?: string[]): Promise<FastifyInstance> {
   const app = Fastify();
@@ -169,6 +170,22 @@ describe('GET /api/events', () => {
     await app.inject({ method: 'PATCH', url: `/api/layouts/${id}`, headers: { cookie: a.cookie }, payload: { title: 'Private again' } });
     await settle();
     expect(sb.hints()).toHaveLength(2);
+  });
+
+  it('two saves of a module close together are two hints, so an open tab hears the second', async () => {
+    const res = await app.inject({ method: 'POST', url: '/api/modules', headers: { cookie: a.cookie }, payload: { title: 'Siding' } });
+    const id = (res.json() as { id: string }).id;
+    const sa = await stream({ cookie: a.cookie });
+    const save = () =>
+      app.inject({ method: 'PUT', url: `/api/modules/${id}/snapshot`, headers: { cookie: a.cookie, 'content-type': 'application/octet-stream' }, payload: Buffer.from(encodeDoc(createDefaultLayoutDoc())) });
+    // Well inside the stream's squash window (the same hint twice is sent once).
+    expect((await save()).statusCode).toBe(200);
+    expect((await save()).statusCode).toBe(200);
+    await until(() => sa.hints().filter((h) => h.action === 'update:snapshot').length >= 2);
+    const saves = sa.hints().filter((h) => h.action === 'update:snapshot');
+    expect(saves).toHaveLength(2);
+    expect(saves.map((h) => h.v)).toEqual([1, 2]);
+    expect(saves[0]).toMatchObject({ kind: 'module', id, owner: { kind: 'user', id: a.id } });
   });
 
   it('a refused change sends nothing', async () => {
