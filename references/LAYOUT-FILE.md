@@ -39,7 +39,8 @@ many of each part the layout may use, as `budgetLimits`:
   part without an entry is unlimited or forbidden by the reader's
   preference, as in BlueBrick.
 - Present, even as `{}`, when the layout has a budget; absent when it has
-  none. The budget is shared with everyone who edits the layout.
+  none. The budget is shared with everyone who edits the layout, and with
+  nobody else: a copy published to the catalog leaves it out.
 - In the live doc it is a Y.Map at `meta.budgetLimits` (part number →
   limit), not part of `meta.cache`, so two people changing different rows
   merge. A sidecar coming in (upload, `.bld-layout`) lands there, and the

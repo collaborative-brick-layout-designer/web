@@ -34,7 +34,7 @@ import { collectionCounts, dropFromCollections, siteHeldCollection } from './col
 import { nameFor, publicName } from '../utils/publicName.js';
 import { creditLookup } from './credits.js';
 import { coverQueue, coverState, itemCoverUrl } from './itemCovers.js';
-import { catalogSummaries, publicVenue, publishLayoutDoc, venuePicture, venueSummary } from './catalogDocs.js';
+import { catalogSummaries, publicVenue, publishedDoc, publishLayoutDoc, venuePicture, venueSummary } from './catalogDocs.js';
 import { currentDocBytes } from './layouts.js';
 import { MAX_THUMBNAIL_BYTES, reencode, THUMBNAIL_BODY_LIMIT } from '../images/thumbnails.js';
 import { sniffCover } from '../images/covers.js';
@@ -367,7 +367,7 @@ export async function copyItemTo(user: User, item: typeof schema.catalogItems.$i
   const now = new Date();
   const id = randomUUID();
   if (item.kind === 'layout') {
-    const doc = Buffer.from(v.docSnapshot as Uint8Array);
+    const doc = publishedDoc(v.docSnapshot as Uint8Array);
     const refusal = await checkGrowth({ actor: user, owner, add: { layouts: 1, bytes: doc.length } });
     if (refusal) return { ok: false, code: refusal.status, body: refusal.body };
     await db.insert(schema.layouts).values({

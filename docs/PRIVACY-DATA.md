@@ -68,7 +68,7 @@ host's to keep or not.
 | Table | Personal data | Export | Notes |
 |---|---|---|---|
 | `catalog_items` | owner, title, description, tags | yes | Public while published. Modules, parts, layouts and venues. |
-| `catalog_item_versions` | who submitted and who reviewed, notes; a published layout or venue copy | yes (metadata; published layouts and venues as files in `catalog/`) | A published layout is a cleaned copy: no history, collaborators, comments, chat, local file paths, background picture or venue notes. A venue leaves out its notes. |
+| `catalog_item_versions` | who submitted and who reviewed, notes; a published layout or venue copy | yes (metadata; published layouts and venues as files in `catalog/`) | A published layout is a cleaned copy: no history, collaborators, comments, chat, local file paths, background picture, venue notes or budget. A venue leaves out its notes. |
 | `catalog_copies` | who added which item | yes | |
 | `catalog_collections` | curator, title, description, notes | yes | |
 | `catalog_collection_covers` | uploaded cover pictures, uploader | yes, pictures in `covers/` | Re-encoded, no picture metadata. |

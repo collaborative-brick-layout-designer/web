@@ -10,7 +10,7 @@ import sharp from 'sharp';
 import { randomUUID } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
-import { createDefaultLayoutDoc, decodeDoc, docToBbm, encodeDoc, exportBbmFromDoc, exportSidecarFromDoc, seedFromBbm } from '@cld/ydoc';
+import { createDefaultLayoutDoc, decodeDoc, docToBbm, encodeDoc, exportBbmFromDoc, exportSidecarFromDoc, importSidecarIntoDoc, readBudgetLimitsFromDoc, seedFromBbm } from '@cld/ydoc';
 import type { LayerBrick } from '@cld/model';
 import { db, resetDb, schema, testVerificationToken } from '../../test/helpers.js';
 import { attachUser } from '../../auth/cookie.js';
@@ -89,7 +89,8 @@ function layoutDoc(extraBricks = 0): Buffer {
   bricks.bricks.push(brick('b1', '3001.8', 0), brick('b2', '3001.8', 32), brick('b3', '2865.8', 64));
   for (let i = 0; i < extraBricks; i++) bricks.bricks.push(brick(`x${i}`, '3001.8', 96 + i * 32));
   const doc = seedFromBbm(map);
-  doc.getMap('meta').set('cache', {
+  // As the editor keeps it: everything in meta.cache, the budget in meta.budgetLimits.
+  importSidecarIntoDoc(doc, {
     schemaVersion: 1,
     bbmHashSha256: 'abc',
     modules: [{ id: 'm1', name: 'Station', members: ['b1'], transform: [1, 0, 0, 0, 1, 0, 0, 0, 1], sourceFile: '/home/ada/station.bbm', importedAt: '2026-01-01' }],
@@ -97,7 +98,8 @@ function layoutDoc(extraBricks = 0): Buffer {
     venue: venue(),
     views: [{ id: 'v1', name: 'Overview', fit: true, rect: null, sheets: null, grid: true, labels: true }],
     privateExtra: 'secret',
-  });
+    budgetLimits: { '3001.8': 12, '2865.8': 0 },
+  } as unknown as Parameters<typeof importSidecarIntoDoc>[1]);
   return Buffer.from(encodeDoc(doc));
 }
 
@@ -206,6 +208,10 @@ describe('layouts and venues in the catalog', () => {
     expect(side.views).toHaveLength(1);
     expect(side.venue!.notes).toBeUndefined();
     expect(side.venue!.obstacles).toHaveLength(1);
+    // How many of each part its owner may use is their own business.
+    expect(side.budgetLimits).toBeUndefined();
+    expect(readBudgetLimitsFromDoc(doc)).toBeUndefined();
+    expect(snap.rawPayload.includes('budgetLimits')).toBe(false);
     const text = JSON.stringify(side);
     for (const secret of ['secret', 'station.bbm', '555-0101', 'bob@example.com', 'abc']) expect(text).not.toContain(secret);
 
@@ -213,6 +219,9 @@ describe('layouts and venues in the catalog', () => {
     const bld = await req('GET', `/api/catalog/items/${r.id}/download`);
     expect(bld.headers['content-disposition']).toContain('Harbour town.bld-layout');
     expect(bld.rawPayload.subarray(0, 2).toString('latin1')).toBe('PK');
+    // (smallZip stores its entries as they are, so sidecar.json reads as text.)
+    expect(bld.rawPayload.includes('"views"')).toBe(true);
+    expect(bld.rawPayload.includes('budgetLimits')).toBe(false);
     const bbm = await req('GET', `/api/catalog/items/${r.id}/download?format=bbm`);
     expect(bbm.headers['content-disposition']).toContain('Harbour town.bbm');
     expect(bbm.body).toContain('3001.8');
@@ -222,6 +231,28 @@ describe('layouts and venues in the catalog', () => {
     await settings({ catalogAnonymousBrowse: false });
     expect((await req('GET', `/api/catalog/items/${r.id}/snapshot`)).statusCode).toBe(401);
     expect((await req('GET', `/api/catalog/items/${r.id}/snapshot`, out)).statusCode).toBe(200);
+  });
+
+  it('a copy published before the budget was left out is handed out without it', async () => {
+    await settings({ catalogReview: 'none' });
+    const l = await makeLayout('ada@example.com');
+    const r = (await share(ada, 'layout', l)).json() as { id: string };
+    // What an older server stored: the live document as it was, budget and all.
+    const old = decodeDoc(layoutDoc());
+    old.getMap('meta').delete('cache');
+    await db.update(schema.catalogItemVersions).set({ docSnapshot: Buffer.from(encodeDoc(old)) }).where(eq(schema.catalogItemVersions.itemId, r.id));
+    expect(readBudgetLimitsFromDoc(old)).toEqual({ '3001.8': 12, '2865.8': 0 });
+
+    const snap = await req('GET', `/api/catalog/items/${r.id}/snapshot`);
+    expect(snap.rawPayload.includes('budgetLimits')).toBe(false);
+    expect(exportBbmFromDoc(decodeDoc(new Uint8Array(snap.rawPayload)))!.layers.some((x) => x.type === 'brick' && x.bricks.length === 3)).toBe(true);
+    expect((await req('GET', `/api/catalog/items/${r.id}/download`)).rawPayload.includes('budgetLimits')).toBe(false);
+    // Someone's copy of it has no budget either; the owner's own layout keeps its budget.
+    const add = await req('POST', `/api/catalog/items/${r.id}/add`, out, {});
+    const copy = await db.select().from(schema.layouts).where(eq(schema.layouts.id, (add.json() as { id: string }).id)).get();
+    expect(readBudgetLimitsFromDoc(decodeDoc(copy!.docSnapshot as Uint8Array))).toBeUndefined();
+    const mine = await db.select().from(schema.layouts).where(eq(schema.layouts.id, l)).get();
+    expect(readBudgetLimitsFromDoc(decodeDoc(mine!.docSnapshot as Uint8Array))).toEqual({ '3001.8': 12, '2865.8': 0 });
   });
 
   it('the live layout stays private and keeps changing; a new version updates the public copy', async () => {
