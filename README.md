@@ -163,6 +163,35 @@ folders instead (Unraid, Synology), replace the `volumes:` lines:
       - /mnt/user/appdata/cbld/backups:/backups
 ```
 
+**Who owns them.** The server runs as the image's `node` user, **uid 1000,
+gid 1000**, not as root. New named volumes start out owned by that user, so
+a fresh install needs nothing. Host folders must be writable by 1000:1000
+(`sudo chown -R 1000:1000 /mnt/user/appdata/cbld`).
+
+**Upgrading from an image that ran as root** (any release up to v2.0.0, and
+`:nightly` before this change): the volumes it made belong to root, and the
+server stops at start with a line like `cbld: ERROR: the database folder
+/data is not writable by uid 1000 (gid 1000); it is owned by 0:0.` Give them
+to the server's user once, with it stopped:
+
+```sh
+docker compose stop
+# From the folder with docker-compose.yml (it knows the volumes' names):
+docker compose run --rm --user root --entrypoint chown app -R 1000:1000 /data /parts /backups
+docker compose up -d
+```
+
+Or with plain `docker` (Compose names the volumes `<folder>_cbld-data` and
+so on; `docker volume ls` lists them):
+
+```sh
+docker run --rm \
+  -v brick-layouts_cbld-data:/data \
+  -v brick-layouts_cbld-parts:/parts \
+  -v brick-layouts_cbld-backups:/backups \
+  alpine chown -R 1000:1000 /data /parts /backups
+```
+
 ### Upgrading and migrations
 
 ```sh

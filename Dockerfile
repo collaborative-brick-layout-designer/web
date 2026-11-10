@@ -93,6 +93,15 @@ COPY --from=builder /app/packages/bbm/tests/fixtures/tight-corner.bbm \
                     /app/packages/bbm/tests/fixtures/grand-lobby.bld-venue ./packages/bbm/tests/fixtures/
 COPY --from=builder /app/packages/bbm/tests/fixtures/oracle/flex-a.bbm ./packages/bbm/tests/fixtures/oracle/
 
+# Run as the base image's unprivileged `node` user (uid 1000, gid 1000), not
+# root. The folders it writes to belong to it, so a new named volume starts
+# out owned by node too. A volume an older image made is root's: the
+# entrypoint says so and how to hand it over (README › Volumes).
+COPY --chmod=0755 docker/entrypoint.sh /usr/local/bin/cbld-entrypoint
+RUN mkdir -p /data /parts /backups /app/apps/server/data \
+ && chown node:node /data /parts /backups /app/apps/server/data
+USER node
+
 EXPOSE 3000
 WORKDIR /app/apps/server
 # Healthy once the server answers and its database does (GET
@@ -101,5 +110,5 @@ WORKDIR /app/apps/server
 # a new version runs before it listens.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
   CMD node -e "fetch('http://127.0.0.1:'+(process.env.HTTP_PORT||process.env.PORT||3000)+'/api/health/ready',{signal:AbortSignal.timeout(4000)}).then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"
-ENTRYPOINT ["/usr/bin/tini", "--"]
+ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/cbld-entrypoint"]
 CMD ["node", "dist/index.js"]

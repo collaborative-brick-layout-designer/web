@@ -106,6 +106,31 @@ jobs:
           docker inspect -f '{{json .State.Health}}' cbld-ci | jq .
           [ "$status" = healthy ]
           curl -sf http://localhost:3000/api/health/ready
+          # It runs as node (1000:1000), not root.
+          [ "$(docker exec cbld-ci id -u):$(docker exec cbld-ci id -g)" = "1000:1000" ]
+          docker rm -f cbld-ci >/dev/null
+
+      # A volume an older image made belongs to root: the server stops at
+      # once and says why, and the README's chown lets it start.
+      - name: A root-owned volume stops it with a clear message
+        run: |
+          docker volume create cbld-ci-old >/dev/null
+          docker run --rm -v cbld-ci-old:/data alpine:3.22 sh -c 'touch /data/cbld.sqlite && chown -R 0:0 /data && chmod 755 /data'
+          set +e
+          docker run --name cbld-ci-old -e DB_PATH=/data/cbld.sqlite -e PARTS_DIR=/parts -e BACKUPS_DIR=/backups \
+            -v cbld-ci-old:/data cbld-web:ci > old.log 2>&1
+          code=$?
+          set -e
+          cat old.log
+          [ "$code" -ne 0 ]
+          grep -q 'cbld: ERROR: the database folder /data is not writable by uid 1000 (gid 1000); it is owned by 0:0.' old.log
+          docker rm -f cbld-ci-old >/dev/null
+          # The README's fix, then it starts.
+          docker run --rm -v cbld-ci-old:/data alpine:3.22 chown -R 1000:1000 /data
+          docker run -d --name cbld-ci-old -p 3001:3000 -e DB_PATH=/data/cbld.sqlite -e PARTS_DIR=/parts -e BACKUPS_DIR=/backups \
+            -e PUBLIC_URL=http://localhost:3001 -e COOKIE_SECURE=false -v cbld-ci-old:/data cbld-web:ci
+          for i in $(seq 60); do curl -sf http://localhost:3001/api/health/ready && exit 0; sleep 2; done
+          docker logs cbld-ci-old; exit 1
 
   osv-scan:
     name: OSV-Scanner (deps + actions)
