@@ -26,6 +26,7 @@ import {
 } from './model';
 import { commit, redo, startHistory, undo, type History } from './history';
 import { DEFAULT_STEP_STUDS, pointAtLength, snapPoint, type SnapKind } from './snap';
+import { venueLengthUnit, withVenueLengthUnit } from '@cld/bbm';
 import { formatLength, parseLength, type LengthUnit } from './units';
 
 export type Tool =
@@ -103,7 +104,8 @@ export function initialState(venue: Venue): DesignerState {
     typed: '',
     pointer: null,
     snapKind: 'none',
-    unit: 'ftin',
+    // The venue remembers the unit it was drawn in.
+    unit: venueLengthUnit(venue),
     snap: true,
     show: { plan: true, obstacles: true, power: true, dimensions: true, notes: true, estimates: true },
     drag: null,
@@ -342,16 +344,22 @@ export function reducer(s: DesignerState, a: Action): DesignerState {
       return edit(s, d.venue, { selection: d.selection });
     }
 
-    case 'undo':
-      return { ...s, history: undo(s.history), selection: null, draft: [], cut: null };
-    case 'redo':
-      return { ...s, history: redo(s.history), selection: null, draft: [], cut: null };
+    case 'undo': {
+      const history = undo(s.history);
+      return { ...s, history, unit: venueLengthUnit(history.present), selection: null, draft: [], cut: null };
+    }
+    case 'redo': {
+      const history = redo(s.history);
+      return { ...s, history, unit: venueLengthUnit(history.present), selection: null, draft: [], cut: null };
+    }
     case 'select':
       return { ...s, selection: a.selection };
     case 'edit':
       return edit(s, a.venue);
     case 'unit':
-      return { ...s, unit: a.unit };
+      // Kept with the venue (an edit like any other: saved, and undone with
+      // Undo), so its lengths show in this unit wherever it is drawn.
+      return a.unit === s.unit ? s : edit(s, withVenueLengthUnit(v, a.unit), { unit: a.unit });
     case 'snap':
       return { ...s, snap: a.on };
     case 'show':

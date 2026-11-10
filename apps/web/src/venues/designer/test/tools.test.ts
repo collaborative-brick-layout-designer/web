@@ -107,3 +107,42 @@ describe('select tool', () => {
     expect(parseSize("1' x 2' x 3'", 'ftin')).toBeNull();
   });
 });
+
+describe('units', () => {
+  it('the Units pick is kept with the venue, and comes back when it is opened again', () => {
+    let s = initialState(emptyVenue());
+    expect(s.unit).toBe('ftin');
+    expect(venueOf(s).lengthUnit).toBeUndefined();
+    const before = venueOf(s);
+
+    s = run(s, { type: 'unit', unit: 'm' });
+    expect(s.unit).toBe('m');
+    expect(venueOf(s).lengthUnit).toBe('m');
+    expect(venueOf(s)).not.toBe(before); // a change to save
+    // Typed lengths read in it.
+    s = run(s, tool('wall'), click(0, 0), hover(50, 1), { type: 'type', text: '3' }, { type: 'enter' }, { type: 'escape' });
+    expect(venueOf(s).edges[0]!.poly[1]!.x).toBeCloseTo(375); // 3 m
+
+    // Opened again: the designer starts in the venue's unit.
+    expect(initialState(venueOf(s)).unit).toBe('m');
+    expect(initialState({ ...emptyVenue(), lengthUnit: 'studs' }).unit).toBe('studs');
+    // A unit this version doesn't know reads as feet and inches.
+    expect(initialState({ ...emptyVenue(), lengthUnit: 'furlongs' as never }).unit).toBe('ftin');
+  });
+
+  it('feet and inches is the default and is not written; undo and redo take the unit with them', () => {
+    let s = run(initialState(emptyVenue()), { type: 'unit', unit: 'studs' });
+    const studs = venueOf(s);
+    s = run(s, { type: 'unit', unit: 'studs' });
+    expect(venueOf(s)).toBe(studs); // the same pick again changes nothing
+    s = run(s, { type: 'unit', unit: 'ftin' });
+    expect('lengthUnit' in venueOf(s)).toBe(false);
+    s = run(s, { type: 'undo' });
+    expect(s.unit).toBe('studs');
+    expect(venueOf(s).lengthUnit).toBe('studs');
+    s = run(s, { type: 'undo' });
+    expect(s.unit).toBe('ftin');
+    s = run(s, { type: 'redo' });
+    expect(s.unit).toBe('studs');
+  });
+});

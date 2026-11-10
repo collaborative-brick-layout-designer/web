@@ -3,10 +3,13 @@ import {
   CURRENT_SCHEMA_VERSION,
   NEWER_SIDECAR_WARNING,
   readSidecar,
+  venueLengthUnit,
+  withVenueLengthUnit,
   sidecarWarnings,
   readView,
   writeSidecar,
   type Sidecar,
+  type Venue,
 } from './sidecar.js';
 import { hashBbmBytes } from './sidecarHash.js';
 
@@ -282,5 +285,27 @@ describe('budget limits', () => {
     expect(back.budgetLimits).toEqual({ a: 3, d: 2 });
     expect(back.extras).toBeUndefined();
     expect(readSidecar(JSON.stringify({ schemaVersion: 1, budgetLimits: [1, 2] })).budgetLimits).toBeUndefined();
+  });
+});
+
+describe('a venue’s length unit', () => {
+  const venue = { name: 'Hall', enabled: true, minWalkwayStuds: 30, bounds: { x: 0, y: 0, w: 0, h: 0 }, edges: [], obstacles: [] };
+
+  it('reads feet and inches when the venue names none, or one this version does not know', () => {
+    expect(venueLengthUnit(venue)).toBe('ftin');
+    expect(venueLengthUnit({ ...venue, lengthUnit: 'm' })).toBe('m');
+    expect(venueLengthUnit({ ...venue, lengthUnit: 'studs' })).toBe('studs');
+    expect(venueLengthUnit({ ...venue, lengthUnit: 'cubits' })).toBe('ftin');
+    expect(venueLengthUnit(null)).toBe('ftin');
+  });
+
+  it('is written only when not feet and inches, and round-trips in a sidecar', () => {
+    const m = withVenueLengthUnit(venue, 'm');
+    expect(m).toEqual({ ...venue, lengthUnit: 'm' });
+    expect(withVenueLengthUnit(m, 'm')).toBe(m);
+    expect(withVenueLengthUnit(venue, 'ftin')).toBe(venue);
+    expect('lengthUnit' in withVenueLengthUnit(m, 'ftin')).toBe(false);
+    const back = readSidecar(writeSidecar({ schemaVersion: 1, bbmHashSha256: '', venue: m as Venue }));
+    expect(back.venue?.lengthUnit).toBe('m');
   });
 });

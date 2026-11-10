@@ -3,10 +3,13 @@
 // shown back in the chosen unit. Venues store studs (1 stud = 8 mm).
 // The desktop's venue/Units.cpp is the twin of this file.
 
+import type { VenueLengthUnit } from '@cld/bbm';
+
 export const STUDS_PER_INCH = 38.09814081 / 12;
 export const STUDS_PER_MM = 1 / 8;
 
-export type LengthUnit = 'ftin' | 'm' | 'studs';
+/** The unit lengths are typed and shown in; a venue remembers its own (`lengthUnit`, read with `venueLengthUnit`). */
+export type LengthUnit = VenueLengthUnit;
 
 const num = String.raw`(\d+(?:\.\d+)?)`;
 const frac = String.raw`(?:\s+(\d+)\/(\d+))?`;

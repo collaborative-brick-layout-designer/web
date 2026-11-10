@@ -30,6 +30,7 @@ Both apps must read and write every field below the same way. `packages/bbm/test
 | `power[]` | `{x, y, kind: "wall" \| "floor", label?, amps?, volts?}` | only when there is at least one |
 | `notes[]` | `{x, y, text, estimated?}` | only when there is at least one |
 | `dimensions[]` | `{from{x,y}, to{x,y}, label?, estimated?}`, drawn as a dimension line | only when there is at least one |
+| `lengthUnit` | `"m"` or `"studs"`: the unit the venue's lengths are shown in (the Venue Designer's Units pick). Both apps show wall lengths in it wherever the venue is drawn: the designer, the layout editor and the public page. Stored lengths stay in studs | only when not feet and inches; absent, or a value an app doesn't know, means feet and inches |
 | `floorPlan` | `{image, x, y, studsPerPx, opacity}`: the floor-plan image traced in the Venue Designer. `image` is a `data:image/…` URL, downscaled to at most 2400 px. `x`, `y` place its top-left corner. `studsPerPx` comes from calibration, and `opacity` is 0–1 | only when there is one; drawn only in the designer |
 
 Rules for optional fields:

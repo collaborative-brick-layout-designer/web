@@ -69,6 +69,7 @@ const venue = () => ({
   obstacles: [{ label: 'Pillar', kind: 'column', poly: [{ x: 100, y: 100 }, { x: 120, y: 100 }, { x: 120, y: 120 }] }],
   notes: [{ x: 10, y: 10, text: 'Key from Bob, 555-0101' }],
   contact: 'bob@example.com',
+  lengthUnit: 'm',
 });
 
 /** A layout: two straights (one part twice) and a curve, with a sidecar full of things that stay private. */
@@ -212,6 +213,7 @@ describe('layouts and venues in the catalog', () => {
     expect(side.budgetLimits).toBeUndefined();
     expect(readBudgetLimitsFromDoc(doc)).toBeUndefined();
     expect(snap.rawPayload.includes('budgetLimits')).toBe(false);
+    expect(side.venue!.lengthUnit).toBe('m');
     const text = JSON.stringify(side);
     for (const secret of ['secret', 'station.bbm', '555-0101', 'bob@example.com', 'abc']) expect(text).not.toContain(secret);
 
@@ -322,6 +324,8 @@ describe('layouts and venues in the catalog', () => {
     expect(got.venue.contact).toBeUndefined();
     expect(JSON.stringify(got.venue)).not.toContain('secretEdgeField');
     expect((got.venue.edges as unknown[]).length).toBe(2);
+    // Its lengths show in the unit its owner drew it in.
+    expect(got.venue.lengthUnit).toBe('m');
     const card = ((await req('GET', '/api/catalog/items?kind=venue')).json() as { items: { summary: unknown; previewUrl: string }[] }).items[0]!;
     expect(card.summary).toEqual({ widthStuds: 400, heightStuds: 300 });
     const pic = await req('GET', card.previewUrl);
