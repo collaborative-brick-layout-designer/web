@@ -265,3 +265,22 @@ describe('a sidecar file written without a schemaVersion', () => {
     expect(() => readSidecar('{"schemaVersion":"one"}')).toThrow(/schemaVersion/);
   });
 });
+
+describe('budget limits', () => {
+  // The budget is shared with the layout (area 7, Bug 1): a sidecar carries
+  // it as `budgetLimits`, part number → how many the layout may use.
+  it('round-trips a budget, and keeps an empty one (the layout has a budget with no limits yet)', () => {
+    const limits = { '3001.1': 12, '3005.4': 0 };
+    expect(readSidecar(writeSidecar({ ...baseSidecar, budgetLimits: limits })).budgetLimits).toEqual(limits);
+    expect(readSidecar(writeSidecar({ ...baseSidecar, budgetLimits: {} })).budgetLimits).toEqual({});
+    expect(readSidecar(writeSidecar(baseSidecar)).budgetLimits).toBeUndefined();
+    expect(JSON.parse(writeSidecar(baseSidecar))).not.toHaveProperty('budgetLimits');
+  });
+
+  it('reads only whole, non-negative numbers, and is not an unknown field', () => {
+    const back = readSidecar(JSON.stringify({ schemaVersion: 1, budgetLimits: { a: 3, b: -1, c: 'x', d: 2.7, e: null } }));
+    expect(back.budgetLimits).toEqual({ a: 3, d: 2 });
+    expect(back.extras).toBeUndefined();
+    expect(readSidecar(JSON.stringify({ schemaVersion: 1, budgetLimits: [1, 2] })).budgetLimits).toBeUndefined();
+  });
+});

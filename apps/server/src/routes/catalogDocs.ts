@@ -24,7 +24,7 @@ import { and, eq, inArray } from 'drizzle-orm';
 import sharp from 'sharp';
 import { writeBbm, type Sidecar, type Venue } from '@cld/bbm';
 import type { BbmMap } from '@cld/model';
-import { decodeDoc, encodeDoc, exportBbmFromDoc, exportSidecarFromDoc, seedFromBbm } from '@cld/ydoc';
+import { decodeDoc, encodeDoc, exportBbmFromDoc, exportSidecarFromDoc, importSidecarIntoDoc, seedFromBbm } from '@cld/ydoc';
 import { db, schema } from '../db/index.js';
 import { can } from '../access/clubPermissions.js';
 import { layoutFileBytes, smallZip } from '../privacy/exportFiles.js';
@@ -77,6 +77,7 @@ export function publicSidecar(s: Sidecar): Sidecar {
   }
   if (s.venue) out.venue = publicVenue(s.venue);
   if (s.views?.length) out.views = s.views;
+  if (s.budgetLimits) out.budgetLimits = s.budgetLimits;
   return out;
 }
 
@@ -138,7 +139,7 @@ export function publishLayoutDoc(docBytes: Uint8Array, sidecarSnapshot: Uint8Arr
     const clean = publicMap(map);
     const out = seedFromBbm(clean);
     const side = sidecar ? publicSidecar(sidecar) : null;
-    if (side) out.getMap('meta').set('cache', side);
+    if (side) importSidecarIntoDoc(out, side);
     const bytes = Buffer.from(encodeDoc(out));
     out.destroy();
     return { doc: bytes, summary: layoutSummary(clean, side) };

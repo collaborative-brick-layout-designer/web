@@ -226,8 +226,26 @@ export interface Sidecar {
   views?: SavedView[];
   /** Custom sets placed in the layout, with the version each came from. */
   sets?: PlacedSet[];
+  /**
+   * The layout's budget: how many of each part (by part number) it may
+   * use. Present, even empty, when the layout has a budget; absent when it
+   * has none. Shared with everyone editing the layout (the live doc keeps
+   * it in `meta.budgetLimits`); the desktop's `.bbb` files import and
+   * export it.
+   */
+  budgetLimits?: Record<string, number>;
   /** Unknown top-level fields preserved verbatim across round-trip. */
   extras?: Record<string, unknown>;
+}
+
+/** The budget limits of a sidecar's `budgetLimits` field: a part number to a whole number of 0 or more. */
+export function readBudgetLimitsField(v: unknown): Record<string, number> | undefined {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return undefined;
+  const out: Record<string, number> = {};
+  for (const [part, limit] of Object.entries(v as Record<string, unknown>)) {
+    if (typeof limit === 'number' && Number.isFinite(limit) && limit >= 0) out[part] = Math.floor(limit);
+  }
+  return out;
 }
 
 export function readSidecar(raw: string): Sidecar {
@@ -262,6 +280,8 @@ export function readSidecar(raw: string): Sidecar {
       (v): v is PlacedSet => !!v && typeof v === 'object' && typeof (v as PlacedSet).id === 'string' && typeof (v as PlacedSet).version === 'string',
     );
   }
+  const budget = readBudgetLimitsField(parsed.budgetLimits);
+  if (budget) sidecar.budgetLimits = budget;
 
   const knownKeys = new Set([
     'schemaVersion',
@@ -272,6 +292,7 @@ export function readSidecar(raw: string): Sidecar {
     'backgroundImage',
     'views',
     'sets',
+    'budgetLimits',
   ]);
   const extras: Record<string, unknown> = {};
   for (const key of Object.keys(parsed)) {
@@ -317,6 +338,7 @@ export function writeSidecar(sidecar: Sidecar, opts: WriteSidecarOptions = {}): 
   if (sidecar.backgroundImage) out.backgroundImage = encodeBackgroundImage(sidecar.backgroundImage);
   if (sidecar.views) out.views = sidecar.views;
   if (sidecar.sets && sidecar.sets.length > 0) out.sets = sidecar.sets;
+  if (sidecar.budgetLimits) out.budgetLimits = sidecar.budgetLimits;
   if (sidecar.extras) {
     for (const [k, v] of Object.entries(sidecar.extras)) out[k] = v;
   }
