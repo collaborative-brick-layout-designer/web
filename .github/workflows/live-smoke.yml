@@ -52,10 +52,10 @@ jobs:
       BLD_SYNC_DRIVER: ${{ github.workspace }}/.desktop/build/src/app/bld_sync_driver
       BLD_SYNC_SERVER: http://127.0.0.1:3000
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Check out the desktop repo
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: collaborative-brick-layout-designer/desktop
           # Always the desktop's main (never a ref given by whoever runs this).
@@ -64,7 +64,7 @@ jobs:
           submodules: recursive
 
       - name: Install Qt
-        uses: jurplel/install-qt-action@v4
+        uses: jurplel/install-qt-action@b344308e4483fc892e0d27b3cd1b173ebdd95f06 # v4.5.0
         with:
           # As the desktop repo's CI: aqtinstall 3.3.0 cannot find Qt >= 6.11.
           aqtsource: git+https://github.com/miurahr/aqtinstall.git@076e1659807d0b362a3ed684d54c2e9c775eb9c7
@@ -77,7 +77,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Compiler cache
-        uses: hendrikmuhs/ccache-action@v1.2
+        uses: hendrikmuhs/ccache-action@5ebbd400eff9e74630f759d94ddd7b6c26299639 # v1.2.20
         with:
           key: live-smoke-driver
           max-size: 500M
@@ -103,7 +103,7 @@ jobs:
 
       - name: Upload the Playwright report and traces
         if: failure()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: live-smoke-report
           path: |

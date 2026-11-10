@@ -2,6 +2,8 @@
 
 # Node is pinned to a release and its digest, so a rebuild never picks up an
 # older or unexpected Node: 26.12.1 carries the 2026-10-21 security fixes.
+# .node-version names the same release for CI (setup-node reads it), and the
+# build below stops if the two ever differ, so tests run on production's Node.
 ARG NODE_IMAGE=node:26.12.1-bookworm-slim@sha256:28147155d47dc31abe0a46e0d12b59b2fb3d0a2dcc5dc65fce76a074180b16fe
 
 # ---- builder ---------------------------------------------------------------
@@ -13,15 +15,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       build-essential python3 git \
     && rm -rf /var/lib/apt/lists/*
 
+# The lockfile too: the install below takes exactly what it lists.
+COPY .node-version pnpm-workspace.yaml pnpm-lock.yaml .pnpmfile.cjs package.json tsconfig.base.json ./
+RUN test "v$(cat .node-version)" = "$(node --version)" \
+    || { echo "Node $(node --version) here, .node-version says $(cat .node-version): change both together" >&2; exit 1; }
 # Node 25 stopped bundling corepack (it's no longer preinstalled on the
 # node:*-slim images) — install it explicitly before enabling it.
 # - Pin to 0.34.7, not @latest: corepack@0.35.0 narrowed its own supported
 #   engines range to exclude Node 25 (EBADENGINE), 0.34.x still covers it.
 # - --force: npm's global bin already has yarn/yarnpkg placeholder shims on
 #   this base image, and a plain install collides with them (EEXIST).
-RUN npm install -g --force corepack@0.34.7 && corepack enable && corepack prepare pnpm@10 --activate
-
-COPY pnpm-workspace.yaml .pnpmfile.cjs package.json tsconfig.base.json ./
+# pnpm at the version package.json's packageManager names, as in CI.
+RUN npm install -g --force corepack@0.34.7 && corepack enable \
+    && corepack prepare "$(node -p 'require("./package.json").packageManager')" --activate
 COPY apps/server/package.json apps/server/tsconfig.json apps/server/tsconfig.build.json apps/server/drizzle.config.ts ./apps/server/
 COPY apps/web/package.json apps/web/tsconfig.json apps/web/vite.config.ts apps/web/index.html ./apps/web/
 COPY packages/model/package.json packages/model/tsconfig.json ./packages/model/
@@ -29,7 +35,7 @@ COPY packages/bbm/package.json packages/bbm/tsconfig.json ./packages/bbm/
 COPY packages/ydoc/package.json packages/ydoc/tsconfig.json ./packages/ydoc/
 COPY packages/parts-catalog/package.json packages/parts-catalog/tsconfig.json ./packages/parts-catalog/
 
-RUN git init && pnpm install --frozen-lockfile=false
+RUN git init && pnpm install --frozen-lockfile
 
 COPY apps/server/src ./apps/server/src
 COPY apps/server/migrations ./apps/server/migrations

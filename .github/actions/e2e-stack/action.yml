@@ -14,23 +14,21 @@ runs:
   using: composite
   steps:
     - name: Check out the BlueBrick parts library
-      uses: actions/checkout@v7
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
         repository: Lswbanban/BlueBrickParts
         ref: ${{ inputs.parts-sha }}
         path: .e2e/BlueBrickParts
 
-    - uses: pnpm/action-setup@v6
-      with:
-        version: 10
+    - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
 
-    - uses: actions/setup-node@v7
+    - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
       with:
-        node-version: 24
+        node-version-file: .node-version
         cache: pnpm
 
     - shell: bash
-      run: pnpm install --frozen-lockfile=false
+      run: pnpm install --frozen-lockfile
 
     - name: Build the packages
       shell: bash
@@ -49,7 +47,7 @@ runs:
         echo "image-os=${ImageOS:-unknown}" >> "$GITHUB_OUTPUT"
 
     - name: Cache Playwright's browsers
-      uses: actions/cache@v6
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: ~/.cache/ms-playwright
         key: playwright-browsers-${{ runner.os }}-${{ runner.arch }}-${{ steps.pw.outputs.version }}
@@ -68,7 +66,7 @@ runs:
           | sudo tee /etc/apt/apt.conf.d/99-playwright-cache > /dev/null
 
     - name: Cache the apt packages Playwright needs
-      uses: actions/cache@v6
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: ~/.cache/playwright-apt/*.deb
         key: playwright-apt-${{ runner.arch }}-${{ steps.pw.outputs.image }}-${{ steps.pw.outputs.version }}
