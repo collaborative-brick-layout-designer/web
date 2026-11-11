@@ -15,6 +15,7 @@ import {
   resolveMode,
   systemPrefersDark,
   writeCachedPreferences,
+  writeCachedThemeVars,
   type Preferences,
 } from './theme';
 import type { Mode } from './tokens';
@@ -99,6 +100,7 @@ export function PrefsProvider({ children }: { children: ReactNode }) {
   const mode = resolveMode(prefs.theme, systemDark);
   useLayoutEffect(() => {
     applyTheme(document.documentElement, prefs, systemDark);
+    writeCachedThemeVars(prefs);
   }, [prefs, systemDark]);
 
   // Don't lose a queued change when the tab closes.

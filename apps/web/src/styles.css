@@ -142,6 +142,23 @@
 :root[data-accent='slate'] { --accent: #4F5B6B; --accent-ink: #FFFFFF; --accent-soft: #EBEEF2; --accent-text: #46505E; }
 :root[data-theme='dark'][data-accent='slate'] { --accent-soft: #262B32; --accent-text: #B6C0CC; }
 
+/* A LEGO color (data-accent="lego") and "Color the whole app"
+   (data-color-style="full"): src/theme/theme.ts works the colors out
+   (colorTheme.ts) and sets them on <html> itself (--accent..., --chrome,
+   --chrome-line, --bg, --page-top), so these rules only say where they go.
+   The header, the editor's bars and toolbars and the panel headers take the
+   tint; the page fades from a stronger tint at the top. Warning and error
+   colors never change. */
+:root[data-color-style='full'] .theme-chrome {
+  background-color: var(--chrome);
+  border-color: var(--chrome-line);
+}
+:root[data-color-style='full'] .theme-page {
+  background-image: linear-gradient(170deg, var(--page-top), transparent 420px);
+  background-repeat: no-repeat;
+  background-attachment: local;
+}
+
 /* Bigger text and buttons: everything sized in rem grows with this. */
 :root[data-text='large'] {
   font-size: 112.5%;

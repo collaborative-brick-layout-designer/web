@@ -24,7 +24,7 @@ export function OrgsPage() {
   if (!me.data?.user) return <SignInFirst />;
 
   return (
-    <div className="h-full overflow-y-auto bg-bg p-4 text-ink sm:p-8">
+    <div className="theme-page h-full overflow-y-auto bg-bg p-4 text-ink sm:p-8">
       <AppHeader user={me.data.user} />
       <main className="mx-auto mt-8 max-w-3xl space-y-4">
         <div className="flex items-center justify-between">

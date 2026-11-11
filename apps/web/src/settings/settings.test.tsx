@@ -85,3 +85,59 @@ describe('snap trace (hidden)', () => {
     expect(localStorage.getItem('cld:snapTrace')).toBeNull();
   });
 });
+
+describe('Color: any LEGO color and how much color', () => {
+  it('opens a searchable list of LEGO colors with LEGO and BrickLink names', async () => {
+    const { fireEvent } = await import('@testing-library/react');
+    const { container } = render(
+      <MemoryRouter>
+        <SettingsContent />
+      </MemoryRouter>,
+    );
+    const view = within(container);
+    expect(view.queryByTestId('lego-color-picker')).toBeNull();
+    fireEvent.click(view.getByTestId('lego-color-toggle'));
+    const picker = view.getByTestId('lego-color-picker');
+    const list = within(picker).getByRole('radiogroup', { name: 'Any LEGO color' });
+    expect(within(list).getAllByRole('radio').length).toBeGreaterThan(100);
+    const search = within(picker).getByRole('searchbox');
+    // By BrickLink name...
+    fireEvent.change(search, { target: { value: 'dark blue' } });
+    expect(within(list).getByRole('radio', { name: /^Earth Blue \(LEGO 140\), BrickLink: Dark Blue \(63\)/ })).toBeTruthy();
+    // ...by LEGO number...
+    fireEvent.change(search, { target: { value: '24' } });
+    expect(within(list).getAllByRole('radio').map((r) => r.getAttribute('aria-label'))).toContain('Bright Yellow (LEGO 24), BrickLink: Yellow (3)');
+    // ...and nothing found offers the way back.
+    fireEvent.change(search, { target: { value: 'trans clear' } });
+    expect(within(picker).getByRole('status').textContent).toMatch(/No LEGO color matches/);
+    fireEvent.click(within(picker).getByRole('button', { name: 'Show all colors' }));
+    expect((search as HTMLInputElement).value).toBe('');
+  });
+
+  it('offers just the highlights (the original look) or the whole app, the original until changed', () => {
+    const { container } = render(
+      <MemoryRouter>
+        <SettingsContent />
+      </MemoryRouter>,
+    );
+    const view = within(container);
+    const group = view.getByRole('radiogroup', { name: 'How much color' });
+    expect(within(group).getAllByRole('radio')).toHaveLength(2);
+    expect(view.getByTestId('color-style-original').getAttribute('aria-checked')).toBe('true');
+    expect(view.getByTestId('color-style-original').textContent).toMatch(/original look/);
+  });
+});
+
+describe('matchesLegoColor', () => {
+  it('finds a color by either name, either number, and "grey" or "gray"', async () => {
+    const { matchesLegoColor } = await import('./LegoColorPicker');
+    const { legoColor } = await import('@cld/model');
+    const lbg = legoColor(194)!; // Medium Stone Grey / Light Bluish Gray
+    expect(matchesLegoColor(lbg, 'medium stone gray')).toBe(true);
+    expect(matchesLegoColor(lbg, 'Light Bluish Grey')).toBe(true);
+    expect(matchesLegoColor(lbg, '194')).toBe(true);
+    expect(matchesLegoColor(lbg, '86')).toBe(true);
+    expect(matchesLegoColor(lbg, '19')).toBe(false);
+    expect(matchesLegoColor(lbg, 'red')).toBe(false);
+  });
+});

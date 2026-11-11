@@ -57,7 +57,7 @@ export function AdminPage() {
   };
 
   return (
-    <div ref={pageRef} className="cards-on-phone h-full overflow-y-auto bg-bg p-4 text-ink sm:p-8">
+    <div ref={pageRef} className="cards-on-phone theme-page h-full overflow-y-auto bg-bg p-4 text-ink sm:p-8">
       <AppHeader user={user} />
       <div className="mt-6">
         <h1 className="text-base font-semibold">

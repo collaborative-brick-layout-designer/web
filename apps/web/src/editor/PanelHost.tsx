@@ -62,7 +62,7 @@ export function PanelHost({ panelId, title, zone, onMove, onReorder, children }:
         if (fromId && fromId !== panelId) onReorder(fromId, panelId);
       } : undefined}
     >
-      <header className="relative flex min-h-11 items-center gap-1.5 border-b border-line bg-panel px-3 py-1.5">
+      <header className="theme-chrome relative flex min-h-11 items-center gap-1.5 border-b border-line bg-panel px-3 py-1.5">
         {/* Drag handle — grab to reorder within dock */}
         <span
           draggable

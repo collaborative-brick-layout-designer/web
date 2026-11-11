@@ -865,7 +865,7 @@ export function CollectionPage() {
   // Members of its club (or its curator) can add its own modules; anyone signed in adds catalog items.
   const member = !!c && (c.canEdit || !!c.myRole);
   return (
-    <div className="h-full overflow-y-auto bg-bg p-4 text-ink sm:p-8">
+    <div className="theme-page h-full overflow-y-auto bg-bg p-4 text-ink sm:p-8">
       {user ? (
         <AppHeader user={user} />
       ) : (
