@@ -428,6 +428,8 @@ export const ROUTE_HINTS: Record<string, HintSpec> = {
   'POST /api/auth/device/approve': me,
   'POST /api/auth/device/deny': me,
   'DELETE /api/tokens/:id': me,
+  // The desktop's Sign Out: the website's Browsers and devices list drops it at once.
+  'DELETE /api/tokens/current': me,
   // Other tabs' Browsers and devices lists (the signed-out ones are closed anyway).
   'POST /api/auth/password/change': me,
   'DELETE /api/auth/sessions/:id': me,
