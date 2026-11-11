@@ -490,7 +490,7 @@ when they fall behind.
 | `GITHUB_CLIENT_ID` | — | — | With `GITHUB_CLIENT_SECRET`: sign in with GitHub. |
 | `GITHUB_CLIENT_SECRET` | — | — |  |
 | `OAUTH_MOCK_ORIGIN` | — | — | Tests only, ignored when `NODE_ENV=production`: send GitHub and Google sign-in to the end-to-end tests’ stand-in at this origin (`apps/web/e2e/oauthMock.ts`). |
-| `OIDC_ISSUER_URL` | — | — | With `OIDC_CLIENT_ID` and `OIDC_CLIENT_SECRET`: any OpenID Connect provider (Microsoft Entra, Auth0, Keycloak…). Each linked account remembers its issuer; if you change this address, people linked under the old one can't sign in and are told to ask an admin. |
+| `OIDC_ISSUER_URL` | — | — | With `OIDC_CLIENT_ID` and `OIDC_CLIENT_SECRET`: any OpenID Connect provider (Microsoft Entra, Auth0, Keycloak…). |
 | `OIDC_CLIENT_ID` | — | — |  |
 | `OIDC_CLIENT_SECRET` | — | — |  |
 | `SMTP_HOST` | — | Admin › Site settings › SMTP server (wins once saved) | With `SMTP_FROM`: invites and email confirmations are emailed. Without it, invites are copy-paste links and confirmation links go to the server log. |
