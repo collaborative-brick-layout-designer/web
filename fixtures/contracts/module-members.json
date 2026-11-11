@@ -1,0 +1,49 @@
+{
+  "about": "A module's parts in the shared layout, one key per part (doc shape 3; web packages/ydoc moduleMembers.ts, desktop src/sync/ModuleMembers.cpp; docs/module-members.md). `keys`: the sidecarItems key of a part in a module. `badKeys`: p: keys no writer makes (both apps skip them, the server refuses them). `values`: what a key may hold. `read`: a module's starting list (`members`, absent when the module's value has none) and its keys (part id to value) with the parts it reads as. `write`: the same, the parts wanted, and the keys a writer sets (in order) and deletes.",
+  "shape": 3,
+  "keys": [
+    { "moduleId": "m1", "partId": "42", "key": "p:2:m1:42" },
+    { "moduleId": "", "partId": "7", "key": "p:0::7" },
+    { "moduleId": "a:b", "partId": "c:d", "key": "p:3:a:b:c:d" },
+    { "moduleId": "0b6f0c0e-5d0e-4c55-9a43-1f3a2c9f7d10", "partId": "4611686018427387903", "key": "p:36:0b6f0c0e-5d0e-4c55-9a43-1f3a2c9f7d10:4611686018427387903" },
+    { "moduleId": "häfen 🚂", "partId": "9", "key": "p:8:häfen 🚂:9" }
+  ],
+  "badKeys": ["p:", "p:2:m1:", "p:2", "p:2:m1", "p:2:m142", "p:02:m1:42", "p:x:m1:42", "p:-1:m1:42", "p:9:m1:42", "p:2.0:m1:42", "p:1234567890:m1:42", "p: 2:m1:42"],
+  "values": [
+    { "value": 0, "valid": true },
+    { "value": 3, "valid": true },
+    { "value": 2.5, "valid": true },
+    { "value": false, "valid": true },
+    { "value": -1, "valid": false },
+    { "value": true, "valid": false },
+    { "value": null, "valid": false },
+    { "value": "1", "valid": false },
+    { "value": [], "valid": false },
+    { "value": {}, "valid": false }
+  ],
+  "read": [
+    { "what": "a list and no keys (every layout before shape 3)", "members": ["a", "b", "c"], "keys": {}, "expect": ["a", "b", "c"] },
+    { "what": "a part added by key goes after the starting list", "members": ["a", "b"], "keys": { "c": 0 }, "expect": ["a", "b", "c"] },
+    { "what": "added parts sort by number, then by id", "members": ["a"], "keys": { "z": 0, "y": 1, "x": 1, "w": 0.5 }, "expect": ["a", "z", "w", "x", "y"] },
+    { "what": "false takes a part out of the starting list", "members": ["a", "b", "c"], "keys": { "b": false }, "expect": ["a", "c"] },
+    { "what": "a number on a part of the starting list leaves it where it is", "members": ["a", "b"], "keys": { "a": 5, "c": 0 }, "expect": ["a", "b", "c"] },
+    { "what": "false on a part that isn't in the starting list does nothing", "members": ["a"], "keys": { "q": false }, "expect": ["a"] },
+    { "what": "a module made without a list", "keys": { "b": 1, "a": 1 }, "expect": ["a", "b"] },
+    { "what": "an empty starting list", "members": [], "keys": { "10": 0, "9": 0 }, "expect": ["10", "9"] },
+    { "what": "everything taken out", "members": ["a", "b"], "keys": { "a": false, "b": false }, "expect": [] },
+    { "what": "values that aren't valid are skipped", "members": ["a", "b"], "keys": { "a": true, "b": null, "c": -1, "d": "0", "e": 2 }, "expect": ["a", "b", "e"] }
+  ],
+  "write": [
+    { "what": "nothing changed", "members": ["a", "b"], "keys": { "c": 0 }, "want": ["a", "b", "c"], "set": [], "delete": [] },
+    { "what": "the same parts in another order: nothing to write", "members": ["a", "b"], "keys": { "c": 0 }, "want": ["c", "b", "a"], "set": [], "delete": [] },
+    { "what": "the first added part", "members": ["a"], "keys": {}, "want": ["a", "b"], "set": [["b", 0]], "delete": [] },
+    { "what": "added parts take the next numbers, in the order wanted", "members": ["a"], "keys": { "b": 4 }, "want": ["a", "b", "d", "c"], "set": [["d", 5], ["c", 6]], "delete": [] },
+    { "what": "the next number counts from the highest whole number below a fraction", "members": [], "keys": { "b": 2.5 }, "want": ["b", "c"], "set": [["c", 3]], "delete": [] },
+    { "what": "a part of the starting list taken out", "members": ["a", "b"], "keys": {}, "want": ["a"], "set": [["b", false]], "delete": [] },
+    { "what": "a part added by key taken out", "members": ["a"], "keys": { "b": 0 }, "want": ["a"], "set": [], "delete": ["b"] },
+    { "what": "a part of the starting list put back", "members": ["a", "b"], "keys": { "b": false }, "want": ["a", "b"], "set": [], "delete": ["b"] },
+    { "what": "one out, one in", "members": ["a", "b"], "keys": { "c": 1 }, "want": ["b", "d"], "set": [["a", false], ["d", 2]], "delete": ["c"] },
+    { "what": "a module made without a list", "keys": {}, "want": ["x"], "set": [["x", 0]], "delete": [] },
+    { "what": "a part marked false that was never in the starting list is added by number", "members": ["a"], "keys": { "q": false }, "want": ["a", "q"], "set": [["q", 0]], "delete": [] }
+  ]
+}
