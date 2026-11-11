@@ -94,7 +94,7 @@ export function FloatingPanel({ panelId, title, pos, onMove, onPosChange, childr
       {/* Title bar */}
       <header
         onMouseDown={onTitleMouseDown}
-        className="flex cursor-move select-none items-center justify-between border-b border-line bg-panel px-2 py-1 text-xs text-muted"
+        className="theme-chrome flex cursor-move select-none items-center justify-between border-b border-line bg-panel px-2 py-1 text-xs text-muted"
       >
         <span className="flex min-w-0 flex-1 items-center gap-1.5">
           <span className="truncate font-semibold uppercase tracking-wider">{title}</span>

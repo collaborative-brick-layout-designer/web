@@ -104,6 +104,18 @@ describe('account preferences', () => {
     expect(got.json().prefs.largeText).toBe(true);
   });
 
+  it('keeps a LEGO color and how far the color reaches, and clears the LEGO color with null', async () => {
+    let got = await app.inject({ method: 'GET', url: URL, headers: { cookie: user.cookie } });
+    // Always returned, so the desktop knows this server can store them.
+    expect(got.json().prefs).toMatchObject({ legoColor: null, colorStyle: 'original' });
+    expect((await put({ cookie: user.cookie }, { legoColor: 24, colorStyle: 'full' })).statusCode).toBe(200);
+    got = await app.inject({ method: 'GET', url: URL, headers: { cookie: user.cookie } });
+    expect(got.json().prefs).toMatchObject({ legoColor: 24, colorStyle: 'full', accent: 'brick' });
+    expect((await put({ cookie: user.cookie }, { legoColor: null, accent: 'ocean' })).statusCode).toBe(200);
+    got = await app.inject({ method: 'GET', url: URL, headers: { cookie: user.cookie } });
+    expect(got.json().prefs).toMatchObject({ legoColor: null, colorStyle: 'full', accent: 'ocean' });
+  });
+
   it('refuses unknown keys and wrong values without storing anything', async () => {
     const bad: unknown[] = [
       { theme: 'purple' },
@@ -122,6 +134,12 @@ describe('account preferences', () => {
       { connectionSnap: 'medium' },
       { connectionSnap: true },
       { connectionSnap: 'Gentle' },
+      { legoColor: 99999 },
+      { legoColor: '24' },
+      { legoColor: 24.5 },
+      { legoColor: 41 }, // Trans-Red: see-through colors aren't offered
+      { colorStyle: 'bold' },
+      { colorStyle: null },
       ['theme'],
       null,
     ];

@@ -21,4 +21,12 @@
   root.setAttribute('data-text', p.largeText === true ? 'large' : 'normal');
   if (p.largeText === true) root.style.fontSize = '112.5%';
   root.style.colorScheme = mode;
+  // A LEGO color and "Color the whole app" are worked out by the app
+  // (src/theme/colorTheme.ts), which keeps the results for both modes here.
+  if (typeof p.legoColor === 'number') root.setAttribute('data-accent', 'lego');
+  root.setAttribute('data-color-style', p.colorStyle === 'full' ? 'full' : 'original');
+  try {
+    var vars = (JSON.parse(localStorage.getItem('bld.themeVars') || '{}') || {})[mode] || {};
+    for (var k in vars) if (/^--[a-z-]+$/.test(k) && /^#[0-9A-Fa-f]{6}$/.test(vars[k])) root.style.setProperty(k, vars[k]);
+  } catch (e) {}
 })();

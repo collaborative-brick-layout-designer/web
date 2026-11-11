@@ -52,6 +52,8 @@ share.picture
 share.exportAllViews
 settings.sync
 settings.color
+settings.legoColor
+settings.colorStyle
 settings.largeText
 settings.helpIcons
 settings.tours

@@ -14,6 +14,7 @@ import type { FastifyInstance } from 'fastify';
 import { eq, inArray } from 'drizzle-orm';
 import { db, schema } from '../db/index.js';
 import { requireUser } from '../auth/cookie.js';
+import { isLegoColorId } from '@cld/model';
 
 export const THEMES = ['light', 'dark', 'system'] as const;
 export const ACCENTS = ['brick', 'ocean', 'forest', 'plum', 'sunny', 'teal', 'orange', 'rose', 'indigo', 'slate'] as const;
@@ -23,11 +24,21 @@ export const PARTS_ICON_MIN = 32;
 export const PARTS_ICON_MAX = 160;
 /** How strongly parts snap to each other's connections while dragging. */
 export const CONNECTION_SNAP = ['off', 'gentle', 'strong'] as const;
+/** How far the color reaches: just the highlights (the original look) or the whole app. */
+export const COLOR_STYLES = ['original', 'full'] as const;
 const TOUR_ID = /^[A-Za-z0-9._-]{1,64}$/;
 
 export interface Preferences {
   theme: (typeof THEMES)[number];
   accent: (typeof ACCENTS)[number];
+  /**
+   * A LEGO color (LEGO's own color number, @cld/model's LEGO_COLORS) used
+   * instead of `accent`, or null for the `accent` preset. Always returned,
+   * so the desktop knows it can save it.
+   */
+  legoColor: number | null;
+  /** Always returned, like legoColor. */
+  colorStyle: (typeof COLOR_STYLES)[number];
   largeText: boolean;
   expertMode: boolean;
   helpIcons: boolean;
@@ -54,6 +65,8 @@ export interface Preferences {
 export const DEFAULT_PREFERENCES: Preferences = {
   theme: 'system',
   accent: 'brick',
+  legoColor: null,
+  colorStyle: 'original',
   largeText: false,
   expertMode: false,
   helpIcons: true,
@@ -81,6 +94,14 @@ export function validatePreferences(input: unknown): { ok: Partial<Preferences> 
       case 'accent':
         if (!(ACCENTS as readonly unknown[]).includes(value)) return { error: `accent must be one of ${ACCENTS.join(', ')}` };
         out.accent = value as Preferences['accent'];
+        break;
+      case 'legoColor':
+        if (value !== null && !isLegoColorId(value)) return { error: 'legoColor must be a LEGO color number from the list, or null' };
+        out.legoColor = value;
+        break;
+      case 'colorStyle':
+        if (!(COLOR_STYLES as readonly unknown[]).includes(value)) return { error: `colorStyle must be one of ${COLOR_STYLES.join(', ')}` };
+        out.colorStyle = value as Preferences['colorStyle'];
         break;
       case 'largeText':
       case 'expertMode':

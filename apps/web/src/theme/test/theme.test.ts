@@ -13,7 +13,10 @@ import {
   resolveMode,
   rootFontSize,
   sanitizePreferences,
+  THEME_VAR_NAMES,
+  THEME_VARS_CACHE_KEY,
   writeCachedPreferences,
+  writeCachedThemeVars,
 } from '../theme';
 import { ACCENTS, ACCENT_IDS, NEUTRALS, type Mode } from '../tokens';
 import css from '../../styles.css?raw';
@@ -71,6 +74,45 @@ describe('applyTheme', () => {
     const root = document.createElement('html');
     applyTheme(root, { theme: 'light', accent: 'neon' as never, largeText: false }, false);
     expect(root.dataset.accent).toBe('brick');
+  });
+
+  it('a LEGO color sets readable accent colors on <html>, and a preset clears them', () => {
+    const root = document.createElement('html');
+    applyTheme(root, { theme: 'dark', accent: 'ocean', largeText: false, legoColor: 26 }, false);
+    expect(root.dataset.accent).toBe('lego');
+    expect(root.dataset.colorStyle).toBe('original');
+    // Black is lightened in dark mode so it stands out from the panel.
+    expect(root.style.getPropertyValue('--accent')).toBe('#646E75');
+    expect(root.style.getPropertyValue('--accent-ink')).toBe('#FFFFFF');
+    expect(root.style.getPropertyValue('--chrome')).toBe('');
+    applyTheme(root, { theme: 'dark', accent: 'ocean', largeText: false, legoColor: null }, false);
+    expect(root.dataset.accent).toBe('ocean');
+    expect(root.style.getPropertyValue('--accent')).toBe('');
+  });
+
+  it('"The whole app" tints the header, toolbars and page, for a preset or a LEGO color', () => {
+    const root = document.createElement('html');
+    applyTheme(root, { theme: 'light', accent: 'brick', largeText: false, colorStyle: 'full' }, false);
+    expect(root.dataset.colorStyle).toBe('full');
+    expect(root.style.getPropertyValue('--accent')).toBe(''); // the preset keeps its own
+    expect(root.style.getPropertyValue('--chrome')).toMatch(/^#[0-9A-F]{6}$/);
+    expect(root.style.getPropertyValue('--bg')).not.toBe('');
+    applyTheme(root, { theme: 'light', accent: 'brick', largeText: false, colorStyle: 'full', legoColor: 24 }, false);
+    expect(root.style.getPropertyValue('--accent')).toBe('#B49007');
+    expect(root.style.getPropertyValue('--chrome')).toBe('#F3EDD7');
+    applyTheme(root, { theme: 'light', accent: 'brick', largeText: false, colorStyle: 'original', legoColor: 24 }, false);
+    expect(root.style.getPropertyValue('--chrome')).toBe('');
+    expect(root.style.getPropertyValue('--bg')).toBe('');
+  });
+
+  it('keeps both modes\' worked-out colors for the pre-paint script', () => {
+    const store = new Map<string, string>();
+    writeCachedThemeVars({ accent: 'brick', legoColor: 140, colorStyle: 'full' }, { setItem: (k, v) => void store.set(k, v) });
+    const vars = JSON.parse(store.get(THEME_VARS_CACHE_KEY)!);
+    expect(vars.light['--accent']).toBe('#19325A');
+    expect(vars.dark['--accent']).toBe('#5C6D8A');
+    expect(vars.dark['--chrome']).toBe('#2C333C');
+    expect(Object.keys(vars.light).every((k) => (THEME_VAR_NAMES as readonly string[]).includes(k))).toBe(true);
   });
 
   it('bigger text scales the root font size', () => {
@@ -158,6 +200,10 @@ describe('cached preferences', () => {
 
   it('keeps a known Snap strength and drops anything else', () => {
     expect(sanitizePreferences({ connectionSnap: 'strong' }).connectionSnap).toBe('strong');
+    expect(sanitizePreferences({ legoColor: 24, colorStyle: 'full' })).toMatchObject({ legoColor: 24, colorStyle: 'full' });
+    expect(sanitizePreferences({ legoColor: null }).legoColor).toBeNull();
+    expect(sanitizePreferences({ legoColor: 41, colorStyle: 'loud' })).not.toHaveProperty('legoColor');
+    expect(sanitizePreferences({ colorStyle: 'loud' })).not.toHaveProperty('colorStyle');
     expect(sanitizePreferences({ connectionSnap: 'off' }).connectionSnap).toBe('off');
     expect('connectionSnap' in sanitizePreferences({ connectionSnap: 'medium' })).toBe(false);
     expect('connectionSnap' in sanitizePreferences({})).toBe(false);

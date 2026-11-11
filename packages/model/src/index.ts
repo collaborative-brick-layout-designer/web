@@ -259,3 +259,4 @@ export interface BbmMap {
   selectedLayerIndex: number;
   layers: Layer[];
 }
+export * from './legoColors.js';

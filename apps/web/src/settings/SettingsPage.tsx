@@ -9,7 +9,9 @@ import { Link, useNavigate } from 'react-router-dom';
 import { SignInLink } from '../auth/signIn';
 import { usePreferences } from '../theme/PrefsProvider';
 import { ACCENTS, ACCENT_IDS, NEUTRALS } from '../theme/tokens';
-import type { ThemeChoice } from '../theme/theme';
+import type { ColorStyle, ThemeChoice } from '../theme/theme';
+import { legoColor } from '@cld/model';
+import { LegoColorPicker } from './LegoColorPicker';
 import { HelpButton } from '../help/HelpButton';
 import type { HelpKey } from '../help/helpTexts';
 import { isMobileDevice, useInstallState } from '../pwa/install';
@@ -24,6 +26,11 @@ const SNAP_CHOICES: { id: SnapStrength; label: string; hint: string }[] = [
   { id: 'off', label: 'Off', hint: 'Parts never pull onto each other; the grid still lines them up.' },
   { id: 'gentle', label: 'Gentle', hint: 'Pulls only when the ends are close. Recommended.' },
   { id: 'strong', label: 'Strong', hint: 'Reaches further, for quick rough placing.' },
+];
+
+const COLOR_STYLE_CARDS: { id: ColorStyle; label: string; hint: string }[] = [
+  { id: 'original', label: 'Just the highlights', hint: 'Buttons, the selected item and focus rings. The original look.' },
+  { id: 'full', label: 'The whole app', hint: 'Also the header, toolbars, panel tops and the page behind them.' },
 ];
 
 const THEME_CARDS: { id: ThemeChoice; label: string }[] = [
@@ -84,6 +91,91 @@ function Section({ id, title, help, children }: { id: string; title: string; hel
       </div>
       {children}
     </section>
+  );
+}
+
+function ColorChoices() {
+  const { prefs, setPrefs } = usePreferences();
+  const lego = legoColor(prefs.legoColor);
+  const [pickerOpen, setPickerOpen] = useState(() => !!lego);
+  const style = prefs.colorStyle ?? 'original';
+  return (
+    <>
+      <div className="flex flex-wrap gap-5" role="radiogroup" aria-label="Color">
+        {ACCENT_IDS.map((id) => {
+          const a = ACCENTS[id];
+          const on = !lego && prefs.accent === id;
+          return (
+            <button
+              key={id}
+              type="button"
+              role="radio"
+              aria-checked={on}
+              aria-label={a.label}
+              onClick={() => setPrefs({ accent: id, legoColor: null })}
+              className={`flex w-20 flex-col items-center gap-2 text-[13px] ${on ? 'font-bold text-ink' : 'font-semibold text-muted'}`}
+            >
+              <span
+                className="h-11 w-11 rounded-full"
+                style={{
+                  background: a.main,
+                  boxShadow: on ? `0 0 0 3px var(--panel), 0 0 0 5px ${a.main}` : undefined,
+                }}
+              />
+              {a.label}
+            </button>
+          );
+        })}
+        <button
+          type="button"
+          aria-expanded={pickerOpen}
+          aria-controls="lego-color-area"
+          onClick={() => setPickerOpen((o) => !o)}
+          data-testid="lego-color-toggle"
+          className={`flex w-20 flex-col items-center gap-2 text-[13px] ${lego ? 'font-bold text-ink' : 'font-semibold text-muted'}`}
+        >
+          <span
+            aria-hidden
+            className="h-11 w-11 rounded-full"
+            style={{
+              background: lego ? lego.hex : 'conic-gradient(#B40000, #FAC80A, #00852B, #1E5AA8, #A06EB9, #B40000)',
+              boxShadow: lego ? `0 0 0 3px var(--panel), 0 0 0 5px var(--accent)` : undefined,
+            }}
+          />
+          {lego ? lego.lego : 'Any LEGO color'}
+        </button>
+      </div>
+      {pickerOpen && (
+        <div id="lego-color-area">
+          <LegoColorPicker value={prefs.legoColor} onPick={(id) => setPrefs({ legoColor: id })} />
+        </div>
+      )}
+      <div>
+        <div id="color-style-label" className="flex items-center gap-2 text-[15px] font-semibold">
+          How much color
+          <HelpButton helpKey="settings.colorStyle" target='[role="radiogroup"][aria-labelledby="color-style-label"]' />
+        </div>
+      </div>
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2" role="radiogroup" aria-labelledby="color-style-label">
+        {COLOR_STYLE_CARDS.map((c) => {
+          const on = style === c.id;
+          return (
+            <button
+              key={c.id}
+              type="button"
+              role="radio"
+              aria-checked={on}
+              data-testid={`color-style-${c.id}`}
+              onClick={() => setPrefs({ colorStyle: c.id })}
+              className={`flex min-h-11 flex-col gap-1 rounded-bubble bg-panel p-3 text-left ${on ? 'border-2 border-accent' : 'border border-border hover:border-muted'}`}
+            >
+              <span className="text-sm font-bold text-ink">{c.label}</span>
+              <span className="text-[13px] leading-snug text-muted">{c.hint}</span>
+            </button>
+          );
+        })}
+      </div>
+    </>
   );
 }
 
@@ -171,32 +263,7 @@ export function SettingsContent({ onClose }: { onClose?: () => void }) {
         </Section>
 
         <Section id="color" title="Color" help="settings.color">
-          <div className="flex flex-wrap gap-5" role="radiogroup" aria-label="Color">
-            {ACCENT_IDS.map((id) => {
-              const a = ACCENTS[id];
-              const on = prefs.accent === id;
-              return (
-                <button
-                  key={id}
-                  type="button"
-                  role="radio"
-                  aria-checked={on}
-                  aria-label={a.label}
-                  onClick={() => setPrefs({ accent: id })}
-                  className={`flex w-20 flex-col items-center gap-2 text-[13px] ${on ? 'font-bold text-ink' : 'font-semibold text-muted'}`}
-                >
-                  <span
-                    className="h-11 w-11 rounded-full"
-                    style={{
-                      background: a.main,
-                      boxShadow: on ? `0 0 0 3px var(--panel), 0 0 0 5px ${a.main}` : undefined,
-                    }}
-                  />
-                  {a.label}
-                </button>
-              );
-            })}
-          </div>
+          <ColorChoices />
           <div className="flex items-center gap-2">
             <label className="flex min-h-11 items-center gap-3 text-[15px] font-semibold">
               <input

@@ -5,14 +5,24 @@
 
 import { ACCENTS, ACCENT_IDS, LARGE_TEXT_SCALE, NEUTRALS, type AccentId, type Mode } from './tokens';
 import { isSnapStrength, type SnapStrength } from '../editor/snapFeel';
+import { isLegoColorId, legoColor } from '@cld/model';
+import { chromeTheme, colorTheme } from './colorTheme';
 
 export type ThemeChoice = 'light' | 'dark' | 'system';
 export const THEME_CHOICES: readonly ThemeChoice[] = ['light', 'dark', 'system'];
+
+/** How far the color reaches: just the highlights (the original look) or the whole app. */
+export type ColorStyle = 'original' | 'full';
+export const COLOR_STYLES: readonly ColorStyle[] = ['original', 'full'];
 
 /** The settings stored on the account (GET/PUT /api/me/preferences). */
 export interface Preferences {
   theme: ThemeChoice;
   accent: AccentId;
+  /** A LEGO color (LEGO's number, see @cld/model's LEGO_COLORS) used instead of `accent`; null or absent for the preset. */
+  legoColor?: number | null;
+  /** Absent means the original look (highlights only). */
+  colorStyle?: ColorStyle;
   largeText: boolean;
   expertMode: boolean;
   helpIcons: boolean;
@@ -41,6 +51,8 @@ export const DEFAULT_PREFERENCES: Preferences = {
 
 /** localStorage key for the last-known preferences (signed out, and pre-paint). */
 export const PREFS_CACHE_KEY = 'bld.prefs';
+/** localStorage key for the worked-out color variables per mode (public/theme-init.js paints with them). */
+export const THEME_VARS_CACHE_KEY = 'bld.themeVars';
 
 /** "system" follows the computer; light and dark are fixed. */
 export function resolveMode(choice: ThemeChoice, systemDark: boolean): Mode {
@@ -67,6 +79,33 @@ export function accentVars(accent: AccentId, mode: Mode): Record<string, string>
   };
 }
 
+/** Every variable `themeVars` may set, so a change of color can clear the old ones. */
+export const THEME_VAR_NAMES = ['--accent', '--accent-ink', '--accent-soft', '--accent-text', '--chrome', '--chrome-line', '--bg', '--page-top'] as const;
+
+type ThemePrefs = Pick<Preferences, 'accent' | 'legoColor' | 'colorStyle'>;
+
+/**
+ * The variables set on <html> itself for a color and style in one mode:
+ * a LEGO color's accent (worked out by colorTheme), and for the whole-app
+ * style the header, toolbar and page tints. Empty for a preset with the
+ * original look, whose colors are styles.css's hand-tuned ones.
+ */
+export function themeVars(prefs: ThemePrefs, mode: Mode): Record<string, string> {
+  const out: Record<string, string> = {};
+  const lego = legoColor(prefs.legoColor);
+  let main = (ACCENTS[prefs.accent] ?? ACCENTS.brick).main;
+  if (lego) {
+    const t = colorTheme(lego.hex, mode);
+    Object.assign(out, { '--accent': t.main, '--accent-ink': t.onMain, '--accent-soft': t.soft, '--accent-text': t.text });
+    main = t.main;
+  }
+  if (prefs.colorStyle === 'full') {
+    const c = chromeTheme(main, mode);
+    Object.assign(out, { '--chrome': c.chrome, '--chrome-line': c.chromeLine, '--bg': c.bg, '--page-top': c.pageTop });
+  }
+  return out;
+}
+
 /** The CSS custom properties one mode sets (`--bg`, `--panel`, ... from the tokens). */
 export function neutralVars(mode: Mode): Record<string, string> {
   const out: Record<string, string> = {};
@@ -88,11 +127,22 @@ export function rootFontSize(largeText: boolean): string {
  * `data-accent`, `data-text`, the root font size and `color-scheme`.
  * The colors themselves live in styles.css keyed on these attributes.
  */
-export function applyTheme(root: HTMLElement, prefs: Pick<Preferences, 'theme' | 'accent' | 'largeText'>, systemDark: boolean): Mode {
+export function applyTheme(
+  root: HTMLElement,
+  prefs: Pick<Preferences, 'theme' | 'accent' | 'largeText' | 'legoColor' | 'colorStyle'>,
+  systemDark: boolean,
+): Mode {
   const mode = resolveMode(prefs.theme, systemDark);
   root.dataset.theme = mode;
   root.dataset.themeChoice = prefs.theme;
-  root.dataset.accent = (ACCENT_IDS as readonly string[]).includes(prefs.accent) ? prefs.accent : 'brick';
+  const preset = (ACCENT_IDS as readonly string[]).includes(prefs.accent) ? prefs.accent : 'brick';
+  root.dataset.accent = legoColor(prefs.legoColor) ? 'lego' : preset;
+  root.dataset.colorStyle = prefs.colorStyle === 'full' ? 'full' : 'original';
+  const vars = themeVars({ ...prefs, accent: preset as AccentId }, mode);
+  for (const name of THEME_VAR_NAMES) {
+    if (vars[name]) root.style.setProperty(name, vars[name]);
+    else root.style.removeProperty(name);
+  }
   root.dataset.text = prefs.largeText ? 'large' : 'normal';
   root.style.fontSize = rootFontSize(prefs.largeText);
   root.style.colorScheme = mode;
@@ -116,6 +166,8 @@ export function sanitizePreferences(input: unknown): Preferences {
   if (isSnapStrength(o.connectionSnap)) out.connectionSnap = o.connectionSnap;
   if (typeof o.shareLastActive === 'boolean') out.shareLastActive = o.shareLastActive;
   if (typeof o.emailJoinRequests === 'boolean') out.emailJoinRequests = o.emailJoinRequests;
+  if (o.legoColor === null || isLegoColorId(o.legoColor)) out.legoColor = o.legoColor;
+  if ((COLOR_STYLES as readonly unknown[]).includes(o.colorStyle)) out.colorStyle = o.colorStyle as ColorStyle;
   return out;
 }
 
@@ -133,6 +185,19 @@ export function writeCachedPreferences(prefs: Preferences, storage: Pick<Storage
     storage?.setItem(PREFS_CACHE_KEY, JSON.stringify(prefs));
   } catch {
     // Private windows and blocked storage: the account copy still holds.
+  }
+}
+
+/**
+ * Keep both modes' variables for public/theme-init.js, so the next visit
+ * paints in the right color before the app loads (and "system" can switch
+ * mode on the spot).
+ */
+export function writeCachedThemeVars(prefs: ThemePrefs, storage: Pick<Storage, 'setItem'> | undefined = safeStorage()): void {
+  try {
+    storage?.setItem(THEME_VARS_CACHE_KEY, JSON.stringify({ light: themeVars(prefs, 'light'), dark: themeVars(prefs, 'dark') }));
+  } catch {
+    // Without storage the first paint uses the preset colors for a moment.
   }
 }
 
