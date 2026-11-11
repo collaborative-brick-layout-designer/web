@@ -43,7 +43,7 @@ function OrgDetail({ slug }: { slug: string }) {
   const myUserId = me.data.user.id;
 
   return (
-    <div className="h-full overflow-y-auto bg-bg p-4 text-ink sm:p-8">
+    <div className="theme-page h-full overflow-y-auto bg-bg p-4 text-ink sm:p-8">
       <AppHeader user={me.data.user} />
       <main className="mx-auto mt-6 max-w-3xl space-y-5">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -220,7 +220,7 @@ function ClubThings({ org }: { org: { id: string; name: string; slug: string } }
 function OutsideView({ slug, user }: { slug: string; user: Me }) {
   const summary = useQuery({ queryKey: ['club-summary', slug], queryFn: () => api.orgs.summary(slug), retry: false });
   return (
-    <div className="h-full overflow-y-auto bg-bg p-4 text-ink sm:p-8">
+    <div className="theme-page h-full overflow-y-auto bg-bg p-4 text-ink sm:p-8">
       <AppHeader user={user} />
       <main className="mx-auto mt-6 max-w-3xl space-y-5">
         <p className="text-sm">

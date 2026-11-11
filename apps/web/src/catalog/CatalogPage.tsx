@@ -106,7 +106,7 @@ export function CatalogPage() {
   };
 
   return (
-    <div className="h-full overflow-y-auto bg-bg p-4 text-ink sm:p-6 lg:p-8">
+    <div className="theme-page h-full overflow-y-auto bg-bg p-4 text-ink sm:p-6 lg:p-8">
       {user ? (
         <AppHeader user={user} />
       ) : (

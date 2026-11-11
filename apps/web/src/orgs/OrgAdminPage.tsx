@@ -99,7 +99,7 @@ function OrgAdmin({ slug }: { slug: string }) {
   const shownTab: Tab = TABS.some((t) => t.id === tab) ? tab : TABS[0]!.id;
 
   return (
-    <div className="h-full overflow-y-auto bg-bg p-4 text-ink sm:p-8">
+    <div className="theme-page h-full overflow-y-auto bg-bg p-4 text-ink sm:p-8">
       <AppHeader user={me.data.user} />
       <main className="mx-auto mt-6 max-w-3xl space-y-5">
         <div>

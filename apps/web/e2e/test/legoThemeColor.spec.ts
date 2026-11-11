@@ -43,18 +43,34 @@ test('any LEGO color themes the whole app, follows the account and stays readabl
   // The whole app: header and page tinted.
   await page.getByTestId('color-style-full').click();
   await expect(html).toHaveAttribute('data-color-style', 'full');
-  const header = page.locator('header.theme-chrome').first();
-  await expect(header).toHaveCSS('background-color', 'rgb(218, 222, 229)'); // #DADEE5
   // Dark mode lightens the color so it reads on dark panels.
   await page.getByRole('radio', { name: 'Dark', exact: true }).click();
   await expect.poll(() => cssVar(page, '--accent')).toBe('#5C6D8A');
-  await expect(header).toHaveCSS('background-color', 'rgb(44, 51, 60)'); // #2C333C
 
   await expect
     .poll(async () => (await (await page.request.get('/api/me/preferences')).json()).prefs, { timeout: 10_000 })
     .toMatchObject({ legoColor: 140, colorStyle: 'full', theme: 'dark' });
 
+  // On Home: the header takes the tint, and the page behind it too.
+  await page.goto('/');
+  const header = page.locator('header.theme-chrome').first();
+  await expect(header).toHaveCSS('background-color', 'rgb(44, 51, 60)'); // #2C333C
+  await expect(page.locator('body')).not.toHaveCSS('background-color', 'rgb(22, 24, 27)');
+  // Back to light: tinted with the color, not grey.
+  await page.goto('/settings');
+  await page.getByRole('radio', { name: 'Light', exact: true }).click();
+  await expect
+    .poll(async () => (await (await page.request.get('/api/me/preferences')).json()).prefs.theme, { timeout: 10_000 })
+    .toBe('light');
+  await page.goto('/');
+  await expect(header).toHaveCSS('background-color', 'rgb(218, 222, 229)'); // #DADEE5
+  await page.goto('/settings');
+  await page.getByRole('radio', { name: 'Dark', exact: true }).click();
+
   // From the account alone after a reload.
+  await expect
+    .poll(async () => (await (await page.request.get('/api/me/preferences')).json()).prefs.theme, { timeout: 10_000 })
+    .toBe('dark');
   await page.evaluate(() => localStorage.clear());
   await page.reload();
   await expect(html).toHaveAttribute('data-accent', 'lego');
@@ -88,8 +104,9 @@ test('any LEGO color themes the whole app, follows the account and stays readabl
   await expect(html).toHaveAttribute('data-accent', 'ocean');
   await expect(html).toHaveAttribute('data-color-style', 'original');
   expect(await cssVar(page, '--accent')).toBe('#2459C4');
-  await expect(header).toHaveCSS('background-color', 'rgb(31, 34, 38)'); // the dark panel
   await expect
     .poll(async () => (await (await page.request.get('/api/me/preferences')).json()).prefs, { timeout: 10_000 })
     .toMatchObject({ legoColor: null, accent: 'ocean', colorStyle: 'original' });
+  await page.goto('/');
+  await expect(header).toHaveCSS('background-color', 'rgb(31, 34, 38)'); // the dark panel
 });

@@ -526,7 +526,7 @@ export function SettingsPage() {
   // /settings#look etc. (the header's Settings menu) opens at that section.
   useHashScroll();
   return (
-    <div className="h-full overflow-y-auto bg-bg px-4 py-8 text-ink sm:px-16 sm:py-12">
+    <div className="theme-page h-full overflow-y-auto bg-bg px-4 py-8 text-ink sm:px-16 sm:py-12">
       <div className="mx-auto max-w-5xl">
         <button
           type="button"
