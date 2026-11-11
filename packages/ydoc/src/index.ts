@@ -15,10 +15,22 @@ import { bbmToDoc, docToBbm } from './projection.js';
 import { keepDrawnSettingsInRange } from './drawnLimits.js';
 
 import { DOC_BASE_SCHEMA } from './shape.js';
+import { MEMBER_PREFIX, memberKey, memberKeysByModule, memberWrites, moduleMembers, parseMemberKey, stampMemberKeysAfter } from './moduleMembers.js';
 
 export { bbmToDoc, docToBbm, createDocProjector, type DocProjector } from './projection.js';
 export * from './shape.js';
 export { DRAWN_LIMITS, keepDrawnSettingsInRange } from './drawnLimits.js';
+export {
+  DOC_SHAPE_MEMBER_KEYS,
+  MEMBER_PREFIX,
+  memberKey,
+  memberWrites,
+  moduleMembers,
+  parseMemberKey,
+  stampMemberKeys,
+  validMemberValue,
+  type MemberWrites,
+} from './moduleMembers.js';
 export { DOC_MIN_READABLE, DOC_SCHEMA_VERSION, canReadDoc, makeId, upgradeDoc } from './ids.js';
 
 export function createLayoutDoc(): Y.Doc {
@@ -186,6 +198,11 @@ function withBudget(doc: Y.Doc, cache: Record<string, unknown> | null): Sidecar 
 // `sidecarItems.__blob` records which `meta.cache` the items go with: when a
 // writer that doesn't know the map replaces `meta.cache`, the hash no longer
 // matches and the blob is read as it is.
+//
+// A module's value keeps the `members` list it was made with; each part
+// added or taken out since is a `p:` key of its own (moduleMembers.ts), so
+// two people changing one module's parts at once both keep their change.
+// `meta.cache` has every module's full list.
 // ---------------------------------------------------------------------------
 
 const SIDECAR_ITEMS = 'sidecarItems';
@@ -343,11 +360,15 @@ function idsUnique(cache: Record<string, unknown>): boolean {
 
 function mergedSidecar(cache: Record<string, unknown>, items: Y.Map<unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = { ...cache };
+  const memberKeys = memberKeysByModule(items);
   for (const { field, prefix } of ITEM_KINDS) {
     const entries: { order: number; id: string; value: Record<string, unknown> }[] = [];
     items.forEach((v, k) => {
       if (!k.startsWith(prefix) || !v || typeof v !== 'object') return;
       const { _order, ...value } = v as Record<string, unknown>;
+      // A module's parts: its starting list with what the `p:` keys changed.
+      const keys = field === 'modules' ? memberKeys.get(k.slice(prefix.length)) : undefined;
+      if (keys) value.members = moduleMembers(value.members, keys);
       entries.push({ order: typeof _order === 'number' ? _order : 0, id: k, value });
     });
     if (entries.length === 0 && !Array.isArray(cache[field])) continue;
@@ -359,23 +380,69 @@ function mergedSidecar(cache: Record<string, unknown>, items: Y.Map<unknown>): R
 
 /**
  * Write the sidecar: `meta.cache` whole, and each module and anchored label
- * under its own key, changing only the ones that differ. Call inside a
+ * under its own key, changing only the ones that differ. A module that is
+ * already there keeps its starting list, and the parts added to it or taken
+ * out are written one key each (moduleMembers.ts). Call inside a
  * transaction.
  */
 export function writeSidecarCache(doc: Y.Doc, written: Record<string, unknown>): void {
   const cache = withoutGoneParts(doc, written);
   const items = doc.getMap(SIDECAR_ITEMS);
+  const blob = doc.getMap('meta').get('cache');
+  // Whether the items are what the layout holds now. When they aren't (a
+  // writer that doesn't know them replaced meta.cache, or ids are missing
+  // or shared), each module starts again from the list written here.
+  const splittable = idsUnique(cache);
+  const current =
+    splittable && items.size > 0 && !!blob && typeof blob === 'object' && items.get('__blob') === blobHash(blob) && idsUnique(blob as Record<string, unknown>);
+  const memberKeys = memberKeysByModule(items);
+  const dropMemberKeys = (moduleId: string): void => {
+    for (const k of [...items.keys()]) if (k.startsWith(MEMBER_PREFIX) && parseMemberKey(k)?.moduleId === moduleId) items.delete(k);
+  };
+  let wroteMemberKey = false;
   for (const { field, prefix } of ITEM_KINDS) {
     const list = Array.isArray(cache[field]) ? (cache[field] as Record<string, unknown>[]) : [];
     const want = new Map<string, Record<string, unknown>>();
     list.forEach((v, i) => {
-      if (v && typeof v === 'object' && typeof v.id === 'string') want.set(prefix + v.id, { ...v, _order: i });
+      if (!v || typeof v !== 'object' || typeof v.id !== 'string') return;
+      const k = prefix + v.id;
+      if (field !== 'modules') {
+        want.set(k, { ...v, _order: i });
+        return;
+      }
+      const had = items.get(k);
+      if (!current || !had || typeof had !== 'object') {
+        // A new module (or one read from meta.cache): the list is its starting list.
+        if (memberKeys.has(v.id)) dropMemberKeys(v.id);
+        want.set(k, { ...v, _order: i });
+        return;
+      }
+      const start = (had as Record<string, unknown>).members;
+      const { members, ...rest } = v;
+      want.set(k, start === undefined ? { ...rest, _order: i } : { ...rest, members: start, _order: i });
+      if (!Array.isArray(members)) return;
+      const keys = memberKeys.get(v.id) ?? new Map<string, number | false>();
+      const writes = memberWrites(start, keys, members.filter((x): x is string => typeof x === 'string'));
+      for (const id of writes.delete) items.delete(memberKey(v.id, id));
+      for (const [id, value] of writes.set) {
+        items.set(memberKey(v.id, id), value);
+        wroteMemberKey = true;
+      }
     });
-    for (const k of [...items.keys()]) if (k.startsWith(prefix) && !want.has(k)) items.delete(k);
-    for (const [k, v] of want) if (JSON.stringify(items.get(k)) !== JSON.stringify(v)) items.set(k, v);
+    for (const k of [...items.keys()]) {
+      if (!k.startsWith(prefix) || want.has(k)) continue;
+      items.delete(k);
+      if (field === 'modules') dropMemberKeys(k.slice(prefix.length));
+    }
+    for (const [k, v] of want) if (stableStringify(items.get(k)) !== stableStringify(v)) items.set(k, v);
   }
-  doc.getMap('meta').set('cache', cache);
-  items.set('__blob', blobHash(cache));
+  // meta.cache as the items now read (a module's parts in the order the
+  // keys give), so every writer, here and on the desktop, writes the same.
+  const out = splittable ? mergedSidecar(cache, items) : cache;
+  doc.getMap('meta').set('cache', out);
+  items.set('__blob', blobHash(out));
+  // Builds that read only the starting lists must refuse the doc from here.
+  if (wroteMemberKey) stampMemberKeysAfter(doc);
 }
 
 /**
@@ -407,6 +474,95 @@ export function repairSidecarCache(doc: Y.Doc, origin: unknown): boolean {
 // one writer's pair, so a matching hash means the items are current.
 function itemsKnownForBlob(items: Y.Map<unknown>, blob: Record<string, unknown>): boolean {
   return items.get('__blob') === blobHash(blob);
+}
+
+// ---------------------------------------------------------------------------
+// Undo after two people wrote the same sidecar value at the same instant.
+//
+// Undo takes back the value this browser wrote and puts the one before it
+// back. But when someone else wrote the same key at the same instant and
+// ours was the one Yjs kept, theirs sits between ours and the one before,
+// and Yjs then puts nothing back (it won't write over a value it sees as
+// someone else's): the key is simply gone. For `meta.cache` that is the
+// whole sidecar (venue, views, every module and label); for `m:<id>` it is
+// the module; for a part key it is the part someone else also added or
+// took out. So after an undo or redo, a sidecar value that was there
+// before, is gone now, and was replaced that way is written again as it
+// was (`meta.cache` with its modules and labels as the items now hold
+// them). What the undo took back besides stays taken back.
+// ---------------------------------------------------------------------------
+
+/** What Yjs keeps for one value of a map key (yjs's Item, the fields read here). */
+interface KeyEntry {
+  id: { client: number; clock: number };
+  length: number;
+  /** The value it replaced, as its writer saw it. */
+  origin: { client: number; clock: number } | null;
+  /** The value before it in the key's history. */
+  left: KeyEntry | null;
+  deleted: boolean;
+}
+
+/** Whether `key`'s last value is gone and had been written at the same instant as someone else's (theirs sits before it). */
+function goneAfterConcurrentWrite(map: Y.Map<unknown>, key: string): boolean {
+  const top = (map as unknown as { _map: Map<string, KeyEntry> })._map.get(key);
+  if (!top || !top.deleted || !top.left) return false;
+  const o = top.origin;
+  return !o || top.left.id.client !== o.client || top.left.id.clock + top.left.length - 1 !== o.clock;
+}
+
+/**
+ * Watches `doc`: a sidecar value an undo or redo left missing because
+ * someone else wrote it at the same instant is put back (see above), in a
+ * transaction of origin `origin` (not an undo step). Returns how to stop.
+ */
+export function keepSidecarThroughUndo(doc: Y.Doc, origin: unknown): () => void {
+  const meta = doc.getMap('meta');
+  const items = doc.getMap<unknown>(SIDECAR_ITEMS);
+  let lastBlob: unknown;
+  let lastItems = new Map<string, unknown>();
+  const remember = (): void => {
+    lastBlob = meta.get('cache');
+    lastItems = new Map(items.entries());
+  };
+  remember();
+  const onTransaction = (tr: Y.Transaction): void => {
+    const touched =
+      tr.changed.has(meta as unknown as Y.AbstractType<Y.YEvent<Y.AbstractType<unknown>>>) ||
+      tr.changed.has(items as unknown as Y.AbstractType<Y.YEvent<Y.AbstractType<unknown>>>);
+    if (!touched) return;
+    if (!(tr.origin instanceof Y.UndoManager)) {
+      remember();
+      return;
+    }
+    const back: [string, unknown][] = [];
+    for (const [k, v] of lastItems) {
+      if (k === '__blob' || v instanceof Y.AbstractType || items.has(k) || !goneAfterConcurrentWrite(items, k)) continue;
+      back.push([k, v]);
+    }
+    const wasBlob = lastBlob && typeof lastBlob === 'object' && !(lastBlob instanceof Y.AbstractType) ? (lastBlob as Record<string, unknown>) : null;
+    const blobGone = !!wasBlob && meta.get('cache') === undefined && goneAfterConcurrentWrite(meta, 'cache');
+    const hashGone = lastItems.has('__blob') && !items.has('__blob') && goneAfterConcurrentWrite(items, '__blob');
+    if (back.length > 0 || blobGone || hashGone) {
+      const wasHash = lastItems.get('__blob');
+      doc.transact(() => {
+        for (const [k, v] of back) items.set(k, v);
+        if (!blobGone && !hashGone) return;
+        const blob = blobGone ? wasBlob! : meta.get('cache');
+        if (!blob || typeof blob !== 'object') return;
+        // The items went with the blob (a writer of both made it): its
+        // modules and labels are the items'. Else the blob as it was.
+        const paired = wasBlob !== null && wasHash === blobHash(wasBlob) && idsUnique(blob as Record<string, unknown>);
+        const out = paired ? mergedSidecar(blob as Record<string, unknown>, items) : (blob as Record<string, unknown>);
+        meta.set('cache', out);
+        if (paired) items.set('__blob', blobHash(out));
+        else if (typeof wasHash === 'string') items.set('__blob', wasHash);
+      }, origin);
+    }
+    remember();
+  };
+  doc.on('afterTransaction', onTransaction);
+  return () => doc.off('afterTransaction', onTransaction);
 }
 
 /**

@@ -557,7 +557,7 @@ test.describe('desktop and web live editing', () => {
         await expect(page.getByRole('button', { name: `More for ${NAME} east` })).toBeVisible({ timeout: 10_000 });
       });
 
-      await test.step('at the same instant: the web’s added part is in the module whoever’s change Yjs keeps', async () => {
+      await test.step('at the same instant: the web’s added part and the desktop’s take-out both stay', async () => {
         await page.getByRole('button', { name: `More for ${NAME} east` }).click();
         await page.getByTestId('module-menu-edit').click();
         await expect(page.getByTestId('module-edit-bar')).toContainText(`Editing module ${NAME} east`);
@@ -570,12 +570,15 @@ test.describe('desktop and web live editing', () => {
         const added = Object.keys(await browserPoses(page)).find((p) => !parts.includes(p))!;
         await expect.poll(async () => (await serverModules())[0]!.members.includes(added), { timeout: 10_000, message: 'the web’s part is in the module' }).toBe(true);
         await expect.poll(async () => (await driver.modules())?.[0]?.members.includes(added), { timeout: 10_000 }).toBe(true);
-        // The desktop's take-out is there too when the web's value was the
-        // one dropped (the web then puts its part back on top of it). When
-        // the desktop's value was dropped, its take-out is lost: the desktop
-        // has no such repair yet (TwoDesktopsTest.cpp in the desktop repo).
+        // And the desktop's take-out is there too: each part added or taken
+        // out is a key of its own in the shared layout (docs/module-members.md),
+        // so neither change replaces the other.
+        await expect
+          .poll(async () => (await serverModules())[0]!.members.includes(parts[1]!), { timeout: 10_000, message: 'the desktop’s part is out of the module' })
+          .toBe(false);
+        // (The module had every part but the one taken out above: one in, one out.)
         const members = (await serverModules())[0]!.members;
-        expect([parts.length - 1, parts.length]).toContain(members.length);
+        expect(members.length).toBe(parts.length - 1);
         // Either way the desktop and the server agree, and the module is there once.
         await expect.poll(async () => (await driver.modules())?.[0]?.members.slice().sort()).toEqual(members.slice().sort());
         expect((await serverModules()).length).toBe(1);

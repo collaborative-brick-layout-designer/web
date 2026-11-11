@@ -3,6 +3,7 @@
 
 import * as Y from 'yjs';
 import { DOC_BASE_SCHEMA } from './shape.js';
+import { stampMemberKeys } from './moduleMembers.js';
 
 /**
  * Version of the Y.Doc layout shape, stored as `meta.schemaVersion`.
@@ -13,8 +14,10 @@ import { DOC_BASE_SCHEMA } from './shape.js';
  *   2 — ruler items are Y.Maps, area sheets may have a `cellOffset`, parts
  *       and rulers may be ordered by `z` (shape.ts). A doc is stamped 1
  *       when made and moves to 2 only when an edit needs it.
+ *   3 — a module's part changes are `p:` keys of `sidecarItems`
+ *       (moduleMembers.ts). A doc moves to 3 with its first such key.
  */
-export const DOC_SCHEMA_VERSION = 2;
+export const DOC_SCHEMA_VERSION = 3;
 
 /**
  * The oldest `meta.schemaVersion` this code still reads. Raise it only
@@ -61,6 +64,7 @@ export function makeId(): string {
  * give every Y.Map text cell that lacks one a stable `id`, and stamp
  * `meta.schemaVersion`. Legacy plain-object cells are left alone (the
  * web editor converts them to Y.Maps, with an id, on first edit).
+ * A doc holding module part keys under a lower stamp is stamped shape 3.
  * Only touches a doc that has been seeded (has `meta.version`), and
  * makes no change — no Yjs update — when there is nothing to do.
  * Returns true when it changed anything.
@@ -79,10 +83,13 @@ export function upgradeDoc(doc: Y.Doc, origin?: unknown): boolean {
     }
   }
   const stamp = meta.get('schemaVersion') === undefined;
-  if (missing.length === 0 && !stamp) return false;
-  doc.transact(() => {
-    for (const cell of missing) cell.set('id', makeId());
-    if (stamp) meta.set('schemaVersion', DOC_BASE_SCHEMA);
-  }, origin);
-  return true;
+  if (missing.length > 0 || stamp) {
+    doc.transact(() => {
+      for (const cell of missing) cell.set('id', makeId());
+      if (stamp) meta.set('schemaVersion', DOC_BASE_SCHEMA);
+    }, origin);
+  }
+  // Module part keys under a lower stamp (moduleMembers.ts): shape 3.
+  const stamped = stampMemberKeys(doc);
+  return missing.length > 0 || stamp || stamped;
 }

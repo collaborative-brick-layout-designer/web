@@ -45,6 +45,7 @@ import { newPace, workBudget, type Pace } from './pacing.js';
 import { concerns, onAccessChanged, suspendedIn } from './liveAccess.js';
 import { COPY_BUDGET_SPENT, checkGridSizesDecoded, heldValueProblem } from './gridGuard.js';
 import { backgroundUrlProblem } from './backgroundGuard.js';
+import { memberKeyProblem } from './memberGuard.js';
 import { decodeIncoming, guardWork, type DecodedUpdate } from './decoded.js';
 import { MAX_HELD_UPDATES, deletesPresent, waitsOn } from './held.js';
 import { MAX_UPDATE_WORK, yjsWork } from './yjsWork.js';
@@ -412,6 +413,12 @@ function takeUpdate(ws: WebSocket, session: DocSession, sender: Sender, update: 
   const badBackground = decoded ? backgroundUrlProblem(session.doc, session.layoutId, decoded) : null;
   if (badBackground !== null) {
     refuseUpdate(ws, session, sender, update.length, 'unreadable', badBackground);
+    return false;
+  }
+  // A module's part keys hold only what the apps write (memberGuard.ts).
+  const badMember = decoded ? memberKeyProblem(session.doc, decoded) : null;
+  if (badMember !== null) {
+    refuseUpdate(ws, session, sender, update.length, 'unreadable', badMember);
     return false;
   }
   const check = checkIncomingDecoded(session.doc, update, decoded);

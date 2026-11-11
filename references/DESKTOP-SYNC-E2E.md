@@ -51,10 +51,9 @@ out:
 - **One module, the web and the desktop.** The desktop renames the module
   and takes a part out, and the web sees both. Then, at the same instant,
   the web (in Edit module) adds a part while the desktop takes one out:
-  the web's part is in the module whichever value Yjs keeps
-  (`apps/web/src/editor/moduleMergeGuard.ts`). The desktop's change at
-  that instant can still be the one lost; the desktop has no such repair
-  yet. This test skips with a driver built before it had the `module-…`
+  both changes stay, because each part added or taken out is a key of its
+  own in the shared layout (`docs/module-members.md`). This needs a desktop
+  that writes those keys (doc shape 3). This test skips with a driver built before it had the `module-…`
   commands.
 
 Two people in the browser on one module is `liveModuleTogether.spec.ts`,

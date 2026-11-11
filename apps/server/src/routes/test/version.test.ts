@@ -28,12 +28,12 @@ describe('GET /api/version', () => {
       schemaVersion: 1,
       protocols: ['y-websocket/1'],
       desktop: { minimum: DESKTOP_MINIMUM, recommended: DESKTOP_RECOMMENDED, downloadUrl: DESKTOP_DOWNLOAD_URL },
-      doc: { schemaVersion: 2, createdAs: 1, minReadable: 1 },
+      doc: { schemaVersion: 3, createdAs: 1, minReadable: 1 },
       sidecar: { schemaVersion: 1 },
       layoutFile: { version: 1 },
       features: [...FEATURES],
     });
-    expect(DOC_SCHEMA_VERSION).toBe(2);
+    expect(DOC_SCHEMA_VERSION).toBe(3);
     expect(DOC_BASE_SCHEMA).toBe(1);
   });
 

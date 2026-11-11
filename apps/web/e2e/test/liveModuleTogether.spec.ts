@@ -1,6 +1,7 @@
 // Two people editing one module at once (the full review's area 4 left it
 // out). Sam and Alex both open Edit module on the same module of a shared
-// layout and change it, in turn and at the same instant. After each
+// layout and change it, in turn, at the same instant, and with one of them
+// offline for a while. After each
 // exchange both browsers and the server must show the same parts in the
 // same places and the same module: nobody's change lost, nothing there
 // twice, and nobody left editing a module that is gone.
@@ -205,6 +206,20 @@ test('two people editing one module at once keep each other’s changes', async 
   await expect(page.getByTestId('module-edit-bar')).toBeVisible();
   await expect(alex.getByTestId('module-edit-bar')).toBeVisible();
 
+  // ── One of them offline ──
+  // Alex's Wi-Fi drops. Alex adds a part to the module; meanwhile Sam adds
+  // one too. Back online, both parts are in the module, for both.
+  await alex.waitForLoadState('networkidle');
+  await alexCtx.setOffline(true);
+  await placePart(alex);
+  await expect.poll(async () => (await bricks(alex)).length).toBe(6);
+  await placePart(page);
+  await expect.poll(async () => (await bricks(page)).length).toBe(6);
+  await expect.poll(async () => (await modules(page, id)).map((m) => m.members.length), { timeout: 10000 }).toEqual([6]);
+  await alexCtx.setOffline(false);
+  await expect.poll(async () => (await bricks(alex)).length, { timeout: 30000 }).toBe(7);
+  await settled(7, 7);
+
   // ── A new name from one shows on the other's bar ──
   await openModulesPanel(alex);
   await alex.getByRole('button', { name: `More for ${NAME}` }).click();
@@ -214,7 +229,7 @@ test('two people editing one module at once keep each other’s changes', async 
   await alex.keyboard.type(RENAMED);
   await alex.keyboard.press('Enter');
   await expect(page.getByTestId('module-edit-bar')).toContainText(`Editing module ${RENAMED}`, { timeout: 10000 });
-  await settled(5, 5);
+  await settled(7, 7);
 
   // ── The module is ungrouped by one while the other is still in it ──
   // (The note from making the module has gone by now.)
@@ -229,7 +244,7 @@ test('two people editing one module at once keep each other’s changes', async 
   await expect(page.getByText(`“${RENAMED}” isn’t a module any more`)).toBeVisible();
   await expect(alex.getByTestId('module-edit-bar')).toBeHidden();
   // The parts are all still there, for both.
-  await expect.poll(async () => (await bricks(page)).length).toBe(5);
+  await expect.poll(async () => (await bricks(page)).length).toBe(7);
   await expect.poll(async () => JSON.stringify(await places(alex)) === JSON.stringify(await places(page)), { timeout: 10000 }).toBe(true);
 
   await alexCtx.close();

@@ -14,6 +14,7 @@ import * as Y from 'yjs';
 import {
   DOC_BASE_SCHEMA,
   DOC_SCHEMA_VERSION,
+  DOC_SHAPE_IN_PLACE,
   assignZ,
   bbmToDoc,
   canReadDoc,
@@ -107,7 +108,8 @@ describe('docs in shape 1', () => {
     moveBrick(d, L, p, 20, 0);
     expect(schema(d)).toBe(1);
     reorderBricks(d, [p], 'back');
-    expect(schema(d)).toBe(DOC_SCHEMA_VERSION);
+    expect(schema(d)).toBe(DOC_SHAPE_IN_PLACE);
+    expect(DOC_SCHEMA_VERSION).toBeGreaterThanOrEqual(DOC_SHAPE_IN_PLACE);
     expect(canReadDoc(1)).toBe(true);
     expect(canReadDoc(2)).toBe(true);
     // A build that reads only shape 1 refuses it.

@@ -33,6 +33,7 @@ import { emailsVisible, nameFor } from '../utils/publicName.js';
 import { creditLookup, withCredits } from './credits.js';
 import { checkUpdate } from '../ws/updateGuard.js';
 import { checkGridSizes } from '../ws/gridGuard.js';
+import { snapshotMemberKeyProblem } from '../ws/memberGuard.js';
 import { snapshotBackgroundProblem } from '../ws/backgroundGuard.js';
 import { snapshotWork } from '../ws/yjsWork.js';
 import { trashModule } from '../trash/trash.js';
@@ -347,7 +348,7 @@ export async function moduleRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(413).send({ error: 'snapshot_too_large' });
     }
     // Only a document both apps can read (the live editor's check).
-    if (checkUpdate(bytes) !== null || checkGridSizes(null, bytes) !== null || snapshotWork(bytes) !== null) return reply.code(400).send({ error: 'unreadable_snapshot' });
+    if (checkUpdate(bytes) !== null || checkGridSizes(null, bytes) !== null || snapshotMemberKeyProblem(bytes) !== null || snapshotWork(bytes) !== null) return reply.code(400).send({ error: 'unreadable_snapshot' });
     // A module has no background picture of its own: none, or the one it already had (ws/backgroundGuard.ts).
     const badBackground = await snapshotBackgroundProblem(bytes, req.params.id, async () => {
       const row = await db.select({ docSnapshot: schema.modules.docSnapshot }).from(schema.modules).where(eq(schema.modules.id, req.params.id)).get();

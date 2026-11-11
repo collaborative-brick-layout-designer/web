@@ -4,6 +4,7 @@ import { act, renderHook } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type * as Y from 'yjs';
 import { Awareness } from 'y-protocols/awareness';
+import { DOC_SCHEMA_VERSION } from '@cld/ydoc';
 
 type Handler = (arg: unknown) => void;
 const providers: FakeProvider[] = [];
@@ -49,6 +50,7 @@ describe('useLayoutDoc and the layout schema', () => {
   });
 
   it('opens a layout at the schema this page reads', () => {
+    expect(DOC_SCHEMA_VERSION).toBe(3);
     const { result } = renderHook(() => useLayoutDoc('a'));
     const p = providers.at(-1)!;
     act(() => {
@@ -64,7 +66,7 @@ describe('useLayoutDoc and the layout schema', () => {
     const { result } = renderHook(() => useLayoutDoc('b'));
     const p = providers.at(-1)!;
     act(() => {
-      p.doc.getMap('meta').set('schemaVersion', 3);
+      p.doc.getMap('meta').set('schemaVersion', DOC_SCHEMA_VERSION + 1);
       p.emit('sync', true);
     });
     expect(result.current.loadError?.message).toBe(UNREADABLE_LAYOUT);
