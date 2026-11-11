@@ -149,3 +149,25 @@ test('a restored module goes back into its collections, and says which are gone'
   await expect(page.getByTestId('recently-deleted')).toHaveCount(0);
   expect(await inKept()).toEqual([module]);
 });
+
+test('a club’s deleted layout says whose it is and who deleted it', async ({ page }) => {
+  const CLUB = `Trash Club ${ts}`;
+  const CLUB_LAYOUT = `Club yard ${ts}`;
+  await signIn(page, ADA, 'Ada Trash');
+  const club = (await (await page.request.post('/api/orgs', { data: { name: CLUB } })).json()) as { slug: string };
+  const made = await page.request.post('/api/layouts', { data: { title: CLUB_LAYOUT, orgSlug: club.slug } });
+  expect(made.ok(), await made.text()).toBe(true);
+  const { id } = (await made.json()) as { id: string };
+  expect((await page.request.delete(`/api/layouts/${id}`)).ok()).toBe(true);
+  await page.goto('/');
+  const trash = page.getByTestId('recently-deleted');
+  await trash.getByText(/Recently deleted/).click();
+  const row = trash.locator('li', { hasText: CLUB_LAYOUT });
+  await expect(row).toContainText(`${CLUB}’s · deleted`);
+  await expect(row).toContainText('by you · gone for good on');
+  await shot(page, 'club-deleted');
+  // Tidy up: it goes for good.
+  await row.getByRole('button', { name: 'Delete now' }).click();
+  await page.getByTestId('confirm-dialog').getByRole('button', { name: 'Delete now' }).click();
+  await expect(row).toHaveCount(0, { timeout: 10000 });
+});
