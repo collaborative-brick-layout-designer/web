@@ -42,6 +42,9 @@ export const FEATURES = [
   'uploadSets',
   // DELETE /api/custom-parts/:id takes the desktop's API token (parts:write), with the website's checks.
   'deletePartsFromDesktop',
+  // A deleted layout, module or venue waits 30 days in Recently deleted (trash/trash.ts), so the
+  // desktop's delete boxes can say so instead of "This can't be undone".
+  'recentlyDeleted',
 ] as const;
 
 interface Parsed {
