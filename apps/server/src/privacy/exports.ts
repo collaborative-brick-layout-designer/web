@@ -189,6 +189,13 @@ function readme(args: {
     `venues/      ${c.venues} venue(s) (rooms), as JSON.`,
     `covers/      ${c.covers} cover picture(s) you uploaded for collections and catalog items.`,
     `catalog/     ${c.catalog} layout(s) and venue(s) as published in the public catalog.`,
+    ...(c.deleted
+      ? [
+          `recently-deleted/`,
+          `             ${c.deleted} layout(s), module(s) and venue(s) waiting in Recently deleted, as the same`,
+          `             kinds of files. They are erased 30 days after they were deleted.`,
+        ]
+      : []),
     ...(c.raw ? [``, `${c.raw} item(s) had nothing drawn in them yet, so they are saved as raw .ydoc data.`] : []),
     ``,
     `What is not in here`,

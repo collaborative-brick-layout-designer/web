@@ -247,6 +247,68 @@ describe('the put-back', () => {
   });
 });
 
+// Sam adds a part to the module while Alex renames it: Sam's part is put
+// back on top of Alex's value, by a write that isn't an undo step. Sam's
+// Undo then takes the part off the map but can't take back the module's
+// value (it isn't Sam's any more), so the module would list a part that
+// isn't there. The list is read and written without it (@cld/ydoc), and
+// Redo brings the part back into both.
+describe('undo after a put-back', () => {
+  const onMap = (p: Person): string[] =>
+    ((p.doc.getMap('layerData').get('L') as Y.Map<unknown>).get('bricks') as Y.Array<Y.Map<unknown>>).toArray().map((b) => String(b.get('id')));
+  /** What the app does after an undo or redo (useLayoutDoc.ts): the sidecar follows. */
+  const settle = (sam: Person, alex: Person): void => {
+    repairSidecarCache(sam.doc, REPAIR);
+    swap(sam, alex);
+  };
+  both('takes the part off the map and out of the module; redo puts it back in both', (sam, alex) => {
+    // A layout's own doc (the check for parts on the map is only made there).
+    sam.doc.transact(() => {
+      sam.doc.getMap('meta').set('version', 1);
+      sam.doc.getArray<string>('layers').push(['L']);
+    }, 'setup');
+    swap(sam, alex);
+    // As createUndoManager does (useUndoManager.ts).
+    const undo = new Y.UndoManager(
+      [sam.doc.getMap('layerData'), sam.doc.getArray('layers'), sam.doc.getMap('meta'), sam.doc.getMap('sidecarItems')],
+      { trackedOrigins: new Set([LOCAL]), captureTimeout: 0 },
+    );
+    // One step: the part on the map and in the module.
+    sam.doc.transact(() => {
+      const bricks = (sam.doc.getMap('layerData').get('L') as Y.Map<unknown>).get('bricks') as Y.Array<Y.Map<unknown>>;
+      const b = new Y.Map<unknown>();
+      b.set('id', 'p9');
+      bricks.push([b]);
+      const cache = readSidecarCache(sam.doc) ?? {};
+      writeSidecarCache(sam.doc, { ...cache, modules: sam.modules().map((m) => (m.id === 'M' ? { ...m, members: [...m.members, 'p9'] } : m)) });
+    }, LOCAL);
+    alex.change('M', (m) => ({ ...m, name: 'Depot' }));
+    swap(sam, alex);
+    expect(sam.module()).toEqual({ id: 'M', name: 'Depot', members: ['p1', 'p2', 'p9'] });
+
+    expect(undo.undo()).not.toBeNull();
+    settle(sam, alex);
+    for (const p of [sam, alex]) {
+      expect(onMap(p)).not.toContain('p9');
+      // Never a member that isn't on the map: not in what the editor reads…
+      expect(p.module()).toEqual({ id: 'M', name: 'Depot', members: ['p1', 'p2'] });
+      // …nor in the copy the desktop reads (meta.cache).
+      const cached = (p.doc.getMap('meta').get('cache') as { modules: Mod[] }).modules.find((m) => m.id === 'M');
+      expect(cached?.members).toEqual(['p1', 'p2']);
+    }
+
+    expect(undo.redo()).not.toBeNull();
+    settle(sam, alex);
+    for (const p of [sam, alex]) {
+      expect(onMap(p)).toContain('p9');
+      expect(p.module()).toEqual({ id: 'M', name: 'Depot', members: ['p1', 'p2', 'p9'] });
+      const cached = (p.doc.getMap('meta').get('cache') as { modules: Mod[] }).modules.find((m) => m.id === 'M');
+      expect(cached?.members).toEqual(['p1', 'p2', 'p9']);
+    }
+    undo.destroy();
+  });
+});
+
 describe('mergeModule', () => {
   const base = { id: 'M', name: 'Yard', members: ['a', 'b'] };
   it('keeps their order and adds mine at the end', () => {

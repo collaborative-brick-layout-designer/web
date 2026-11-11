@@ -188,7 +188,7 @@ export async function collectUserData(userId: string): Promise<DataSection[]> {
 
   add(
     'recently-deleted',
-    'Layouts, modules and venues you deleted (or that were yours), kept 30 days so they can be restored: what, when, and when they go for good.',
+    'Layouts, modules and venues you deleted (or that were yours), kept 30 days so they can be restored: what, when, and when they go for good. Your own are also in the recently-deleted folder.',
     (
       await db
         .select({

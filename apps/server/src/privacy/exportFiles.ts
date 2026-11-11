@@ -14,6 +14,7 @@ import { decodeDoc, exportBbmFromDoc, exportSidecarFromDoc } from '@cld/ydoc';
 import { db, schema } from '../db/index.js';
 import { env } from '../env.js';
 import { currentDocBytes } from '../routes/layouts.js';
+import { trashContent, trashIdsOf } from '../trash/trash.js';
 import { crc32 as crc32Of, type ZipFileWriter } from './zipWriter.js';
 
 export type Owner = { kind: 'user' | 'org'; id: string };
@@ -139,6 +140,8 @@ export interface FileCounts {
   covers: number;
   /** Layouts and venues published to the catalog (the public copies). */
   catalog: number;
+  /** Layouts, modules and venues waiting in Recently deleted. */
+  deleted: number;
   /** Things that could not be turned into a file (kept as raw data instead). */
   raw: number;
 }
@@ -146,7 +149,7 @@ export interface FileCounts {
 /** Write everything `owner` owns into the zip's folders. */
 export async function writeOwnedFiles(zip: ZipFileWriter, owner: Owner): Promise<FileCounts> {
   const s = schema;
-  const counts: FileCounts = { layouts: 0, modules: 0, parts: 0, venues: 0, covers: 0, catalog: 0, raw: 0 };
+  const counts: FileCounts = { layouts: 0, modules: 0, parts: 0, venues: 0, covers: 0, catalog: 0, deleted: 0, raw: 0 };
 
   // Layouts: one at a time, so a big library never sits in memory at once.
   const layouts = await db.select({ id: s.layouts.id, title: s.layouts.title }).from(s.layouts).where(ownerWhere(s.layouts, owner)).all();
@@ -214,6 +217,48 @@ export async function writeOwnedFiles(zip: ZipFileWriter, owner: Owner): Promise
     }
     zip.add(`venues/${fileTitle(v.name, 'venue')}.json`, JSON.stringify({ name: v.name, venue: data }, null, 2));
     counts.venues++;
+  }
+
+  // Recently deleted: what waits there is still the owner's, so it comes
+  // too, as the same kinds of files (one at a time: each can be big).
+  for (const id of await trashIdsOf(owner)) {
+    const t = await trashContent(id);
+    if (!t) continue;
+    const name = fileTitle(t.title, t.kind);
+    if (t.kind === 'venue') {
+      if (!t.venue) continue;
+      let data: unknown = t.venue.data;
+      try {
+        data = JSON.parse(t.venue.data);
+      } catch {
+        /* kept as text */
+      }
+      zip.add(`recently-deleted/venues/${name}.json`, JSON.stringify({ name: t.venue.name, venue: data }, null, 2));
+      counts.deleted++;
+      continue;
+    }
+    if (!t.doc) continue;
+    const folder = `recently-deleted/${t.kind === 'layout' ? 'layouts' : 'modules'}`;
+    let file: Uint8Array | null;
+    try {
+      file = await layoutFileBytes(
+        t.doc,
+        t.sidecar ?? null,
+        t.kind === 'layout' && t.picture ? t.picture : null,
+        t.kind === 'layout' ? { layoutId: t.itemId, title: t.title } : null,
+        smallZip,
+        ownerViewer(owner),
+      );
+    } catch {
+      file = null;
+    }
+    if (file) zip.add(`${folder}/${name}.bld-layout`, file);
+    else {
+      zip.add(`${folder}/${name}.ydoc`, t.doc);
+      counts.raw++;
+    }
+    if (t.kind === 'module' && t.thumbnail) zip.add(`${folder}/${name}.${t.thumbnail.ext}`, t.thumbnail.bytes);
+    counts.deleted++;
   }
 
   const collections = await db

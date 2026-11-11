@@ -17,6 +17,7 @@ import { attachUser } from '../../auth/cookie.js';
 import { passwordRoutes } from '../auth/password.js';
 import { layoutRoutes } from '../layouts.js';
 import { venueRoutes } from '../venues.js';
+import { moduleRoutes } from '../modules.js';
 import { adminRoutes } from '../admin.js';
 import { warningRoutes } from '../warnings.js';
 import { privacyRoutes } from '../privacy.js';
@@ -36,6 +37,7 @@ async function buildApp(): Promise<FastifyInstance> {
   await app.register(passwordRoutes);
   await app.register(layoutRoutes);
   await app.register(venueRoutes);
+  await app.register(moduleRoutes);
   await app.register(adminRoutes);
   await app.register(warningRoutes);
   await app.register(privacyRoutes);
@@ -104,6 +106,9 @@ describe('Download my data', () => {
     const names = [...zip.keys()];
     expect(names).toContain('layouts/Main yard.bld-layout');
     expect(names).toContain('venues/Hall.json');
+    // Nothing waits in Recently deleted: no such folder, and the README doesn't mention one.
+    expect(names.some((n) => n.startsWith('recently-deleted/'))).toBe(false);
+    expect(zip.get('README.txt')!.toString()).not.toContain('recently-deleted/');
     // The .bld-layout inside is itself a layout file.
     const inner = readZip(zip.get('layouts/Main yard.bld-layout')!);
     expect(JSON.parse(inner.get('manifest.json')!.toString()).format).toBe('bld-layout');
@@ -124,6 +129,52 @@ describe('Download my data', () => {
     // And the download is audit-logged.
     const audit = await db.select().from(schema.auditEvents).where(eq(schema.auditEvents.userId, ann.id)).all();
     expect(audit.map((a) => a.eventType)).toEqual(expect.arrayContaining(['data_export', 'data_export_download']));
+  });
+
+  // What waits in Recently deleted is still theirs: the download carries
+  // its contents too, not only the line saying it was deleted.
+  it('includes what is in Recently deleted as files, and only the person’s own', async () => {
+    const h = { cookie: ann.cookie };
+    const layout = (await app.inject({ method: 'POST', url: '/api/layouts', headers: h, payload: { title: 'Old yard', bbm: BBM } })).json() as { id: string };
+    const venue = (
+      await app.inject({
+        method: 'POST',
+        url: '/api/venues',
+        headers: h,
+        payload: { name: 'Barn', data: { name: 'Barn', enabled: true, edges: [], obstacles: [], minWalkwayStuds: 0 } },
+      })
+    ).json() as { id: string };
+    const module = (await app.inject({ method: 'POST', url: '/api/modules', headers: h, payload: { title: 'Depot' } })).json() as { id: string };
+    await app.inject({ method: 'POST', url: '/api/layouts', headers: h, payload: { title: 'Kept yard', bbm: BBM } });
+    // Bob deletes one of his own: never in Ann's download.
+    const bobs = (await app.inject({ method: 'POST', url: '/api/layouts', headers: { cookie: bob.cookie }, payload: { title: 'Bobs secret yard', bbm: BBM } })).json() as { id: string };
+    expect((await app.inject({ method: 'DELETE', url: `/api/layouts/${bobs.id}`, headers: { cookie: bob.cookie } })).statusCode).toBe(200);
+    for (const url of [`/api/layouts/${layout.id}`, `/api/venues/${venue.id}`, `/api/modules/${module.id}`]) {
+      expect((await app.inject({ method: 'DELETE', url, headers: h })).statusCode).toBe(200);
+    }
+    expect(await db.select().from(schema.trashItems).where(eq(schema.trashItems.ownerUserId, ann.id)).all()).toHaveLength(3);
+
+    await exportNow(app, ann);
+    const { exports } = await list(app, ann);
+    expect(exports[0]!.status).toBe('ready');
+    const zip = readZip((await app.inject({ method: 'GET', url: exports[0]!.downloadUrl!, headers: h })).rawPayload);
+    const names = [...zip.keys()];
+    expect(names).toContain('layouts/Kept yard.bld-layout');
+    expect(names).not.toContain('layouts/Old yard.bld-layout');
+    expect(names).toContain('recently-deleted/layouts/Old yard.bld-layout');
+    expect(names).toContain('recently-deleted/venues/Barn.json');
+    expect(names.some((n) => n.startsWith('recently-deleted/modules/Depot.'))).toBe(true);
+    // The deleted layout is a whole layout file, as the ones that weren't deleted are.
+    const inner = readZip(zip.get('recently-deleted/layouts/Old yard.bld-layout')!);
+    expect(JSON.parse(inner.get('manifest.json')!.toString()).format).toBe('bld-layout');
+    expect(inner.get('layout.bbm')!.toString()).toContain('<Map');
+    expect(JSON.parse(zip.get('recently-deleted/venues/Barn.json')!.toString())).toMatchObject({ name: 'Barn', venue: { name: 'Barn' } });
+    // The README says what the folder is, and the list still says what was deleted and when.
+    expect(zip.get('README.txt')!.toString()).toContain('3 layout(s), module(s) and venue(s) waiting in Recently deleted');
+    const listed = JSON.parse(zip.get('data/recently-deleted.json')!.toString()) as { rows: { title: string }[] };
+    expect(listed.rows.map((r) => r.title).sort()).toEqual(['Barn', 'Depot', 'Old yard']);
+    expect(names.some((n) => n.includes('Bobs secret yard'))).toBe(false);
+
   });
 
   it('only the person who asked can download it', async () => {
