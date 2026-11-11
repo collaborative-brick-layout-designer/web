@@ -35,6 +35,11 @@ export const MAX_AWARENESS_BYTES = 1024 * 1024;
 /** Awareness clientIDs one connection may own (an app uses one per layout it has open). */
 export const MAX_AWARENESS_IDS = 4;
 
+/** Longest name, color and picture address a presence entry carries. */
+export const PRESENCE_NAME_MAX = 60;
+export const PRESENCE_COLOR_MAX = 32;
+export const PRESENCE_AVATAR_MAX = 2048;
+
 /**
  * Whether a presence entry has the shape both apps draw: a name, a
  * selection and when it last moved. Anything else (an empty `{}` from a tab
@@ -76,6 +81,12 @@ export class DocSession {
    * impersonate someone else (applyClientAwareness).
    */
   readonly clientUsers = new Map<unknown, string>();
+  /**
+   * The name other people see for the user behind each attached client
+   * (utils/publicName.ts). Awareness entries from a client carry this
+   * name, whatever was sent.
+   */
+  readonly clientNames = new Map<unknown, string>();
   /**
    * Awareness clientIDs each attached client owns. Yjs assigns a random
    * clientID per Y.Doc, so we learn them as updates flow through and
@@ -155,7 +166,9 @@ export class DocSession {
    *     reconnect before the old socket's close is seen);
    *   - at most MAX_AWARENESS_IDS clientIDs per connection, and never the
    *     server's own;
-   *   - `user.id` is always the signed-in user's, whatever was sent;
+   *   - `user.id` and `user.displayName` are always the signed-in
+   *     user's, whatever was sent, and its color and picture address are
+   *     kept within a length;
    *   - a removal (state null) only of an entry it owns;
    *   - only states with the shape the apps draw (isPresenceState).
    * The caller drops messages over MAX_AWARENESS_BYTES. Throws on a
@@ -193,8 +206,11 @@ export class DocSession {
         owned.add(clientId);
       }
       const s = state as Record<string, unknown>;
-      const user = s.user as Record<string, unknown>;
-      kept.push([clientId, clock, JSON.stringify({ ...s, user: { ...user, id: userId } })]);
+      const user: Record<string, unknown> = { ...(s.user as Record<string, unknown>), id: userId };
+      user.displayName = (this.clientNames.get(client) ?? (user.displayName as string)).slice(0, PRESENCE_NAME_MAX);
+      if (typeof user.color === 'string') user.color = user.color.slice(0, PRESENCE_COLOR_MAX);
+      if (typeof user.avatarUrl === 'string' && user.avatarUrl.length > PRESENCE_AVATAR_MAX) user.avatarUrl = null;
+      kept.push([clientId, clock, JSON.stringify({ ...s, user })]);
     }
     if (kept.length === 0) return 0;
     encoding.writeVarUint(enc, kept.length);
@@ -510,16 +526,25 @@ class DocHub {
 
   /**
    * Mark a client as connected; cancels any pending eviction. `userId`
-   * is the authenticated user behind the client, used to pin awareness
-   * identity (see DocSession.startBroadcasting).
+   * is the authenticated user behind the client and `name` the name other
+   * people see for them, used to pin awareness identity (see
+   * DocSession.applyClientAwareness).
    */
-  attach(session: DocSession, client: unknown, userId?: string): void {
+  attach(session: DocSession, client: unknown, userId?: string, name?: string): void {
     if (session.idleTimer) {
       clearTimeout(session.idleTimer);
       session.idleTimer = null;
     }
     session.clients.add(client);
     if (userId !== undefined) session.clientUsers.set(client, userId);
+    if (name !== undefined) session.clientNames.set(client, name);
+  }
+
+  /** A person changed their name: their open connections carry the new one from their next presence message. */
+  renameUser(userId: string, name: string): void {
+    for (const session of this.live.values()) {
+      for (const [client, id] of session.clientUsers) if (id === userId) session.clientNames.set(client, name);
+    }
   }
 
   /**
@@ -531,6 +556,7 @@ class DocHub {
   async detach(session: DocSession, client: unknown): Promise<void> {
     if (!session.clients.delete(client)) return;
     session.clientUsers.delete(client);
+    session.clientNames.delete(client);
     session.held.drop(client);
     session.releaseAwareness(client);
     if (session.closed || session.clients.size > 0) return;
@@ -572,6 +598,7 @@ class DocHub {
     const clients = [...session.clients];
     session.clients.clear();
     session.clientUsers.clear();
+    session.clientNames.clear();
     session.clientAwarenessIds.clear();
     session.awarenessOwners.clear();
     session.held.clear();

@@ -10,6 +10,7 @@ import { env } from '../../env.js';
 import { getPlatformSettings } from '../../auth/platformSettings.js';
 import { DEMO_USER_ID, demoStatus, isDemoUser } from '../../demo/demoAccount.js';
 import { looksLikeEmail, needsName, publicName, suggestedName } from '../../utils/publicName.js';
+import { docHub } from '../../ws/docHub.js';
 
 const DISPLAY_NAME_MIN = 1;
 const DISPLAY_NAME_MAX = 60;
@@ -65,6 +66,7 @@ export async function sessionRoutes(app: FastifyInstance) {
     // Names are shown to other people: an email address doesn't belong there.
     if (looksLikeEmail(displayName)) return reply.code(400).send({ error: 'name_looks_like_email' });
     await db.update(schema.users).set({ displayName }).where(eq(schema.users.id, user.id));
+    docHub.renameUser(user.id, publicName(user.id, displayName));
     return { ok: true, displayName };
   });
 

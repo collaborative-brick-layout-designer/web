@@ -48,7 +48,10 @@ import { backgroundUrlProblem } from './backgroundGuard.js';
 import { decodeIncoming, guardWork, type DecodedUpdate } from './decoded.js';
 import { MAX_HELD_UPDATES, deletesPresent, waitsOn } from './held.js';
 import { MAX_UPDATE_WORK, yjsWork } from './yjsWork.js';
+import { eq } from 'drizzle-orm';
+import { db, schema } from '../db/index.js';
 import { deviceName } from '../auth/session.js';
+import { publicName } from '../utils/publicName.js';
 
 /**
  * Close code and reason for an update refused because it would merge
@@ -174,10 +177,14 @@ export async function attachWsHandlers(
   const sender: Sender = { layoutId, userId, client: auth.client ?? '', credential, noted: new Set(), pace: newPace() };
   // A suspended person, or a suspended owner's layout, is read-only; checked
   // again with the role (below).
-  const [suspendedNow, session] = await Promise.all([suspendedIn(userId, layoutId), docHub.getOrCreate(layoutId)]);
+  const [suspendedNow, session, account] = await Promise.all([
+    suspendedIn(userId, layoutId),
+    docHub.getOrCreate(layoutId),
+    db.select({ displayName: schema.users.displayName }).from(schema.users).where(eq(schema.users.id, userId)).get(),
+  ]);
   let suspended = suspendedNow;
   const cap = (r: 'owner' | 'editor' | 'viewer') => (readOnly || suspended ? 'viewer' : r);
-  docHub.attach(session, ws, userId);
+  docHub.attach(session, ws, userId, publicName(userId, account?.displayName));
   if (session.closed) {
     // The layout was deleted between hydrate and attach.
     ws.close(CLOSE_LAYOUT_GONE, 'layout_deleted');
