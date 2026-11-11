@@ -40,6 +40,18 @@ export async function restoreDeleted(trashId: string | null | undefined, title?:
   if (title && r.collections) showToast(restoredWords(title, r));
 }
 
+/**
+ * The line under a deleted thing. Your own: when, and when it goes. A
+ * club's: whose it is and who deleted it too, so two admins looking at the
+ * same list know what they're looking at.
+ */
+export function deletedLine(t: Pick<TrashItem, 'deletedAt' | 'purgeAt' | 'clubName' | 'deletedByYou' | 'deletedByName'>): string {
+  const by = t.deletedByYou ? ' by you' : t.deletedByName ? ` by ${t.deletedByName}` : '';
+  const whose = t.clubName ? `${t.clubName}’s · ` : '';
+  const deleted = t.clubName ? `deleted ${when(t.deletedAt)}${by}` : `Deleted ${when(t.deletedAt)}`;
+  return `${whose}${deleted} · gone for good on ${when(t.purgeAt)}`;
+}
+
 function when(ms: number): string {
   return new Date(ms).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
 }
@@ -80,7 +92,7 @@ export function RecentlyDeleted() {
                   {t.title}
                 </span>
                 <span className="block text-xs text-muted">
-                  Deleted {when(t.deletedAt)} · gone for good on {when(t.purgeAt)}
+                  {deletedLine(t)}
                 </span>
               </span>
               <span className="flex gap-2">

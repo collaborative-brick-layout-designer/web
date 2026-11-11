@@ -2318,4 +2318,10 @@ export interface TrashItem {
   /** When it's erased for good. */
   purgeAt: number;
   deletedBy: string | null;
+  /** A club's item: the club's name (null for your own things). */
+  clubName?: string | null;
+  /** You deleted it yourself. */
+  deletedByYou?: boolean;
+  /** Who deleted a club's item, when it wasn't you (null when their account is gone). */
+  deletedByName?: string | null;
 }
