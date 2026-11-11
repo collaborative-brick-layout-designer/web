@@ -440,8 +440,10 @@ test.describe('desktop and web live editing', () => {
       await test.step('3. each desktop sees the other’s cursor', async () => {
         await ann.run('cursor 40 40');
         await ben.run('cursor 80 80');
-        await expect.poll(async () => (await ben.peers()).some((p) => p.user?.displayName === 'Ann' && !!p.cursor), { timeout: 10_000 }).toBe(true);
-        await expect.poll(async () => (await ann.peers()).some((p) => p.user?.displayName === 'Ben' && !!p.cursor), { timeout: 10_000 }).toBe(true);
+        // (Each is shown under its account's name, "Ann Desktop": the server puts
+        // the account's own name on every presence entry, whatever the app sent.)
+        await expect.poll(async () => (await ben.peers()).some((p) => p.user?.displayName === 'Ann Desktop' && !!p.cursor), { timeout: 10_000 }).toBe(true);
+        await expect.poll(async () => (await ann.peers()).some((p) => p.user?.displayName === 'Ben Desktop' && !!p.cursor), { timeout: 10_000 }).toBe(true);
       });
 
       await test.step('4. Undo on one desktop takes back only its own edit', async () => {

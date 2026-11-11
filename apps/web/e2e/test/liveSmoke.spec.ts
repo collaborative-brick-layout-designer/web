@@ -191,7 +191,10 @@ test.describe('live collaboration smoke', () => {
         await driver.run('wait-synced');
         await driver.run('cursor 10 10');
         await expect(people(ann.page)).toHaveCount(2, { timeout: 15000 });
-        await expect(people(ann.page).filter({ hasText: 'Dee Desktop' })).toHaveCount(1);
+        // The desktop is listed under its account's name, whatever name the app
+        // sent: the server puts the account's own name on every presence entry.
+        await expect(people(ann.page).filter({ hasText: 'Dee Smoke' })).toHaveCount(1);
+        await expect(people(ann.page).filter({ hasText: 'Dee Desktop' })).toHaveCount(0);
         await expect.poll(async () => {
           const peers = JSON.parse(await driver.run('peers')) as { user?: { displayName?: string } }[];
           return peers.map((p) => p.user?.displayName).filter(Boolean).sort();
