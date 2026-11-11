@@ -135,6 +135,8 @@ CPP_HEAD = '''// LEGO colors for the theme color picker (Settings > Color). Gene
 
 #include "LegoColors.h"
 
+#include <iterator>
+
 namespace bld::ui::theme {
 
 namespace {
