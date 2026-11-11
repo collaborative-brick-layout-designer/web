@@ -1972,33 +1972,45 @@ function Canvas({
     },
   );
   // A finger on a part that isn't picked moves the view, so Konva mustn't
-  // start dragging that part. Turned off as the finger lands (capture, so
-  // before Konva sees it) and back on when it lifts.
+  // start dragging that part. Two fingers zoom and move the view wherever
+  // they land, so nothing under either of them drags: a pinch on a busy
+  // layout moved whatever part the second finger came down on. Turned off
+  // as the finger lands (capture, so before Konva sees it) and back on
+  // when the last one lifts.
   useEffect(() => {
     if (!touchEl || isViewer) return;
-    let held: Konva.Node | null = null;
+    let held: Konva.Node[] = [];
+    const hold = (node: Konva.Node) => {
+      if (!node.draggable()) return;
+      // (Also ends a drag this node had begun, where it is.)
+      node.draggable(false);
+      held.push(node);
+    };
     const release = (e: TouchEvent) => {
-      if (held && e.touches.length === 0) {
-        held.draggable(true);
-        held = null;
-      }
+      if (e.touches.length > 0) return;
+      for (const node of held) node.draggable(true);
+      held = [];
     };
     const down = (e: TouchEvent) => {
       lastTouchAtRef.current = Date.now();
-      if (e.touches.length !== 1 || held || (e.target as Element | null)?.closest?.('[data-no-gesture]')) return;
-      const t = e.touches[0]!;
+      if ((e.target as Element | null)?.closest?.('[data-no-gesture]')) return;
       const area = touchEl.getBoundingClientRect();
-      const hit = itemAt({ x: t.clientX - area.left, y: t.clientY - area.top });
-      if (hit && hit.kind !== 'texts' && !dragsPicked(hit) && hit.node.draggable()) {
-        hit.node.draggable(false);
-        held = hit.node;
+      const under = (t: Touch) => itemAt({ x: t.clientX - area.left, y: t.clientY - area.top });
+      if (e.touches.length >= 2) {
+        for (const t of Array.from(e.touches)) {
+          const hit = under(t);
+          if (hit) hold(hit.node);
+        }
+        return;
       }
+      const hit = e.touches[0] ? under(e.touches[0]) : null;
+      if (hit && hit.kind !== 'texts' && !dragsPicked(hit)) hold(hit.node);
     };
     touchEl.addEventListener('touchstart', down, { capture: true });
     touchEl.addEventListener('touchend', release);
     touchEl.addEventListener('touchcancel', release);
     return () => {
-      held?.draggable(true);
+      for (const node of held) node.draggable(true);
       touchEl.removeEventListener('touchstart', down, { capture: true });
       touchEl.removeEventListener('touchend', release);
       touchEl.removeEventListener('touchcancel', release);
