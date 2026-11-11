@@ -615,9 +615,9 @@ describe('admin settings', () => {
     const patch = (minDesktopVersion: string | null) =>
       app.inject({ method: 'PATCH', url: '/api/admin/settings', headers: { cookie: adminCookie }, payload: { minDesktopVersion } });
 
-    expect(await get()).toEqual({ minimumSet: null, minimum: '1.2.0', recommended: '1.4.0', codeMinimum: '1.2.0' });
+    expect(await get()).toEqual({ minimumSet: null, minimum: '1.2.0', recommended: '2.1.3', codeMinimum: '1.2.0' });
     expect((await patch('v1.4.0')).statusCode).toBe(200);
-    expect(await get()).toEqual({ minimumSet: '1.4.0', minimum: '1.4.0', recommended: '1.4.0', codeMinimum: '1.2.0' });
+    expect(await get()).toEqual({ minimumSet: '1.4.0', minimum: '1.4.0', recommended: '2.1.3', codeMinimum: '1.2.0' });
     // Below the code's own minimum: kept, but not in force.
     expect((await patch('1.0.0')).statusCode).toBe(200);
     expect((await get()).minimum).toBe('1.2.0');
