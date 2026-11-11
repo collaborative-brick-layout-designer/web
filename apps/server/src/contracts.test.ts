@@ -54,6 +54,11 @@ describe('contract fixtures', () => {
     expect(copy.equals(fixture('doc-shape.json'))).toBe(true);
   });
 
+  it('the web editor tests use the same module-members.json', () => {
+    const copy = readFileSync(join(ROOT, 'apps/web/src/editor/test/fixtures/module-members.json'));
+    expect(copy.equals(fixture('module-members.json'))).toBe(true);
+  });
+
   it('every file matches MANIFEST.sha256, which is the same in the desktop repo', () => {
     const lines = fixture('MANIFEST.sha256').toString('utf8').split('\n').filter((l) => l.trim());
     const listed: string[] = [];

@@ -27,7 +27,12 @@ change in one repo fails until the other has the same copy.
 - `module-members.json`: a module's parts one key per part (doc shape 3;
   packages/ydoc moduleMembers.ts, desktop sync/ModuleMembers.cpp): the
   keys, the values a key may hold, what a starting list and its keys read
-  as, and the keys a writer writes for a wanted list.
+  as, and the keys a writer writes for a wanted list; and `docs`: a layout
+  from before the keys, edits the web made on it with the edit the desktop
+  makes at the same time and what the module must hold after, and a layout
+  with keys. The web's
+  `BLD_WRITE_CONTRACTS=1 vitest run src/editor/test/moduleMembersTogether.test.ts`
+  writes `docs`.
 - `part-naming.json`: a server custom part, placed on the website as
   `custom:<id>`, which every export names by its part number and the
   desktop's parts cache finds by either.
