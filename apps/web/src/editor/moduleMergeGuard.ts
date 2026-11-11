@@ -1,12 +1,13 @@
-// Two people changing one module at the same instant.
+// Two people changing one module's name or look at the same instant.
 //
-// A module is one value in the shared layout (`sidecarItems`, one key per
-// module: @cld/ydoc), so when two people change the same module before
-// either hears of the other, Yjs keeps one whole value and drops the
-// other: Sam adds a part to the module while Alex adds another, and one of
-// the two parts ends up on the map but not in the module. The same goes
-// for a rename against an added part, and for everything changed while
-// one of them was offline.
+// A module's parts merge by themselves: each part added or taken out is a
+// key of its own in the shared layout (@cld/ydoc moduleMembers.ts), so two
+// people's adds and removes, on the web or the desktop, both stay. The
+// rest of a module (its name, its outline, whether it is pinned) is still
+// one value (`sidecarItems`, one key per module), so when two people change
+// those before either hears of the other, Yjs keeps one whole value and
+// drops the other: Sam renames the module while Alex changes its outline,
+// and one of the two is gone.
 //
 // This watches the module values this browser writes. When someone else's
 // value replaces one of them, it asks Yjs whether that value was written
@@ -15,15 +16,12 @@
 //   - It was: they saw our change and changed the module after it. Theirs
 //     stands, whatever it says.
 //   - It wasn't: they wrote at the same time, without ours. Our change is
-//     put back on top of theirs, field by field: the parts we added or
-//     took out, and any field we changed that they left alone. A field
-//     both changed stays theirs.
+//     put back on top of theirs, field by field: any field we changed that
+//     they left alone. A field both changed stays theirs.
 //
 // Only this browser's own changes are put back (it remembers what it
 // wrote; the value Yjs dropped is gone from the document), so each side
-// repairs its own loss and the two end up the same. The desktop has no
-// such repair yet: a change it makes at the same instant as someone
-// else's can still lose to theirs.
+// repairs its own loss and the two end up the same.
 
 import * as Y from 'yjs';
 import { readSidecarCache, writeSidecarCache } from '@cld/ydoc';
@@ -52,15 +50,12 @@ function stable(v: unknown): string {
 }
 const same = (a: unknown, b: unknown): boolean => stable(a) === stable(b);
 
-const membersOf = (m: Mod): string[] => (Array.isArray(m.members) ? (m.members as unknown[]).filter((x): x is string => typeof x === 'string') : []);
-
 /**
- * `theirs` with what `mine` changed since `base` put back: parts added or
- * taken out, and each other field that `mine` changed and `theirs` left as
- * it was in `base`. `exists` says whether a part is still on the map (one
- * that someone deleted isn't added back).
+ * `theirs` with what `mine` changed since `base` put back: each field that
+ * `mine` changed and `theirs` left as it was in `base`. The parts aren't
+ * looked at: they merge by their own keys.
  */
-export function mergeModule(base: Mod, mine: Mod, theirs: Mod, exists: (partId: string) => boolean = () => true): Mod {
+export function mergeModule(base: Mod, mine: Mod, theirs: Mod): Mod {
   const out: Mod = { ...theirs };
   for (const k of new Set([...Object.keys(base), ...Object.keys(mine), ...Object.keys(theirs)])) {
     if (k === 'members' || k === 'id' || k === '_order') continue;
@@ -68,12 +63,6 @@ export function mergeModule(base: Mod, mine: Mod, theirs: Mod, exists: (partId: 
     if (mine[k] === undefined) delete out[k];
     else out[k] = mine[k];
   }
-  const was = new Set(membersOf(base));
-  const now = new Set(membersOf(mine));
-  const members = membersOf(theirs).filter((id) => !was.has(id) || now.has(id));
-  const have = new Set(members);
-  for (const id of membersOf(mine)) if (!was.has(id) && !have.has(id) && exists(id)) members.push(id);
-  if (Array.isArray(theirs.members) || members.length > 0) out.members = members;
   return out;
 }
 
@@ -101,20 +90,6 @@ interface Entry {
 function withoutOrder(v: unknown): Mod {
   const { _order: _, ...rest } = v as Mod;
   return rest;
-}
-
-/** Every part id on the map. */
-function partIds(doc: Y.Doc): Set<string> {
-  const out = new Set<string>();
-  doc.getMap('layerData').forEach((layer) => {
-    const bricks = layer instanceof Y.Map ? layer.get('bricks') : null;
-    if (!(bricks instanceof Y.Array)) return;
-    bricks.forEach((b: unknown) => {
-      const id = b instanceof Y.Map ? b.get('id') : null;
-      if (typeof id === 'string') out.add(id);
-    });
-  });
-  return out;
 }
 
 /**
@@ -171,14 +146,15 @@ export function watchModuleMerges(doc: Y.Doc, onMerged?: (moduleId: string) => v
     const theirs = items.get(key);
     if (!base || !theirs || typeof theirs !== 'object') return;
     const id = key.slice(PREFIX.length);
-    const onMap = partIds(doc);
-    const merged = mergeModule(withoutOrder(base), withoutOrder(kept.writes[kept.writes.length - 1]!.value), withoutOrder(theirs), (p) => onMap.has(p));
+    const merged = mergeModule(withoutOrder(base), withoutOrder(kept.writes[kept.writes.length - 1]!.value), withoutOrder(theirs));
     if (same(merged, withoutOrder(theirs))) return;
+    // (The value holds the module's starting list; its parts are the cache's.)
+    const { members: _startingList, ...fields } = merged;
     doc.transact(() => {
       const cache = readSidecarCache(doc);
       const modules = cache && Array.isArray(cache.modules) ? (cache.modules as Mod[]) : null;
       if (!cache || !modules || !modules.some((m) => m.id === id)) return;
-      writeSidecarCache(doc, { ...cache, modules: modules.map((m) => (m.id === id ? merged : m)) });
+      writeSidecarCache(doc, { ...cache, modules: modules.map((m) => (m.id === id ? (m.members === undefined ? fields : { ...fields, members: m.members }) : m)) });
     }, MODULE_MERGE_ORIGIN);
     onMerged?.(id);
   };

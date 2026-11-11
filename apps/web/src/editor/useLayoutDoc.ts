@@ -20,7 +20,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import * as Y from 'yjs';
 import { WebsocketProvider } from 'y-websocket';
 import { Awareness } from 'y-protocols/awareness';
-import { canReadDoc, mayAddDuplicates, removeDuplicateItems, repairSidecarCache } from '@cld/ydoc';
+import { canReadDoc, mayAddDuplicates, removeDuplicateItems, repairSidecarCache, stampMemberKeys } from '@cld/ydoc';
 import { watchModuleMerges } from './moduleMergeGuard';
 import { keepRefusedCopy, type RefusedWhy } from './refusedCopies';
 import { announceSignInEnded } from '../demo/demoVisitor';
@@ -539,6 +539,9 @@ export function useLayoutDoc(layoutId: string, canEdit?: boolean): LayoutDocStat
       repairTimer = setTimeout(() => {
         repairTimer = null;
         repairSidecarCache(fresh, SIDECAR_REPAIR_ORIGIN);
+        // Module part keys under a lower shape stamp (two stamps written
+        // at the same instant): older builds must refuse the layout.
+        stampMemberKeys(fresh);
         // Two people moving the same part or ruler, or painting the same
         // cell, at once leave it there twice.
         if (duplicatesPossible) {
@@ -548,8 +551,8 @@ export function useLayoutDoc(layoutId: string, canEdit?: boolean): LayoutDocStat
       }, 50);
     };
     fresh.on('afterTransaction', onTransaction);
-    // Two people changing one module at the same instant: the change made
-    // here is put back on top of theirs (moduleMergeGuard.ts).
+    // Two people changing one module's name or look at the same instant:
+    // the change made here is put back on top of theirs (moduleMergeGuard.ts).
     const stopModuleMerges = watchModuleMerges(fresh);
 
     // The layout's first copy over HTTP, with progress (layoutDownload.ts),

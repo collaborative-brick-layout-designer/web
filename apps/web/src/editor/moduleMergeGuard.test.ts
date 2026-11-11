@@ -1,5 +1,7 @@
-// Two people changing one module at the same instant (moduleMergeGuard.ts):
-// two Yjs documents that swap their changes, as two browsers do through
+// Two people changing one module at the same instant: its parts merge by
+// their own keys (@cld/ydoc moduleMembers.ts), and a name or look changed
+// here is put back when someone else's value replaced it
+// (moduleMergeGuard.ts). Two Yjs documents that swap their changes, as two browsers do through
 // the server. Each case runs twice, so each person is once the one whose
 // value Yjs keeps and once the one whose value it drops.
 
@@ -130,8 +132,8 @@ describe('one module changed by two people at the same instant', () => {
     alex.change('M', (m) => ({ ...m, members: [...m.members, 'p4'] }));
     swap(sam, alex);
     expect([...sam.module()!.members].sort()).toEqual(['p1', 'p2', 'p3', 'p4']);
-    // One of them put a change back, once.
-    expect(sam.merges.length + alex.merges.length).toBe(1);
+    // The parts merged by themselves: nothing had to be put back.
+    expect(sam.merges.length + alex.merges.length).toBe(0);
   });
 
   both('one renames it, the other adds a part: both stay', (sam, alex) => {
@@ -169,16 +171,29 @@ describe('one module changed by two people at the same instant', () => {
     expect(m.outlineColor).toBe('#ff8800');
   });
 
-  both('a part someone deleted at that instant isn’t put back in the module', (sam, alex, samWins) => {
+  both('one changes its outline, the other renames it: one of them puts a change back, once', (sam, alex) => {
+    sam.change('M', (m) => ({ ...m, outlineColor: '#ff8800' }));
+    alex.change('M', (m) => ({ ...m, name: 'Yard east' }));
+    swap(sam, alex);
+    expect(sam.module()).toEqual({ id: 'M', name: 'Yard east', members: ['p1', 'p2'], outlineColor: '#ff8800' });
+    expect(sam.merges.length + alex.merges.length).toBe(1);
+  });
+
+  both('a part someone deleted at that instant isn’t in the module', (sam, alex) => {
+    // A layout's own doc (the check for parts on the map is only made there).
+    sam.doc.transact(() => {
+      sam.doc.getMap('meta').set('version', 1);
+      sam.doc.getArray<string>('layers').push(['L']);
+    }, 'setup');
+    swap(sam, alex);
     sam.change('M', (m) => ({ ...m, members: [...m.members, 'p3'] }));
     alex.deletePart('p3');
     alex.change('M', (m) => ({ ...m, name: 'Yard east' }));
     swap(sam, alex);
     expect(sam.module()!.name).toBe('Yard east');
-    // Sam's lost add isn't put back: the part is gone. (When Sam's value is
-    // the one kept, it still names the part, as before this guard: that
-    // list was written while the part was there, and nobody took it out.)
-    if (!samWins) expect(sam.module()!.members).toEqual(['p1', 'p2']);
+    // Sam's key for it is still there, but the part is gone: it isn't read.
+    expect(sam.module()!.members).toEqual(['p1', 'p2']);
+    expect(alex.module()!.members).toEqual(['p1', 'p2']);
   });
 
   both('one deletes a part of the module, the other adds one: the deleted part isn’t a member', (sam, alex) => {
@@ -238,10 +253,12 @@ describe('the put-back', () => {
     sam.doc.on('afterTransaction', (tr: Y.Transaction) => {
       if (tr.local) origins.push(tr.origin);
     });
-    sam.change('M', (m) => ({ ...m, members: [...m.members, 'p3'] }));
-    alex.change('M', (m) => ({ ...m, members: [...m.members, 'p4'] }));
+    sam.change('M', (m) => ({ ...m, outlineColor: '#ff8800', members: [...m.members, 'p3'] }));
+    alex.change('M', (m) => ({ ...m, name: 'Yard east', members: [...m.members, 'p4'] }));
     swap(sam, alex);
     expect(origins).toContain(MODULE_MERGE_ORIGIN);
+    expect(sam.module()).toEqual({ id: 'M', name: 'Yard east', members: ['p1', 'p2', 'p3', 'p4'], outlineColor: '#ff8800' });
+    expect(alex.module()).toEqual(sam.module());
     expect(sam.module('N')).toEqual({ id: 'N', name: 'Depot', members: ['p5'] });
     expect(alex.module('N')).toEqual({ id: 'N', name: 'Depot', members: ['p5'] });
   });
@@ -311,14 +328,15 @@ describe('undo after a put-back', () => {
 
 describe('mergeModule', () => {
   const base = { id: 'M', name: 'Yard', members: ['a', 'b'] };
-  it('keeps their order and adds mine at the end', () => {
-    expect(mergeModule(base, { ...base, members: ['a', 'b', 'x'] }, { ...base, members: ['b', 'a', 'y'] }).members).toEqual(['b', 'a', 'y', 'x']);
+  it('leaves the parts as theirs: they merge by their own keys', () => {
+    expect(mergeModule(base, { ...base, members: ['a', 'b', 'x'] }, { ...base, members: ['b', 'a', 'y'] }).members).toEqual(['b', 'a', 'y']);
   });
-  it('takes out what I took out, and leaves a field both changed as theirs', () => {
-    expect(mergeModule(base, { ...base, name: 'Mine', members: ['a'] }, { ...base, name: 'Theirs', members: ['a', 'b', 'y'] })).toEqual({
+  it('puts back a field I changed, and leaves a field both changed as theirs', () => {
+    expect(mergeModule(base, { ...base, name: 'Mine', pinned: true }, { ...base, name: 'Theirs', members: ['a', 'b', 'y'] })).toEqual({
       id: 'M',
       name: 'Theirs',
-      members: ['a', 'y'],
+      members: ['a', 'b', 'y'],
+      pinned: true,
     });
   });
   it('puts back a field I cleared and they left alone', () => {
