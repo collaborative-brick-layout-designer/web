@@ -1,4 +1,5 @@
 import { forgetDemoVisitor } from './demo/demoVisitor';
+import { sendThroughRestart } from './serverRestart';
 import type { FourDBrixRemap, LDrawRemap, TrackDesignerRemap } from '@cld/parts-catalog/browser';
 import type { ClubRole } from './orgs/clubRoles';
 import { askForPermission, isClubPermission, type ClubPermission } from './orgs/clubPermissions';
@@ -243,6 +244,7 @@ export async function friendlyErrorMessage(res: Response, method = 'GET', path =
   }
   if (res.status === 401) return 'You need to sign in to do that.';
   if (res.status === 403) return "You don't have permission to do that.";
+  if (res.status === 502 || res.status === 503 || res.status === 504) return 'The server is restarting and didn’t come back in time. Please try again in a moment.';
   if (res.status >= 500) return 'Something went wrong on our end. Please try again.';
   return 'Something went wrong. Please try again.';
 }
@@ -277,12 +279,13 @@ export async function apiGet<T>(path: string): Promise<T> {
 
 /** JSON request with the same friendly errors (for lazily loaded admin code). */
 export async function apiSend<T>(method: 'PATCH' | 'PUT' | 'POST' | 'DELETE', path: string, body: unknown): Promise<T> {
-  const res = await reach(fetch(path, {
+  const send = () => fetch(path, {
     method,
     credentials: 'include',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),
-  }));
+  });
+  const res = await reach(method === 'PUT' || method === 'PATCH' ? sendThroughRestart(send) : send());
   if (!res.ok) throw new Error(await friendlyErrorMessage(res, method, path));
   noteWrite(method, path);
   return res.json() as Promise<T>;
@@ -388,12 +391,12 @@ export interface PublicLayoutSummary {
 }
 
 async function patch<T>(path: string, body: unknown): Promise<T> {
-  const res = await reach(fetch(path, {
+  const res = await reach(sendThroughRestart(() => fetch(path, {
     method: 'PATCH',
     credentials: 'include',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),
-  }));
+  })));
   if (!res.ok) throw new Error(await friendlyErrorMessage(res, 'PATCH', path));
   noteWrite('PATCH', path);
   return res.json() as Promise<T>;
@@ -414,12 +417,12 @@ async function delJson<T>(path: string): Promise<T> {
 }
 
 async function put<T>(path: string, body: unknown): Promise<T> {
-  const res = await reach(fetch(path, {
+  const res = await reach(sendThroughRestart(() => fetch(path, {
     method: 'PUT',
     credentials: 'include',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),
-  }));
+  })));
   if (!res.ok) throw new Error(await friendlyErrorMessage(res, 'PUT', path));
   noteWrite('PUT', path);
   return res.json() as Promise<T>;
@@ -1017,12 +1020,12 @@ export const api = {
      */
     saveSnapshot: async (id: string, bytes: Uint8Array, note?: string, base?: number) => {
       const path = `/api/modules/${id}/snapshot${note?.trim() ? `?note=${encodeURIComponent(note.trim())}` : ''}`;
-      const res = await reach(fetch(path, {
+      const res = await reach(sendThroughRestart(() => fetch(path, {
         method: 'PUT',
         credentials: 'include',
         headers: { 'content-type': 'application/octet-stream', ...(base !== undefined ? { 'if-match': `"${base}"` } : {}) },
         body: bytes as Uint8Array<ArrayBuffer>,
-      }));
+      })));
       if (res.status === 409) {
         const body = (await res.clone().json().catch(() => ({}))) as { error?: string; docVersion?: number };
         if (body.error === 'module_changed') throw new ModuleChangedError(body.docVersion);
