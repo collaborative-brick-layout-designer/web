@@ -164,13 +164,25 @@ test("someone else's move draws only where the part was and is", async ({ browse
   expect(await sameAsAWholeDraw(bob)).toEqual(SAME);
   expect(await sameAsAWholeDraw(alice)).toEqual(SAME);
 
-  // In the mover's own tab, letting go of the part, picking it again and
-  // moving it draw only around it too (the selection's halo is drawn over
+  // In the mover's own tab, letting go of the part, picking it again,
+  // moving it and dragging it draw only around it too (the selection's halo is drawn over
   // just the picked parts: it used to draw the whole view).
   for (const [what, act] of [
     ['let go', () => alice.keyboard.press('Escape')],
     ['picked', () => alice.mouse.click(part!.x + 1, part!.y)],
     ['moved', nudge],
+    // Dragged with the mouse: the part is lifted to the drag layer and put
+    // back at its place in the sheet's order, which drew the whole view.
+    [
+      'dragged',
+      async () => {
+        await alice.mouse.move(part!.x + 1, part!.y);
+        await alice.mouse.down();
+        await alice.mouse.move(part!.x + 16, part!.y + 6, { steps: 4 });
+        await alice.mouse.move(part!.x + 31, part!.y + 11, { steps: 4 });
+        await alice.mouse.up();
+      },
+    ],
   ] as const) {
     const own = await drawsFor(alice, act);
     expect(own.whole, `${what}: whole draws, the last for: ${own.why}`).toBe(0);

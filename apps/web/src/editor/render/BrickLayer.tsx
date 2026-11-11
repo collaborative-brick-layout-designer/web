@@ -186,7 +186,16 @@ export const BrickLayer = memo(function BrickLayer({ map, doc, isViewer = false,
   // the sidecar (meta), so follow it as well as the map.
   useYjsSnapshot(doc.getMap('meta') as unknown as Y.AbstractType<unknown>);
   const editingModuleId = useEditorStore((s) => s.editingModuleId);
-  const modules = readSidecarFromDoc(doc)?.modules ?? NO_MODULES;
+  // The same list while the modules are the same: a read can make a new
+  // one each time (two people's module edits merged), and every part's
+  // kept element (below) would be made again on each render.
+  const modulesRead = readSidecarFromDoc(doc)?.modules ?? NO_MODULES;
+  const modulesKept = useRef<{ list: SidecarModule[]; json: string }>({ list: NO_MODULES, json: '[]' });
+  if (modulesRead !== modulesKept.current.list) {
+    const json = JSON.stringify(modulesRead);
+    if (json !== modulesKept.current.json) modulesKept.current = { list: modulesRead, json };
+  }
+  const modules = modulesKept.current.list;
   const modulesRef = useRef(modules);
   modulesRef.current = modules;
   const getModules = useCallback(() => modulesRef.current, []);
