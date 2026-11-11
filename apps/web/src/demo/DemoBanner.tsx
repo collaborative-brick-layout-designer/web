@@ -6,6 +6,10 @@
 // When the time is up it asks /api/auth/me again, which finds the visitor
 // signed out and brings up "The demo was reset. Start again?" (DemoResetNotice).
 // Clicks pass through the bar, except on its own link.
+// In an editor it is a thin bar in the page's flow above the header, not a
+// floating pill: floating, it covered the Build / Venue / Notes / Parts list
+// tabs. The editor renders that one (placement="inline"); the floating one
+// stays out of editors.
 
 import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -16,7 +20,12 @@ import { minutesLeftText, timeUntil } from './demoText';
 /** The last stretch, when the bar warns and offers a download. */
 export const ENDING_SOON_MS = 5 * 60_000;
 
-export function DemoBanner() {
+/** Whether the page is an editor, which shows the bar in its own flow. */
+export function isEditorPath(pathname: string): boolean {
+  return matchPath('/editor/:id', pathname) !== null || matchPath('/modules/:id', pathname) !== null;
+}
+
+export function DemoBanner({ placement = 'floating' }: { placement?: 'floating' | 'inline' } = {}) {
   const qc = useQueryClient();
   const { pathname } = useLocation();
   const me = useQuery({ queryKey: ['me'], queryFn: api.me });
@@ -36,17 +45,15 @@ export function DemoBanner() {
     if (endsAt !== null && now >= endsAt) void qc.invalidateQueries({ queryKey: ['me'] });
   }, [endsAt, now, qc]);
   if (!demo || endsAt === null) return null;
+  const inline = placement === 'inline';
+  if (!inline && isEditorPath(pathname)) return null;
   const left = endsAt - now;
   const soon = left <= ENDING_SOON_MS;
   const layoutId = matchPath('/editor/:id', pathname)?.params.id ?? null;
-  return (
-    <div className="pointer-events-none fixed inset-x-0 top-[max(0.25rem,env(safe-area-inset-top))] z-50 flex justify-center px-4">
-      <p
-        role="status"
-        data-testid="demo-banner"
-        data-state={soon ? 'ending' : 'running'}
-        className={`pointer-events-auto flex max-w-full flex-wrap items-center justify-center gap-x-2 rounded-full border px-3 py-1 text-xs text-ink shadow-pop ${soon ? 'border-accent bg-panel' : 'pointer-events-none border-line bg-panel/95'}`}
-      >
+  const pill = `flex max-w-full flex-wrap items-center justify-center gap-x-2 rounded-full border px-3 py-1 text-xs text-ink shadow-pop ${soon ? 'pointer-events-auto border-accent bg-panel' : 'pointer-events-none border-line bg-panel/95'}`;
+  const bar = `flex w-full shrink-0 flex-wrap items-center justify-center gap-x-2 border-b px-3 pb-1 pt-[max(0.25rem,env(safe-area-inset-top))] text-xs text-ink ${soon ? 'border-accent bg-panel' : 'border-line bg-soft'}`;
+  const body = (
+    <p role="status" data-testid="demo-banner" data-placement={placement} data-state={soon ? 'ending' : 'running'} className={inline ? bar : pill}>
         {soon ? (
           <>
             <span data-testid="demo-banner-text">
@@ -70,7 +77,12 @@ export function DemoBanner() {
         ) : (
           <span data-testid="demo-banner-text">Your demo space is yours for {minutesLeftText(endsAt, now)}.</span>
         )}
-      </p>
+    </p>
+  );
+  if (inline) return body;
+  return (
+    <div className="pointer-events-none fixed inset-x-0 top-[max(0.25rem,env(safe-area-inset-top))] z-50 flex justify-center px-4">
+      {body}
     </div>
   );
 }

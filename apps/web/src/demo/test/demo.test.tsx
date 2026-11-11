@@ -121,13 +121,29 @@ describe('the demo banner', () => {
     render(
       <QueryClientProvider client={qc}>
         <MemoryRouter initialEntries={['/editor/abc-123']}>
-          <DemoBanner />
+          <DemoBanner placement="inline" />
         </MemoryRouter>
       </QueryClientProvider>,
     );
     const link = await screen.findByTestId('demo-banner-download');
     expect(link.textContent).toBe('Download this layout');
     expect(link.getAttribute('href')).toBe('/api/layouts/abc-123/export.bld-layout');
+  });
+
+  it('in an editor, sits in the page flow (the editor shows it), never floating over the tabs', async () => {
+    routes['GET /api/auth/me'] = () => ({ body: demoUser({ enabled: true, resetEvery: 'daily', lastResetAt: NOW, nextResetAt: NOW + 86400_000, spaceMinutes: 60, expiresAt: Date.now() + 30 * 60_000 }) });
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={qc}>
+        <MemoryRouter initialEntries={['/editor/abc-123']}>
+          <DemoBanner />
+          <DemoBanner placement="inline" />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    const shown = await screen.findAllByTestId('demo-banner');
+    expect(shown.map((b) => b.getAttribute('data-placement'))).toEqual(['inline']);
+    expect(shown[0]!.closest('.fixed')).toBeNull();
   });
 
   it('asks who is signed in again when the time is up', async () => {
