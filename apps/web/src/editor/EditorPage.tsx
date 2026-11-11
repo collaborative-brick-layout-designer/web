@@ -2048,11 +2048,35 @@ function Canvas({
   }, [doc]);
   // The module being edited was deleted (here or by someone else), or the
   // viewer can't edit: back to the whole layout.
-  const editedModuleGone =
-    editingModuleId !== null && (isViewer || !(readSidecarFromDoc(doc)?.modules ?? NO_MODULES).some((m) => m.id === editingModuleId));
+  const editedModule = editingModuleId !== null ? (readSidecarFromDoc(doc)?.modules ?? NO_MODULES).find((m) => m.id === editingModuleId) : undefined;
+  const editedModuleGone = editingModuleId !== null && (isViewer || !editedModule);
+  // Its name while it was there, and whether the layout's last change came
+  // from someone else: when they ungrouped or deleted the module, the
+  // person editing it is told why Edit module closed.
+  const editedModuleName = useRef('');
+  if (editedModule) editedModuleName.current = editedModule.name;
+  const lastChangeElsewhere = useRef(false);
   useEffect(() => {
-    if (editedModuleGone) leaveModuleEdit();
-  }, [editedModuleGone]);
+    const onTransaction = (tr: Y.Transaction) => {
+      if (tr.changed.size > 0) lastChangeElsewhere.current = !tr.local;
+    };
+    doc.on('afterTransaction', onTransaction);
+    return () => doc.off('afterTransaction', onTransaction);
+  }, [doc]);
+  useEffect(() => {
+    if (!editedModuleGone) return;
+    if (!isViewer && lastChangeElsewhere.current) {
+      const name = editedModuleName.current;
+      useEditorStore
+        .getState()
+        .showNotice(
+          `${name ? `“${name}”` : 'The module you were editing'} isn’t a module any more: someone ungrouped or deleted it. You’re back in the whole layout.`,
+          'done',
+          8000,
+        );
+    }
+    leaveModuleEdit();
+  }, [editedModuleGone, isViewer]);
   // Leaving the editor leaves Edit module too.
   useEffect(() => () => leaveModuleEdit(), []);
   const showElectricCircuits = useEditorStore((s) => s.showElectricCircuits);

@@ -39,6 +39,27 @@ connection; the browsers carry on).
    mine" for the clash gives the expected merged layout on the server, in
    the browser and on the desktop.
 
+Two more tests in the same spec cover what the full review's area 4 left
+out:
+
+- **Two desktops on one layout** (two drivers, each with its own
+  sign-in). Different parts moved at the same instant both stay; the same
+  part moved at the same instant ends up the same everywhere, once; each
+  sees the other's cursor; Undo takes back only that desktop's edit; one
+  offline while both edit different parts ends with both edits there,
+  unasked; offline with both moving the same part waits for review.
+- **One module, the web and the desktop.** The desktop renames the module
+  and takes a part out, and the web sees both. Then, at the same instant,
+  the web (in Edit module) adds a part while the desktop takes one out:
+  the web's part is in the module whichever value Yjs keeps
+  (`apps/web/src/editor/moduleMergeGuard.ts`). The desktop's change at
+  that instant can still be the one lost; the desktop has no such repair
+  yet. This test skips with a driver built before it had the `module-…`
+  commands.
+
+Two people in the browser on one module is `liveModuleTogether.spec.ts`,
+which needs no driver.
+
 Custom part upload from the desktop is not covered yet.
 
 ## Running it
@@ -88,4 +109,5 @@ One command per line; each answers with one line, `ok[ <result>]` or
 `src/app/bld_sync_driver.cpp` in the desktop repo: `open`, `wait-synced`,
 `status`, `move`, `rotate`, `undo`, `redo`, `name`, `cursor`,
 `disconnect`, `reconnect`, `resolve mine|server|merge-default`,
-`dump [shared]`, `peers`, `quit`.
+`dump [shared]`, `modules`, `module-add`, `module-remove`,
+`module-rename`, `peers`, `quit`.

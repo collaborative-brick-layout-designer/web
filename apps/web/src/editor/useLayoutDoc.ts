@@ -21,6 +21,7 @@ import * as Y from 'yjs';
 import { WebsocketProvider } from 'y-websocket';
 import { Awareness } from 'y-protocols/awareness';
 import { canReadDoc, removeDuplicateItems, repairSidecarCache } from '@cld/ydoc';
+import { watchModuleMerges } from './moduleMergeGuard';
 import { keepRefusedCopy, type RefusedWhy } from './refusedCopies';
 import { announceSignInEnded } from '../demo/demoVisitor';
 import { notePresenceLayout } from './awareness';
@@ -510,6 +511,9 @@ export function useLayoutDoc(layoutId: string, canEdit?: boolean): LayoutDocStat
       }, 50);
     };
     fresh.on('afterTransaction', onTransaction);
+    // Two people changing one module at the same instant: the change made
+    // here is put back on top of theirs (moduleMergeGuard.ts).
+    const stopModuleMerges = watchModuleMerges(fresh);
 
     // The layout's first copy over HTTP, with progress (layoutDownload.ts),
     // then the live connection, which only sends what changed since. Without
@@ -532,6 +536,7 @@ export function useLayoutDoc(layoutId: string, canEdit?: boolean): LayoutDocStat
       provider.off('status', onStatus);
       provider.off('connection-close', onConnectionClose);
       fresh.off('afterTransaction', onTransaction);
+      stopModuleMerges();
       fresh.off('update', onDocUpdate);
       fresh.off('afterTransaction', onOfflineEdit);
       if (repairTimer) clearTimeout(repairTimer);
