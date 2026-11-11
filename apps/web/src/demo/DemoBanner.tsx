@@ -31,7 +31,11 @@ export function DemoBanner({ placement = 'floating' }: { placement?: 'floating' 
   const me = useQuery({ queryKey: ['me'], queryFn: api.me });
   // Only a demo space's /me carries `demo`.
   const demo = me.data?.user?.demo;
-  const endsAt = demo?.expiresAt ?? null;
+  // When it ends, on this computer's clock: the time left the server gave,
+  // from when its answer arrived. (This computer's clock may be wrong, so
+  // the server's own end time isn't compared with it; an older server
+  // sends only that.)
+  const endsAt = typeof demo?.msLeft === 'number' ? me.dataUpdatedAt + demo.msLeft : (demo?.expiresAt ?? null);
   const [now, setNow] = useState(() => Date.now());
   // Every 10 seconds, and each second in the last minute.
   const lastMinute = endsAt !== null && endsAt - now < 60_000;

@@ -6,6 +6,7 @@ import { clearSessionCookie, requireUser } from '../../auth/cookie.js';
 import { listLinkedProviders } from '../../auth/users.js';
 import { listProviders } from '../../auth/providers.js';
 import { db, schema } from '../../db/index.js';
+import type { PlatformSettings, User } from '../../db/schema.js';
 import { env } from '../../env.js';
 import { getPlatformSettings } from '../../auth/platformSettings.js';
 import { DEMO_USER_ID, demoStatus, isDemoUser } from '../../demo/demoAccount.js';
@@ -40,7 +41,7 @@ export async function sessionRoutes(app: FastifyInstance) {
         // one): the account page offers to set one.
         hasPassword: !!req.user.passwordHash,
         // The demo banner: when this space ends, and how often the samples reset.
-        ...(isDemoUser(req.user) ? { demo: { ...demoStatus(await getPlatformSettings()), expiresAt: req.user.id === DEMO_USER_ID ? null : demoSpaceEnd(req.user, (await getPlatformSettings()).demoSpaceMinutes) } } : {}),
+        ...(isDemoUser(req.user) ? { demo: demoForMe(req.user, await getPlatformSettings()) } : {}),
       },
     };
   });
@@ -134,4 +135,15 @@ export async function sessionRoutes(app: FastifyInstance) {
     clearSessionCookie(reply);
     return { ok: true };
   });
+}
+
+/**
+ * What /me tells a demo visitor: the demo's timer, when their space ends,
+ * and how long that is from now by the server's clock (`msLeft`). The page
+ * counts down from `msLeft`, so a visitor whose own clock is wrong still
+ * sees the right time left.
+ */
+function demoForMe(user: User, settings: PlatformSettings, now: number = Date.now()) {
+  const expiresAt = user.id === DEMO_USER_ID ? null : demoSpaceEnd(user, settings.demoSpaceMinutes);
+  return { ...demoStatus(settings), expiresAt, msLeft: expiresAt === null ? null : Math.max(0, expiresAt - now) };
 }

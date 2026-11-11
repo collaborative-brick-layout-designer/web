@@ -43,6 +43,8 @@ export interface DemoStatus {
   spaceMinutes?: number;
   /** When this visitor's demo space ends (only in /me); null for the template. */
   expiresAt?: number | null;
+  /** How long until then, by the server's clock when it answered (only in /me): what the countdown uses, so a wrong clock here doesn't matter. */
+  msLeft?: number | null;
 }
 
 /** One of your web sign-ins (Profile › Browsers and devices). */
