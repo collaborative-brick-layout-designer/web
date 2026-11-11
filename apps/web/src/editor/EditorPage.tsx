@@ -2026,6 +2026,33 @@ function Canvas({
     // brickAt reads refs only.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [touchEl, isViewer]);
+  // The phone turned (or the window changed size) in the middle of a drag:
+  // the view then fits the new screen, and the part jumped out from under
+  // the finger. The drag ends where the part is, before the view changes,
+  // as a second finger coming down ends it (onPinchStart). The window's
+  // own size, so the editor's bars changing height never end a drag.
+  useEffect(() => {
+    let w = window.innerWidth;
+    let h = window.innerHeight;
+    const settle = (turned: boolean) => {
+      if (!turned && window.innerWidth === w && window.innerHeight === h) return;
+      w = window.innerWidth;
+      h = window.innerHeight;
+      const stage = stageRef.current;
+      if (!stage) return;
+      for (const node of stage.find((n: Konva.Node) => n.isDragging())) node.stopDrag();
+    };
+    const onResize = () => settle(false);
+    const onTurn = () => settle(true);
+    window.addEventListener('resize', onResize);
+    window.addEventListener('orientationchange', onTurn);
+    screen.orientation?.addEventListener?.('change', onTurn);
+    return () => {
+      window.removeEventListener('resize', onResize);
+      window.removeEventListener('orientationchange', onTurn);
+      screen.orientation?.removeEventListener?.('change', onTurn);
+    };
+  }, []);
   /** When a finger last came down: a long press also fires contextmenu, which isn't a right-click. */
   const lastTouchAtRef = useRef(0);
   // On a phone, text too small to read is left out (textLegibility.ts).
