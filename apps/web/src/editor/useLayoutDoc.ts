@@ -224,6 +224,33 @@ export function sendOnlyOwnPresence(provider: WebsocketProvider): void {
   awareness.on('update', sendOwn);
 }
 
+/**
+ * After a dropped connection, show who's here again at once. Without this
+ * both sides showed nobody for up to 15 s after even a one-second drop:
+ * - This tab forgets the others when the connection closes, but keeps the
+ *   count each of them was at, and then ignores the server's list of who
+ *   is here because those counts aren't newer. So the counts of people no
+ *   longer shown are forgotten too.
+ * - The others were told this tab left, and ignore its unchanged presence
+ *   when it comes back. So on reconnecting it is sent again, as a new one.
+ * (y-protocols re-sends a presence every 15 s, which is what fixed it before.)
+ */
+export function keepPresenceAcrossReconnects(provider: WebsocketProvider): () => void {
+  const { awareness } = provider;
+  const onStatus = (event: { status: string }): void => {
+    if (event.status === 'connected') {
+      const mine = awareness.getLocalState();
+      if (mine !== null) awareness.setLocalState(mine);
+      return;
+    }
+    for (const id of [...awareness.meta.keys()]) {
+      if (id !== awareness.clientID && !awareness.getStates().has(id)) awareness.meta.delete(id);
+    }
+  };
+  provider.on('status', onStatus);
+  return () => provider.off('status', onStatus);
+}
+
 /** Build the WS URL relative to the current page (so dev + prod both work). */
 function wsUrlBase(): string {
   if (typeof window === 'undefined') return '';
@@ -306,6 +333,7 @@ export function useLayoutDoc(layoutId: string, canEdit?: boolean): LayoutDocStat
       awareness: newLivePresence(fresh, layoutId),
     });
     sendOnlyOwnPresence(provider);
+    keepPresenceAcrossReconnects(provider);
     keepOpenWhileFirstSync(provider);
     providerRef.current = provider;
 

@@ -152,6 +152,7 @@ import { catalogFromParts, recomputeConnectivity, useConnectivity } from './useC
 import type { OpenedMapState } from '../mapFormats';
 import { usePublishAwareness, dispatchCursorMove, dispatchCursorLeave } from './useAwareness';
 import { PresencePanel } from './PresencePanel';
+import { ViewOnlyPill } from './ViewOnlyPill';
 import { RemoteCursors } from './render/RemoteCursors';
 import { MODULE_MIME, MODULE_NAME_MIME, activeModuleDrag } from './mime';
 import { moduleByPart, shapeSelection } from './moduleEdit';
@@ -1120,13 +1121,14 @@ function Editor({ layoutId, docState, moduleMode }: { layoutId: string; docState
                 />
               )}
             </div>
+            {/* Who else is here, beside the name: the second row has no room left on a phone. */}
+            <PresencePanel awareness={awareness} compact />
             {role === 'viewer' ? <ViewOnlyPill reason={viewOnlyReason} /> : <ModeSwitch edit={phoneEdit} onChange={setPhoneEdit} />}
           </div>
           <div className="flex min-w-0 items-center gap-2 sm:shrink-0">
             <SavePill status={status} />
             <HelpButton helpKey="topbar.saveStatus" />
             <div className="ml-auto flex min-w-0 items-center justify-end gap-2">
-              <PresencePanel awareness={awareness} />
               <button
                 type="button"
                 aria-label="Share picture"
@@ -6206,7 +6208,7 @@ function SignedOutCard({ what, reconnect }: { what: 'layout' | 'module'; reconne
             href={`/login?next=${encodeURIComponent(here)}`}
             target="_blank"
             rel="noopener"
-            className="rounded-lg bg-accent px-3 py-1.5 font-semibold text-accent-ink hover:bg-accent-hover"
+            className="tap-target inline-flex items-center rounded-lg bg-accent px-3 py-1.5 font-semibold text-accent-ink hover:bg-accent-hover"
           >
             Sign in (opens a new tab)
           </a>
@@ -6530,22 +6532,6 @@ function ViewsMenuItems({
         Share picture…
       </button>
     </div>
-  );
-}
-
-/** Shown to anyone who can look but not change: viewers, and everyone on a phone. */
-/** "View only", with why when the club's roles are the reason (hover, or read out). */
-function ViewOnlyPill({ reason }: { reason?: string | undefined }) {
-  return (
-    <span
-      data-testid="view-only"
-      data-tour="view.edit"
-      title={reason}
-      className="shrink-0 whitespace-nowrap rounded-full bg-amber-900/40 px-2.5 py-1 text-xs font-bold text-amber-300"
-    >
-      View only
-      {reason && <span className="sr-only">. {reason}</span>}
-    </span>
   );
 }
 
