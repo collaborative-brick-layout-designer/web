@@ -52,9 +52,12 @@ describe('scanCatalog: a library’s config/ folder', () => {
       mkdirSync(resolve(root, 'config'));
       writeFileSync(resolve(root, 'config', 'ConnectionTypeList.xml'), '<ConnectionTypeList><ConnectionType/></ConnectionTypeList>');
       mkdirSync(resolve(root, 'trains', 'config'), { recursive: true });
+      writeFileSync(resolve(root, 'trains', 'config', 'ConnectionTypeList.xml'), '<ConnectionTypeList><ConnectionType/></ConnectionTypeList>');
       writeFileSync(resolve(root, 'trains', 'broken.8.xml'), '<not closed');
       const { errors } = await scanCatalog(root);
       expect(errors.map((e) => e.path)).not.toContain('config/ConnectionTypeList.xml');
+      // Inside a library folder too (parts/Road/config), quietly: no error at all for it.
+      expect(errors.map((e) => e.path.replace(/\\/g, '/')).filter((p) => p.includes('config'))).toEqual([]);
       expect(errors.map((e) => e.path.replace(/\\/g, '/'))).toContain('trains/broken.8.xml');
     } finally {
       rmSync(root, { recursive: true, force: true });
