@@ -9,7 +9,7 @@ import { act, createElement as h, Fragment, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { BbmMap } from '@cld/model';
-import { createDefaultLayoutDoc, docToBbm } from '@cld/ydoc';
+import { createDefaultLayoutDoc, docToBbm, readSidecarFromDoc, writeSidecarCache } from '@cld/ydoc';
 
 let prims = 0;
 vi.mock('react-konva', () => {
@@ -18,6 +18,19 @@ vi.mock('react-konva', () => {
     return h(Fragment, null, p.children);
   };
   return { Group: mk(), Image: mk(), Rect: mk(), Circle: mk(), Line: mk(), Text: mk(), Shape: mk() };
+});
+
+// Each part's element is made with what canDragPart says: its calls count the elements made.
+let made = 0;
+vi.mock('../moduleEdit', async (importOriginal) => {
+  const real = await importOriginal<typeof import('../moduleEdit')>();
+  return {
+    ...real,
+    canDragPart: (...a: Parameters<typeof real.canDragPart>) => {
+      made++;
+      return real.canDragPart(...a);
+    },
+  };
 });
 
 import { moveBrick, placeBrick } from '../mutations';
@@ -88,6 +101,72 @@ describe('BrickLayer re-render scope', () => {
     await act(async () => useEditorStore.getState().setLiveSnap({ studX: 2, studY: 0 }));
     expect(prims).toBe(0);
     await act(async () => useEditorStore.getState().setLiveSnap(null));
+
+    await act(async () => root.unmount());
+  });
+
+  // On a layout with modules, each read of the sidecar gives a new list of
+  // modules (they're kept one per key and put together on each read), so
+  // every part's element was made again, and compared with the one before,
+  // on each render: a pan's render or one part moved went through every
+  // part. The list is kept while the modules are the same (web #564).
+  it('on a layout with modules, a re-render or one part moved makes no other part again', async () => {
+    const N = 600;
+    const doc = createDefaultLayoutDoc();
+    const layerId = docToBbm(doc).layers.find((l) => l.type === 'brick')!.id;
+    const ids: string[] = [];
+    doc.transact(() => {
+      for (let i = 0; i < N; i++) ids.push(placeBrick(doc, layerId, { partNumber: 'track.0', x: i * 16, y: 0, width: 16, height: 8 }));
+    });
+    const modules = [0, 1, 2].map((m) => ({
+      id: `m${m}`,
+      name: `Module ${m}`,
+      members: ids.slice(m * 200, m * 200 + 150),
+      transform: [1, 0, 0, 0, 1, 0, 0, 0, 1],
+    }));
+    doc.transact(() => writeSidecarCache(doc, { schemaVersion: 1, bbmHashSha256: '', modules }));
+    // (What makes this case: two reads give equal lists that aren't the same one.)
+    expect(readSidecarFromDoc(doc)!.modules).toEqual(readSidecarFromDoc(doc)!.modules);
+    expect(readSidecarFromDoc(doc)!.modules).not.toBe(readSidecarFromDoc(doc)!.modules);
+
+    const qc = new QueryClient();
+    qc.setQueryData(['parts-catalog'], { parts: [] });
+    const root = createRoot(document.createElement('div'));
+    const render = (m: BbmMap) => h(QueryClientProvider, { client: qc }, h(BrickLayer, { map: m, doc }));
+    await act(async () => useEditorStore.getState().setSelection([]));
+    let map = projectDoc(doc)!;
+    made = 0;
+    await act(async () => root.render(render(map)));
+    expect(made).toBe(N);
+
+    // A re-render with the same map (a pan, the HUD): no part made again.
+    made = 0;
+    prims = 0;
+    await act(async () => root.render(render(map)));
+    expect(made).toBe(0);
+    expect(prims).toBe(0);
+
+    // A part in a module moved, then one outside every module: only it.
+    for (const id of [ids[10]!, ids[170]!]) {
+      moveBrick(doc, layerId, id, 3, 3);
+      map = projectDoc(doc)!;
+      made = 0;
+      prims = 0;
+      await act(async () => root.render(render(map)));
+      expect(made).toBe(1);
+      expect(prims).toBeLessThan(15);
+    }
+
+    // A module changed: every part is made with the new list, once.
+    doc.transact(() =>
+      writeSidecarCache(doc, { ...readSidecarFromDoc(doc)!, modules: modules.map((m, i) => (i === 0 ? { ...m, pinned: true } : m)) } as unknown as Record<string, unknown>),
+    );
+    made = 0;
+    await act(async () => root.render(render(projectDoc(doc)!)));
+    expect(made).toBe(N);
+    made = 0;
+    await act(async () => root.render(render(projectDoc(doc)!)));
+    expect(made).toBe(0);
 
     await act(async () => root.unmount());
   });
