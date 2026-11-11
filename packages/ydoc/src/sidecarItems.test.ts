@@ -6,7 +6,7 @@ import * as Y from 'yjs';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { decodeDoc, encodeDoc, exportSidecarFromDoc, readSidecarCache, removeDuplicateBricks, repairSidecarCache, sidecarBlobHash, writeSidecarCache } from './index.js';
+import { createDefaultLayoutDoc, decodeDoc, encodeDoc, exportSidecarFromDoc, readSidecarCache, removeDuplicateBricks, repairSidecarCache, sidecarBlobHash, writeSidecarCache } from './index.js';
 
 const base = { schemaVersion: 1, bbmHashSha256: '', modules: [{ id: 'm0', name: 'Yard', members: [] }] };
 const sync = (a: Y.Doc, b: Y.Doc) => {
@@ -265,5 +265,97 @@ describe('sidecarBlobHash', () => {
     expect(sidecarBlobHash({ a: 1, b: { d: [1, { y: 2, x: 1 }], c: 'z' } })).toBe(
       sidecarBlobHash({ b: { c: 'z', d: [1, { x: 1, y: 2 }] }, a: 1 }),
     );
+  });
+});
+
+// A part deleted at the same instant someone adds it to a module: the
+// delete took it out of the modules it was in then, the other write lists
+// it again. Reads and writes leave out parts that aren't on the map.
+describe('module lists without deleted parts', () => {
+  const brickLayer = (d: Y.Doc) => {
+    const data = d.getMap('layerData');
+    for (const id of d.getArray<string>('layers').toArray()) {
+      const l = data.get(id);
+      if (l instanceof Y.Map && l.get('type') === 'brick') return l.get('bricks') as Y.Array<Y.Map<unknown>>;
+    }
+    throw new Error('no parts sheet');
+  };
+  const addBrick = (d: Y.Doc, id: string) => {
+    const b = new Y.Map<unknown>();
+    b.set('id', id);
+    brickLayer(d).push([b]);
+  };
+  const deleteBrick = (d: Y.Doc, id: string) => {
+    const arr = brickLayer(d);
+    const i = arr.toArray().findIndex((b) => b.get('id') === id);
+    arr.delete(i, 1);
+  };
+  const members = (d: Y.Doc) =>
+    ((readSidecarCache(d)?.modules ?? []) as { id: string; members: string[] }[]).map((m) => `${m.id}:${m.members.join(',')}`);
+
+  it('two people at once: one deletes a part, the other adds it to a module', () => {
+    const a = createDefaultLayoutDoc();
+    a.transact(() => {
+      addBrick(a, 'b1');
+      addBrick(a, 'b2');
+      writeSidecarCache(a, { ...base, modules: [{ id: 'm1', name: 'Yard', members: ['b1'] }] });
+    });
+    const b = new Y.Doc();
+    Y.applyUpdate(b, Y.encodeStateAsUpdate(a));
+    // a deletes b2 (in no module yet, so no module changes)…
+    a.transact(() => deleteBrick(a, 'b2'));
+    // …while b adds it to the module.
+    b.transact(() => writeSidecarCache(b, { ...readSidecarCache(b)!, modules: [{ id: 'm1', name: 'Yard', members: ['b1', 'b2'] }] }));
+    expect(members(b)).toEqual(['m1:b1,b2']);
+    sync(a, b);
+    for (const d of [a, b]) expect(members(d)).toEqual(['m1:b1']);
+    // meta.cache, which the desktop and older builds read, follows once repaired.
+    expect(repairSidecarCache(a, 'repair') || repairSidecarCache(b, 'repair')).toBe(true);
+    sync(a, b);
+    for (const d of [a, b]) {
+      expect((d.getMap('meta').get('cache') as { modules: { members: string[] }[] }).modules[0]!.members).toEqual(['b1']);
+      expect(repairSidecarCache(d, 'repair')).toBe(false);
+    }
+  });
+
+  it('a module whose last part went at the same time goes too; one made empty stays', () => {
+    const a = createDefaultLayoutDoc();
+    a.transact(() => {
+      addBrick(a, 'b1');
+      writeSidecarCache(a, { ...base, modules: [{ id: 'm0', name: 'Empty', members: [] }] });
+    });
+    const b = new Y.Doc();
+    Y.applyUpdate(b, Y.encodeStateAsUpdate(a));
+    a.transact(() => deleteBrick(a, 'b1'));
+    b.transact(() => {
+      const c = readSidecarCache(b)!;
+      writeSidecarCache(b, { ...c, modules: [...(c.modules as object[]), { id: 'm1', name: 'New', members: ['b1'] }] });
+    });
+    sync(a, b);
+    for (const d of [a, b]) expect(members(d)).toEqual(['m0:']);
+  });
+
+  it('a write leaves out parts that are not on the map', () => {
+    const a = createDefaultLayoutDoc();
+    a.transact(() => {
+      addBrick(a, 'b1');
+      writeSidecarCache(a, { ...base, modules: [{ id: 'm1', name: 'Yard', members: ['b1', 'gone'] }] });
+    });
+    expect((a.getMap('meta').get('cache') as { modules: { members: string[] }[] }).modules[0]!.members).toEqual(['b1']);
+    // Parts added in the same transaction as the module are on the map.
+    a.transact(() => {
+      addBrick(a, 'b3');
+      writeSidecarCache(a, { ...readSidecarCache(a)!, modules: [{ id: 'm1', name: 'Yard', members: ['b1', 'b3'] }] });
+    });
+    expect(members(a)).toEqual(['m1:b1,b3']);
+    // And a read after a delete sees it at once.
+    a.transact(() => deleteBrick(a, 'b3'));
+    expect(members(a)).toEqual(['m1:b1']);
+  });
+
+  it('a sidecar kept on its own (no map) keeps its lists', () => {
+    const a = new Y.Doc();
+    a.getMap('meta').set('cache', { ...base, modules: [{ id: 'm1', name: 'Yard', members: ['b1'] }] });
+    expect(members(a)).toEqual(['m1:b1']);
   });
 });

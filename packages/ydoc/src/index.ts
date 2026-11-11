@@ -237,8 +237,91 @@ export function readSidecarCache(doc: Y.Doc): Record<string, unknown> | null {
   if (!blob || typeof blob !== 'object') return null;
   const cache = blob as Record<string, unknown>;
   const items = doc.getMap(SIDECAR_ITEMS);
-  if (items.size === 0 || items.get('__blob') !== blobHash(cache) || !idsUnique(cache)) return cache;
-  return mergedSidecar(cache, items);
+  const read = items.size === 0 || items.get('__blob') !== blobHash(cache) || !idsUnique(cache) ? cache : mergedSidecar(cache, items);
+  // Inside a transaction a change may be half made (a module's parts
+  // deleted before the new ones go in, replaceModuleParts): the write at
+  // its end leaves out what's gone.
+  return inTransaction(doc) ? read : withoutGoneParts(doc, read);
+}
+
+// ---------------------------------------------------------------------------
+// A part deleted at the same instant someone adds it to a module stays in
+// the module's list: the delete dropped it from the modules it was in then,
+// and the other person's write lists it again. So the list is read, and
+// written, without parts that aren't on the map any more; a module left
+// with none goes, as a delete of its last part takes it (deleteBricks). The
+// desktop does the same (SidecarItems.cpp). Only a layout's own doc is
+// checked: a doc without `meta.version` (a sidecar kept on its own) has no
+// parts to check against.
+// ---------------------------------------------------------------------------
+
+function inTransaction(doc: Y.Doc): boolean {
+  return (doc as unknown as { _transaction: unknown })._transaction != null;
+}
+
+const brickIdMemo = new WeakMap<Y.Doc, { ids: Set<string>; stale: boolean }>();
+
+/** The ids of every part (and text and ruler) on the map, or null for a doc that isn't a layout. */
+function liveBrickIds(doc: Y.Doc): Set<string> | null {
+  if (doc.getMap('meta').get('version') === undefined) return null;
+  // Inside a transaction the parts may be changing: count them afresh.
+  const changing = inTransaction(doc);
+  const memo = brickIdMemo.get(doc);
+  if (!changing && memo && !memo.stale) return memo.ids;
+  const ids = new Set<string>();
+  const layerData = doc.getMap('layerData');
+  for (const layerId of doc.getArray<string>('layers').toArray()) {
+    const layer = layerData.get(layerId);
+    if (!(layer instanceof Y.Map)) continue;
+    // Modules hold parts; a sidecar from elsewhere may list a text or a ruler too.
+    for (const field of ['bricks', 'textCells', 'rulerItems']) {
+      const list = layer.get(field);
+      if (!(list instanceof Y.Array)) continue;
+      for (const b of list.toArray()) {
+        const id = b instanceof Y.Map ? b.get('id') : b && typeof b === 'object' ? (b as { id?: unknown }).id : undefined;
+        if (typeof id === 'string') ids.add(id);
+      }
+    }
+  }
+  if (!changing) {
+    if (memo) {
+      memo.ids = ids;
+      memo.stale = false;
+    } else {
+      const entry = { ids, stale: false };
+      brickIdMemo.set(doc, entry);
+      doc.on('afterTransaction', () => {
+        entry.stale = true;
+      });
+    }
+  }
+  return ids;
+}
+
+/** `cache` without module members that aren't on the map (the same object when there are none). */
+function withoutGoneParts(doc: Y.Doc, cache: Record<string, unknown>): Record<string, unknown> {
+  const modules = cache.modules;
+  if (!Array.isArray(modules) || modules.length === 0) return cache;
+  const ids = liveBrickIds(doc);
+  if (!ids) return cache;
+  let changed = false;
+  const kept: unknown[] = [];
+  for (const m of modules) {
+    const members = m && typeof m === 'object' ? (m as { members?: unknown }).members : undefined;
+    if (!Array.isArray(members)) {
+      kept.push(m);
+      continue;
+    }
+    const here = members.filter((id) => typeof id === 'string' && ids.has(id));
+    if (here.length === members.length) {
+      kept.push(m);
+      continue;
+    }
+    changed = true;
+    // (A module that had no parts to begin with is kept: only one that lost them goes.)
+    if (here.length > 0) kept.push({ ...(m as object), members: here });
+  }
+  return changed ? { ...cache, modules: kept } : cache;
 }
 
 // The items are keyed by id: a sidecar where a module or label has no id,
@@ -279,7 +362,8 @@ function mergedSidecar(cache: Record<string, unknown>, items: Y.Map<unknown>): R
  * under its own key, changing only the ones that differ. Call inside a
  * transaction.
  */
-export function writeSidecarCache(doc: Y.Doc, cache: Record<string, unknown>): void {
+export function writeSidecarCache(doc: Y.Doc, written: Record<string, unknown>): void {
+  const cache = withoutGoneParts(doc, written);
   const items = doc.getMap(SIDECAR_ITEMS);
   for (const { field, prefix } of ITEM_KINDS) {
     const list = Array.isArray(cache[field]) ? (cache[field] as Record<string, unknown>[]) : [];
@@ -305,7 +389,8 @@ export function repairSidecarCache(doc: Y.Doc, origin: unknown): boolean {
   if (!blob || typeof blob !== 'object') return false;
   const items = doc.getMap(SIDECAR_ITEMS);
   if (items.size === 0 || !idsUnique(blob as Record<string, unknown>)) return false;
-  const merged = mergedSidecar(blob as Record<string, unknown>, items);
+  // (Without parts that aren't on the map: a module may list one deleted as it was added.)
+  const merged = withoutGoneParts(doc, mergedSidecar(blob as Record<string, unknown>, items));
   const hash = blobHash(merged);
   if (items.get('__blob') === hash && JSON.stringify(merged) === JSON.stringify(blob)) return false;
   // Only when the items still go with a blob some writer of the map made
