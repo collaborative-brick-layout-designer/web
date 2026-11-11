@@ -23,6 +23,11 @@ and reads and writes the same files (`.bld-layout`, and BlueBrick's
 
 *Home: your layouts and venues, and a short tour for new builders.* [View in light mode](docs/screenshots/home-light.png)
 
+
+## Try it online
+
+**[collab.aronwk.com](https://collab.aronwk.com)** runs this web app. It's the project's own instance, hosted by the maintainer. To look around without signing up, click **Try the demo** on the sign-in page. You get a private demo space with sample layouts. It's cleared at each demo reset, so don't keep anything there you want to save.
+
 ---
 
 ## ⚠️ Vibe-coded warning
