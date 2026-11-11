@@ -2,8 +2,9 @@
 // or `{}`) gives the visitor a private demo space of their own (a new
 // demo account with a copy of the samples, demo/demoAccount.ts) and signs
 // them in to it, while an admin has the demo switched on. Works whether
-// or not password sign-in is enabled. The sign-in and the space end at
-// the next reset (24 hours at most), so a reset that is due runs first.
+// or not password sign-in is enabled. The sign-in and the space end a fixed
+// time after they were made (Admin › Settings › Demo account; 1 hour by
+// default). A reset that is due (the template's samples) runs first.
 //
 // Limits: a few a minute from one address (behind the proxy, the real
 // client's: TRUST_PROXY), and at most Admin › Settings › Demo account's

@@ -59,9 +59,9 @@ export async function isSessionActive(sessionId: string): Promise<boolean> {
   return (await endOf(row, row.isDemo, now)).end >= now;
 }
 
-/** When a new session ends: the idle window, or for the demo the next reset (24 hours at most). */
+/** When a new session ends: the idle window, or for a demo space its own time. */
 async function firstExpiry(userId: string, now: number): Promise<Date> {
-  // A demo space (or the template): its sign-in ends at the next reset, 24 hours at most.
+  // A demo space (or the template): its sign-in ends with its time.
   const user = await db.select({ demo: schema.users.isDemoAccount, until: schema.users.demoExpiresAt }).from(schema.users).where(eq(schema.users.id, userId)).get();
   if (user?.demo) {
     const { demoSessionEnd } = await import('../demo/demoAccount.js');

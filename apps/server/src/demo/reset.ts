@@ -1,7 +1,7 @@
-// Resetting the demo account: sign every visitor out, delete everything it
-// owns, put the samples back, and tell anyone looking (the visitors'
-// pages, which then say "The demo was reset. Start again?", and admins on
-// the settings page) so their screens update without a reload.
+// Resetting the demo account: delete everything the template owns, put the
+// samples back, and tell anyone looking (admins on the settings page and
+// anyone open on a sample) so their screens update without a reload.
+// Visitors' own spaces are not touched: each lasts its own time.
 //
 // Only rows the demo account owns are touched. The timer in workers/
 // index.ts and Admin › Settings › "Reset now" both run it through
@@ -241,12 +241,9 @@ async function seedSamples(now: Date): Promise<void> {
 export async function resetDemoAccount(now = new Date()): Promise<{ lastResetAt: number; items: number }> {
   await getPlatformSettings();
   await ensureDemoUser();
-  // Everyone in the demo now is signed out first (their open layouts close
-  // with 'demo_reset'), so nobody edits what is being wiped.
-  await signOutDemo('demo_reset');
-  // Every visitor's space goes (their sign-ins end at the reset), then the
-  // template's samples are put back under their own ids.
-  await deleteAllDemoSpaces('reset');
+  // Only the template is wiped: visitors keep their own spaces until each
+  // one's time is up. Anyone open on the template's samples is told first.
+  await signOutDemo('demo_reset', true);
   await deleteDemoThings(DEMO_USER_ID);
   await seedSamples(now);
   await db.update(schema.platformSettings).set({ demoLastResetAt: now }).where(eq(schema.platformSettings.id, PLATFORM_SETTINGS_ID));

@@ -292,6 +292,8 @@ export const platformSettings = sqliteTable('platform_settings', {
   demoLastResetAt: integer('demo_last_reset_at', { mode: 'timestamp_ms' }),
   /** At most this many visitors' demo spaces at once (0045); past it, "The demo is busy right now". */
   demoMaxSpaces: integer('demo_max_spaces').notNull().default(100),
+  /** How long each visitor's demo space lasts from when it was made, in minutes (0047): 30, 60, 120, 360 or 1440. */
+  demoSpaceMinutes: integer('demo_space_minutes').notNull().default(60),
   /**
    * Admin › Settings › Public catalogs: the biggest picture a curator can
    * upload as a collection's cover (before it's re-encoded). The

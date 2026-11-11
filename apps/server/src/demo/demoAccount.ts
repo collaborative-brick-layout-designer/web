@@ -4,16 +4,17 @@
 // address, a name like "Demo builder 7f3a") with a copy of the samples. The
 // samples themselves live in the template account `demo-account`, at fixed
 // ids, so a link to them always opens (read only for visitors). A space is
-// deleted with everything in it when its sign-in ends: at the next reset,
-// or 24 hours at most (demo/reset.ts sweeps them).
+// deleted with everything in it when its time is up: a fixed time from
+// when it was made, 1 hour unless an admin sets another (demo/reset.ts
+// sweeps them).
 //
 // It can't reach anyone else: no invites, public links, clubs, custom
 // part uploads, catalog submissions, transfers, profile changes or
 // desktop tokens. Every such route asks `isDemoUser`.
 //
-// A demo sign-in ends at the next reset, and after 24 hours at most; it
-// is never pushed back (auth/session.ts). Each reset signs every visitor
-// out, and the web says "The demo was reset. Start again?".
+// A demo sign-in ends when its space's time is up; it is never pushed
+// back (auth/session.ts), and the web then says "The demo was reset.
+// Start again?". The site-wide reset only puts the template's samples back.
 
 import { randomBytes } from 'node:crypto';
 import { and, count, eq, ne, or, type SQL } from 'drizzle-orm';
@@ -21,7 +22,6 @@ import { db, schema } from '../db/index.js';
 import type { PlatformSettings, User } from '../db/schema.js';
 import { invalidateAllSessions } from '../auth/session.js';
 import { revokeAllApiTokens } from '../auth/apiTokens.js';
-import { DEMO_SIGN_IN_MAX_MS } from '../auth/signInSettings.js';
 import { getPlatformSettings } from '../auth/platformSettings.js';
 
 /** Fixed id, so the account is found (and re-enabled) the same way every time. */
@@ -29,6 +29,9 @@ export const DEMO_USER_ID = 'demo-account';
 export const DEMO_DISPLAY_NAME = 'Demo builder';
 /** A `.invalid` address can never receive mail or be signed up for. */
 export const DEMO_EMAIL = 'demo-builder@demo.invalid';
+
+/** The lifetimes an admin may pick for a demo space, in minutes. */
+export const DEMO_SPACE_MINUTES_CHOICES: readonly number[] = [30, 60, 120, 360, 1440];
 
 export type DemoResetEvery = PlatformSettings['demoResetEvery'];
 export const DEMO_RESET_CHOICES: readonly DemoResetEvery[] = ['1h', '6h', 'daily'];
@@ -67,6 +70,7 @@ export function demoStatus(s: PlatformSettings): {
   resetEvery: DemoResetEvery;
   lastResetAt: number | null;
   nextResetAt: number | null;
+  spaceMinutes: number;
 } {
   return {
     enabled: s.demoEnabled,
@@ -74,6 +78,7 @@ export function demoStatus(s: PlatformSettings): {
     lastResetAt: s.demoLastResetAt?.getTime() ?? null,
     // nextDemoReset is null while the demo is off.
     nextResetAt: nextDemoReset(s)?.getTime() ?? null,
+    spaceMinutes: s.demoSpaceMinutes,
   };
 }
 
@@ -109,14 +114,11 @@ export async function ensureDemoUser(): Promise<User> {
 }
 
 /**
- * When a demo sign-in made `now` ends: at the next reset, and 24 hours
- * from now at most (also when the reset is already due: the caller resets
- * first, see routes/auth/demo.ts).
+ * When a demo space (and its one sign-in) made `now` ends: its lifetime
+ * from now (Admin › Settings › Demo account; 1 hour by default).
  */
 export async function demoSessionEnd(now: number): Promise<number> {
-  const latest = now + DEMO_SIGN_IN_MAX_MS;
-  const next = nextDemoReset(await getPlatformSettings())?.getTime() ?? latest;
-  return next > now ? Math.min(next, latest) : latest;
+  return now + (await getPlatformSettings()).demoSpaceMinutes * 60_000;
 }
 
 /**
@@ -124,8 +126,9 @@ export async function demoSessionEnd(now: number): Promise<number> {
  * tokens. Their open layouts close with `reason` ('demo_reset' at a
  * reset), which the web turns into "The demo was reset. Start again?".
  */
-export async function signOutDemo(reason: 'demo_reset' | 'demo_off' = 'demo_off'): Promise<void> {
-  for (const { id } of await db.select({ id: schema.users.id }).from(schema.users).where(eq(schema.users.isDemoAccount, true)).all()) {
+export async function signOutDemo(reason: 'demo_reset' | 'demo_off' = 'demo_off', onlyTemplate = false): Promise<void> {
+  const who = onlyTemplate ? and(eq(schema.users.isDemoAccount, true), eq(schema.users.id, DEMO_USER_ID)) : eq(schema.users.isDemoAccount, true);
+  for (const { id } of await db.select({ id: schema.users.id }).from(schema.users).where(who).all()) {
     await invalidateAllSessions(id, reason);
     await revokeAllApiTokens(id);
   }

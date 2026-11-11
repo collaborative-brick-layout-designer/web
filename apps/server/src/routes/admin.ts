@@ -36,7 +36,7 @@ import { readPlan, requestClubDeletion } from '../privacy/clubDeletion.js';
 import { catalogChoice } from './orgs.js';
 import { invalidatePrivacyCache, mergePrivacyPatch, privacySettingStates } from '../privacy/settings.js';
 import { invalidateSignInCache, mergeSignInPatch, signInSettingStates } from '../auth/signInSettings.js';
-import { DEMO_RESET_CHOICES, demoStatus, ensureDemoUser, isDemoUser, liveDemoSpaces, notDemoSpace, signOutDemo, type DemoResetEvery } from '../demo/demoAccount.js';
+import { DEMO_RESET_CHOICES, DEMO_SPACE_MINUTES_CHOICES, demoStatus, ensureDemoUser, isDemoUser, liveDemoSpaces, notDemoSpace, signOutDemo, type DemoResetEvery } from '../demo/demoAccount.js';
 import { deleteAllDemoSpaces, demoItemCount, runDemoReset } from '../demo/reset.js';
 import { perPerson } from '../utils/rateLimits.js';
 
@@ -1275,6 +1275,7 @@ export async function adminRoutes(app: FastifyInstance): Promise<void> {
       demoEnabled?: boolean;
       demoResetEvery?: string;
       demoMaxSpaces?: unknown;
+      demoSpaceMinutes?: unknown;
       collectionCoverMaxBytes?: number;
       /** Admin › Settings › Privacy: key -> number, or null for the default (privacy/settings.ts). */
       privacy?: Record<string, number | null>;
@@ -1338,6 +1339,11 @@ export async function adminRoutes(app: FastifyInstance): Promise<void> {
       const n = body.demoMaxSpaces;
       if (typeof n !== 'number' || !Number.isInteger(n) || n < 1 || n > 10_000) return reply.code(400).send({ error: 'invalid_input' });
       patch.demoMaxSpaces = n;
+    }
+    if ('demoSpaceMinutes' in body) {
+      const n = body.demoSpaceMinutes;
+      if (typeof n !== 'number' || !DEMO_SPACE_MINUTES_CHOICES.includes(n)) return reply.code(400).send({ error: 'invalid_input' });
+      patch.demoSpaceMinutes = n;
     }
     if ('demoResetEvery' in body) {
       if (!DEMO_RESET_CHOICES.includes(body.demoResetEvery as DemoResetEvery)) return reply.code(400).send({ error: 'invalid_input' });

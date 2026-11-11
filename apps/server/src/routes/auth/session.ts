@@ -38,8 +38,8 @@ export async function sessionRoutes(app: FastifyInstance) {
         // No password yet (e.g. a verification that asked them to choose
         // one): the account page offers to set one.
         hasPassword: !!req.user.passwordHash,
-        // The demo banner: how often it resets and when next.
-        ...(isDemoUser(req.user) ? { demo: demoStatus(await getPlatformSettings()) } : {}),
+        // The demo banner: when this space ends, and how often the samples reset.
+        ...(isDemoUser(req.user) ? { demo: { ...demoStatus(await getPlatformSettings()), expiresAt: req.user.demoExpiresAt?.getTime() ?? null } } : {}),
       },
     };
   });

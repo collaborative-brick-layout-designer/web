@@ -100,6 +100,22 @@ export function makeGlobalAdmin(email: string): void {
 }
 
 /**
+ * Give a demo space a short time to live: its `demo_expires_at` and its
+ * sign-in end `ms` from now (the way the clock would after the space's
+ * lifetime, without waiting an hour).
+ */
+export function setDemoSpaceTimeLeft(userId: string, ms: number): void {
+  const db = new Database(dbPath());
+  try {
+    const end = Date.now() + ms;
+    db.prepare(`UPDATE users SET demo_expires_at = ? WHERE id = ?`).run(end, userId);
+    db.prepare(`UPDATE sessions SET expires_at = ? WHERE user_id = ?`).run(end, userId);
+  } finally {
+    db.close();
+  }
+}
+
+/**
  * The site's catalog settings back at the defaults a fresh server starts
  * with (auth/platformSettings.ts): every catalog off, review by moderators,
  * anyone may browse. These are read from the database on every request, so

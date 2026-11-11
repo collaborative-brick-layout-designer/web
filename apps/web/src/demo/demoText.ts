@@ -17,6 +17,25 @@ export const RESET_CHOICES: Array<[DemoResetEvery, string]> = [
   ['daily', 'Daily'],
 ];
 
+/** What an admin may pick for how long a demo space lasts, in minutes. */
+export const SPACE_LIFETIME_CHOICES: Array<[number, string]> = [
+  [30, '30 minutes'],
+  [60, '1 hour'],
+  [120, '2 hours'],
+  [360, '6 hours'],
+  [1440, '24 hours'],
+];
+
+/** "about 45 more minutes", "about 2 more hours", "less than a minute", for the demo banner. */
+export function minutesLeftText(at: number, now: number): string {
+  const ms = at - now;
+  if (ms < 60_000) return 'less than a minute';
+  const min = Math.ceil(ms / 60_000);
+  if (min < 90) return `about ${min} more ${min === 1 ? 'minute' : 'minutes'}`;
+  const h = Math.round(min / 60);
+  return `about ${h} more hours`;
+}
+
 /** How long until `at`: "less than a minute", "25 min", "3 h 12 min", or "soon" once it's due. */
 export function timeUntil(at: number, now: number): string {
   const ms = at - now;

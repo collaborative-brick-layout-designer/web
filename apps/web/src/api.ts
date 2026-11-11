@@ -38,6 +38,10 @@ export interface DemoStatus {
   resetEvery: DemoResetEvery;
   lastResetAt: number | null;
   nextResetAt: number | null;
+  /** How long each demo space lasts, in minutes. */
+  spaceMinutes?: number;
+  /** When this visitor's demo space ends (only in /me); null for the template. */
+  expiresAt?: number | null;
 }
 
 /** One of your web sign-ins (Profile › Browsers and devices). */
@@ -1239,6 +1243,7 @@ export const api = {
       demoEnabled?: boolean;
       demoResetEvery?: DemoResetEvery;
       demoMaxSpaces?: number;
+      demoSpaceMinutes?: number;
       collectionCoverMaxBytes?: number;
       /** Admin › Settings › Privacy: key -> number, or null for the default. */
       privacy?: Record<string, number | null>;

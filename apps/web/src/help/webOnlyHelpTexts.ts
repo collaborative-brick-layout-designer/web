@@ -34,7 +34,12 @@ export const WEB_ONLY_HELP_TEXTS = {
   'admin.demoSpaces': {
     title: 'Demo spaces',
     short: 'Each visitor who tries the demo gets a private space of their own, with their own copy of the samples.',
-    more: 'A space and everything in it is deleted when its sign-in ends: at the next reset, or after a day at most, even if the visitor just closes the tab. The most at once keeps the demo from filling the server; past it, “Try the demo” says the demo is busy and to try again in a few minutes.',
+    more: 'A space and everything in it is deleted when its time is up (set below, 1 hour unless you change it), even if the visitor just closes the tab. The most at once keeps the demo from filling the server; past it, “Try the demo” says the demo is busy and to try again in a few minutes.',
+  },
+  'admin.demoLifetime': {
+    title: 'How long a demo space lasts',
+    short: 'Each visitor gets this much time, counted from when they pressed “Try the demo”.',
+    more: 'A visitor sees a friendly countdown, and a reminder to download their layout in the last 5 minutes. When time is up their space is deleted and they can start a new one. A change applies to spaces made from then on; putting the samples back never cuts a visit short.',
   },
 } as const satisfies Record<string, HelpEntry>;
 

@@ -104,12 +104,15 @@ club** reviews what is published under its own name.
 - **The demo** ("Try the demo" on the sign-in page, when an admin turns it
   on) gives each visitor a private demo space: a throwaway account with its
   own copy of the sample layout, module and venue. A space and everything in
-  it is deleted when its sign-in ends, at the next reset or after 24 hours at
-  most, even when the visitor just closes the tab; their page offers "Start
-  again". The samples themselves stay under the demo's template account, at
+  it is deleted a fixed time after the space was made (1 hour by default;
+  30 minutes, 2, 6 or 24 hours in Admin › Settings › Demo account), even when
+  the visitor just closes the tab. Their page counts the time down, offers
+  "Download this layout" for the last 5 minutes, then offers "Start again". The samples themselves stay under the demo's template account, at
   the same ids, so links to them keep working (a demo visitor is sent to
-  their own copy). Admin › Settings › Demo account sets the most spaces at
-  once (100 by default) and shows how many are in use.
+  their own copy) and are put back on a timer that never ends a visit early.
+  Admin › Settings › Demo account sets how long a space lasts, how often the
+  samples are put back and the most spaces at once (100 by default), and
+  shows how many are in use.
 
 **Privacy.** People download all their data and delete their account from
 their Profile; nobody else ever sees their email address. See
@@ -300,7 +303,7 @@ What may still answer 4xx, one request at a time rather than in bursts:
 
 | Answer | When |
 |---|---|
-| 401 on `/api/*` | the session ended (signed out in another tab, account deleted, a demo reset, or a sign-in past its longest) |
+| 401 on `/api/*` | the session ended (signed out in another tab, account deleted, a demo space whose time was up, or a sign-in past its longest) |
 | 403 / 404 on `/api/layouts/:id`, `/api/modules/:id`, `/api/venues/:id`, `/api/orgs/:slug/*` | a link to something deleted, or not shared with you; a club's manage page just after you handed the club over |
 | 404 / 410 on `/api/auth/password/verify-email/:token`, `/api/auth/password/reset/:token`, `/api/invites/*`, `/api/transfers/*`, `/api/org-invites/*` | an emailed link used twice or expired |
 | 400 / 409 / 413 | a form refused (a taken part number, a file too big) |
@@ -394,8 +397,8 @@ The server logs to standard output (`docker compose logs -f`). Its jobs:
   that removed something, one line such as
   `[privacy] clean-up: 2 sessions, 1 invite, 0 exports, 0 accounts, 0 clubs`.
   It always runs: keeping personal data longer than promised isn't optional.
-- **Every few minutes**: the demo reset, when the demo is on and a reset is
-  due, and the clean-up of demo spaces whose time is up (also at start-up,
+- **Every few minutes**: the demo's sample refresh, when the demo is on and it
+  is due, and the clean-up of demo spaces whose time is up (also at start-up,
   so a restart leaves none behind).
 
 ---
@@ -421,8 +424,8 @@ ends after 30 days without a visit, and after 90 days at most however often
 it is used; a desktop sign-in after 90 days unused and 180 days at most. Each
 is a setting (the longest can be "never"), and a `SIGN_IN_*` variable below
 forces one. A change applies to every sign-in the next time it is used;
-saving signs nobody out. Demo sign-ins end at each demo reset, and after 24
-hours at most.
+saving signs nobody out. A demo sign-in ends with its demo space,
+1 hour after it was made unless an admin sets another time (at most 24 hours).
 
 Environment variables set what the app can't (addresses, sign-in providers,
 paths). Where a variable and an in-app setting overlap, setting the variable
@@ -501,7 +504,7 @@ when they fall behind.
 | `PRIVACY_EXPIRED_SIGN_IN_DAYS` | 30 days | 1–365 | Keep expired sign-ins and invites for: Expired or signed-out browser sessions, revoked desktop sign-ins, and invites and offers nobody accepted are deleted this long after they ended. |
 | `PRIVACY_RECORDS_KEEP_DAYS` | 1095 days | 365–3650 | Keep erasure records and closed requests for: The record that an account or club was erased (no personal data), and privacy requests once closed, so you can show what you did. Deleted after this. |
 
-**Sign-in.** How long a sign-in lasts, on the website and in the desktop app. Each is also set in Admin › Site settings › Sign-in; when the variable is set to a duration in range (`30d` or `30` for days, `12h` for hours, `never` for the longest), it wins and the page says so. A change applies to existing sign-ins the next time they are used. Demo sign-ins always end at each demo reset, and after 24 hours at most.
+**Sign-in.** How long a sign-in lasts, on the website and in the desktop app. Each is also set in Admin › Site settings › Sign-in; when the variable is set to a duration in range (`30d` or `30` for days, `12h` for hours, `never` for the longest), it wins and the page says so. A change applies to existing sign-ins the next time they are used. A demo sign-in always ends with its demo space (1 hour after it was made by default, at most 24 hours), whatever is set here.
 
 | Variable | Built-in default | Range | Setting |
 |---|---|---|---|
