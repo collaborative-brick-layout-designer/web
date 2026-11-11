@@ -186,6 +186,30 @@ export function clearModuleThumbnail(moduleId: string): void {
 
 type SmtpRow = { smtp_host: string | null; smtp_port: number | null; smtp_user: string | null; smtp_pass: string | null; smtp_from: string | null };
 
+/** What the database holds as the saved mail (SMTP) password: encrypted, never as typed. */
+export function storedMailPassword(): string | null {
+  const db = new Database(dbPath(), { readonly: true });
+  try {
+    return (db.prepare(`SELECT smtp_pass AS p FROM platform_settings WHERE id = 'singleton'`).get() as { p: string | null } | undefined)?.p ?? null;
+  } finally {
+    db.close();
+  }
+}
+
+/**
+ * As if the server's key file were lost or replaced: the saved mail
+ * password becomes one that was encrypted with some other key.
+ */
+export function loseMailPasswordKey(): void {
+  const b64 = (n: number) => randomBytes(n).toString('base64');
+  const db = new Database(dbPath());
+  try {
+    db.prepare(`UPDATE platform_settings SET smtp_pass = ? WHERE id = 'singleton'`).run(`enc:v1:${b64(12)}:${b64(20)}:${b64(16)}`);
+  } finally {
+    db.close();
+  }
+}
+
 /**
  * Point the site's email at `to` (a local mail sink, e2e/mailSink.ts),
  * as Admin › Settings › Email would, and return a function that puts the
