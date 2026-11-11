@@ -314,7 +314,7 @@ const desktopEdits: Record<string, Case['local']> = {
   'rename the module Harbour': (d) => renameSidecarModule(d, MODULE, 'Harbour'),
   'delete part 1 from the map': (d, p) => deleteBricks(d, layerOf(d), [p[1]!]),
 };
-const cases: Case[] = [
+const caseList: Omit<Case, 'local'>[] = [
   {
     name: 'both add a part',
     web: (d, p) => add(d, MODULE, p[2]!),
@@ -366,7 +366,8 @@ const cases: Case[] = [
     desktop: 'add part 3 to the module',
     expect: () => ({ modules: [] }),
   },
-].map((c) => ({ ...c, local: desktopEdits[c.desktop]! }));
+];
+const cases: Case[] = caseList.map((c) => ({ ...c, local: desktopEdits[c.desktop]! }));
 
 /** The layout the vectors start from: five parts, a module of the first two, made by client 1. */
 function baseLayout(): { doc: Y.Doc; parts: string[] } {

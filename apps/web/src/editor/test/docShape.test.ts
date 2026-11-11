@@ -14,6 +14,7 @@ import * as Y from 'yjs';
 import {
   DOC_BASE_SCHEMA,
   DOC_SCHEMA_VERSION,
+  DOC_SHAPE_IN_PLACE,
   assignZ,
   bbmToDoc,
   canReadDoc,
