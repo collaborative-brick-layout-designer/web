@@ -7,7 +7,7 @@
 
 import { describe, expect, it } from 'vitest';
 import * as Y from 'yjs';
-import { readSidecarCache, removeDuplicateItems, repairSidecarCache } from '@cld/ydoc';
+import { mayAddDuplicates, readSidecarCache, removeDuplicateItems, repairSidecarCache } from '@cld/ydoc';
 import {
   addAnchoredLabel,
   addLinearRuler,
@@ -42,11 +42,30 @@ function sync(a: Y.Doc, b: Y.Doc): void {
   Y.applyUpdate(a, ub);
 }
 
-/** What each editor does after someone else's change, then a resync. */
+/** Whether a transaction on `d` from now may have left an item there twice (mayAddDuplicates). */
+function watchDuplicates(d: Y.Doc): () => boolean {
+  let may = false;
+  const on = (tr: Y.Transaction) => {
+    if (mayAddDuplicates(tr)) may = true;
+  };
+  d.on('afterTransaction', on);
+  return () => {
+    d.off('afterTransaction', on);
+    return may;
+  };
+}
+
+/**
+ * What each editor does after someone else's change, then a resync: it
+ * looks for copies only when the change may have made one, as the editor
+ * does (useLayoutDoc.ts), so every case here also checks that gate.
+ */
 function settle(a: Y.Doc, b: Y.Doc): void {
+  const mayA = watchDuplicates(a);
+  const mayB = watchDuplicates(b);
   sync(a, b);
-  removeDuplicateItems(a, 'repair');
-  removeDuplicateItems(b, 'repair');
+  if (mayA()) removeDuplicateItems(a, 'repair');
+  if (mayB()) removeDuplicateItems(b, 'repair');
   sync(a, b);
 }
 

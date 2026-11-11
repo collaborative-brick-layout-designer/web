@@ -20,7 +20,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import * as Y from 'yjs';
 import { WebsocketProvider } from 'y-websocket';
 import { Awareness } from 'y-protocols/awareness';
-import { canReadDoc, removeDuplicateItems, repairSidecarCache } from '@cld/ydoc';
+import { canReadDoc, mayAddDuplicates, removeDuplicateItems, repairSidecarCache } from '@cld/ydoc';
 import { watchModuleMerges } from './moduleMergeGuard';
 import { keepRefusedCopy, type RefusedWhy } from './refusedCopies';
 import { announceSignInEnded } from '../demo/demoVisitor';
@@ -527,15 +527,24 @@ export function useLayoutDoc(layoutId: string, canEdit?: boolean): LayoutDocStat
     // at once, rewrite meta.cache from the merged items so apps that only
     // read meta.cache (the desktop) see both (@cld/ydoc repairSidecarCache).
     let repairTimer: ReturnType<typeof setTimeout> | null = null;
+    let duplicatesPossible = false;
     const onTransaction = (tr: Y.Transaction) => {
       // (Also after an undo: it can take back items meta.cache still has.)
-      if ((tr.origin !== provider && tr.origin !== DOWNLOAD_ORIGIN && !(tr.origin instanceof Y.UndoManager)) || repairTimer) return;
+      if (tr.origin !== provider && tr.origin !== DOWNLOAD_ORIGIN && !(tr.origin instanceof Y.UndoManager)) return;
+      // Only an insert can leave an item there twice; a part moved in place
+      // can't, and the look through every item (all 7,520 parts of a big
+      // layout, after each of someone else's moves) is skipped.
+      if (mayAddDuplicates(tr)) duplicatesPossible = true;
+      if (repairTimer) return;
       repairTimer = setTimeout(() => {
         repairTimer = null;
         repairSidecarCache(fresh, SIDECAR_REPAIR_ORIGIN);
         // Two people moving the same part or ruler, or painting the same
         // cell, at once leave it there twice.
-        removeDuplicateItems(fresh, SIDECAR_REPAIR_ORIGIN);
+        if (duplicatesPossible) {
+          duplicatesPossible = false;
+          removeDuplicateItems(fresh, SIDECAR_REPAIR_ORIGIN);
+        }
       }, 50);
     };
     fresh.on('afterTransaction', onTransaction);

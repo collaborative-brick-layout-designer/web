@@ -434,6 +434,30 @@ export function removeDuplicateItems(doc: Y.Doc, origin: unknown): number {
 }
 
 type ItemField = 'bricks' | 'rulerItems' | 'areas';
+const ITEM_FIELDS: ReadonlySet<string> = new Set<ItemField>(['bricks', 'rulerItems', 'areas']);
+
+/**
+ * Whether `tr` may have left an item there twice, so removeDuplicateItems
+ * has something to look for: only an insert can (a sheet's parts, rulers
+ * or cells changed as a list, a new list or sheet, or the sheets' order).
+ * A part moved or edited in place can't, and the look through every item
+ * (7,520 parts on a big layout) is skipped.
+ */
+export function mayAddDuplicates(tr: Y.Transaction): boolean {
+  const doc = tr.doc;
+  const layerData = doc.share.get('layerData');
+  const layers = doc.share.get('layers');
+  for (const [type, keys] of tr.changed) {
+    if (type === layerData || type === layers) return true;
+    const item = type._item;
+    if (type instanceof Y.Array && item && typeof item.parentSub === 'string' && ITEM_FIELDS.has(item.parentSub)) return true;
+    // A sheet given a new list.
+    if (type instanceof Y.Map && item && item.parent === layerData) {
+      for (const k of keys) if (k !== null && ITEM_FIELDS.has(k)) return true;
+    }
+  }
+  return false;
+}
 
 function itemKey(field: ItemField, v: unknown): string | null {
   if (field === 'bricks' || (field === 'rulerItems' && v instanceof Y.Map)) {
