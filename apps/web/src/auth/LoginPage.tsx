@@ -13,6 +13,7 @@ import { kindsOn } from '../catalog/CatalogPage';
 /** What went wrong with a GitHub/Google sign-in (the server's `?error=`). */
 export const SIGN_IN_ERRORS: Record<string, string> = {
   invalid_state: 'That sign-in took too long or was started in another tab. Please try again.',
+  canceled: 'You canceled the sign-in, so nothing changed. Choose a way to sign in below when you’re ready.',
   oauth_error: 'The sign-in didn’t go through. Please try again.',
   email_not_verified: 'That account’s email address isn’t confirmed with the provider yet. Confirm it there, or use another way to sign in.',
   email_unavailable: 'GitHub didn’t share a confirmed email address for that account. Add one in GitHub’s settings, or use another way to sign in.',

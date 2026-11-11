@@ -10,11 +10,10 @@ import type { PlatformSettings, User } from '../../db/schema.js';
 import { env } from '../../env.js';
 import { getPlatformSettings } from '../../auth/platformSettings.js';
 import { DEMO_USER_ID, demoStatus, isDemoUser } from '../../demo/demoAccount.js';
-import { looksLikeEmail, needsName, publicName, suggestedName } from '../../utils/publicName.js';
+import { DISPLAY_NAME_MAX, looksLikeEmail, needsName, publicName, suggestedName } from '../../utils/publicName.js';
 import { docHub } from '../../ws/docHub.js';
 
 const DISPLAY_NAME_MIN = 1;
-const DISPLAY_NAME_MAX = 60;
 
 export async function sessionRoutes(app: FastifyInstance) {
   app.get('/api/auth/me', async (req) => {

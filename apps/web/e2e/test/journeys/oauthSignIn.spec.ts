@@ -8,7 +8,7 @@
 // same email, so signing in with it doesn't take her account over; it
 // asks, and once she's signed in to her account she links GitHub from
 // Profile. A Google account whose address Google hasn't confirmed is
-// turned away with a reason, and so is a sign-in the person cancels.
+// turned away with a reason, and so is a sign-in the person cancels (said as canceled).
 //
 // The providers are the e2e stand-in (e2e/oauthMock.ts): the server runs
 // with OAUTH_MOCK_ORIGIN and test client ids (.github/workflows/journeys.yml).
@@ -89,6 +89,10 @@ test('a GitHub account with an existing account’s email links only once that a
   await expect(page.getByRole('heading', { name: 'Link this account?' })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Sign in to that account' })).toBeVisible();
   expect(await me(page)).toBeNull();
+  // She may not know that account's password: the page has a way forward.
+  await page.getByRole('link', { name: 'Forgot password?' }).click();
+  await expect(page).toHaveURL(/\/login\?forgot=1&next=%2Flink$/);
+  await expect(page.getByRole('heading', { name: 'Forgot your password?' })).toBeVisible();
 
   // Signed in to her account (her password, here a session), she says yes.
   await signIn(page, email, 'Ada');
@@ -108,7 +112,7 @@ test('a GitHub account with an existing account’s email links only once that a
   expect((await me(page))?.email).toBe(email);
 });
 
-test('an unconfirmed Google address, and a cancelled sign-in, say why on the sign-in page', async ({ page }) => {
+test('an unconfirmed Google address, and a canceled sign-in, say why on the sign-in page', async ({ page }) => {
   mock.next('google', { sub: `g-unverified-${ts}`, email: `j-oauth-unv-${ts}@example.com`, email_verified: false });
   await page.goto('/login');
   await page.getByRole('link', { name: 'Continue with Google' }).click();
@@ -118,7 +122,8 @@ test('an unconfirmed Google address, and a cancelled sign-in, say why on the sig
 
   // Nobody queued: the stand-in answers as a provider does when the person cancels.
   await page.getByRole('link', { name: 'Continue with GitHub' }).click();
-  await expect(page).toHaveURL(/\/login\?error=/);
-  await expect(page.getByRole('alert')).toBeVisible();
+  // Said as what it was, not "took too long or another tab".
+  await expect(page).toHaveURL(/\/login\?error=canceled$/);
+  await expect(page.getByRole('alert')).toHaveText('You canceled the sign-in, so nothing changed. Choose a way to sign in below when you’re ready.');
   expect(await me(page)).toBeNull();
 });
