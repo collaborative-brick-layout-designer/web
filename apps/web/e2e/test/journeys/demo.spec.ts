@@ -209,24 +209,24 @@ test('an admin turns on the demo, each visitor gets a private space, Reset now s
     await expect(admin.getByTestId('demo-live-spaces')).toHaveText(liveBefore!);
     // A demo space holds little (50 MB unless changed), with ⓘ help; the admin makes it 1 MB.
     const room = admin.getByTestId('demo-limit-storagePerDemoSpace');
-    await expect(room.getByLabel('Space for each demo space (MB)')).toHaveValue('50');
+    await expect(room.getByRole('textbox')).toHaveValue('50');
     await room.getByRole('button', { name: /help/i }).click();
     await expect(admin.getByText(/anyone can open a demo space without an account/).first()).toBeVisible();
     await admin.keyboard.press('Escape');
-    await room.getByLabel('Space for each demo space (MB)').fill('1');
+    await room.getByRole('textbox').fill('1');
     await room.getByRole('button', { name: 'Save' }).click();
     await expect(room.getByRole('button', { name: 'Save' })).toHaveCount(0);
-    await expect(room.getByLabel('Space for each demo space (MB)')).toHaveValue('1');
+    await expect(room.getByRole('textbox')).toHaveValue('1');
     const big = await visitor.request.post('/api/layouts', { data: { title: 'Too big', sidecar: JSON.stringify({ schemaVersion: 1, bbmHashSha256: '', notes: 'x'.repeat(2 * 1024 * 1024) }) } });
     expect(big.status()).toBe(403);
     expect(((await big.json()) as { message: string }).message).toBe('Your demo space is full (1 MB). Delete something you don’t need to make room.');
     // One network address opens only so many at once (10 unless changed), with ⓘ help; the admin makes it 1.
     const perAddress = admin.getByTestId('demo-limit-demoSpacesPerAddress');
-    await expect(perAddress.getByLabel('Demo spaces from one network address')).toHaveValue('10');
+    await expect(perAddress.getByRole('textbox')).toHaveValue('10');
     await perAddress.getByRole('button', { name: /help/i }).click();
     await expect(admin.getByText(/People on one Wi-Fi/).first()).toBeVisible();
     await admin.keyboard.press('Escape');
-    await perAddress.getByLabel('Demo spaces from one network address').fill('1');
+    await perAddress.getByRole('textbox').fill('1');
     await perAddress.getByRole('button', { name: 'Save' }).click();
     await expect(perAddress.getByRole('button', { name: 'Save' })).toHaveCount(0);
     const crowdCtx = await browser.newContext();
