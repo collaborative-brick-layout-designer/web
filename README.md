@@ -226,7 +226,9 @@ docker compose up -d
 Database migrations run by themselves when the server starts, before it
 accepts requests. They only move forward, so before it runs any, the server
 copies the database as it was to `BACKUPS_DIR` as
-`cbld-pre-<migration>.sqlite` (the last two are kept). Still take your own
+`cbld-pre-<migration>.sqlite` (the last two are kept). A one-time data fix
+(`CBLD_DATA_FIX`, below) gets the same: `cbld-before-fix-<name>.sqlite`,
+kept until you delete it. Still take your own
 backup before a big upgrade (see below). Running from source, `pnpm --filter @cld/server db:migrate`
 applies them by hand, and `pnpm --filter @cld/server db:generate` makes a new
 one after a change to `apps/server/src/db/schema.ts`.
@@ -460,7 +462,7 @@ when they fall behind.
 | `DAILY_COMPACTION_ENABLED` | unset (the switch decides; on) | Admin › Site settings › Background jobs | When set, forces the daily compaction of layout histories on or off. |
 | `COLLECTION_COVER_MAX_BYTES` | unset (5 MB) | Admin › Site settings › Public catalogs | When set, forces the largest collection and catalog cover picture, in bytes (at most 7 MB). |
 | `LIMITS_ENFORCE` | unset (the switch decides; on) | Admin › Site settings › Usage limits | `on` or `off` forces whether usage limits are enforced. Read-only accounts and clubs stay read-only either way. |
-| `CBLD_DATA_FIX` | unset | — | A one-time data fix to run at this start (`clamp-drawing-values`), for one restart. Each runs once (recorded in `data_fixes`); without it the server looks (writing nothing) and, only when there is something to fix, logs that one waits. Try it first on a copy: `node dist/ops/clampDrawingValuesCli.js --db <file>` in the Docker image (from `/app/apps/server`), or `pnpm --filter @cld/server data-fix:clamp-drawing-values --db <file>` from a checkout. |
+| `CBLD_DATA_FIX` | unset | — | A one-time data fix to run at this start (`clamp-drawing-values`, `strip-catalog-budgets`; several: comma separated), for one restart. Each runs once (recorded in `data_fixes`); without it the server looks (writing nothing) and, only when there is something to fix, logs that one waits. Before a fix writes, the server copies the database as it was to `BACKUPS_DIR` as `cbld-before-fix-<name>.sqlite` (with no copy, the fix doesn't run); delete that file once the fix is known to be good. Try `clamp-drawing-values` first on a copy: `node dist/ops/clampDrawingValuesCli.js --db <file>` in the Docker image (from `/app/apps/server`), or `pnpm --filter @cld/server data-fix:clamp-drawing-values --db <file>` from a checkout. |
 | `PRIVACY_CONTACT` | unset | Admin › Site settings › Privacy | When set, forces the privacy contact (an email address or a web address) shown on the privacy page. |
 
 **Usage limits.** Each is also set in Admin › Site settings › Usage limits (and per person or club); the variable sets the default the admin starts from.
