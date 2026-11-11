@@ -7,15 +7,18 @@
 // continuing to use whatever was live when the process booted.
 
 import { getPlatformSettings, mergeSmtpConfig, type ResolvedSmtpConfig } from '../auth/platformSettings.js';
+import { MAIL_PASSWORD_UNREADABLE } from '../secrets/secretBox.js';
 
 interface NodemailerTransport {
   sendMail: (opts: unknown) => Promise<unknown>;
 }
 
+let unreadableSaidAt = 0;
 let cached: { config: ResolvedSmtpConfig; transporter: NodemailerTransport } | null = null;
 
 /**
- * Returns null when no SMTP is configured (DB or env). Otherwise
+ * Returns null when no SMTP is configured (DB or env), or when the saved
+ * password can't be read (see below). Otherwise
  * returns a transporter for the currently-resolved config, rebuilding
  * it if the config has changed since the last call — comparing every
  * field rather than trusting a single "generation" counter keeps this
@@ -27,6 +30,17 @@ export async function getTransporter(): Promise<{ transporter: NodemailerTranspo
   const config = mergeSmtpConfig(settings);
   if (!config) {
     cached = null;
+    return null;
+  }
+  if (config.passUnreadable) {
+    // The saved password can't be opened with this server's key: send
+    // nothing (callers do what they do with no SMTP: links to copy, or in
+    // the log) and say why, at most once a minute.
+    cached = null;
+    if (Date.now() - unreadableSaidAt > 60_000) {
+      unreadableSaidAt = Date.now();
+      console.warn(`[email] not sent: ${MAIL_PASSWORD_UNREADABLE} (Admin › Settings › SMTP server)`);
+    }
     return null;
   }
   if (cached && configsEqual(cached.config, config)) {

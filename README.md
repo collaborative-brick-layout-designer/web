@@ -157,7 +157,7 @@ pins a release.
 
 | Volume | Mounted at | Holds |
 |---|---|---|
-| `cbld-data` | `/data` | The SQLite database (`cbld.sqlite`), layout background pictures (`bgimages/`) and data downloads waiting to be fetched (`exports/`) |
+| `cbld-data` | `/data` | The SQLite database (`cbld.sqlite`), layout background pictures (`bgimages/`), data downloads waiting to be fetched (`exports/`) and the key file (`cbld-secret.key`, see [Backups](#backups)) |
 | `cbld-parts` | `/parts` | Part libraries and uploaded parts |
 | `cbld-backups` | `/backups` | The daily database backups |
 
@@ -351,6 +351,29 @@ stop` (SIGTERM) or Ctrl+C the server saves every open layout before it exits.
 Back up `/parts` (uploaded parts) with your usual tools too, and keep a
 copy of everything somewhere else.
 
+**The key file.** The SMTP password saved in Admin › Site settings is kept
+encrypted in the database, so the backups above don't hold it in the clear.
+The key is in `cbld-secret.key`, beside the database (`/data/cbld-secret.key`
+in Docker). The server makes it on its first start, readable only by the user
+it runs as (mode 0600), and never puts it in a backup: a backup with its key
+inside would be no safer than an unencrypted one. So:
+
+- Back the key file up yourself, once, somewhere apart from the database
+  backups (a password manager is fine; it's one line of text). It doesn't
+  change unless you delete it.
+- If you restore a database without its key file, or the file is lost or
+  replaced, nothing breaks: the server starts as usual, Admin › Site settings
+  says "The SMTP password can't be read. Please enter it again.", and no email
+  is sent until you do (invites are links to copy, confirmation links go to
+  the server log).
+- To keep the key out of the data folder altogether, set `CBLD_SECRET_KEY`
+  (at least 16 characters, for example from `openssl rand -base64 32`); it is
+  used instead of the file. The file's one line works as its value.
+- A password saved by an older version is encrypted once, the first time
+  this version starts (one log line says so). Backups made before that still
+  hold it as it was: delete them when you no longer need them, or change the
+  SMTP password.
+
 To restore the pictures: `tar -xzf cbld-2026-10-01.bgimages.tar.gz -C /data/bgimages`.
 
 To restore: stop the container, unzip a backup over the database and delete
@@ -465,6 +488,7 @@ when they fall behind.
 | `SMTP_USER` | — | Admin › Site settings › SMTP server |  |
 | `SMTP_PASS` | — | Admin › Site settings › SMTP server |  |
 | `SMTP_FROM` | — | Admin › Site settings › SMTP server | The sender address. |
+| `CBLD_SECRET_KEY` | unset (the key file is used) | — | The key the saved SMTP password is encrypted with, at least 16 characters (for example from `openssl rand -base64 32`). Unset, the server makes and uses the key file `cbld-secret.key` beside the database (`/data` in Docker). Change or lose the key and the SMTP password has to be entered again in Admin › Site settings. |
 | `BACKUPS_ENABLED` | unset (the switch decides; on) | Admin › Site settings › Background jobs | When set, forces the daily database backup on or off. |
 | `BACKUPS_DIR` | `/backups` | — | Where backups go. |
 | `DAILY_COMPACTION_ENABLED` | unset (the switch decides; on) | Admin › Site settings › Background jobs | When set, forces the daily compaction of layout histories on or off. |

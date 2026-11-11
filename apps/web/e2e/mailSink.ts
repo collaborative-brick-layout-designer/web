@@ -14,6 +14,8 @@ export interface MailSink {
   host: string;
   port: number;
   mails: SentMail[];
+  /** The user name and password each signed-in connection gave (AUTH PLAIN), oldest first. */
+  logins: { user: string; pass: string }[];
   /** The mails to `address`. */
   to: (address: string) => SentMail[];
   close: () => Promise<void>;
@@ -41,6 +43,7 @@ function unquote(text: string): string {
 
 export async function startMailSink(): Promise<MailSink> {
   const mails: SentMail[] = [];
+  const logins: { user: string; pass: string }[] = [];
   const sockets = new Set<Socket>();
   const server = createServer((sock) => {
     sockets.add(sock);
@@ -70,7 +73,13 @@ export async function startMailSink(): Promise<MailSink> {
         const line = buf.slice(0, nl);
         buf = buf.slice(nl + 2);
         const verb = line.slice(0, 4).toUpperCase();
-        if (verb === 'EHLO') sock.write('250-mail-sink\r\n250 8BITMIME\r\n');
+        if (verb === 'EHLO') sock.write('250-mail-sink\r\n250-AUTH PLAIN\r\n250 8BITMIME\r\n');
+        else if (verb === 'AUTH') {
+          // AUTH PLAIN <base64 of \0user\0password>: any login is fine, and kept.
+          const [, user = '', pass = ''] = Buffer.from(line.split(' ')[2] ?? '', 'base64').toString('utf8').split('\0');
+          logins.push({ user, pass });
+          say('235 OK');
+        }
         else if (verb === 'RCPT') {
           to.push(/<([^>]*)>/.exec(line)?.[1] ?? '');
           say('250 OK');
@@ -95,6 +104,7 @@ export async function startMailSink(): Promise<MailSink> {
     host: '127.0.0.1',
     port,
     mails,
+    logins,
     to: (a) => mails.filter((m) => m.to.some((t) => t.toLowerCase() === a.toLowerCase())),
     close: () =>
       new Promise<void>((resolve) => {

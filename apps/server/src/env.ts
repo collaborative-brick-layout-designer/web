@@ -92,6 +92,10 @@ export const env = {
   // by default); this env var, when set, forces it (images/covers.ts).
   collectionCoverMaxBytesForced: forcedInt(process.env.COLLECTION_COVER_MAX_BYTES),
 
+  // The key that saved secrets (the mail password) are encrypted with, used
+  // instead of the key file beside the database (secrets/secretBox.ts).
+  secretKey: process.env.CBLD_SECRET_KEY ?? '',
+
   // One-time data fixes to run at this start (ops/dataFixes.ts): only an
   // operator turns one on, for one restart; each runs once.
   dataFix: process.env.CBLD_DATA_FIX ?? '',

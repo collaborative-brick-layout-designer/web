@@ -13,6 +13,7 @@ import { eq } from 'drizzle-orm';
 import { db, schema } from '../db/index.js';
 import { env } from '../env.js';
 import type { PlatformSettings } from '../db/schema.js';
+import { readSecret } from '../secrets/secretBox.js';
 
 /** Fixed id — there is always exactly one row in platform_settings. */
 export const PLATFORM_SETTINGS_ID = 'singleton';
@@ -79,6 +80,12 @@ export interface ResolvedSmtpConfig {
   port: number;
   user: string | null;
   pass: string | null;
+  /**
+   * A password is saved, and this server's key doesn't open it (the key
+   * file is gone or another one): nothing is sent until an admin enters
+   * the password again. Only the database's config can be like this.
+   */
+  passUnreadable: boolean;
   from: string;
   /** Where this config came from — surfaced in the admin UI. */
   source: 'database' | 'env';
@@ -94,15 +101,18 @@ export interface ResolvedSmtpConfig {
  */
 export function mergeSmtpConfig(settings: PlatformSettings): ResolvedSmtpConfig | null {
   if (settings.smtpHost) {
+    // Stored encrypted (secrets/secretBox.ts).
+    const pass = readSecret(settings.smtpPass);
     return {
       host: settings.smtpHost,
       port: settings.smtpPort ?? 587,
       user: settings.smtpUser,
-      pass: settings.smtpPass,
+      pass: pass.value,
+      passUnreadable: pass.state === 'unreadable',
       from: settings.smtpFrom ?? settings.smtpUser ?? settings.smtpHost,
       source: 'database',
     };
   }
-  if (env.smtp) return { ...env.smtp, source: 'env' };
+  if (env.smtp) return { ...env.smtp, passUnreadable: false, source: 'env' };
   return null;
 }

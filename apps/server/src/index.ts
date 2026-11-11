@@ -32,6 +32,7 @@ import { setHintErrorLogger } from './events/audience.js';
 import { stopEvents } from './routes/events.js';
 import { askedFixes, runDataFixes } from './ops/dataFixes.js';
 import { startLog } from './ops/startLog.js';
+import { encryptStoredMailPassword } from './secrets/secretBox.js';
 import { docHub } from './ws/docHub.js';
 
 // What is said before the server's logger exists goes to it once it does.
@@ -56,6 +57,8 @@ async function main() {
     (id) => docHub.peek(id)?.doc,
     (fixId) => backupBeforeFix(sqlite, fixId, env.backupsDir, starting.line),
   );
+  // A mail password saved before it was stored encrypted: encrypted once, here.
+  encryptStoredMailPassword(sqlite, starting.line);
   await ensureBootstrapAdmin();
   // Data downloads that were building when the server stopped can be asked for again.
   await failInterruptedExports();
