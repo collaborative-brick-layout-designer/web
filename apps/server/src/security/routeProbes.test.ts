@@ -66,6 +66,7 @@ const ACCESS: Record<string, [Access, Scope, Flags?]> = {
   'POST /api/auth/demo': ['public', null],
   'GET /api/tokens': ['user', null],
   'GET /api/tokens/current': ['user', 'layouts:read'],
+  'DELETE /api/tokens/current': ['user', ['layouts:read', 'layouts:write', 'layouts:create', 'parts:read', 'parts:write', 'venues:read', 'venues:write', 'account:prefs']],
   'DELETE /api/tokens/:id': ['owner', null],
   'GET /api/layouts': ['user', 'layouts:read'],
   'GET /api/layouts/:id': ['shared', 'layouts:read'],

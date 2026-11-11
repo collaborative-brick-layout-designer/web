@@ -551,7 +551,8 @@ are used (Admin › Site settings › Sign-in changes both); then the app asks
 its owner to sign in again and keeps the work on the computer. They are only
 accepted as an `Authorization: Bearer` header, never in the address, and
 only on the routes the desktop uses. People see and revoke their devices under Profile ›
-Devices. The desktop needs no server settings.
+Devices, and Sign Out in the desktop app ends its own sign-in on the server
+(`DELETE /api/tokens/current`). The desktop needs no server settings.
 
 ---
 

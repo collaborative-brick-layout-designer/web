@@ -172,6 +172,23 @@ export async function isApiTokenActive(tokenId: string): Promise<boolean> {
   return true;
 }
 
+/**
+ * How long a token still has under today's rules, for the desktop to tell
+ * its owner when a sign-in it couldn't end would end by itself: the idle
+ * window in seconds (null: none), and its longest (null: none).
+ */
+export async function apiTokenLifetime(tokenId: string): Promise<{ idleSeconds: number | null; longestAt: number | null } | null> {
+  const row = await db.select({ createdAt: schema.apiTokens.createdAt }).from(schema.apiTokens).where(eq(schema.apiTokens.id, tokenId)).get();
+  if (!row) return null;
+  const now = Date.now();
+  const rule = (await signInLimits(now)).desktop;
+  const { cap } = signInEnd(rule, row.createdAt.getTime(), now);
+  return {
+    idleSeconds: Number.isFinite(rule.idleMs) ? Math.round(rule.idleMs / 1000) : null,
+    longestAt: Number.isFinite(cap) ? cap : null,
+  };
+}
+
 /** The user's live (unrevoked, unexpired) tokens, newest first, each with when it ends. */
 export async function listApiTokens(userId: string): Promise<ApiToken[]> {
   const now = Date.now();

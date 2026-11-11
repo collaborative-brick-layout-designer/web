@@ -157,6 +157,9 @@ describe('device authorization flow', () => {
     expect(current.statusCode).toBe(200);
     expect(current.json()).toMatchObject({ user: { id: user.id }, token: { scopes: ['layouts:read', 'layouts:write'] } });
     expect(Object.keys(current.json().user)).toEqual(['id', 'displayName']);
+    // When the sign-in would end by itself: 90 days unused, 180 days at the longest (the defaults).
+    expect(current.json().token.idleSeconds).toBe(90 * 24 * 3600);
+    expect(current.json().token.longestAt).toBe(row!.createdAt.getTime() + 180 * 24 * 3600 * 1000);
     const byCookie = await app.inject({ method: 'GET', url: '/api/tokens/current', headers: { cookie: user.cookie } });
     expect(byCookie.statusCode).toBe(400);
 
@@ -386,6 +389,44 @@ describe('token management API', () => {
     const audit = await db.select().from(schema.auditEvents).where(eq(schema.auditEvents.eventType, 'api_token_revoke')).all();
     expect(audit).toHaveLength(1);
     expect(audit[0]).toMatchObject({ resourceKind: 'user', resourceId: user.id, userId: user.id });
+  });
+
+  it('a token ends itself (the desktop’s Sign Out), whatever its scopes, and only itself', async () => {
+    const token = await issueToken(app, user.cookie, 'account:prefs');
+    const second = await issueToken(app, user.cookie);
+    const other = await loginAs(app, 'other@x.com');
+    const otherToken = await issueToken(app, other.cookie);
+    const bearer = (t: string) => ({ authorization: `Bearer ${t}` });
+    const ownId = (await db.select().from(schema.apiTokens).where(eq(schema.apiTokens.last4, token.slice(-4))).get())!.id;
+
+    // A web session isn't a token: nothing to end here (the website has its own list).
+    expect((await app.inject({ method: 'DELETE', url: '/api/tokens/current', headers: { cookie: user.cookie } })).statusCode).toBe(400);
+    // Signed out, or with a made-up token: refused.
+    expect((await app.inject({ method: 'DELETE', url: '/api/tokens/current' })).statusCode).toBe(401);
+    expect((await app.inject({ method: 'DELETE', url: '/api/tokens/current', headers: bearer(`${TOKEN_PREFIX}nope`) })).statusCode).toBe(401);
+    expect((await app.inject({ method: 'GET', url: '/api/tokens', headers: { cookie: user.cookie } })).json().tokens).toHaveLength(2);
+
+    const res = await app.inject({ method: 'DELETE', url: '/api/tokens/current', headers: bearer(token) });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ ok: true });
+
+    // That sign-in is over at once; asking again is the usual 401.
+    expect((await app.inject({ method: 'GET', url: '/api/tokens/current', headers: bearer(token) })).statusCode).toBe(401);
+    expect((await app.inject({ method: 'DELETE', url: '/api/tokens/current', headers: bearer(token) })).statusCode).toBe(401);
+    // The person's other desktop, and other people's, stay signed in.
+    expect((await app.inject({ method: 'GET', url: '/api/layouts', headers: bearer(second) })).statusCode).toBe(200);
+    expect((await app.inject({ method: 'GET', url: '/api/layouts', headers: bearer(otherToken) })).statusCode).toBe(200);
+    // The website's list drops it.
+    const left = (await app.inject({ method: 'GET', url: '/api/tokens', headers: { cookie: user.cookie } })).json().tokens as { id: string }[];
+    expect(left.map((t) => t.id)).not.toContain(ownId);
+    expect(left).toHaveLength(1);
+
+    // Audited like a revoke from the website: who and which token, nothing about the caller's address or app.
+    const audit = await db.select().from(schema.auditEvents).where(eq(schema.auditEvents.eventType, 'api_token_revoke')).all();
+    expect(audit).toHaveLength(1);
+    expect(audit[0]).toMatchObject({ resourceKind: 'user', resourceId: user.id, userId: user.id });
+    expect(JSON.parse(audit[0]!.payload as string)).toEqual({ tokenId: ownId, name: 'Brick Layout Designer (test)', self: true });
+    expect(audit[0]!.payload).not.toContain(token);
   });
 
   it('requires a session', async () => {
