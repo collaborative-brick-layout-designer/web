@@ -1,0 +1,266 @@
+// Two people changing one module at the same instant (moduleMergeGuard.ts):
+// two Yjs documents that swap their changes, as two browsers do through
+// the server. Each case runs twice, so each person is once the one whose
+// value Yjs keeps and once the one whose value it drops.
+
+import { describe, expect, it } from 'vitest';
+import * as Y from 'yjs';
+import { readSidecarCache, repairSidecarCache, writeSidecarCache } from '@cld/ydoc';
+import { MODULE_MERGE_ORIGIN, mergeModule, watchModuleMerges } from './moduleMergeGuard';
+
+interface Mod {
+  id: string;
+  name: string;
+  members: string[];
+  outlineColor?: string;
+  pinned?: boolean;
+}
+
+const LOCAL = Symbol('local');
+const REPAIR = Symbol('repair');
+
+/** One person's browser: the layout, the guard, and what the app does after someone else's change. */
+class Person {
+  readonly doc = new Y.Doc();
+  merges: string[] = [];
+  private readonly stop: () => void;
+  constructor(clientId: number) {
+    this.doc.clientID = clientId;
+    this.stop = watchModuleMerges(this.doc, (id) => this.merges.push(id));
+    // As the editor does (useLayoutDoc.ts): the whole sidecar follows the merged modules.
+    this.doc.on('afterTransaction', (tr: Y.Transaction) => {
+      if (!tr.local) repairSidecarCache(this.doc, REPAIR);
+    });
+  }
+  modules(): Mod[] {
+    return ((readSidecarCache(this.doc)?.modules as Mod[] | undefined) ?? []).map((m) => ({ ...m }));
+  }
+  module(id = 'M'): Mod | undefined {
+    return this.modules().find((m) => m.id === id);
+  }
+  /** Changes one module the way mutations.ts does (updateSidecarModule). */
+  change(id: string, how: (m: Mod) => Mod): void {
+    this.doc.transact(() => {
+      const cache = readSidecarCache(this.doc) ?? {};
+      writeSidecarCache(this.doc, { ...cache, modules: this.modules().map((m) => (m.id === id ? how(m) : m)) });
+    }, LOCAL);
+  }
+  remove(id: string): void {
+    this.doc.transact(() => {
+      const cache = readSidecarCache(this.doc) ?? {};
+      writeSidecarCache(this.doc, { ...cache, modules: this.modules().filter((m) => m.id !== id) });
+    }, LOCAL);
+  }
+  /** Puts parts on the map (or takes one off). */
+  parts(ids: string[]): void {
+    this.doc.transact(() => {
+      let layer = this.doc.getMap('layerData').get('L') as Y.Map<unknown> | undefined;
+      if (!layer) {
+        layer = new Y.Map();
+        this.doc.getMap('layerData').set('L', layer);
+        layer.set('bricks', new Y.Array());
+      }
+      const bricks = layer.get('bricks') as Y.Array<Y.Map<unknown>>;
+      for (const id of ids) {
+        const b = new Y.Map<unknown>();
+        b.set('id', id);
+        bricks.push([b]);
+      }
+    }, LOCAL);
+  }
+  deletePart(id: string): void {
+    this.doc.transact(() => {
+      const bricks = (this.doc.getMap('layerData').get('L') as Y.Map<unknown>).get('bricks') as Y.Array<Y.Map<unknown>>;
+      const i = bricks.toArray().findIndex((b) => b.get('id') === id);
+      if (i >= 0) bricks.delete(i, 1);
+      // As deleteBricks does: it leaves its module.
+      const cache = readSidecarCache(this.doc) ?? {};
+      writeSidecarCache(this.doc, { ...cache, modules: this.modules().map((m) => ({ ...m, members: m.members.filter((x) => x !== id) })) });
+    }, LOCAL);
+  }
+  close(): void {
+    this.stop();
+  }
+}
+
+/** Each gets what the other has, until neither has anything new. Returns how many rounds it took. */
+function swap(a: Person, b: Person): number {
+  for (let round = 1; round <= 20; round++) {
+    const toB = Y.encodeStateAsUpdate(a.doc, Y.encodeStateVector(b.doc));
+    const toA = Y.encodeStateAsUpdate(b.doc, Y.encodeStateVector(a.doc));
+    Y.applyUpdate(b.doc, toB, 'remote');
+    Y.applyUpdate(a.doc, toA, 'remote');
+    if (Y.encodeStateVector(a.doc).join() === Y.encodeStateVector(b.doc).join() && round > 1) return round;
+  }
+  throw new Error('the two never settled');
+}
+
+/** Sam and Alex with one module `M` of parts p1 and p2 on a map of p1..p5; `samWins` picks whose value Yjs keeps on a tie. */
+function pair(samWins: boolean): { sam: Person; alex: Person } {
+  // On a tie Yjs keeps the value from the higher client id.
+  const sam = new Person(samWins ? 20 : 10);
+  const alex = new Person(samWins ? 10 : 20);
+  sam.parts(['p1', 'p2', 'p3', 'p4', 'p5']);
+  sam.doc.transact(() => writeSidecarCache(sam.doc, { modules: [{ id: 'M', name: 'Yard', members: ['p1', 'p2'] }] }), LOCAL);
+  swap(sam, alex);
+  expect(alex.module()).toEqual({ id: 'M', name: 'Yard', members: ['p1', 'p2'] });
+  sam.merges = [];
+  alex.merges = [];
+  return { sam, alex };
+}
+
+const both = (name: string, run: (sam: Person, alex: Person, samWins: boolean) => void): void => {
+  for (const samWins of [true, false]) {
+    it(`${name} (${samWins ? 'Sam' : 'Alex'}'s value is the one Yjs keeps)`, () => {
+      const { sam, alex } = pair(samWins);
+      run(sam, alex, samWins);
+      // Whatever happened, both show the same, and they stay that way.
+      expect(alex.modules()).toEqual(sam.modules());
+      swap(sam, alex);
+      expect(alex.modules()).toEqual(sam.modules());
+      sam.close();
+      alex.close();
+    });
+  }
+};
+
+describe('one module changed by two people at the same instant', () => {
+  both('each adds a part: both parts are in the module', (sam, alex) => {
+    sam.change('M', (m) => ({ ...m, members: [...m.members, 'p3'] }));
+    alex.change('M', (m) => ({ ...m, members: [...m.members, 'p4'] }));
+    swap(sam, alex);
+    expect([...sam.module()!.members].sort()).toEqual(['p1', 'p2', 'p3', 'p4']);
+    // One of them put a change back, once.
+    expect(sam.merges.length + alex.merges.length).toBe(1);
+  });
+
+  both('one renames it, the other adds a part: both stay', (sam, alex) => {
+    sam.change('M', (m) => ({ ...m, name: 'Yard east' }));
+    alex.change('M', (m) => ({ ...m, members: [...m.members, 'p4'] }));
+    swap(sam, alex);
+    expect(sam.module()).toEqual({ id: 'M', name: 'Yard east', members: ['p1', 'p2', 'p4'] });
+  });
+
+  both('one takes a part out, the other adds one and pins it', (sam, alex) => {
+    sam.change('M', (m) => ({ ...m, members: m.members.filter((x) => x !== 'p2') }));
+    alex.change('M', (m) => ({ ...m, members: [...m.members, 'p5'], pinned: true }));
+    swap(sam, alex);
+    expect(sam.module()).toEqual({ id: 'M', name: 'Yard', members: ['p1', 'p5'], pinned: true });
+  });
+
+  both('both rename it: one name stays, the same for both, and nobody keeps writing', (sam, alex) => {
+    sam.change('M', (m) => ({ ...m, name: 'North yard' }));
+    alex.change('M', (m) => ({ ...m, name: 'South yard' }));
+    swap(sam, alex);
+    expect(['North yard', 'South yard']).toContain(sam.module()!.name);
+    expect(sam.merges.length + alex.merges.length).toBe(0);
+  });
+
+  both('several changes while one was offline all come back', (sam, alex) => {
+    sam.change('M', (m) => ({ ...m, members: [...m.members, 'p3'] }));
+    sam.change('M', (m) => ({ ...m, outlineColor: '#ff8800' }));
+    sam.change('M', (m) => ({ ...m, members: m.members.filter((x) => x !== 'p1') }));
+    alex.change('M', (m) => ({ ...m, members: [...m.members, 'p4'] }));
+    alex.change('M', (m) => ({ ...m, name: 'Yard east' }));
+    swap(sam, alex);
+    const m = sam.module()!;
+    expect([...m.members].sort()).toEqual(['p2', 'p3', 'p4']);
+    expect(m.name).toBe('Yard east');
+    expect(m.outlineColor).toBe('#ff8800');
+  });
+
+  both('a part someone deleted at that instant isn’t put back in the module', (sam, alex, samWins) => {
+    sam.change('M', (m) => ({ ...m, members: [...m.members, 'p3'] }));
+    alex.deletePart('p3');
+    alex.change('M', (m) => ({ ...m, name: 'Yard east' }));
+    swap(sam, alex);
+    expect(sam.module()!.name).toBe('Yard east');
+    // Sam's lost add isn't put back: the part is gone. (When Sam's value is
+    // the one kept, it still names the part, as before this guard: that
+    // list was written while the part was there, and nobody took it out.)
+    if (!samWins) expect(sam.module()!.members).toEqual(['p1', 'p2']);
+  });
+
+  both('one deletes a part of the module, the other adds one: the deleted part isn’t a member', (sam, alex) => {
+    sam.deletePart('p2');
+    alex.change('M', (m) => ({ ...m, members: [...m.members, 'p4'] }));
+    swap(sam, alex);
+    expect([...sam.module()!.members].sort()).toEqual(['p1', 'p4']);
+  });
+
+  both('one ungroups it while the other changes it: the two agree, and nothing is written in a loop', (sam, alex) => {
+    sam.remove('M');
+    alex.change('M', (m) => ({ ...m, members: [...m.members, 'p4'] }));
+    const rounds = swap(sam, alex);
+    expect(rounds).toBeLessThan(6);
+  });
+});
+
+describe('one after the other (each saw the other’s change)', () => {
+  both('a part one person added and the other then took out stays out', (sam, alex) => {
+    sam.change('M', (m) => ({ ...m, members: [...m.members, 'p3'] }));
+    swap(sam, alex);
+    alex.change('M', (m) => ({ ...m, members: m.members.filter((x) => x !== 'p3') }));
+    swap(sam, alex);
+    expect(sam.module()!.members).toEqual(['p1', 'p2']);
+    expect(sam.merges.length + alex.merges.length).toBe(0);
+  });
+
+  both('a name changed back by the other stays changed back', (sam, alex) => {
+    sam.change('M', (m) => ({ ...m, name: 'Yard east' }));
+    swap(sam, alex);
+    alex.change('M', (m) => ({ ...m, name: 'Yard' }));
+    swap(sam, alex);
+    expect(sam.module()!.name).toBe('Yard');
+    expect(sam.merges.length + alex.merges.length).toBe(0);
+  });
+
+  both('a change made after seeing one of mine, at the same instant as my next: only my next is put back', (sam, alex) => {
+    sam.change('M', (m) => ({ ...m, members: [...m.members, 'p3'] }));
+    swap(sam, alex);
+    // Alex takes p3 out again, knowing it was added; Sam meanwhile adds p5.
+    alex.change('M', (m) => ({ ...m, members: m.members.filter((x) => x !== 'p3') }));
+    sam.change('M', (m) => ({ ...m, members: [...m.members, 'p5'] }));
+    swap(sam, alex);
+    expect([...sam.module()!.members].sort()).toEqual(['p1', 'p2', 'p5']);
+  });
+});
+
+describe('the put-back', () => {
+  it('isn’t an undo step, and other modules are left alone', () => {
+    const { sam, alex } = pair(false);
+    sam.doc.transact(() => {
+      const cache = readSidecarCache(sam.doc) ?? {};
+      writeSidecarCache(sam.doc, { ...cache, modules: [...sam.modules(), { id: 'N', name: 'Depot', members: ['p5'] }] });
+    }, LOCAL);
+    swap(sam, alex);
+    const origins: unknown[] = [];
+    sam.doc.on('afterTransaction', (tr: Y.Transaction) => {
+      if (tr.local) origins.push(tr.origin);
+    });
+    sam.change('M', (m) => ({ ...m, members: [...m.members, 'p3'] }));
+    alex.change('M', (m) => ({ ...m, members: [...m.members, 'p4'] }));
+    swap(sam, alex);
+    expect(origins).toContain(MODULE_MERGE_ORIGIN);
+    expect(sam.module('N')).toEqual({ id: 'N', name: 'Depot', members: ['p5'] });
+    expect(alex.module('N')).toEqual({ id: 'N', name: 'Depot', members: ['p5'] });
+  });
+});
+
+describe('mergeModule', () => {
+  const base = { id: 'M', name: 'Yard', members: ['a', 'b'] };
+  it('keeps their order and adds mine at the end', () => {
+    expect(mergeModule(base, { ...base, members: ['a', 'b', 'x'] }, { ...base, members: ['b', 'a', 'y'] }).members).toEqual(['b', 'a', 'y', 'x']);
+  });
+  it('takes out what I took out, and leaves a field both changed as theirs', () => {
+    expect(mergeModule(base, { ...base, name: 'Mine', members: ['a'] }, { ...base, name: 'Theirs', members: ['a', 'b', 'y'] })).toEqual({
+      id: 'M',
+      name: 'Theirs',
+      members: ['a', 'y'],
+    });
+  });
+  it('puts back a field I cleared and they left alone', () => {
+    const colored = { ...base, outlineColor: '#f00' };
+    expect(mergeModule(colored, base, { ...colored, pinned: true })).toEqual({ ...base, pinned: true });
+  });
+});

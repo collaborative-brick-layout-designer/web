@@ -14,7 +14,7 @@ import { createInterface } from 'node:readline';
 import { readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { signIn } from '../helpers';
+import { makeModule, signIn } from '../helpers';
 
 const DRIVER = process.env.BLD_SYNC_DRIVER;
 const SERVER = process.env.BLD_SYNC_SERVER ?? 'http://127.0.0.1:3000';
@@ -78,6 +78,15 @@ class Driver {
 
   async peers(): Promise<{ user?: { displayName?: string }; cursor?: { x: number; y: number } | null }[]> {
     return JSON.parse(await this.run('peers'));
+  }
+
+  /** The editor's modules; null from a driver built before it had module commands. */
+  async modules(): Promise<{ id: string; name: string; members: string[] }[] | null> {
+    try {
+      return JSON.parse(await this.run('modules'));
+    } catch {
+      return null;
+    }
   }
 
   async close(): Promise<void> {
@@ -339,16 +348,22 @@ test.describe('desktop and web live editing', () => {
         const webOnly = listed(new Map(expected(s1, { [A]: { y: s1.get(A)!.y + 1 } })));
         expect(listed(await serverPoses(page.request, id))).toEqual(webOnly);
 
-        // Back online the edits wait for review; nothing reaches the server.
+        // Back online, the two edits nothing clashes with go to the server
+        // by themselves (the desktop's #293); the move of A, which the web
+        // moved too, waits for review.
         await driver.run('reconnect');
         await driver.run('wait-synced');
+        const sentThemselves = normalised(
+          expected(s1, { [A]: { y: s1.get(A)!.y + 1 }, [B]: { x: s1.get(B)!.x + 3 }, [C]: quarterTurn(s1, C) }),
+        );
+        await expect.poll(async () => listed(await serverPoses(page.request, id)), { timeout: 10_000 }).toEqual(sentThemselves);
         await page.waitForTimeout(1000);
-        expect(listed(await serverPoses(page.request, id))).toEqual(webOnly);
-        expect(await driver.run('status')).toBe('Synced 3');
-        expect(listed(await driver.poses('shared'))).toEqual(webOnly);
+        expect(listed(await serverPoses(page.request, id))).toEqual(sentThemselves);
+        expect(await driver.run('status')).toBe('Synced 1');
+        expect(listed(await driver.poses('shared'))).toEqual(sentThemselves);
 
         const keys = JSON.parse(await driver.run('resolve mine')) as string[];
-        expect(keys.filter((k) => k.startsWith('brick:')).map((k) => k.split(':')[2]).sort()).toEqual([A, B, C].sort());
+        expect(keys.filter((k) => k.startsWith('brick:')).map((k) => k.split(':')[2])).toContain(A);
         const want = new Map(
           expected(s1, {
             [A]: { x: s1.get(A)!.x + 5 }, // mine, over the web's move down
@@ -360,6 +375,208 @@ test.describe('desktop and web live editing', () => {
         expect(await driver.run('status')).toBe('Synced 0');
         await expect.poll(() => differences(driver, page.request, id)).toEqual([]);
         await expectBrowser(page, start, base0, want, [A, B, C]);
+      });
+    } finally {
+      await driver.close();
+    }
+  });
+  // The full review (area 4) ran browsers and one desktop. Two desktops on
+  // one layout, here as two drivers with their own sign-ins:
+  test('two desktops on one layout: both people’s edits stay and all three end up identical', async ({ page, request, browser }) => {
+    test.setTimeout(180_000);
+    const stamp = Date.now();
+    await signIn(page, `two-desks-owner-${stamp}@example.com`, 'Layout Owner');
+    const created = await page.request.post('/api/layouts', { data: { title: 'Two desktops', bbm: TIGHT_CORNER_BBM } });
+    expect(created.ok()).toBe(true);
+    const { id } = (await created.json()) as { id: string };
+    const desks: Driver[] = [];
+    for (const who of ['Ann', 'Ben']) {
+      const email = `two-desks-${who.toLowerCase()}-${stamp}@example.com`;
+      const ctx = await browser.newContext();
+      await signIn(ctx, email, `${who} Desktop`);
+      const p = await ctx.newPage();
+      const invite = await page.request.post(`/api/layouts/${id}/invites`, { data: { email, role: 'editor' } });
+      expect((await p.request.post(`/api/invites/${((await invite.json()) as { token: string }).token}`)).ok()).toBe(true);
+      const token = await desktopToken(p, request);
+      await ctx.close();
+      desks.push(new Driver(DRIVER!, token));
+    }
+    const [ann, ben] = desks as [Driver, Driver];
+    /** Both desktops' maps are the server's, part by part. */
+    const allAgree = async () => {
+      await expect.poll(() => differences(ann, page.request, id), { timeout: 15_000 }).toEqual([]);
+      await expect.poll(() => differences(ben, page.request, id), { timeout: 15_000 }).toEqual([]);
+    };
+
+    try {
+      const base = await serverPoses(page.request, id);
+      for (const [d, name] of [[ann, 'Ann'], [ben, 'Ben']] as const) {
+        await d.run(`open ${id}`);
+        await d.run('wait-synced');
+        await d.run(`name ${name}`);
+        expect((await d.poses()).size).toBe(base.size);
+      }
+      const [A, B, C] = [...base.keys()].slice(0, 3) as [string, string, string];
+
+      await test.step('1. different parts moved at the same instant: both moves stay', async () => {
+        await Promise.all([ann.run(`move ${A} 4 0`), ben.run(`move ${B} 0 3`)]);
+        const want = expected(base, { [A]: { x: base.get(A)!.x + 4 }, [B]: { y: base.get(B)!.y + 3 } });
+        await expect.poll(async () => listed(await serverPoses(page.request, id))).toEqual(normalised(want));
+        await allAgree();
+      });
+
+      await test.step('2. the same part moved at the same instant, five times: one part, the same everywhere', async () => {
+        for (let round = 0; round < 5; round++) {
+          await Promise.all([ann.run(`move ${C} 1 0`), ben.run(`move ${C} 0 1`)]);
+          await allAgree();
+          const now = await serverPoses(page.request, id);
+          expect(now.size, 'no part lost, none there twice').toBe(base.size);
+          // It moved (one move, or both: across and down are separate values).
+          const c = now.get(C)!;
+          expect(c.x !== base.get(C)!.x || c.y !== base.get(C)!.y).toBe(true);
+        }
+      });
+
+      await test.step('3. each desktop sees the other’s cursor', async () => {
+        await ann.run('cursor 40 40');
+        await ben.run('cursor 80 80');
+        await expect.poll(async () => (await ben.peers()).some((p) => p.user?.displayName === 'Ann' && !!p.cursor), { timeout: 10_000 }).toBe(true);
+        await expect.poll(async () => (await ann.peers()).some((p) => p.user?.displayName === 'Ben' && !!p.cursor), { timeout: 10_000 }).toBe(true);
+      });
+
+      await test.step('4. Undo on one desktop takes back only its own edit', async () => {
+        const before = await serverPoses(page.request, id);
+        await ann.run(`move ${A} 2 0`);
+        await ben.run(`move ${B} 2 0`);
+        await expect.poll(async () => (await serverPoses(page.request, id)).get(B)!.x).toBe(before.get(B)!.x + 2);
+        await expect.poll(async () => (await ann.poses()).get(B)!.x).toBe(before.get(B)!.x + 2);
+        expect(await ann.run('undo')).toBe('true');
+        const want = expected(before, { [B]: { x: before.get(B)!.x + 2 } });
+        await expect.poll(async () => listed(await serverPoses(page.request, id))).toEqual(normalised(want));
+        await allAgree();
+      });
+
+      await test.step('5. one desktop offline, both edit different parts: back online both edits are there, unasked', async () => {
+        const before = await serverPoses(page.request, id);
+        await ann.run('disconnect');
+        await ann.run(`move ${A} 1 0`);
+        expect(await ann.run('status')).toBe('Offline 1');
+        await ben.run(`move ${B} 0 1`);
+        await expect.poll(async () => (await serverPoses(page.request, id)).get(B)!.y).toBe(before.get(B)!.y + 1);
+        await ann.run('reconnect');
+        await ann.run('wait-synced');
+        const want = expected(before, { [A]: { x: before.get(A)!.x + 1 }, [B]: { y: before.get(B)!.y + 1 } });
+        await expect.poll(async () => listed(await serverPoses(page.request, id)), { timeout: 15_000 }).toEqual(normalised(want));
+        await expect.poll(() => ann.run('status')).toBe('Synced 0');
+        await allAgree();
+      });
+
+      await test.step('6. offline and both move the same part: it waits for review, and “mine” puts it in', async () => {
+        const before = await serverPoses(page.request, id);
+        await ann.run('disconnect');
+        await ann.run(`move ${C} 5 0`);
+        await ben.run(`move ${C} 0 7`);
+        await expect.poll(async () => (await serverPoses(page.request, id)).get(C)!.y).toBe(before.get(C)!.y + 7);
+        await ann.run('reconnect');
+        await ann.run('wait-synced');
+        await page.waitForTimeout(1000);
+        // Nothing of Ann's went by itself: it clashes with Ben's.
+        expect((await serverPoses(page.request, id)).get(C)).toEqual({ ...before.get(C)!, y: before.get(C)!.y + 7 });
+        expect(await ann.run('status')).toBe('Synced 1');
+        await ann.run('resolve mine');
+        await expect.poll(async () => (await serverPoses(page.request, id)).get(C)).toEqual({ ...before.get(C)!, x: before.get(C)!.x + 5 });
+        expect(await ann.run('status')).toBe('Synced 0');
+        await allAgree();
+        expect((await serverPoses(page.request, id)).size).toBe(base.size);
+      });
+    } finally {
+      await ann.close();
+      await ben.close();
+    }
+  });
+
+  // One module changed from the web and from the desktop at once (area 4
+  // left it out). The web is in Edit module and places a part, which joins
+  // the module; at that instant the desktop takes another part out.
+  test('one module, the web and the desktop: a change from each at the same instant', async ({ page, request, browser }) => {
+    test.setTimeout(180_000);
+    const stamp = Date.now();
+    const NAME = `Corner ${stamp % 10000}`;
+    await page.setViewportSize({ width: 1400, height: 900 });
+    await signIn(page, `mod-desk-web-${stamp}@example.com`, 'Web Tester');
+    const created = await page.request.post('/api/layouts', { data: { title: 'One module, web and desktop', bbm: TIGHT_CORNER_BBM } });
+    const { id } = (await created.json()) as { id: string };
+    const deskEmail = `mod-desk-driver-${stamp}@example.com`;
+    const desk = await browser.newContext();
+    await signIn(desk, deskEmail, 'Desktop Driver');
+    const deskPage = await desk.newPage();
+    const invite = await page.request.post(`/api/layouts/${id}/invites`, { data: { email: deskEmail, role: 'editor' } });
+    expect((await deskPage.request.post(`/api/invites/${((await invite.json()) as { token: string }).token}`)).ok()).toBe(true);
+    const token = await desktopToken(deskPage, request);
+    await desk.close();
+    const driver = new Driver(DRIVER!, token);
+    interface Mod {
+      id: string;
+      name: string;
+      members: string[];
+    }
+    const serverModules = async (): Promise<Mod[]> => {
+      const r = await page.request.get(`/api/layouts/${id}/export.bbm.bld`);
+      return r.ok() ? (((await r.json()) as { modules?: Mod[] }).modules ?? []) : [];
+    };
+
+    try {
+      await driver.run(`open ${id}`);
+      await driver.run('wait-synced');
+      test.skip((await driver.modules()) === null, 'this bld_sync_driver has no module commands yet (desktop main is older)');
+
+      // The web makes every part one module.
+      await page.goto(`/editor/${id}`);
+      await expect(page.locator('canvas').first()).toBeVisible({ timeout: 15000 });
+      await page.waitForTimeout(1000);
+      await page.keyboard.press('f');
+      const parts = Object.keys(await browserPoses(page));
+      await page.keyboard.press('Control+a');
+      await makeModule(page, NAME);
+      await expect.poll(async () => (await serverModules()).map((m) => m.members.length), { timeout: 10_000 }).toEqual([parts.length]);
+      const moduleId = (await serverModules())[0]!.id;
+      await expect.poll(async () => (await driver.modules())?.map((m) => m.members.length)).toEqual([parts.length]);
+
+      await test.step('in turn: the desktop renames it and takes a part out, the web sees both', async () => {
+        await driver.run(`module-rename ${moduleId} ${NAME} east`);
+        await driver.run(`module-remove ${moduleId} ${parts[0]}`);
+        await expect.poll(async () => (await serverModules())[0]).toMatchObject({ name: `${NAME} east` });
+        await expect.poll(async () => (await serverModules())[0]!.members.length).toBe(parts.length - 1);
+        await page.getByRole('button', { name: 'Panels', exact: true }).click();
+        await page.getByLabel('Modules', { exact: true }).check();
+        // (Esc closes the Panels list, and only that.)
+        await page.keyboard.press('Escape');
+        await expect(page.getByLabel('Modules', { exact: true })).toBeHidden();
+        await expect(page.getByRole('button', { name: `More for ${NAME} east` })).toBeVisible({ timeout: 10_000 });
+      });
+
+      await test.step('at the same instant: the web’s added part is in the module whoever’s change Yjs keeps', async () => {
+        await page.getByRole('button', { name: `More for ${NAME} east` }).click();
+        await page.getByTestId('module-menu-edit').click();
+        await expect(page.getByTestId('module-edit-bar')).toContainText(`Editing module ${NAME} east`);
+        await page.getByPlaceholder('Search parts (name or number)').first().fill('narrow gauge track straight 4 x 16');
+        const part = page.locator('[title*="(ts_narrowgauge_straight.8)"]').first();
+        await expect(part).toBeVisible();
+        await Promise.all([part.dblclick(), driver.run(`module-remove ${moduleId} ${parts[1]}`)]);
+        // The new part is on the map and in the module, on the server and on the desktop.
+        await expect.poll(async () => Object.keys(await browserPoses(page)).length, { timeout: 10_000 }).toBe(parts.length + 1);
+        const added = Object.keys(await browserPoses(page)).find((p) => !parts.includes(p))!;
+        await expect.poll(async () => (await serverModules())[0]!.members.includes(added), { timeout: 10_000, message: 'the web’s part is in the module' }).toBe(true);
+        await expect.poll(async () => (await driver.modules())?.[0]?.members.includes(added), { timeout: 10_000 }).toBe(true);
+        // The desktop's take-out is there too when the web's value was the
+        // one dropped (the web then puts its part back on top of it). When
+        // the desktop's value was dropped, its take-out is lost: the desktop
+        // has no such repair yet (TwoDesktopsTest.cpp in the desktop repo).
+        const members = (await serverModules())[0]!.members;
+        expect([parts.length - 1, parts.length]).toContain(members.length);
+        // Either way the desktop and the server agree, and the module is there once.
+        await expect.poll(async () => (await driver.modules())?.[0]?.members.slice().sort()).toEqual(members.slice().sort());
+        expect((await serverModules()).length).toBe(1);
       });
     } finally {
       await driver.close();
