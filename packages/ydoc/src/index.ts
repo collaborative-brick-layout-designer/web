@@ -276,43 +276,163 @@ function inTransaction(doc: Y.Doc): boolean {
   return (doc as unknown as { _transaction: unknown })._transaction != null;
 }
 
-const brickIdMemo = new WeakMap<Y.Doc, { ids: Set<string>; stale: boolean }>();
+// The ids on the map are kept up to date list by list: a transaction that
+// only changes parts in place (a move, a turn: almost every edit, anyone's)
+// leaves them as they were, and one that adds or takes parts out of a list
+// reads that list again. On 7,520 parts in modules every transaction read
+// every part's id again (about 2.4 ms, 10 ms at 4x slowed CPU).
+
+/** Modules hold parts; a sidecar from elsewhere may list a text or a ruler too. */
+const ID_FIELDS: ReadonlySet<string> = new Set(['bricks', 'textCells', 'rulerItems']);
+
+interface BrickIdMemo {
+  /** Every id on the map (one entry per id, however many lists have it). */
+  ids: Set<string>;
+  /** How many entries of the lists have each id. */
+  counts: Map<string, number>;
+  /** Each list read, and the ids it had then. */
+  lists: Map<Y.Array<unknown>, string[]>;
+  /** Lists to read again; `all` when the sheets themselves changed. */
+  dirty: Set<Y.Array<unknown>>;
+  all: boolean;
+  /** How many times a list or the whole map was read (for tests). */
+  reads: number;
+}
+
+const brickIdMemo = new WeakMap<Y.Doc, BrickIdMemo>();
+
+function idOf(b: unknown): string | undefined {
+  const id = b instanceof Y.Map ? b.get('id') : b && typeof b === 'object' && !(b instanceof Y.AbstractType) ? (b as { id?: unknown }).id : undefined;
+  return typeof id === 'string' ? id : undefined;
+}
+
+function idsOfList(list: Y.Array<unknown>): string[] {
+  const out: string[] = [];
+  for (const b of list.toArray()) {
+    const id = idOf(b);
+    if (id !== undefined) out.push(id);
+  }
+  return out;
+}
+
+/** Every id list on the map now. */
+function idLists(doc: Y.Doc): Y.Array<unknown>[] {
+  const out: Y.Array<unknown>[] = [];
+  const layerData = doc.getMap('layerData');
+  for (const layerId of doc.getArray<string>('layers').toArray()) {
+    const layer = layerData.get(layerId);
+    if (!(layer instanceof Y.Map)) continue;
+    for (const field of ID_FIELDS) {
+      const list = layer.get(field);
+      if (list instanceof Y.Array) out.push(list);
+    }
+  }
+  return out;
+}
+
+function countIds(m: BrickIdMemo, ids: readonly string[], by: 1 | -1): void {
+  for (const id of ids) {
+    const n = (m.counts.get(id) ?? 0) + by;
+    if (n > 0) {
+      m.counts.set(id, n);
+      m.ids.add(id);
+    } else {
+      m.counts.delete(id);
+      m.ids.delete(id);
+    }
+  }
+}
+
+/** What a transaction changed that the kept ids depend on. */
+function markIdChanges(doc: Y.Doc, m: BrickIdMemo, tr: Y.Transaction): void {
+  if (m.all) return;
+  const layerData = doc.share.get('layerData');
+  const layers = doc.share.get('layers');
+  for (const [type, keys] of tr.changed) {
+    // Sheets added, taken away or put in another order, or the map's own `meta.version`.
+    if (type === layerData || type === layers) {
+      m.all = true;
+      return;
+    }
+    const item = type._item;
+    if (!item) continue;
+    // A list of parts, texts or rulers had entries added or taken out.
+    if (type instanceof Y.Array && typeof item.parentSub === 'string' && ID_FIELDS.has(item.parentSub)) {
+      m.dirty.add(type);
+      continue;
+    }
+    if (!(type instanceof Y.Map)) continue;
+    // A sheet given a new list.
+    if (item.parent === layerData) {
+      for (const k of keys) {
+        if (k !== null && ID_FIELDS.has(k)) {
+          m.all = true;
+          return;
+        }
+      }
+      continue;
+    }
+    // A part given another id (else a part changed in place: its id stands).
+    if (keys.has('id')) {
+      const list = item.parent;
+      if (list instanceof Y.Array) m.dirty.add(list);
+      else m.all = true;
+    }
+  }
+}
 
 /** The ids of every part (and text and ruler) on the map, or null for a doc that isn't a layout. */
 function liveBrickIds(doc: Y.Doc): Set<string> | null {
   if (doc.getMap('meta').get('version') === undefined) return null;
   // Inside a transaction the parts may be changing: count them afresh.
-  const changing = inTransaction(doc);
-  const memo = brickIdMemo.get(doc);
-  if (!changing && memo && !memo.stale) return memo.ids;
-  const ids = new Set<string>();
-  const layerData = doc.getMap('layerData');
-  for (const layerId of doc.getArray<string>('layers').toArray()) {
-    const layer = layerData.get(layerId);
-    if (!(layer instanceof Y.Map)) continue;
-    // Modules hold parts; a sidecar from elsewhere may list a text or a ruler too.
-    for (const field of ['bricks', 'textCells', 'rulerItems']) {
-      const list = layer.get(field);
-      if (!(list instanceof Y.Array)) continue;
-      for (const b of list.toArray()) {
-        const id = b instanceof Y.Map ? b.get('id') : b && typeof b === 'object' ? (b as { id?: unknown }).id : undefined;
-        if (typeof id === 'string') ids.add(id);
+  if (inTransaction(doc)) {
+    const ids = new Set<string>();
+    for (const list of idLists(doc)) for (const id of idsOfList(list)) ids.add(id);
+    return ids;
+  }
+  let m = brickIdMemo.get(doc);
+  if (!m) {
+    const entry: BrickIdMemo = { ids: new Set(), counts: new Map(), lists: new Map(), dirty: new Set(), all: true, reads: 0 };
+    m = entry;
+    brickIdMemo.set(doc, entry);
+    // Before any observer runs, so one that reads the sidecar sees this transaction's parts.
+    doc.on('beforeObserverCalls', (tr: Y.Transaction) => markIdChanges(doc, entry, tr));
+  }
+  if (m.all) {
+    m.all = false;
+    m.dirty.clear();
+    m.ids = new Set();
+    m.counts.clear();
+    m.lists.clear();
+    m.reads++;
+    for (const list of idLists(doc)) {
+      const ids = idsOfList(list);
+      m.lists.set(list, ids);
+      countIds(m, ids, 1);
+    }
+  } else if (m.dirty.size > 0) {
+    for (const list of m.dirty) {
+      const had = m.lists.get(list);
+      // A list that isn't on the map (a sheet's old list, or one not read yet) counts only when it is.
+      if (!had && !idLists(doc).includes(list)) continue;
+      m.reads++;
+      if (had) countIds(m, had, -1);
+      if (list._item?.deleted) {
+        m.lists.delete(list);
+        continue;
       }
+      const ids = idsOfList(list);
+      m.lists.set(list, ids);
+      countIds(m, ids, 1);
     }
+    m.dirty.clear();
   }
-  if (!changing) {
-    if (memo) {
-      memo.ids = ids;
-      memo.stale = false;
-    } else {
-      const entry = { ids, stale: false };
-      brickIdMemo.set(doc, entry);
-      doc.on('afterTransaction', () => {
-        entry.stale = true;
-      });
-    }
-  }
-  return ids;
+  return m.ids;
+}
+
+/** How many times the map's ids were read, whole or a list at a time (for tests). */
+export function liveBrickIdReads(doc: Y.Doc): number {
+  return brickIdMemo.get(doc)?.reads ?? 0;
 }
 
 /** `cache` without module members that aren't on the map (the same object when there are none). */
