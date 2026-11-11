@@ -36,6 +36,16 @@ export const WEB_ONLY_HELP_TEXTS = {
     short: 'Each visitor who tries the demo gets a private space of their own, with their own copy of the samples.',
     more: 'A space and everything in it is deleted when its time is up (set below, 1 hour unless you change it), even if the visitor just closes the tab. The most at once keeps the demo from filling the server; past it, “Try the demo” says the demo is busy and to try again in a few minutes.',
   },
+  'admin.demoStorage': {
+    title: 'Space for each demo space',
+    short: 'How much one visitor’s demo space may hold: their layouts, modules, venues and background pictures together.',
+    more: 'Keep it small: anyone can open a demo space without an account. A visitor who fills theirs is told it is full and can delete something to free up space. It holds even when usage limits are switched off, and a demo space never gets more than “Space per person”.',
+  },
+  'admin.demoPerAddress': {
+    title: 'Demo spaces from one network address',
+    short: 'How many demo spaces can be open at once from the same address, so one visitor can’t take them all.',
+    more: 'People on one Wi-Fi (a club night, a show) share an address, so allow enough for them; someone who presses “Try the demo” again in the same browser just goes back to the space they have. Past it, “Try the demo” says to try again when a space ends, and 0 means no cap. Behind a reverse proxy, set TRUST_PROXY, or every visitor looks like the same address.',
+  },
   'admin.demoLifetime': {
     title: 'How long a demo space lasts',
     short: 'Each visitor gets this much time, counted from when they pressed “Try the demo”.',

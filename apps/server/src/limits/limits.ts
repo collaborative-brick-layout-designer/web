@@ -44,7 +44,9 @@ export type LimitKey =
   | 'requestsPerMinuteUser'
   | 'requestsPerMinuteToken'
   | 'inviteEmailsPerDay'
-  | 'newAccountInviteEmailsPerDay';
+  | 'newAccountInviteEmailsPerDay'
+  | 'storagePerDemoSpace'
+  | 'demoSpacesPerAddress';
 
 export interface LimitInfo {
   key: LimitKey;
@@ -52,7 +54,8 @@ export interface LimitInfo {
   /** One plain sentence for the settings page. */
   help: string;
   unit: 'count' | 'bytes' | 'per_minute' | 'per_day';
-  applies: 'user' | 'org' | 'both';
+  /** 'demo': about the demo's visitors, set in Admin › Settings › Demo account, never per person or club. */
+  applies: 'user' | 'org' | 'both' | 'demo';
   builtIn: number;
   envVar: string;
 }
@@ -76,6 +79,8 @@ export const LIMITS: readonly LimitInfo[] = [
   { key: 'requestsPerMinuteToken', label: 'Requests per minute (desktop app)', help: 'Requests one desktop sign-in may make in a minute.', unit: 'per_minute', applies: 'user', builtIn: 2400, envVar: 'LIMIT_REQUESTS_PER_MINUTE_TOKEN' },
   { key: 'inviteEmailsPerDay', label: 'Invite emails per person a day', help: 'Invite and hand-over emails one person may send in a day. Past it, the invite is still made and they copy the link to send themselves.', unit: 'per_day', applies: 'user', builtIn: 50, envVar: 'LIMIT_INVITE_EMAILS_PER_DAY' },
   { key: 'newAccountInviteEmailsPerDay', label: 'Invite emails a day in an account’s first week', help: 'Lower cap for brand-new accounts, so a throwaway account can’t send many emails.', unit: 'per_day', applies: 'user', builtIn: 10, envVar: 'LIMIT_NEW_ACCOUNT_INVITE_EMAILS_PER_DAY' },
+  { key: 'storagePerDemoSpace', label: 'Space for each demo space', help: 'How much one demo visitor’s space may hold. A demo space never gets more than a person does.', unit: 'bytes', applies: 'demo', builtIn: 50 * MB, envVar: 'LIMIT_STORAGE_PER_DEMO_SPACE' },
+  { key: 'demoSpacesPerAddress', label: 'Demo spaces from one network address', help: 'How many demo spaces may be open at once from one address, so one visitor can’t take them all. 0 means no cap.', unit: 'count', applies: 'demo', builtIn: 10, envVar: 'LIMIT_DEMO_SPACES_PER_ADDRESS' },
 ];
 
 const LIMIT_BY_KEY = new Map(LIMITS.map((l) => [l.key, l]));
@@ -199,7 +204,7 @@ export interface EffectiveLimit {
 }
 
 /** Every limit as it applies to one person. */
-export async function userLimits(user: Pick<User, 'id' | 'emailVerified' | 'createdAt'>, now: number = Date.now()): Promise<Record<LimitKey, EffectiveLimit>> {
+export async function userLimits(user: Pick<User, 'id' | 'emailVerified' | 'createdAt'> & Partial<Pick<User, 'isDemoAccount' | 'demoExpiresAt'>>, now: number = Date.now()): Promise<Record<LimitKey, EffectiveLimit>> {
   const { values } = await globalLimits(now);
   const ov = overrideFor('user', user.id, now).limits;
   const out = {} as Record<LimitKey, EffectiveLimit>;
@@ -211,6 +216,10 @@ export async function userLimits(user: Pick<User, 'id' | 'emailVerified' | 'crea
   }
   if (now - user.createdAt.getTime() < 7 * DAY_MS) {
     out.inviteEmailsPerDay = { value: Math.min(values.inviteEmailsPerDay, values.newAccountInviteEmailsPerDay), source: 'smart', reason: 'Account is less than a week old' };
+  }
+  // A visitor's demo space (it has an end; the template with the samples doesn't) holds little.
+  if (user.isDemoAccount && user.demoExpiresAt) {
+    out.storagePerUser = { value: Math.min(values.storagePerUser, values.storagePerDemoSpace), source: 'smart', reason: 'A demo space' };
   }
   for (const [k, v] of Object.entries(ov) as [LimitKey, number][]) out[k] = { value: v, source: 'override' };
   return out;
@@ -425,7 +434,10 @@ export async function checkGrowth(opts: {
   if (owner.kind === 'user' && owner.id !== actor.id && isSuspended('user', owner.id)) {
     return { status: 403, body: { error: 'suspended', message: 'That account is read-only for now.' } };
   }
-  if (!(await limitsEnforced())) return null; // counted and shown, never refused
+  // Counted and shown, never refused. A demo visitor's own space keeps its
+  // limits either way: anyone can open one without an account.
+  const demoSpace = actor.isDemoAccount && !!actor.demoExpiresAt && owner.kind === 'user' && owner.id === actor.id;
+  if (!(await limitsEnforced()) && !demoSpace) return null;
 
   if (add.clubs) {
     if (!actor.emailVerified) {
@@ -493,7 +505,9 @@ export async function checkGrowth(opts: {
     if (usage.storageBytes + add.bytes > max) {
       const msg = isOrg
         ? `Your club has used its ${formatSize(max)}. Ask the site admin for more room.`
-        : `You have used your ${formatSize(max)} of space. Delete something you don’t need, or ask the site admin for more room.`;
+        : demoSpace
+          ? `Your demo space is full (${formatSize(max)}). Delete something you don’t need to make room.`
+          : `You have used your ${formatSize(max)} of space. Delete something you don’t need, or ask the site admin for more room.`;
       return reached(key, owner.kind, usage.storageBytes, max, msg);
     }
   }

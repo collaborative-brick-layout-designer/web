@@ -3,7 +3,7 @@
 // Demo account, and the dashboard's demo line. The API is a stubbed fetch.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
 import type { ReactNode } from 'react';
@@ -216,6 +216,77 @@ describe('Admin › Settings › Demo account', () => {
     await waitFor(() => expect(calls.filter((c) => c.method === 'PATCH').map((c) => c.body)).toContainEqual({ demoEnabled: false }));
     fireEvent.click(screen.getByRole('button', { name: 'Reset now' }));
     await waitFor(() => expect(calls.find((c) => c.path === '/api/admin/demo/reset')).toMatchObject({ method: 'POST', body: {}, type: 'application/json' }));
+  });
+});
+
+describe('Admin › Settings › Demo account: what one visitor may take', () => {
+  const limit = (key: string, label: string, unit: string, value: number, def: number, extra: Record<string, unknown> = {}) => ({
+    key, label, help: `${label} help.`, unit, applies: 'demo', value, default: def, builtIn: def, envVar: `LIMIT_${key}`, fromEnv: false, changedHere: value !== def, ...extra,
+  });
+  let limits: ReturnType<typeof limit>[];
+  beforeEach(() => {
+    limits = [
+      { ...limit('layoutsPerUser', 'Layouts per person', 'count', 500, 500), applies: 'user' },
+      limit('storagePerDemoSpace', 'Space for each demo space', 'bytes', 50 * 1024 * 1024, 50 * 1024 * 1024),
+      limit('demoSpacesPerAddress', 'Demo spaces from one network address', 'count', 10, 10),
+    ];
+    routes['GET /api/admin/settings'] = () => ({ body: { demo: { enabled: true, resetEvery: 'daily', lastResetAt: NOW, nextResetAt: NOW + 86400_000, items: 1, maxSpaces: 100, liveSpaces: 0, spaceMinutes: 60 } } });
+    routes['GET /api/admin/limits'] = () => ({ body: { enforced: true, enforcedSetting: true, enforcementSource: 'setting', limits } });
+    routes['PATCH /api/admin/limits'] = () => {
+      const body = calls.at(-1)!.body as Record<string, number | null>;
+      limits = limits.map((l) => (l.key in body ? { ...l, value: body[l.key] ?? l.default, changedHere: body[l.key] !== null } : l));
+      return { body: { ok: true } };
+    };
+  });
+
+  it('shows the space for each demo space in MB and the spaces per address, each with help, and saves a change', async () => {
+    renderAt(<DemoAccountSection />);
+    const room = await screen.findByTestId('demo-limit-storagePerDemoSpace');
+    const roomBox = within(room).getByLabelText('Space for each demo space (MB)') as HTMLInputElement;
+    expect(roomBox.value).toBe('50');
+    expect(room.querySelector('[data-help-key="admin.demoStorage"]')).not.toBeNull();
+    expect(room.textContent).toContain('Default: 50 MB.');
+    // Nothing changed: no Save.
+    expect(within(room).queryByRole('button', { name: 'Save' })).toBeNull();
+    fireEvent.change(roomBox, { target: { value: '20' } });
+    fireEvent.click(within(room).getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(calls.find((c) => c.method === 'PATCH')).toMatchObject({ path: '/api/admin/limits', body: { storagePerDemoSpace: 20 * 1024 * 1024 } }));
+    // The saved value shows by itself, and Save goes.
+    await waitFor(() => expect((within(screen.getByTestId('demo-limit-storagePerDemoSpace')).getByLabelText('Space for each demo space (MB)') as HTMLInputElement).value).toBe('20'));
+    expect(within(screen.getByTestId('demo-limit-storagePerDemoSpace')).queryByRole('button', { name: 'Save' })).toBeNull();
+
+    const per = screen.getByTestId('demo-limit-demoSpacesPerAddress');
+    const perBox = within(per).getByLabelText('Demo spaces from one network address') as HTMLInputElement;
+    expect(perBox.value).toBe('10');
+    expect(per.querySelector('[data-help-key="admin.demoPerAddress"]')).not.toBeNull();
+    fireEvent.change(perBox, { target: { value: '3' } });
+    fireEvent.click(within(per).getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(calls.filter((c) => c.method === 'PATCH').at(-1)!.body).toEqual({ demoSpacesPerAddress: 3 }));
+  });
+
+  it('going back to the default clears the setting, and a bad value can’t be saved', async () => {
+    limits[2] = limit('demoSpacesPerAddress', 'Demo spaces from one network address', 'count', 3, 10);
+    renderAt(<DemoAccountSection />);
+    const per = await screen.findByTestId('demo-limit-demoSpacesPerAddress');
+    const perBox = within(per).getByLabelText('Demo spaces from one network address') as HTMLInputElement;
+    fireEvent.change(perBox, { target: { value: 'lots' } });
+    expect(within(per).queryByRole('button', { name: 'Save' })).toBeNull();
+    expect(per.textContent).toContain('Choose a whole number, 0 or more.');
+    fireEvent.change(perBox, { target: { value: '10' } });
+    fireEvent.click(within(per).getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(calls.find((c) => c.method === 'PATCH')?.body).toEqual({ demoSpacesPerAddress: null }));
+    // Under 1 MB a visitor couldn't save anything.
+    const room = screen.getByTestId('demo-limit-storagePerDemoSpace');
+    fireEvent.change(within(room).getByLabelText('Space for each demo space (MB)'), { target: { value: '0.5' } });
+    expect(within(room).queryByRole('button', { name: 'Save' })).toBeNull();
+    expect(room.textContent).toContain('Choose 1 MB or more.');
+  });
+
+  it('a value forced by the server’s settings says so', async () => {
+    limits[1] = limit('storagePerDemoSpace', 'Space for each demo space', 'bytes', 20 * 1024 * 1024, 20 * 1024 * 1024, { fromEnv: true, envVar: 'LIMIT_STORAGE_PER_DEMO_SPACE' });
+    renderAt(<DemoAccountSection />);
+    const room = await screen.findByTestId('demo-limit-storagePerDemoSpace');
+    expect(room.textContent).toContain('Set by LIMIT_STORAGE_PER_DEMO_SPACE.');
   });
 });
 

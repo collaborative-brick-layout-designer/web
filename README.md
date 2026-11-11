@@ -117,7 +117,12 @@ club** reviews what is published under its own name.
   their own copy) and are put back on a timer that never ends a visit early.
   Admin › Settings › Demo account sets how long a space lasts, how often the
   samples are put back and the most spaces at once (100 by default), and
-  shows how many are in use.
+  shows how many are in use. One visitor can't take the demo from everyone:
+  "Try the demo" again in the same browser goes back to the space it has, one
+  network address opens at most 10 spaces at once, and a space holds 50 MB
+  (both set there too, or with `LIMIT_DEMO_SPACES_PER_ADDRESS` and
+  `LIMIT_STORAGE_PER_DEMO_SPACE`). Behind a reverse proxy, set `TRUST_PROXY`,
+  or every visitor counts as one address.
 
 **Privacy.** People download all their data and delete their account from
 their Profile; nobody else ever sees their email address. See
@@ -519,6 +524,8 @@ when they fall behind.
 | `LIMIT_REQUESTS_PER_MINUTE_TOKEN` | 2400 a minute | Requests per minute (desktop app): Requests one desktop sign-in may make in a minute. |
 | `LIMIT_INVITE_EMAILS_PER_DAY` | 50 a day | Invite emails per person a day: Invite and hand-over emails one person may send in a day. Past it, the invite is still made and they copy the link to send themselves. |
 | `LIMIT_NEW_ACCOUNT_INVITE_EMAILS_PER_DAY` | 10 a day | Invite emails a day in an account’s first week: Lower cap for brand-new accounts, so a throwaway account can’t send many emails. |
+| `LIMIT_STORAGE_PER_DEMO_SPACE` | 50 MB | Space for each demo space: How much one demo visitor’s space may hold. A demo space never gets more than a person does. |
+| `LIMIT_DEMO_SPACES_PER_ADDRESS` | 10 | Demo spaces from one network address: How many demo spaces may be open at once from one address, so one visitor can’t take them all. 0 means no cap. |
 
 **Privacy.** Each is also set in Admin › Site settings › Privacy; when the variable is set to a whole number in range, it wins and the page says so.
 

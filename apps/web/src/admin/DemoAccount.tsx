@@ -3,13 +3,16 @@
 // default. Each space lasts a set time from when it was made (1 hour unless
 // changed here). The samples are put back on a timer (or now, with "Reset
 // now"); that never ends a visitor's space. The most spaces at once is set
-// here, next to how many there are now.
+// here, next to how many there are now, with how much one space may hold
+// and how many one network address may open (two usage limits, kept here).
 
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api';
 import { RESET_CHOICES, SPACE_LIFETIME_CHOICES, timeUntil } from '../demo/demoText';
 import { HelpButton } from '../help/HelpButton';
+import type { WebOnlyHelpKey } from '../help/webOnlyHelpTexts';
+import { formatLimit, limitsApi, toInput, toStored, type GlobalLimit } from './limits/limitsApi';
 
 /** The most demo spaces at once an admin may set (the server checks the same). */
 const MAX_SPACES_LIMIT = 10_000;
@@ -53,6 +56,7 @@ export function DemoAccountSection() {
         saving={save.isPending}
         onSave={(n) => save.mutate({ demoMaxSpaces: n })}
       />
+      <DemoLimits />
       <p className="text-xs text-muted" data-testid="demo-sign-in-note">
         Putting the samples back never cuts a visit short. When a space’s time is up, its visitor is signed out and their page offers to start again.
       </p>
@@ -154,6 +158,79 @@ function MaxSpaces({ value, live, saving, onSave }: { value: number; live: numbe
       {!valid && <p className="text-xs text-danger">Choose a whole number from 1 to {MAX_SPACES_LIMIT.toLocaleString()}.</p>}
       <p id="demo-live-spaces" className="text-xs text-muted" data-testid="demo-live-spaces">
         {live === 1 ? '1 demo space in use now' : `${live} demo spaces in use now`}
+      </p>
+    </div>
+  );
+}
+
+/** The demo's two usage limits, with their ⓘ. */
+const DEMO_LIMITS: Array<{ key: string; help: WebOnlyHelpKey }> = [
+  { key: 'storagePerDemoSpace', help: 'admin.demoStorage' },
+  { key: 'demoSpacesPerAddress', help: 'admin.demoPerAddress' },
+];
+
+/** How much one demo space may hold, and how many one address may open: saved like the other usage limits. */
+function DemoLimits() {
+  const qc = useQueryClient();
+  const limits = useQuery({ queryKey: ['admin-limits'], queryFn: limitsApi.global });
+  const save = useMutation({
+    mutationFn: limitsApi.patchGlobal,
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['admin-limits'] }),
+  });
+  if (!limits.data) return null;
+  return (
+    <>
+      {DEMO_LIMITS.map(({ key, help }) => {
+        const l = limits.data.limits.find((x) => x.key === key);
+        // `key` on the row: a value saved here (or by another admin) shows at once.
+        return l ? <DemoLimit key={`${key}:${l.value}`} l={l} help={help} saving={save.isPending} onSave={(v) => save.mutate({ [key]: v })} /> : null;
+      })}
+      {save.error && <p className="text-xs text-danger">{save.error.message}</p>}
+    </>
+  );
+}
+
+function DemoLimit({ l, help, saving, onSave }: { l: GlobalLimit; help: WebOnlyHelpKey; saving: boolean; onSave: (v: number | null) => void }) {
+  const id = `demo-limit-${l.key}`;
+  const [draft, setDraft] = useState(toInput(l.value, l.unit));
+  const stored = toStored(draft, l.unit);
+  // Space: at least 1 MB, or a visitor couldn't save their first layout.
+  const valid = stored !== null && !Number.isNaN(stored) && (l.unit !== 'bytes' || stored >= 1024 * 1024);
+  const changed = valid && stored !== l.value;
+  const origin = l.changedHere ? '' : l.fromEnv ? ` Set by ${l.envVar}.` : '';
+  return (
+    <div className="space-y-1" data-testid={id}>
+      <div className="flex items-center gap-1">
+        <label htmlFor={id} className="text-sm">
+          {l.label}
+          {l.unit === 'bytes' ? ' (MB)' : ''}
+        </label>
+        <HelpButton helpKey={help} target={`[data-testid="${id}"]`} />
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <input
+          id={id}
+          inputMode="numeric"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          aria-invalid={!valid}
+          aria-describedby={`${id}-note`}
+          className="w-24 rounded-lg border border-border bg-panel px-2 py-1.5 text-sm text-ink"
+        />
+        {changed && (
+          <button
+            type="button"
+            disabled={saving}
+            onClick={() => onSave(stored === l.default ? null : stored)}
+            className="tap-target rounded-lg bg-accent px-3 py-1 text-sm font-semibold text-accent-ink hover:bg-accent-hover disabled:opacity-50"
+          >
+            Save
+          </button>
+        )}
+      </div>
+      {!valid && <p className="text-xs text-danger">{l.unit === 'bytes' ? 'Choose 1 MB or more.' : 'Choose a whole number, 0 or more.'}</p>}
+      <p id={`${id}-note`} className="text-xs text-muted">
+        {l.help} Default: {formatLimit(l.default, l.unit)}.{origin}
       </p>
     </div>
   );

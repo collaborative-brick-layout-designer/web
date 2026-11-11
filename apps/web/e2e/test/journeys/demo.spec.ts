@@ -32,6 +32,16 @@ const ts = Date.now();
 const ADMIN = `j-demo-admin-${ts}@example.com`;
 const PART = 'ts_narrowgauge_straight.8';
 const SAMPLE = 'Sample layout';
+/** Set to a folder to keep pictures of the new settings and the "network is full" message, light and dark. */
+const SHOTS = process.env.DEMO_SHOTS;
+
+async function shootBoth(page: Page, name: string) {
+  for (const scheme of ['light', 'dark'] as const) {
+    await page.emulateMedia({ colorScheme: scheme });
+    await page.screenshot({ path: `${SHOTS}/${name}-${scheme}.png` });
+  }
+  await page.emulateMedia({ colorScheme: 'light' });
+}
 
 /** The sample layout's own id (the server's DEMO_SAMPLE_IDS.layout: UUIDv5, the same after every reset). */
 function sampleLayoutId(): string {
@@ -190,6 +200,49 @@ test('an admin turns on the demo, each visitor gets a private space, Reset now s
     await visitor.goto('/orgs');
     await expect(visitor.getByText(/The demo account can’t make or join clubs\./)).toBeVisible();
 
+    // ── 4b. One visitor can't take the demo from everyone. ──
+    // "Try the demo" again from the same browser: the space it has, not another.
+    const liveBefore = await admin.getByTestId('demo-live-spaces').textContent();
+    const again = await visitor.request.post('/api/auth/demo', { data: {} });
+    expect(await again.json()).toEqual({ ok: true, reused: true });
+    await admin.reload();
+    await expect(admin.getByTestId('demo-live-spaces')).toHaveText(liveBefore!);
+    // A demo space holds little (50 MB unless changed), with ⓘ help; the admin makes it 1 MB.
+    const room = admin.getByTestId('demo-limit-storagePerDemoSpace');
+    await expect(room.getByRole('textbox')).toHaveValue('50');
+    await room.getByRole('button', { name: /help/i }).click();
+    await expect(admin.getByText(/anyone can open a demo space without an account/).first()).toBeVisible();
+    await admin.keyboard.press('Escape');
+    await room.getByRole('textbox').fill('1');
+    await room.getByRole('button', { name: 'Save' }).click();
+    await expect(room.getByRole('button', { name: 'Save' })).toHaveCount(0);
+    await expect(room.getByRole('textbox')).toHaveValue('1');
+    const big = await visitor.request.post('/api/layouts', { data: { title: 'Too big', sidecar: JSON.stringify({ schemaVersion: 1, bbmHashSha256: '', notes: 'x'.repeat(2 * 1024 * 1024) }) } });
+    expect(big.status()).toBe(403);
+    expect(((await big.json()) as { message: string }).message).toBe('Your demo space is full (1 MB). Delete something you don’t need to make room.');
+    // One network address opens only so many at once (10 unless changed), with ⓘ help; the admin makes it 1.
+    const perAddress = admin.getByTestId('demo-limit-demoSpacesPerAddress');
+    await expect(perAddress.getByRole('textbox')).toHaveValue('10');
+    await perAddress.getByRole('button', { name: /help/i }).click();
+    await expect(admin.getByText(/People on one Wi-Fi/).first()).toBeVisible();
+    await admin.keyboard.press('Escape');
+    await perAddress.getByRole('textbox').fill('1');
+    await perAddress.getByRole('button', { name: 'Save' }).click();
+    await expect(perAddress.getByRole('button', { name: 'Save' })).toHaveCount(0);
+    const crowdCtx = await browser.newContext();
+    const crowd = await crowdCtx.newPage();
+    await crowd.goto('/login');
+    await crowd.getByRole('button', { name: 'Try the demo' }).click();
+    await expect(crowd.getByText(/already .* open from your network\. Try again when one ends, in 1 hour at most\./)).toBeVisible();
+    if (SHOTS) await shootBoth(crowd, 'demo-network-full');
+    expect(await whoAmI(crowd)).toBeNull();
+    await crowdCtx.close();
+    if (SHOTS) {
+      await admin.getByRole('heading', { name: 'Demo account' }).scrollIntoViewIfNeeded();
+      await shootBoth(admin, 'demo-admin-limits');
+    }
+    await admin.request.patch('/api/admin/limits', { data: { demoSpacesPerAddress: null } });
+
     // ── 5. At the most spaces at once, the next visitor is told the demo is busy. ──
     const most = admin.getByLabel('Most demo spaces at once');
     await most.fill('1');
@@ -207,6 +260,7 @@ test('an admin turns on the demo, each visitor gets a private space, Reset now s
   } finally {
     // ── 4. Off again (the journeys share one server). ──
     await admin.request.patch('/api/admin/settings', { data: { demoEnabled: false, demoMaxSpaces: 100 } });
+    await admin.request.patch('/api/admin/limits', { data: { demoSpacesPerAddress: null, storagePerDemoSpace: null } });
   }
   const me = (await (await visitor.request.get('/api/auth/me')).json()) as { user: unknown };
   expect(me.user).toBeNull();
