@@ -16,6 +16,7 @@ import { checkGrowth } from '../limits/limits.js';
 import { requireUser } from '../auth/cookie.js';
 import { isDemoUser } from '../demo/demoAccount.js';
 import { hasVerifiedEmail } from '../auth/users.js';
+import { getPlatformSettings } from '../auth/platformSettings.js';
 import { sameEmail } from '../utils/validate.js';
 import { maskEmail } from '../utils/maskEmail.js';
 import { publicName } from '../utils/publicName.js';
@@ -23,11 +24,12 @@ import { publicName } from '../utils/publicName.js';
 export async function orgInviteRoutes(app: FastifyInstance): Promise<void> {
   // Home's "You're invited to a club": the open invites for the signed-in
   // person's address, so someone with an account can join without the email.
-  // Only once the address is proven (as accepting needs), and never for a
-  // club waiting to be deleted.
+  // Only for an account whose own address is confirmed, on a server that
+  // asks for that (the list carries each invite's link, which is otherwise
+  // only sent to the address), and never for a club waiting to be deleted.
   app.get('/api/me/org-invites', async (req) => {
     const user = requireUser(req);
-    if (isDemoUser(user) || !(await hasVerifiedEmail(user))) return { invites: [] };
+    if (isDemoUser(user) || !user.emailVerified || !(await getPlatformSettings()).requireEmailVerification) return { invites: [] };
     const rows = await db
       .select({
         token: schema.orgInvites.token,

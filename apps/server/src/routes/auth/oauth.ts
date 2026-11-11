@@ -205,9 +205,10 @@ function oidcRoutes(app: FastifyInstance) {
 
 /**
  * Who signed in, from the ID token's claims, with the UserInfo endpoint
- * asked when the token carries no email. An address the provider marks
- * unverified is refused; one it says nothing about is taken as it is, as
- * most workplace providers (Entra, Keycloak) leave the flag out.
+ * asked when the token carries no email. An address is taken when the
+ * provider marks it verified (true, or "true" as some send it) or says
+ * nothing about it, as most workplace providers (Entra, Keycloak) leave
+ * the flag out. Any other value is refused.
  */
 export async function fetchOidcProfile(config: client.Configuration, tokens: client.TokenEndpointResponse & client.TokenEndpointResponseHelpers): Promise<NormalisedProfile> {
   const claims = tokens.claims();
@@ -216,7 +217,8 @@ export async function fetchOidcProfile(config: client.Configuration, tokens: cli
   if (typeof info.email !== 'string' && config.serverMetadata().userinfo_endpoint) {
     info = { ...info, ...(await client.fetchUserInfo(config, tokens.access_token, claims.sub)) };
   }
-  if (typeof info.email !== 'string' || !info.email || info.email_verified === false) throw new UnverifiedEmailError();
+  const verified = info.email_verified === undefined || info.email_verified === true || info.email_verified === 'true';
+  if (typeof info.email !== 'string' || !info.email || !verified) throw new UnverifiedEmailError();
   const name = typeof info.name === 'string' ? info.name : '';
   return {
     providerUserId: claims.sub,

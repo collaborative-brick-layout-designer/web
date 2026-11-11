@@ -62,7 +62,34 @@ const forgot = (email: string) => app.inject({ method: 'POST', url: '/api/auth/p
 /** The forgot route emails after it answers; wait for that. */
 const settle = () => new Promise((r) => setTimeout(r, 50));
 
+/** A desktop sign-in approved in the browser `c`, its token not collected yet. */
+async function approvedDesktopSignIn(c: string): Promise<() => Promise<{ statusCode: number; body: { error?: string; access_token?: string } }>> {
+  const code = (await app.inject({ method: 'POST', url: '/api/auth/device/code', payload: { client_name: 'Waiting desktop' } })).json() as { device_code: string; user_code: string };
+  const ok = await app.inject({ method: 'POST', url: '/api/auth/device/approve', headers: { cookie: c }, payload: { user_code: code.user_code } });
+  expect(ok.statusCode).toBe(200);
+  return async () => {
+    const res = await app.inject({ method: 'POST', url: '/api/auth/device/token', payload: { device_code: code.device_code } });
+    return { statusCode: res.statusCode, body: res.json() };
+  };
+}
+
 describe('change password', () => {
+  it('ends a desktop sign-in that was approved but not collected yet', async () => {
+    const here = await loginAs(app, 'ann@example.com');
+    const other = cookieOf(await login('ann@example.com', PASS));
+    const collect = await approvedDesktopSignIn(other);
+    const res = await app.inject({ method: 'POST', url: '/api/auth/password/change', headers: { cookie: here.cookie }, payload: { currentPassword: PASS, newPassword: NEW } });
+    expect(res.statusCode, res.body).toBe(200);
+    const polled = await collect();
+    expect(polled.statusCode).toBe(400);
+    expect(polled.body).toEqual({ error: 'access_denied' });
+    expect(db.select().from(schema.apiTokens).all()).toHaveLength(0);
+    // One approved after the change works as ever.
+    const after = await (await approvedDesktopSignIn(here.cookie))();
+    expect(after.statusCode).toBe(200);
+    expect(after.body.access_token).toBeTruthy();
+  });
+
   it('needs the current password, then signs out other browsers and desktop apps but keeps this one', async () => {
     const here = await loginAs(app, 'ada@example.com');
     const other = cookieOf(await login('ada@example.com', PASS));
@@ -125,6 +152,19 @@ describe('forgot password', () => {
     expect(row.tokenHash).toBe(hashToken(tokenOf(sent[0]!.url)));
     expect(row.tokenHash).not.toBe(tokenOf(sent[0]!.url));
     expect(row.expiresAt.getTime() - row.createdAt.getTime()).toBe(60 * 60 * 1000);
+  });
+
+  it('a link also ends a desktop sign-in that was approved but not collected yet', async () => {
+    const u = await loginAs(app, 'eli@example.com');
+    const collect = await approvedDesktopSignIn(u.cookie);
+    await forgot('eli@example.com');
+    await settle();
+    const reset = await app.inject({ method: 'POST', url: '/api/auth/password/reset', payload: { token: tokenOf(sent.at(-1)!.url), password: NEW } });
+    expect(reset.statusCode, reset.body).toBe(200);
+    const polled = await collect();
+    expect(polled.statusCode).toBe(400);
+    expect(polled.body).toEqual({ error: 'access_denied' });
+    expect(db.select().from(schema.apiTokens).all()).toHaveLength(0);
   });
 
   it('a link works once: it sets the password, signs out everywhere else and signs this browser in', async () => {

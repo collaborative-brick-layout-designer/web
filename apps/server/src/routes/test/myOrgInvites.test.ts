@@ -66,6 +66,42 @@ describe('GET /api/me/org-invites', () => {
     expect((await mine(bob)).invites).toEqual([]);
   });
 
+  /** Admin > Settings > "Require email verification". */
+  async function requireVerification(on: boolean): Promise<void> {
+    const row = { requireEmailVerification: on, updatedAt: new Date() };
+    await db.insert(schema.platformSettings).values({ id: 'singleton', ...row }).onConflictDoUpdate({ target: schema.platformSettings.id, set: row });
+  }
+
+  it('lists nothing for an account whose address is not confirmed, whether the server asks for that or not', async () => {
+    await call(admin, 'POST', '/api/orgs/arklug/invites', { email: 'bob@example.com', role: 'member' });
+    expect((await mine(bob)).invites).toHaveLength(1);
+    await db.update(schema.users).set({ emailVerified: false }).where(eq(schema.users.id, bob.id));
+    await requireVerification(true);
+    expect((await mine(bob)).invites).toEqual([]);
+    await requireVerification(false);
+    expect((await mine(bob)).invites).toEqual([]);
+    // Confirmed again, on a server that asks for it: listed again.
+    await db.update(schema.users).set({ emailVerified: true }).where(eq(schema.users.id, bob.id));
+    await requireVerification(true);
+    expect((await mine(bob)).invites).toHaveLength(1);
+  });
+
+  it('lists nothing for an account made with an invited address while the server does not ask for confirmation', async () => {
+    await requireVerification(false);
+    const res = await call(admin, 'POST', '/api/orgs/arklug/invites', { email: 'newbie@example.com', role: 'admin' });
+    expect(res.statusCode).toBe(200);
+    const reg = await app.inject({ method: 'POST', url: '/api/auth/password/register', payload: { email: 'newbie@example.com', password: 'correct horse battery', displayName: 'Newbie' } });
+    expect(reg.json()).toEqual({ ok: true, verificationRequired: false });
+    const sc = reg.headers['set-cookie'];
+    const newbie = { cookie: Array.isArray(sc) ? sc.join('; ') : (sc ?? ''), id: '' };
+    const list = await call(newbie, 'GET', '/api/me/org-invites');
+    expect(list.statusCode).toBe(200);
+    expect(list.json()).toEqual({ invites: [] });
+    expect(list.body).not.toContain((res.json() as { token: string }).token);
+    // The link that was sent to the address still works, as before.
+    expect((await call(newbie, 'POST', `/api/org-invites/${(res.json() as { token: string }).token}`)).statusCode).toBe(200);
+  });
+
   it('needs a sign-in', async () => {
     expect((await app.inject({ method: 'GET', url: '/api/me/org-invites' })).statusCode).toBe(401);
   });

@@ -207,6 +207,23 @@ describe('device authorization flow', () => {
     expect((await decide(app, user.cookie, code.user_code, 'approve')).statusCode).toBe(404);
   });
 
+  it("admin 'revoke all sessions' ends an approved sign-in that hasn't collected its token", async () => {
+    const other = await loginAs(app, 'other-desk@x.com');
+    const code = await requestCode(app);
+    expect((await decide(app, other.cookie, code.user_code, 'approve')).statusCode).toBe(200);
+    // Someone else's approval is left alone.
+    const mine = await requestCode(app);
+    expect((await decide(app, user.cookie, mine.user_code, 'approve')).statusCode).toBe(200);
+    await db.update(schema.users).set({ isGlobalAdmin: true }).where(eq(schema.users.id, user.id));
+    const res = await app.inject({ method: 'POST', url: `/api/admin/users/${other.id}/sessions/revoke-all`, headers: { cookie: user.cookie } });
+    expect(res.statusCode).toBe(200);
+    const polled = await poll(app, code.device_code);
+    expect(polled.statusCode).toBe(400);
+    expect(polled.json().error).toBe('access_denied');
+    expect(await db.select().from(schema.apiTokens).where(eq(schema.apiTokens.userId, other.id)).all()).toHaveLength(0);
+    expect((await poll(app, mine.device_code)).statusCode).toBe(200);
+  });
+
   it('rejects malformed polls', async () => {
     expect((await app.inject({ method: 'POST', url: '/api/auth/device/token', payload: {} })).json().error).toBe(
       'invalid_request',

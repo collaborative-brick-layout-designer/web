@@ -13,12 +13,14 @@ import * as Y from 'yjs';
 import * as encoding from 'lib0/encoding';
 import * as decoding from 'lib0/decoding';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { eq } from 'drizzle-orm';
 import { db, loginAs, resetDb, schema } from '../../test/helpers.js';
 import { attachUser } from '../../auth/cookie.js';
 import { passwordRoutes } from '../auth/password.js';
+import { sessionRoutes } from '../auth/session.js';
 import { layoutRoutes } from '../layouts.js';
 import { wsRoutes } from '../ws.js';
-import { MAX_AWARENESS_BYTES, MAX_AWARENESS_IDS, docHub } from '../../ws/docHub.js';
+import { MAX_AWARENESS_BYTES, MAX_AWARENESS_IDS, PRESENCE_AVATAR_MAX, PRESENCE_COLOR_MAX, PRESENCE_NAME_MAX, docHub } from '../../ws/docHub.js';
 import { Peer } from './wsPeer.js';
 import { wsPacing } from '../../ws/pacing.js';
 
@@ -91,6 +93,7 @@ describe('WS presence', () => {
     await app.register(cookie);
     app.addHook('preHandler', attachUser);
     await app.register(passwordRoutes);
+    await app.register(sessionRoutes);
     await app.register(layoutRoutes);
     await app.register(wsRoutes);
     await app.listen({ port: 0, host: '127.0.0.1' });
@@ -129,7 +132,7 @@ describe('WS presence', () => {
     v.ws.send(awarenessMsg([{ clientID: 501, clock: 1, state: pres('Vee', { cursor: { x: 1, y: 2 } }) }]));
     await sleep(100);
     const seen = awarenessSeen(watcher.msgs).filter((e) => e.clientID === 501);
-    expect(seen.at(-1)?.state).toEqual(pres('Vee', { cursor: { x: 1, y: 2 } }, { id: viewer.id }));
+    expect(seen.at(-1)?.state).toEqual(pres('viewer', { cursor: { x: 1, y: 2 } }, { id: viewer.id }));
     // A forged id is replaced too.
     v.ws.send(awarenessMsg([{ clientID: 501, clock: 2, state: pres('Vee', {}, { id: owner.id }) }]));
     await sleep(100);
@@ -139,6 +142,51 @@ describe('WS presence', () => {
     await v.closed;
     await sleep(100);
     expect(states().has(501)).toBe(false);
+  });
+
+  it("a presence entry carries the account's own name, with its other fields kept short", async () => {
+    const viewer = await share('viewer4@x.com', 'viewer');
+    const v = await client(viewer.cookie);
+    const watcher = await client();
+    await sleep(100);
+    type Shown = { user: { id: string; displayName: string; color?: unknown; avatarUrl?: unknown } };
+    const shown = () => (states().get(502) as Shown).user;
+    const lastSeen = () => (awarenessSeen(watcher.msgs).filter((e) => e.clientID === 502).at(-1)!.state as Shown).user;
+
+    // Whatever name is sent, the account's is shown.
+    v.ws.send(awarenessMsg([{ clientID: 502, clock: 1, state: pres('owner') }]));
+    await sleep(100);
+    expect(shown()).toEqual({ id: viewer.id, displayName: 'viewer4' });
+    expect(lastSeen().displayName).toBe('viewer4');
+    v.ws.send(awarenessMsg([{ clientID: 502, clock: 2, state: pres('n'.repeat(100_000), {}, { color: '#'.repeat(5_000), avatarUrl: `https://pics.example/${'a'.repeat(PRESENCE_AVATAR_MAX)}` }) }]));
+    await sleep(100);
+    expect(shown()).toEqual({ id: viewer.id, displayName: 'viewer4', color: '#'.repeat(PRESENCE_COLOR_MAX), avatarUrl: null });
+    // Ordinary values pass as they are.
+    v.ws.send(awarenessMsg([{ clientID: 502, clock: 3, state: pres('viewer4', {}, { color: '#60a5fa', avatarUrl: 'https://pics.example/v.png' }) }]));
+    await sleep(100);
+    expect(shown()).toEqual({ id: viewer.id, displayName: 'viewer4', color: '#60a5fa', avatarUrl: 'https://pics.example/v.png' });
+
+    // A new name set in Settings shows from the next presence message, without reconnecting.
+    const renamed = await app.inject({ method: 'PATCH', url: '/api/auth/me', headers: { cookie: viewer.cookie }, payload: { displayName: 'Vee' } });
+    expect(renamed.statusCode, renamed.body).toBe(200);
+    v.ws.send(awarenessMsg([{ clientID: 502, clock: 4, state: pres('viewer4') }]));
+    await sleep(100);
+    expect(shown().displayName).toBe('Vee');
+    expect(lastSeen().displayName).toBe('Vee');
+
+    // A stored name that is an address or over-long never shows as it is.
+    await db.update(schema.users).set({ displayName: 'someone@example.com' }).where(eq(schema.users.id, owner.id));
+    const o = await client();
+    await sleep(100);
+    o.ws.send(awarenessMsg([{ clientID: 503, clock: 1, state: pres('someone@example.com') }]));
+    await sleep(100);
+    expect((states().get(503) as Shown).user.displayName).toMatch(/^Builder #[0-9a-z]{1,6}$/);
+    await db.update(schema.users).set({ displayName: 'L'.repeat(300) }).where(eq(schema.users.id, owner.id));
+    const o2 = await client();
+    await sleep(100);
+    o2.ws.send(awarenessMsg([{ clientID: 504, clock: 1, state: pres('x') }]));
+    await sleep(100);
+    expect((states().get(504) as Shown).user.displayName).toBe('L'.repeat(PRESENCE_NAME_MAX));
   });
 
   it("another connection can't change or remove someone's presence, or take it with it when it leaves", async () => {
@@ -155,7 +203,7 @@ describe('WS presence', () => {
     other.ws.send(awarenessMsg([{ clientID: ALICE, clock: 3, state: null }]));
     await sleep(150);
     expect(awarenessSeen(watcher.msgs).filter((e) => e.clientID === ALICE)).toEqual([]);
-    expect(states().get(ALICE)).toEqual(pres('Alice', { cursor: { x: 1 } }, { id: owner.id }));
+    expect(states().get(ALICE)).toEqual(pres('owner', { cursor: { x: 1 } }, { id: owner.id }));
     other.ws.close();
     await other.closed;
     await sleep(100);
@@ -187,7 +235,7 @@ describe('WS presence', () => {
     await sleep(50);
     second.ws.send(awarenessMsg([{ clientID: 77, clock: 2, state: pres('A', { cursor: { x: 5 } }) }]));
     await sleep(100);
-    expect(states().get(77)).toEqual(pres('A', { cursor: { x: 5 } }, { id: owner.id }));
+    expect(states().get(77)).toEqual(pres('owner', { cursor: { x: 5 } }, { id: owner.id }));
     first.ws.close();
     await first.closed;
     await sleep(100);
