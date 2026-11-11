@@ -264,3 +264,67 @@ test('a demo space counts its time down, warns in the last 5 minutes with a down
     await ctx.close();
   }
 });
+
+/** The banner and the box of `el` share no pixel. */
+async function apart(page: Page, el: import('@playwright/test').Locator): Promise<boolean> {
+  const a = await page.getByTestId('demo-banner').boundingBox();
+  const b = await el.boundingBox();
+  if (!a || !b) return false;
+  return a.x + a.width <= b.x || b.x + b.width <= a.x || a.y + a.height <= b.y || b.y + b.height <= a.y;
+}
+
+// The countdown used to float over the editor's Build / Venue / Notes /
+// Parts list tabs and hide them. In an editor it is now a bar in the page's
+// flow above the header: the tabs stay visible and clickable at desktop and
+// phone widths, in the last 5 minutes too (when the bar takes clicks).
+test('in the editor the demo countdown never covers the task tabs', async ({ page: admin, browser }) => {
+  test.setTimeout(240_000);
+  const email = `j-demo-tabs-${ts}@example.com`;
+  await signIn(admin, email, 'Demo Tabs Admin');
+  makeGlobalAdmin(email);
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const visitor = await ctx.newPage();
+  try {
+    expect((await admin.request.patch('/api/admin/settings', { data: { demoEnabled: true } })).ok()).toBe(true);
+    await visitor.goto('/login');
+    await visitor.getByRole('button', { name: 'Try the demo' }).click();
+    const banner = visitor.getByTestId('demo-banner');
+    await expect(banner).toBeVisible();
+    // Off the editor it still floats, as before.
+    await expect(banner).toHaveAttribute('data-placement', 'floating');
+    const me = (await whoAmI(visitor))!;
+    const [sample] = await myLayouts(visitor);
+
+    for (const left of [30 * 60_000, 4 * 60_000 + 30_000]) {
+      setDemoSpaceTimeLeft(me.id, left);
+      for (const size of [{ width: 1280, height: 800 }, { width: 390, height: 844 }]) {
+        await visitor.setViewportSize(size);
+        await visitor.goto(`/editor/${sample!.id}`);
+        await expect(banner).toHaveAttribute('data-placement', 'inline');
+        await expect(banner).toHaveAttribute('data-state', left < 5 * 60_000 ? 'ending' : 'running');
+        const header = visitor.locator('header').first();
+        await expect(header).toBeVisible();
+        // Above the header, not over it.
+        expect(await apart(visitor, header)).toBe(true);
+        const tabs = visitor.getByRole('group', { name: 'Tasks' });
+        // (A phone shows them where it has room; wherever they are, they're clear of the bar.)
+        if (size.width >= 768) await expect(tabs).toBeVisible();
+        if (await tabs.isVisible()) {
+          for (const name of ['Build', 'Venue', 'Notes', 'Parts list']) {
+            const tab = tabs.getByRole('button', { name, exact: true });
+            await expect(tab).toBeVisible();
+            expect(await apart(visitor, tab)).toBe(true);
+          }
+          // Clickable: the click reaches the tab, not the bar.
+          await tabs.getByRole('button', { name: 'Venue', exact: true }).click();
+          await expect(tabs.getByRole('button', { name: 'Venue', exact: true })).toHaveAttribute('aria-pressed', 'true');
+          await tabs.getByRole('button', { name: 'Build', exact: true }).click();
+          await expect(tabs.getByRole('button', { name: 'Build', exact: true })).toHaveAttribute('aria-pressed', 'true');
+        }
+      }
+    }
+  } finally {
+    await admin.request.patch('/api/admin/settings', { data: { demoEnabled: false } });
+    await ctx.close();
+  }
+});

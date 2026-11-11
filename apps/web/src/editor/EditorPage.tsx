@@ -200,6 +200,7 @@ import { resolveMenu } from '../ui/menu/menuModel';
 import { mapMenuEntries, modKey, phoneMapEntries, type MapMenuToggles } from './mapMenu';
 import { openFilePicker } from '../open/FileOpener';
 import { OpenedSummaryCard } from '../open/OpenedSummary';
+import { DemoBanner } from '../demo/DemoBanner';
 // Dialogs and infrequently-used panels — lazy-loaded so they don't bloat
 // the initial editor chunk. React.lazy requires a default export, but all
 // our components are named; the wrappers below re-export as default.
@@ -959,12 +960,16 @@ function Editor({ layoutId, docState, moduleMode }: { layoutId: string; docState
   }
 
   return (
+    // A demo visitor's countdown sits in the flow above the header (floating,
+    // it covered the task tabs), and the editor takes the rest of the height.
+    <div className="h-app flex flex-col bg-bg text-ink">
+    <DemoBanner placement="inline" />
     <div
       // dvh, not vh: on a phone 100vh is the height with the browser bars
       // hidden, so the bottom of the page (scale card, status bar) would sit
       // under the address bar. Less the "new version" bar while it shows
       // (styles.css .h-app), so the bar covers no zoom button.
-      className="h-app grid grid-rows-[auto_auto_1fr_auto] bg-bg text-ink"
+      className="grid min-h-0 flex-1 grid-rows-[auto_auto_1fr_auto]"
       style={{ gridTemplateColumns: viewport.isMobile ? '0px 0px 1fr 0px' : `${showRail ? '76px' : '0px'} ${cols}` }}
     >
       {moduleMode ? (
@@ -1719,6 +1724,7 @@ function Editor({ layoutId, docState, moduleMode }: { layoutId: string; docState
         />
       )}
       </Suspense>
+    </div>
     </div>
   );
 }
