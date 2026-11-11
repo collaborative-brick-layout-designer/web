@@ -228,8 +228,16 @@ export async function revokeApiToken(userId: string, tokenId: string): Promise<A
   return { ...row, revokedAt };
 }
 
-/** Revoke every live token of a user. Returns how many were revoked. */
+/**
+ * Revoke every live token of a user, and end any desktop sign-in they
+ * approved that hasn't collected its token yet (it would otherwise become
+ * a new token on its next poll). Returns how many tokens were revoked.
+ */
 export async function revokeAllApiTokens(userId: string): Promise<number> {
+  await db
+    .update(schema.deviceCodes)
+    .set({ status: 'denied' })
+    .where(and(eq(schema.deviceCodes.userId, userId), eq(schema.deviceCodes.status, 'approved')));
   const res = await db
     .update(schema.apiTokens)
     .set({ revokedAt: new Date() })
