@@ -576,8 +576,9 @@ test.describe('desktop and web live editing', () => {
         await expect
           .poll(async () => (await serverModules())[0]!.members.includes(parts[1]!), { timeout: 10_000, message: 'the desktop’s part is out of the module' })
           .toBe(false);
+        // (The module had every part but the one taken out above: one in, one out.)
         const members = (await serverModules())[0]!.members;
-        expect(members.length).toBe(parts.length);
+        expect(members.length).toBe(parts.length - 1);
         // Either way the desktop and the server agree, and the module is there once.
         await expect.poll(async () => (await driver.modules())?.[0]?.members.slice().sort()).toEqual(members.slice().sort());
         expect((await serverModules()).length).toBe(1);
