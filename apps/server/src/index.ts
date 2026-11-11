@@ -31,13 +31,17 @@ import { registerChangeHints } from './events/routeHints.js';
 import { setHintErrorLogger } from './events/audience.js';
 import { stopEvents } from './routes/events.js';
 import { askedFixes, runDataFixes } from './ops/dataFixes.js';
+import { startLog } from './ops/startLog.js';
 import { docHub } from './ws/docHub.js';
+
+// What is said before the server's logger exists goes to it once it does.
+const starting = startLog();
 
 async function main() {
   // Run pending migrations on boot. Idempotent. A copy of the database as
   // it was goes to the backups folder first (the last two kept).
   try {
-    backupBeforeMigrating(sqlite, resolve('./migrations'), env.backupsDir, (line) => console.log(line));
+    backupBeforeMigrating(sqlite, resolve('./migrations'), env.backupsDir, starting.line);
   } catch (err) {
     console.error('[backup] couldn\'t copy the database before migrating; migrating anyway', err);
   }
@@ -48,9 +52,9 @@ async function main() {
   runDataFixes(
     sqlite,
     askedFixes(env.dataFix),
-    (line) => console.log(line),
+    starting.line,
     (id) => docHub.peek(id)?.doc,
-    (fixId) => backupBeforeFix(sqlite, fixId, env.backupsDir, (line) => console.log(line)),
+    (fixId) => backupBeforeFix(sqlite, fixId, env.backupsDir, starting.line),
   );
   await ensureBootstrapAdmin();
   // Data downloads that were building when the server stopped can be asked for again.
@@ -68,6 +72,7 @@ async function main() {
     bodyLimit: 10 * 1024 * 1024,
     trustProxy: env.trustProxy,
   });
+  starting.attach((line) => app.log.info(line));
   const proxyWarning = trustProxyWarning(env.trustProxy);
   if (proxyWarning) app.log.warn(proxyWarning);
 
@@ -218,6 +223,7 @@ async function main() {
 }
 
 main().catch((err) => {
+  starting.flushTo((line) => console.log(line));
   console.error(err);
   process.exit(1);
 });

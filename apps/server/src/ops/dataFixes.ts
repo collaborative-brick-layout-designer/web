@@ -2,8 +2,10 @@
 // one: CBLD_DATA_FIX=<fix name> (several: comma separated) for one restart.
 // Each fix that ran is recorded in data_fixes and never runs again, even
 // with the variable still set. Without the variable, a fix that hasn't run
-// is looked at (a dry run): with nothing to fix it's recorded as done and
-// says nothing; otherwise one log line notes it and nothing else happens.
+// is looked at (a dry run): with nothing to fix it's recorded as done;
+// otherwise it waits, and nothing else happens. Every start says in one
+// line per fix where it stands (already ran, nothing to fix, or how much
+// waits), through the server's logger (index.ts, startLog.ts).
 // Before a fix writes, the database as it was is copied to the backups
 // folder (workers/backup.ts backupBeforeFix); with no copy, the fix waits.
 //
@@ -100,7 +102,8 @@ export function recordFix(sqlite: Database.Database, id: string, summary: Summar
 /**
  * At server start, after the migrations and before it takes connections:
  * run each fix CBLD_DATA_FIX asks for that hasn't run, and record it. One
- * log line for fixes that wait; nothing at all once every fix has run.
+ * log line for the fixes that wait, and one for each fix that already ran
+ * or had nothing to fix.
  * `backup` copies the database before a fix writes: when it throws, that
  * fix doesn't run (it waits for the next start).
  */
@@ -120,15 +123,21 @@ export function runDataFixes(
   for (const id of DATA_FIXES) {
     const done = fixRecorded(sqlite, id);
     if (!asked.has(id)) {
-      if (done) continue;
+      if (done) {
+        log(`[dataFix] ${id}: already ran on ${done.toISOString()}; nothing to do`);
+        continue;
+      }
       // Not asked for: a look (nothing written). With nothing to fix (a new
-      // server, or one whose data never needed it) it's recorded as done, so
-      // the start log stays quiet; otherwise it waits for the operator.
+      // server, or one whose data never needed it) it's recorded as done;
+      // otherwise it waits for the operator (the line after the loop).
       const look = FIXES[id].look(sqlite, liveDoc);
       if (look.needed) {
         out.pending.push(id);
         if (look.waiting) waiting.set(id, look.waiting);
-      } else recordFix(sqlite, id, look.summary);
+      } else {
+        recordFix(sqlite, id, look.summary);
+        log(`[dataFix] ${id}: looked, nothing to fix${look.waiting ? ` (${look.waiting})` : ''}; recorded as done`);
+      }
       continue;
     }
     if (done) {
