@@ -151,6 +151,10 @@ describe('turning it on', () => {
     // A fixed hour from when the space was made, not tied to the reset.
     expect(space.demoExpiresAt!.getTime() - space.createdAt.getTime()).toBe(3600_000);
     expect(me.user.demo.expiresAt).toBe(space.demoExpiresAt!.getTime());
+    // The time left by the server's own clock, for the page's countdown.
+    const msLeft = (me.user.demo as unknown as { msLeft: number }).msLeft;
+    expect(msLeft).toBeGreaterThan(59 * 60_000);
+    expect(msLeft).toBeLessThanOrEqual(60 * 60_000);
     expect(owned(schema.layouts, me.user.id).map((l) => (l as { copiedFromId: string }).copiedFromId)).toEqual([DEMO_SAMPLE_IDS.layout]);
     expect(owned(schema.modules, me.user.id).map((l) => (l as { copiedFromId: string }).copiedFromId)).toEqual([DEMO_SAMPLE_IDS.module]);
     expect(owned(schema.venueLibrary, me.user.id).map((l) => (l as { copiedFromId: string }).copiedFromId)).toEqual([DEMO_SAMPLE_IDS.venue]);

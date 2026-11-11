@@ -100,6 +100,34 @@ describe('the demo banner', () => {
     expect(screen.getByTestId('demo-banner-text').textContent).toBe('Your demo space is yours for about 35 more minutes.');
   });
 
+  it('counts down from the time left the server sent, so a visitor whose clock is wrong sees the right time', async () => {
+    // This computer's clock is 3 hours fast: by it, the space "ended" long ago.
+    const WRONG = NOW + 3 * 3600_000;
+    vi.useFakeTimers({ now: WRONG, toFake: ['Date', 'setInterval', 'clearInterval'] });
+    routes['GET /api/auth/me'] = () => ({ body: demoUser({ enabled: true, resetEvery: 'daily', lastResetAt: NOW, nextResetAt: NOW + 86400_000, spaceMinutes: 60, expiresAt: NOW + 45 * 60_000, msLeft: 45 * 60_000 }) });
+    renderAt(<DemoBanner />);
+    const text = await screen.findByTestId('demo-banner-text');
+    expect(text.textContent).toBe('Your demo space is yours for about 45 more minutes.');
+    expect(screen.getByTestId('demo-banner').getAttribute('data-state')).toBe('running');
+    // It didn't decide the time was up and ask again and again.
+    expect(calls.filter((c) => c.path === '/api/auth/me')).toHaveLength(1);
+    await act(async () => {
+      vi.setSystemTime(WRONG + 10 * 60_000);
+      vi.advanceTimersByTime(10_000);
+    });
+    expect(screen.getByTestId('demo-banner-text').textContent).toBe('Your demo space is yours for about 35 more minutes.');
+  });
+
+  it('a clock that is slow doesn’t promise more time than there is', async () => {
+    const WRONG = NOW - 2 * 3600_000;
+    vi.useFakeTimers({ now: WRONG, toFake: ['Date', 'setInterval', 'clearInterval'] });
+    routes['GET /api/auth/me'] = () => ({ body: demoUser({ enabled: true, resetEvery: 'daily', lastResetAt: NOW, nextResetAt: NOW + 86400_000, spaceMinutes: 60, expiresAt: NOW + 3 * 60_000, msLeft: 3 * 60_000 }) });
+    renderAt(<DemoBanner />);
+    const text = await screen.findByTestId('demo-banner-text');
+    expect(text.textContent).toContain('ending soon: 3 min left');
+    expect(screen.getByTestId('demo-banner').getAttribute('data-state')).toBe('ending');
+  });
+
   it('says it is ending soon in the last 5 minutes and offers to download the layout', async () => {
     vi.useFakeTimers({ now: NOW, toFake: ['Date', 'setInterval', 'clearInterval'] });
     routes['GET /api/auth/me'] = () => ({ body: demoUser({ enabled: true, resetEvery: 'daily', lastResetAt: NOW, nextResetAt: NOW + 86400_000, spaceMinutes: 60, expiresAt: NOW + 6 * 60_000 }) });
