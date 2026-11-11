@@ -38,7 +38,7 @@ describe('POST /api/auth/link', () => {
     });
     expect(res.statusCode).toBe(200);
     const rows = await db.select().from(schema.oauthAccounts).where(eq(schema.oauthAccounts.userId, alice.id));
-    expect(rows).toEqual([{ provider: 'github', providerUserId: 'gh-1', userId: alice.id }]);
+    expect(rows).toEqual([{ provider: 'github', providerUserId: 'gh-1', issuer: null, userId: alice.id }]);
     await app.close();
   });
 
