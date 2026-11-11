@@ -61,7 +61,15 @@ interface Compared {
  * of up to 3 in 255 passes on the screen canvas, and 12 on the hit canvas
  * (each part has a color of its own there, so the same step shows more);
  * a part left where it was, or missing, is a difference of 100 and more.
+ * On the hit canvas a pixel on the line between two parts is a blend of
+ * their two colors (no part's own, so a click there finds neither, drawn
+ * whole or not), and at the edge of a place drawn again that blend can
+ * come out far from the whole draw's: main does it too (3 pixels, 230 off,
+ * one stud right of where this test's part starts). Up to 8 such pixels
+ * pass; a part left where it was, or missing, is hundreds of them, and
+ * `picks` checks that a click lands on the same part everywhere.
  */
+const HIT_EDGE_PIXELS = 8;
 const SAME: Compared = { scene: 0, hit: 0, picks: 0, blank: false };
 async function sameAsAWholeDraw(page: Page): Promise<Compared> {
   const got = await page.evaluate(() => {
@@ -90,14 +98,21 @@ async function sameAsAWholeDraw(page: Page): Promise<Compared> {
       }
       return m;
     };
+    // Pixels of the hit canvas off by more than a soft edge's step.
+    let hitOver = 0;
+    for (let i = 0; i < before.hit.length; i += 4) {
+      const d = Math.max(Math.abs(before.hit[i]! - after.hit[i]!), Math.abs(before.hit[i + 1]! - after.hit[i + 1]!), Math.abs(before.hit[i + 2]! - after.hit[i + 2]!), Math.abs(before.hit[i + 3]! - after.hit[i + 3]!));
+      if (d > 12) hitOver++;
+    }
     return {
+      hitOver,
       scene: most(before.scene, after.scene),
       hit: most(before.hit, after.hit),
       picks: before.picks.filter((id, i) => id !== after.picks[i]).length,
       blank: after.scene.every((v) => v === 0),
     };
   });
-  return { scene: got.scene <= 3 ? 0 : got.scene, hit: got.hit <= 12 ? 0 : got.hit, picks: got.picks, blank: got.blank };
+  return { scene: got.scene <= 3 ? 0 : got.scene, hit: got.hit <= 12 || got.hitOver <= HIT_EDGE_PIXELS ? 0 : got.hit, picks: got.picks, blank: got.blank };
 }
 
 /** Someone else changes a part (`edit` in Alice's tab): the receiving tab's part pictures drawn for it, and how its parts layer drew. */
@@ -163,6 +178,32 @@ test("someone else's move draws only where the part was and is", async ({ browse
   await bob.waitForTimeout(1500);
   expect(await sameAsAWholeDraw(bob)).toEqual(SAME);
   expect(await sameAsAWholeDraw(alice)).toEqual(SAME);
+
+  // In the mover's own tab, letting go of the part, picking it again,
+  // moving it and dragging it draw only around it too (the selection's halo is drawn over
+  // just the picked parts: it used to draw the whole view).
+  for (const [what, act] of [
+    ['let go', () => alice.keyboard.press('Escape')],
+    ['picked', () => alice.mouse.click(part!.x + 1, part!.y)],
+    ['moved', nudge],
+    // Dragged with the mouse: the part is lifted to the drag layer and put
+    // back at its place in the sheet's order, which drew the whole view.
+    [
+      'dragged',
+      async () => {
+        await alice.mouse.move(part!.x + 1, part!.y);
+        await alice.mouse.down();
+        await alice.mouse.move(part!.x + 16, part!.y + 6, { steps: 4 });
+        await alice.mouse.move(part!.x + 31, part!.y + 11, { steps: 4 });
+        await alice.mouse.up();
+      },
+    ],
+  ] as const) {
+    const own = await drawsFor(alice, act);
+    expect(own.whole, `${what}: whole draws, the last for: ${own.why}`).toBe(0);
+    expect(own.pictures, what).toBeLessThan(PARTS * 0.1);
+    expect(await sameAsAWholeDraw(alice), what).toEqual(SAME);
+  }
 
   // Zoomed in: the same, with part of the map off screen.
   for (let i = 0; i < 10; i++) await bob.getByRole('button', { name: 'Zoom in' }).first().click();

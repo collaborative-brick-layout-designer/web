@@ -7,7 +7,7 @@
 
 import Konva from 'konva';
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { apart, cullOffscreen, cullStats, lastDrawBoxes, redrawWhole, type RedrawStats } from './cullOffscreen';
+import { apart, cullOffscreen, cullStats, followForPicture, lastDrawBoxes, partIndex, pictureChanges, pictureTaken, redrawWhole, type RedrawStats } from './cullOffscreen';
 
 /** The rectangles clipped to, per canvas, since the last `reset`. */
 const clips = new Map<HTMLCanvasElement, number[][]>();
@@ -163,6 +163,26 @@ describe('a watched layer', () => {
     expect(draw()).toMatchObject({ whole: 0, partial: 2, drawn: 0 });
   });
 
+  // A dragged part is lifted to another layer and put back at its place in
+  // the order (BrickLayer's liftForDrag): that drew the whole view.
+  it('draws only around a part put back at its place in the order, or brought to front', () => {
+    const p = parts[12]!;
+    const z = p.zIndex();
+    const other = new Konva.Layer();
+    stage.add(other);
+    p.moveTo(other);
+    draw();
+    p.moveTo(sheet);
+    p.zIndex(z);
+    expect(sheet.getChildren()[12]).toBe(p);
+    expect(draw()).toMatchObject({ whole: 0, partial: 2, drawn: 2, scene: [[198, 98, 104, 104]] });
+    p.moveToTop();
+    expect(draw()).toMatchObject({ whole: 0, partial: 2, drawn: 2, scene: [[198, 98, 104, 104]] });
+    p.moveToBottom();
+    expect(draw()).toMatchObject({ whole: 0, partial: 2, drawn: 2, scene: [[198, 98, 104, 104]] });
+    other.destroy();
+  });
+
   it('draws everything when something other than a part changes', () => {
     const text = new Konva.Rect({ x: 5, y: 5, width: 30, height: 10, fill: 'black' });
     layer.add(text);
@@ -170,9 +190,6 @@ describe('a watched layer', () => {
     text.x(40);
     expect(draw()).toMatchObject({ whole: 2, partial: 0 });
     expect(stats().why).toContain('Rect');
-    // The parts' order.
-    parts[5]!.moveToTop();
-    expect(draw()).toMatchObject({ whole: 2, partial: 0 });
     // The sheet's fade.
     sheet.opacity(0.5);
     expect(draw()).toMatchObject({ whole: 2, partial: 0 });
@@ -238,6 +255,157 @@ describe('a watched layer', () => {
     expect((layer as unknown as { redrawStats?: unknown }).redrawStats).toBeUndefined();
     expect(lastDrawBoxes(layer)).toBeNull();
     undo = cullOffscreen(layer);
+  });
+});
+
+describe('a sheet that keeps a grid of its parts', () => {
+  /** Parts 1,500 px apart (cells are 1,024), each telling `order` when drawn. */
+  let far: Konva.Group;
+  const farParts: Konva.Group[] = [];
+  const order: string[] = [];
+  function farPart(id: string, x: number, y: number): Konva.Group {
+    const g = new Konva.Group({ x, y, cullR: 20, name: id } as Konva.GroupConfig);
+    g.add(new Konva.Shape({ sceneFunc: () => void order.push(id), hitFunc: () => undefined }));
+    return g;
+  }
+  beforeEach(() => {
+    sheet.visible(false);
+    far = new Konva.Group({ partsIndexed: true } as Konva.GroupConfig);
+    layer.add(far);
+    farParts.length = 0;
+    for (let j = 0; j < 8; j++) for (let i = 0; i < 10; i++) farParts.push(farPart(`p${j * 10 + i}`, 750 + i * 1500, 750 + j * 1500));
+    for (const p of farParts) far.add(p);
+    stage.scale({ x: 0.05, y: 0.05 });
+    layer.draw();
+    reset();
+    order.length = 0;
+  });
+  /** Parts asked whether they reach into the places drawn (both canvases). */
+  const asked = (): number => cullStats.drawn + cullStats.skipped;
+
+  it('asks only the parts near a moved one', () => {
+    farParts[34]!.x(farParts[34]!.x() + 200);
+    expect(draw()).toMatchObject({ whole: 0, partial: 2 });
+    // The moved part and the one to its left (a cell the place reaches
+    // into), on each canvas; the other 78 aren't asked.
+    expect(asked()).toBe(4);
+    expect(order).toEqual(['p34']);
+  });
+
+  it('asks every part without it, and draws the same', () => {
+    partIndex.enabled = false;
+    try {
+      farParts[34]!.x(farParts[34]!.x() + 200);
+      draw();
+      expect(asked()).toBe(160);
+      expect(order).toEqual(['p34']);
+    } finally {
+      partIndex.enabled = true;
+    }
+  });
+
+  it('finds a part where it went, and keeps the sheet\'s order', () => {
+    // p0 goes onto p77, which is above it on the sheet.
+    farParts[0]!.position({ x: farParts[77]!.x() + 10, y: farParts[77]!.y() });
+    draw();
+    expect(order).toEqual(['p0', 'p77']);
+    order.length = 0;
+    // Moved to the top, p0 is drawn after p77 (a whole draw: the order changed).
+    farParts[0]!.moveToTop();
+    farParts[0]!.x(farParts[0]!.x() + 1);
+    farParts[77]!.x(farParts[77]!.x() + 1);
+    draw();
+    expect(order.indexOf('p77')).toBeLessThan(order.lastIndexOf('p0'));
+  });
+
+  it('drops a part that left, and finds it when it comes back', () => {
+    const p = farParts[12]!;
+    p.remove();
+    draw();
+    expect(order).toEqual([]);
+    far.add(p);
+    p.x(p.x() + 5);
+    draw();
+    expect(order).toEqual(['p12']);
+  });
+
+  it('asks every part for a draw of most of the map', () => {
+    stage.scale({ x: 0.06, y: 0.06 });
+    draw();
+    expect(asked()).toBe(160);
+  });
+});
+
+describe('a shape drawn over some parts', () => {
+  it('draws again only around the parts it names', () => {
+    let over: Konva.Node[] = [parts[11]!];
+    const shape = new Konva.Shape({ sceneFunc: () => undefined, listening: false, overDraws: () => over } as Konva.ShapeConfig);
+    layer.add(shape);
+    layer.draw();
+    // It was over 11 and is now over 11 and 33.
+    over = [parts[11]!, parts[33]!];
+    shape.sceneFunc(() => undefined);
+    const d = draw();
+    expect(d).toMatchObject({ whole: 0, partial: 2 });
+    expect(d.scene).toEqual([
+      [98, 98, 104, 104],
+      [298, 298, 104, 104],
+    ]);
+  });
+});
+
+describe('what the view picture is told', () => {
+  it('of a watched layer: the places of changed parts, or that anything may have changed', () => {
+    pictureTaken(layer);
+    expect(pictureChanges(layer)).toEqual([]);
+    parts[34]!.x(parts[34]!.x() + 8);
+    expect(pictureChanges(layer)).toEqual([
+      { x0: 398, y0: 298, x1: 502, y1: 402 },
+      { x0: 406, y0: 298, x1: 510, y1: 402 },
+    ]);
+    // Drawing the screen canvas doesn't change what the picture still needs.
+    layer.draw();
+    redrawWhole(layer);
+    expect(pictureChanges(layer)).toHaveLength(2);
+    layer.add(new Konva.Rect({ width: 5, height: 5 }));
+    expect(pictureChanges(layer)).toBeNull();
+    pictureTaken(layer);
+    expect(pictureChanges(layer)).toEqual([]);
+  });
+
+  it('of another layer: whether anything on it changed', () => {
+    const other = new Konva.Layer();
+    stage.add(other);
+    const rect = new Konva.Rect({ width: 5, height: 5 });
+    other.add(rect);
+    const off = followForPicture(other);
+    expect(pictureChanges(other)).toBeNull();
+    pictureTaken(other);
+    expect(pictureChanges(other)).toEqual([]);
+    rect.x(3);
+    expect(pictureChanges(other)).toBeNull();
+    off();
+  });
+
+  // A pan starts by moving the stage, or by turning its listening off:
+  // the picture kept for it was taken afresh, from every part.
+  it('nothing of the view moving: the picture is of the map', () => {
+    const other = new Konva.Layer();
+    stage.add(other);
+    const off = followForPicture(other);
+    pictureTaken(layer);
+    pictureTaken(other);
+    stage.listening(false);
+    stage.position({ x: -40, y: -20 });
+    stage.scale({ x: 1.5, y: 1.5 });
+    expect(pictureChanges(layer)).toEqual([]);
+    expect(pictureChanges(other)).toEqual([]);
+    // The canvases themselves are drawn whole for the new view.
+    expect(draw()).toMatchObject({ whole: 2, partial: 0 });
+    // And a part changed after it is still told.
+    parts[34]!.x(parts[34]!.x() + 8);
+    expect(pictureChanges(layer)).toHaveLength(2);
+    off();
   });
 });
 

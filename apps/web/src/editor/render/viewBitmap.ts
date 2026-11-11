@@ -15,7 +15,10 @@
 // soft, the stage itself catches up: it's moved to the view once, its
 // costly sheets are drawn from a new picture, and the CSS starts again from
 // there. A change to the map during the move (someone else's edit, a part's
-// picture arriving) takes the picture again, at most every 150 ms. When the
+// picture arriving) draws again only the places of the picture where parts
+// changed, when only parts did (cullOffscreen.ts follows each sheet's
+// changes for the picture); any other change takes the picture again, at
+// most every 150 ms. When the
 // view stops, the stage is moved to it and the sheets are drawn sharp again,
 // as before.
 //
@@ -28,7 +31,7 @@
 // layer's own `drawScene` is swapped for one that draws the picture. A draw
 // into another canvas (an export) goes through as usual.
 
-import { apart, drawCulled, lastDrawBoxes, redrawWhole, type Box, type PxBox } from './cullOffscreen';
+import { apart, drawCulled, followForPicture, lastDrawBoxes, pictureChanges, pictureTaken, redrawWhole, type Box, type PxBox } from './cullOffscreen';
 import Konva from 'konva';
 import { SceneCanvas } from 'konva/lib/Canvas';
 
@@ -232,6 +235,7 @@ export class ViewBitmap {
    */
   watchLayers(): void {
     for (const layer of this.layers()) {
+      this.offDraw.push(followForPicture(layer));
       const onDraw = () => {
         if (this.frozen) return;
         // Which places it drew again, when it drew only some (the parts
@@ -299,12 +303,19 @@ export class ViewBitmap {
     ctx.clear();
     // Its own drawing is gone from its canvas: its next draw is a whole one.
     redrawWhole(layer);
-    if (!bottom) return;
+    if (!bottom) {
+      // Something on it changed: the picture (drawn by the bottom sheet) is brought up to date.
+      const c = pictureChanges(layer);
+      if (!c || c.length > 0) this.layers()[0]?.batchDraw();
+      return;
+    }
     let p = this.picture;
-    const changed = !!p && p.version !== this.version;
+    const changed = !!p && (p.version !== this.version || this.layers().some((l) => pictureChanges(l)?.length !== 0));
     const now = performance.now();
     if (!p || !this.covers(p)) {
       p = this.take();
+    } else if (changed && this.patchFrozen(p)) {
+      // Only parts changed: just their places were drawn again in the picture.
     } else if (changed) {
       const wait = this.lastTakenAt + this.opts.minChangeGapMs - now;
       if (wait <= 0) p = this.take();
@@ -325,6 +336,73 @@ export class ViewBitmap {
     ctx.restore();
   }
 
+  /**
+   * While the view moves: when only parts changed since the picture was
+   * brought up to date, draws their places in it again (from the parts
+   * themselves: the canvases aren't drawn while frozen). False when
+   * anything else changed, or the picture isn't at the view's scale.
+   */
+  private patchFrozen(p: Picture): boolean {
+    const canvas = this.canvas;
+    const s = this.stage;
+    const scale = s.scaleX();
+    if (!canvas || scale !== p.scale) return false;
+    const layers = this.layers();
+    const boxes: Box[] = [];
+    for (const layer of layers) {
+      const b = pictureChanges(layer);
+      if (!b) return false;
+      boxes.push(...b);
+    }
+    for (const layer of layers) pictureTaken(layer);
+    p.version = this.version;
+    this.patched++;
+    this.lastTakenAt = performance.now();
+    const ratio = canvas.pixelRatio;
+    const all: PxBox[] = [];
+    for (const b of boxes) {
+      const x0 = Math.max(0, Math.floor((b.x0 - p.x) * scale * ratio));
+      const y0 = Math.max(0, Math.floor((b.y0 - p.y) * scale * ratio));
+      const x1 = Math.min(canvas.width, Math.ceil((b.x1 - p.x) * scale * ratio));
+      const y1 = Math.min(canvas.height, Math.ceil((b.y1 - p.y) * scale * ratio));
+      if (x1 > x0 && y1 > y0) all.push({ x: x0, y: y0, w: x1 - x0, h: y1 - y0 });
+    }
+    if (all.length === 0) return true;
+    const ctx = canvas.getContext();
+    const c = ctx._context;
+    // The stage's view is drawn into the picture where the picture puts it.
+    const tx = -p.x * scale - s.x();
+    const ty = -p.y * scale - s.y();
+    const drawAll = (): void => {
+      for (const layer of layers) {
+        if (!layer.isVisible()) continue;
+        for (const child of layer.getChildren()) child.drawScene(canvas);
+      }
+    };
+    const view: Box = { x0: p.x, y0: p.y, x1: p.x + p.w, y1: p.y + p.h };
+    for (const r of apart(all, 6)) {
+      c.save();
+      const base = c.getTransform();
+      c.setTransform(1, 0, 0, 1, 0, 0);
+      c.clearRect(r.x, r.y, r.w, r.h);
+      c.beginPath();
+      c.rect(r.x, r.y, r.w, r.h);
+      c.clip();
+      c.setTransform(base);
+      ctx.translate(tx, ty);
+      const only: Box = {
+        x0: p.x + r.x / ratio / scale,
+        y0: p.y + r.y / ratio / scale,
+        x1: p.x + (r.x + r.w) / ratio / scale,
+        y1: p.y + (r.y + r.h) / ratio / scale,
+      };
+      drawCulled(canvas, view, drawAll, [only]);
+      c.restore();
+    }
+    (canvas as unknown as { _trimIsolationCanvas?: () => void })._trimIsolationCanvas?.();
+    return true;
+  }
+
   /** Draws the sheets for the view on screen, with the margin, into the picture. */
   private take(): Picture | null {
     const s = this.stage;
@@ -343,6 +421,8 @@ export class ViewBitmap {
     const kept = this.picture;
     const patch = this.patch;
     this.patch = current ? [] : null;
+    // What changes from here is drawn into the picture by a later patch.
+    for (const layer of layers) pictureTaken(layer);
     if (
       current && kept && patch && this.canvas &&
       kept.stageX === s.x() && kept.stageY === s.y() && kept.scale === scale && kept.stageW === w && kept.stageH === h &&

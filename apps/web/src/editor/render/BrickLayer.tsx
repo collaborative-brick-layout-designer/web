@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { Circle, Group, Image as KonvaImage, Line, Rect, Shape, Text as KonvaText } from 'react-konva';
 import * as Y from 'yjs';
 import type { KonvaEventObject } from 'konva/lib/Node';
@@ -186,7 +186,16 @@ export const BrickLayer = memo(function BrickLayer({ map, doc, isViewer = false,
   // the sidecar (meta), so follow it as well as the map.
   useYjsSnapshot(doc.getMap('meta') as unknown as Y.AbstractType<unknown>);
   const editingModuleId = useEditorStore((s) => s.editingModuleId);
-  const modules = readSidecarFromDoc(doc)?.modules ?? NO_MODULES;
+  // The same list while the modules are the same: a read can make a new
+  // one each time (two people's module edits merged), and every part's
+  // kept element (below) would be made again on each render.
+  const modulesRead = readSidecarFromDoc(doc)?.modules ?? NO_MODULES;
+  const modulesKept = useRef<{ list: SidecarModule[]; json: string }>({ list: NO_MODULES, json: '[]' });
+  if (modulesRead !== modulesKept.current.list) {
+    const json = JSON.stringify(modulesRead);
+    if (json !== modulesKept.current.json) modulesKept.current = { list: modulesRead, json };
+  }
+  const modules = modulesKept.current.list;
   const modulesRef = useRef(modules);
   modulesRef.current = modules;
   const getModules = useCallback(() => modulesRef.current, []);
@@ -231,6 +240,40 @@ export const BrickLayer = memo(function BrickLayer({ map, doc, isViewer = false,
     [glyphs, haloIds, isViewer, dotsInParts, selection, tint, view.tool, view.snapActive],
   );
 
+  // The parts the selection overlay draws over: those it drew over last
+  // time and those it will now. A change to it then draws again only
+  // around them (cullOffscreen.ts `overDraws`), not the whole view.
+  const overNow = useRef<readonly string[]>([]);
+  overNow.current = isViewer ? [] : dotsInParts ? haloIds : selection;
+  const overDrawn = useRef<readonly string[]>([]);
+  const overDraws = useCallback(() => {
+    const out = new Set<Konva.Node>();
+    for (const ids of [overDrawn.current, overNow.current]) {
+      for (const id of ids) {
+        const g = glyphs.get(id)?.group.current;
+        if (g) out.add(g);
+      }
+    }
+    return out;
+  }, [glyphs]);
+  const drawOverlay = useCallback(
+    (ctx: Konva.Context, shape: Konva.Shape) => {
+      overDrawn.current = overNow.current;
+      drawPicked(ctx, shape);
+    },
+    [drawPicked],
+  );
+
+  // Each part's element, kept while neither the part nor what every part
+  // of its sheet is drawn with changes: React then passes over the parts
+  // that didn't change without comparing their props one by one (on 7,520
+  // parts, building and comparing them all took most of a change's time).
+  const shared = [
+    doc, isViewer, view.tool, view.showConnectionPoints, view.alwaysShowConnections, dotsInParts ? selectedIds : null,
+    getMap, getModules, modules, editingModuleId, editFrame, partsByKey, byBarePartNumber, glyphs, onEditBrick, onTurn,
+  ];
+  const elements = useRef(new Map<string, { shared: unknown[]; made: WeakMap<Brick, ReactElement> }>());
+
   return (
     <Group>
       {brickLayers.map((layer) => {
@@ -244,12 +287,21 @@ export const BrickLayer = memo(function BrickLayer({ map, doc, isViewer = false,
         const showHull = (!isViewer && view.showBrickHulls) || hull.isVisible;
         const hullColor = hullColorToCss(hull.hullColor);
         const showElevation = (!isViewer && view.showBrickElevation) || layer.displayBrickElevation;
+        const sheetShared = [...shared, opacity, showHull, hullColor, hull.hullThickness, showElevation];
+        let kept = elements.current.get(layer.id);
+        if (!kept || kept.shared.length !== sheetShared.length || kept.shared.some((v, i) => v !== sheetShared[i])) {
+          kept = { shared: sheetShared, made: new WeakMap() };
+          elements.current.set(layer.id, kept);
+        }
+        const made = kept.made;
         return (
-          <Group key={layer.id} name={SHEET_FADE} opacity={fade(layer.id)}>
+          <Group key={layer.id} name={SHEET_FADE} opacity={fade(layer.id)} {...({ partsIndexed: true } as object)}>
             {/* The sheet's own order, like BlueBrick (an altitude edit sorts the sheet: editBrick). */}
             {layer.bricks.map((brick) => {
+              const had = made.get(brick);
+              if (had) return had;
               const lower = brick.partNumber.toLowerCase();
-              return (
+              const el = (
                 <BrickGlyph
                   key={brick.id}
                   brick={brick}
@@ -277,11 +329,19 @@ export const BrickLayer = memo(function BrickLayer({ map, doc, isViewer = false,
                   {...(onTurn ? { onTurn } : {})}
                 />
               );
+              made.set(brick, el);
+              return el;
             })}
           </Group>
         );
       })}
-      <Shape name={`${EXPORT_HIDE} ${SELECTION_OVERLAY}`} listening={false} perfectDrawEnabled={false} sceneFunc={drawPicked} />
+      <Shape
+        name={`${EXPORT_HIDE} ${SELECTION_OVERLAY}`}
+        listening={false}
+        perfectDrawEnabled={false}
+        sceneFunc={drawOverlay}
+        {...({ overDraws } as object)}
+      />
     </Group>
   );
 });

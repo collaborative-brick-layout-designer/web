@@ -78,6 +78,139 @@ function patchGroups(): void {
     if (outside(this, canvas ?? this.getLayer()?.hitCanvas)) return this;
     return hit.call(this, canvas, top);
   };
+  // A sheet of parts (`partsIndexed`) asks its grid which parts reach into
+  // the places being drawn, instead of asking each of its parts.
+  type Kids = { _drawChildNodes: (method: string, canvas: unknown, top: unknown) => void };
+  const kids = (Konva.Container.prototype as unknown as Kids)._drawChildNodes;
+  (proto as unknown as Kids)._drawChildNodes = function (this: Konva.Group, method: string, canvas: unknown, top: unknown) {
+    const c = culling;
+    if (c && !top && watching && canvas === c.canvas && partIndex.enabled && this.attrs.partsIndexed) {
+      const list = partsIn(this, c.only ?? [c]);
+      if (list) {
+        for (const child of list) (child as unknown as Record<string, (canvas: unknown, top: unknown) => void>)[method]!(canvas, top);
+        return;
+      }
+    }
+    kids.call(this, method, canvas, top);
+  };
+}
+
+// ── Where the parts are ──
+//
+// On 7,520 parts, a draw of one or two small places still asked every part
+// whether it reached into them, once per place and canvas. A sheet's Group
+// marked `partsIndexed` (BrickLayer) keeps its parts in a grid of cells by
+// where they reach; a draw of some places visits only the parts in those
+// cells, in their order on the sheet. A part that moves, or joins the
+// sheet, is put in its cells again before the next such draw; one that
+// left is dropped when it's met. A draw of most of the map asks every part,
+// as before.
+
+/** Whether sheets use their grid (tests compare with a draw that doesn't). */
+export const partIndex = { enabled: true };
+
+/** A cell's side, in layer px (128 studs). */
+const CELL = 1024;
+/** Past this many cells, every part is asked. */
+const MAX_CELLS = 256;
+/** A part reaching into more cells than this is always visited. */
+const MAX_PART_CELLS = 64;
+
+interface PartGrid {
+  cells: Map<number, Set<Konva.Node>>;
+  /** Each part's cells; parts without a reach (or a huge one) go in `always`. */
+  at: Map<Konva.Node, number[]>;
+  always: Set<Konva.Node>;
+  /** Parts to put in their cells again. */
+  dirty: Set<Konva.Node>;
+}
+
+const grids = new WeakMap<Konva.Node, PartGrid>();
+
+const cellKey = (cx: number, cy: number): number => (cx + 0x8000) * 0x10000 + (cy + 0x8000);
+
+function unindex(g: PartGrid, n: Konva.Node): void {
+  g.always.delete(n);
+  const keys = g.at.get(n);
+  if (!keys) return;
+  g.at.delete(n);
+  for (const k of keys) {
+    const cell = g.cells.get(k);
+    cell?.delete(n);
+    if (cell && cell.size === 0) g.cells.delete(k);
+  }
+}
+
+function index(g: PartGrid, n: Konva.Node): void {
+  const r = n.attrs.cullR as number | undefined;
+  const x = (n.attrs.x as number | undefined) ?? 0;
+  const y = (n.attrs.y as number | undefined) ?? 0;
+  if (r === undefined || !Number.isFinite(r + x + y)) {
+    g.always.add(n);
+    return;
+  }
+  const cx0 = Math.floor((x - r) / CELL);
+  const cx1 = Math.floor((x + r) / CELL);
+  const cy0 = Math.floor((y - r) / CELL);
+  const cy1 = Math.floor((y + r) / CELL);
+  if ((cx1 - cx0 + 1) * (cy1 - cy0 + 1) > MAX_PART_CELLS || cx0 < -0x8000 || cx1 >= 0x8000 || cy0 < -0x8000 || cy1 >= 0x8000) {
+    g.always.add(n);
+    return;
+  }
+  const keys: number[] = [];
+  for (let cx = cx0; cx <= cx1; cx++) {
+    for (let cy = cy0; cy <= cy1; cy++) {
+      const k = cellKey(cx, cy);
+      let cell = g.cells.get(k);
+      if (!cell) g.cells.set(k, (cell = new Set()));
+      cell.add(n);
+      keys.push(k);
+    }
+  }
+  g.at.set(n, keys);
+}
+
+/** A part of an indexed sheet moved or joined it: it's put in its cells again before the next draw. */
+function reindex(sheet: Konva.Node | null | undefined, n: Konva.Node): void {
+  if (sheet) grids.get(sheet)?.dirty.add(n);
+}
+
+/** The sheet's parts that may reach into `boxes`, in their order; null when that's most of them. */
+function partsIn(sheet: Konva.Group, boxes: readonly Box[]): Konva.Node[] | null {
+  let g = grids.get(sheet);
+  if (!g) {
+    g = { cells: new Map(), at: new Map(), always: new Set(), dirty: new Set() };
+    for (const child of sheet.children) index(g, child);
+    grids.set(sheet, g);
+  } else if (g.dirty.size > 0) {
+    for (const n of g.dirty) {
+      unindex(g, n);
+      if (n.parent === sheet) index(g, n);
+    }
+    g.dirty.clear();
+  }
+  let cells = 0;
+  for (const b of boxes) {
+    cells += (Math.floor(b.x1 / CELL) - Math.floor(b.x0 / CELL) + 1) * (Math.floor(b.y1 / CELL) - Math.floor(b.y0 / CELL) + 1);
+    if (!(cells <= MAX_CELLS)) return null;
+  }
+  const found = new Set<Konva.Node>(g.always);
+  for (const b of boxes) {
+    for (let cx = Math.floor(b.x0 / CELL); cx <= Math.floor(b.x1 / CELL); cx++) {
+      for (let cy = Math.floor(b.y0 / CELL); cy <= Math.floor(b.y1 / CELL); cy++) {
+        const cell = g.cells.get(cellKey(cx, cy));
+        if (cell) for (const n of cell) found.add(n);
+      }
+    }
+  }
+  const out: Konva.Node[] = [];
+  for (const n of found) {
+    if (n.parent === sheet) out.push(n);
+    // Gone from the sheet (deleted, or lifted for a drag): it goes from the grid too.
+    else unindex(g, n);
+  }
+  out.sort((a, b) => a.index - b.index);
+  return out;
 }
 
 /** The part of the layer on screen, in its own coordinates, with `margin` px around it. */
@@ -149,6 +282,8 @@ interface Track {
   layer: Konva.Layer;
   scene: Pending;
   hit: Pending;
+  /** What changed since the view picture was last brought up to date (viewBitmap's `pictureChanges`). */
+  pic: Pending;
   /** The places the last draw of the screen canvas drew again; null when it drew everything. */
   last: Box[] | null;
   /** Draws of its own canvases so far, and what last made one a whole draw (tests, measurements). */
@@ -196,10 +331,11 @@ function boxOf(part: Konva.Node): Box {
   return { x0: x - r, y0: y - r, x1: x + r, y1: y + r };
 }
 
-function markWhole(t: Track, node: Konva.Node | null, what: string): void {
+/** The layer's canvases must be drawn whole; the view picture too, unless `picture` is false. */
+function markWhole(t: Track, node: Konva.Node | null, what: string, picture = true): void {
   t.cause.node = node;
   t.cause.what = what;
-  for (const p of [t.scene, t.hit]) {
+  for (const p of picture ? [t.scene, t.hit, t.pic] : [t.scene, t.hit]) {
     p.whole = true;
     p.marked = true;
     p.parts.clear();
@@ -208,7 +344,7 @@ function markWhole(t: Track, node: Konva.Node | null, what: string): void {
 }
 
 function markPart(t: Track, part: Konva.Node): void {
-  for (const p of [t.scene, t.hit]) {
+  for (const p of [t.scene, t.hit, t.pic]) {
     p.marked = true;
     if (p.whole || p.parts.has(part)) continue;
     if (p.parts.size >= MAX_BOXES) {
@@ -220,7 +356,7 @@ function markPart(t: Track, part: Konva.Node): void {
 }
 
 function markGone(t: Track, part: Konva.Node): void {
-  for (const p of [t.scene, t.hit]) {
+  for (const p of [t.scene, t.hit, t.pic]) {
     p.marked = true;
     if (p.whole) continue;
     const was = p.parts.get(part);
@@ -248,16 +384,49 @@ function trackOf(node: Konva.Node): { track: Track; part: Konva.Node | null } | 
   return null;
 }
 
+/**
+ * A shape drawn over some parts only (the selection overlay: its halos and
+ * dots) names them with `overDraws`: a function giving the nodes of the
+ * parts it drew over at its last draw and of those it will draw over now.
+ * A change to it marks those parts instead of the whole canvas, so picking
+ * a part, or another one, draws again only around them.
+ */
+type OverDraws = () => Iterable<Konva.Node>;
+
+function markOver(t: Track, node: Konva.Node): boolean {
+  const over = node.attrs.overDraws as OverDraws | undefined;
+  if (typeof over !== 'function') return false;
+  for (const part of over()) markPart(t, part);
+  return true;
+}
+
+/** Layers the view picture follows that aren't watched part by part: whether anything on them changed since it was taken. */
+const followed = new Map<Konva.Node, { changed: boolean }>();
+
 /** `node` changed in a way that shows (`what`: the attribute, or how). */
 function changed(node: Konva.Node, what: string): void {
-  if (tracks.size === 0) return;
+  if (tracks.size === 0 && followed.size === 0) return;
   const on = trackOf(node);
   if (on) {
     if (on.part) markPart(on.track, on.part);
+    else if (markOver(on.track, node)) return;
     else if (what !== ASKED || on.track.cause.node !== node) markWhole(on.track, node, what);
     else markWhole(on.track, node, on.track.cause.what);
   } else if (node.nodeType === 'Stage') {
-    for (const t of tracks.values()) if (t.layer.parent === node) markWhole(t, node, what);
+    // The view moved, or stopped listening while it moves: the canvases
+    // are drawn whole, but the view picture is of the map, and still
+    // right (whether it covers the view is its own to tell, viewBitmap).
+    // Counting this as a change took the picture afresh, from every part,
+    // at the start of each pan.
+    for (const t of tracks.values()) if (t.layer.parent === node) markWhole(t, node, what, false);
+  } else if (followed.size > 0) {
+    for (let n: Konva.Node | null = node; n; n = n.parent) {
+      const f = followed.get(n);
+      if (f) {
+        f.changed = true;
+        break;
+      }
+    }
   }
 }
 
@@ -281,7 +450,8 @@ function watchChanges(): void {
   const node = Konva.Node.prototype as unknown as N;
   const setAttr = node._setAttr;
   node._setAttr = function (this: Konva.Node, key: string, val: unknown) {
-    if (tracks.size === 0) {
+    if ((key === 'x' || key === 'y' || key === 'cullR') && this.parent?.attrs.partsIndexed) reindex(this.parent, this);
+    if (tracks.size === 0 && followed.size === 0) {
       setAttr.call(this, key, val);
       return;
     }
@@ -326,9 +496,30 @@ function watchChanges(): void {
       quiet--;
     }
   };
+  // A part given another place in its sheet's order (put back after a
+  // drag, brought to front): Konva has the sheet ask for a draw, which
+  // drew the whole view. Only where the part is shows it.
+  type Order = Record<string, (this: Konva.Node, ...args: unknown[]) => unknown>;
+  const order = Konva.Node.prototype as unknown as Order;
+  for (const name of ['setZIndex', 'moveToTop', 'moveToBottom', 'moveUp', 'moveDown']) {
+    const move = order[name]!;
+    order[name] = function (this: Konva.Node, ...args: unknown[]) {
+      const parent = this.parent;
+      const on = tracks.size > 0 && parent && this.attrs.cullR !== undefined ? trackOf(parent) : null;
+      if (!on || on.part) return move.apply(this, args);
+      markPart(on.track, this);
+      quiet++;
+      try {
+        return move.apply(this, args);
+      } finally {
+        quiet--;
+      }
+    };
+  }
   const container = Konva.Container.prototype as unknown as { add: (...children: Konva.Node[]) => unknown };
   const add = container.add;
   container.add = function (this: Konva.Container, ...children: Konva.Node[]) {
+    if (this.attrs.partsIndexed) for (const c of children) reindex(this, c);
     const child = children.length === 1 ? children[0] : undefined;
     const on = tracks.size > 0 && child && !child.parent && child.attrs.cullR !== undefined ? trackOf(this) : null;
     if (!on || on.part) return add.apply(this, children);
@@ -528,7 +719,8 @@ function drawOwn(layer: Konva.Layer, which: 'scene' | 'hit', canvas: CanvasLike,
 export function redrawWhole(layer: Konva.Layer): void {
   const t = tracks.get(layer);
   if (!t) return;
-  markWhole(t, null, 'its canvas was drawn on');
+  // (The view picture is another canvas: what changed for it still stands.)
+  markWhole(t, null, 'its canvas was drawn on', false);
   t.scene.at = null;
   t.hit.at = null;
 }
@@ -543,6 +735,50 @@ export function lastDrawBoxes(layer: Konva.Layer): readonly Box[] | null {
 }
 
 /**
+ * The view picture (viewBitmap) follows `layer`: what changes on it from
+ * now is told by `pictureChanges`. A layer given to `cullOffscreen` is
+ * followed part by part already.
+ */
+export function followForPicture(layer: Konva.Layer): () => void {
+  watchChanges();
+  if (tracks.has(layer) || followed.has(layer)) return () => undefined;
+  const f = { changed: true };
+  followed.set(layer, f);
+  return () => {
+    if (followed.get(layer) === f) followed.delete(layer);
+  };
+}
+
+/**
+ * What changed on `layer` since `pictureTaken`: the places to draw again
+ * in the view picture, in the layer's coordinates (empty: nothing), or
+ * null when anything may have (or the layer isn't followed).
+ */
+export function pictureChanges(layer: Konva.Layer): Box[] | null {
+  const t = tracks.get(layer);
+  if (t) {
+    if (!t.pic.marked) return t.pic.whole ? null : [];
+    return changedBoxes(layer, t.pic);
+  }
+  const f = followed.get(layer);
+  return f && !f.changed ? [] : null;
+}
+
+/** The view picture was brought up to date with `layer`: its changes count from now. */
+export function pictureTaken(layer: Konva.Layer): void {
+  const t = tracks.get(layer);
+  if (t) {
+    const p = t.pic;
+    p.whole = false;
+    p.marked = false;
+    p.parts.clear();
+    p.boxes.length = 0;
+  }
+  const f = followed.get(layer);
+  if (f) f.changed = false;
+}
+
+/**
  * Leave the parts outside the view out of this layer's own canvases (the
  * screen and the hit canvas), and draw only the changed places when only
  * parts changed. Returns how to undo it (the layer unmounting).
@@ -551,7 +787,7 @@ export function cullOffscreen(layer: Konva.Layer): () => void {
   patchGroups();
   watchChanges();
   const own = layer as unknown as Own;
-  const track: Track = { layer, scene: newPending(), hit: newPending(), last: null, whole: 0, partial: 0, cause: { node: null, what: '' }, why: '' };
+  const track: Track = { layer, scene: newPending(), hit: newPending(), pic: newPending(), last: null, whole: 0, partial: 0, cause: { node: null, what: '' }, why: '' };
   tracks.set(layer, track);
   (layer as unknown as { redrawStats?: () => RedrawStats }).redrawStats = () => ({ whole: track.whole, partial: track.partial, why: track.why });
   // The layer's class's own drawing, looked up at each draw (so a wrapper
