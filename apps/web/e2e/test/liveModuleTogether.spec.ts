@@ -102,8 +102,9 @@ async function placePart(page: Page): Promise<void> {
 async function openModulesPanel(page: Page): Promise<void> {
   await page.getByRole('button', { name: 'Panels', exact: true }).click();
   await page.getByLabel('Modules', { exact: true }).check();
-  // (A click on the empty map closes Panels.)
-  await page.mouse.click(700, 800);
+  // (Esc closes the Panels list, and only that.)
+  await page.keyboard.press('Escape');
+  await expect(page.getByLabel('Modules', { exact: true })).toBeHidden();
 }
 
 test('two people editing one module at once keep each other’s changes', async ({ page, browser }) => {

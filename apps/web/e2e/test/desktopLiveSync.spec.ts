@@ -348,16 +348,22 @@ test.describe('desktop and web live editing', () => {
         const webOnly = listed(new Map(expected(s1, { [A]: { y: s1.get(A)!.y + 1 } })));
         expect(listed(await serverPoses(page.request, id))).toEqual(webOnly);
 
-        // Back online the edits wait for review; nothing reaches the server.
+        // Back online, the two edits nothing clashes with go to the server
+        // by themselves (the desktop's #293); the move of A, which the web
+        // moved too, waits for review.
         await driver.run('reconnect');
         await driver.run('wait-synced');
+        const sentThemselves = normalised(
+          expected(s1, { [A]: { y: s1.get(A)!.y + 1 }, [B]: { x: s1.get(B)!.x + 3 }, [C]: quarterTurn(s1, C) }),
+        );
+        await expect.poll(async () => listed(await serverPoses(page.request, id)), { timeout: 10_000 }).toEqual(sentThemselves);
         await page.waitForTimeout(1000);
-        expect(listed(await serverPoses(page.request, id))).toEqual(webOnly);
-        expect(await driver.run('status')).toBe('Synced 3');
-        expect(listed(await driver.poses('shared'))).toEqual(webOnly);
+        expect(listed(await serverPoses(page.request, id))).toEqual(sentThemselves);
+        expect(await driver.run('status')).toBe('Synced 1');
+        expect(listed(await driver.poses('shared'))).toEqual(sentThemselves);
 
         const keys = JSON.parse(await driver.run('resolve mine')) as string[];
-        expect(keys.filter((k) => k.startsWith('brick:')).map((k) => k.split(':')[2]).sort()).toEqual([A, B, C].sort());
+        expect(keys.filter((k) => k.startsWith('brick:')).map((k) => k.split(':')[2])).toContain(A);
         const want = new Map(
           expected(s1, {
             [A]: { x: s1.get(A)!.x + 5 }, // mine, over the web's move down
@@ -543,7 +549,9 @@ test.describe('desktop and web live editing', () => {
         await expect.poll(async () => (await serverModules())[0]!.members.length).toBe(parts.length - 1);
         await page.getByRole('button', { name: 'Panels', exact: true }).click();
         await page.getByLabel('Modules', { exact: true }).check();
-        await page.mouse.click(700, 800);
+        // (Esc closes the Panels list, and only that.)
+        await page.keyboard.press('Escape');
+        await expect(page.getByLabel('Modules', { exact: true })).toBeHidden();
         await expect(page.getByRole('button', { name: `More for ${NAME} east` })).toBeVisible({ timeout: 10_000 });
       });
 

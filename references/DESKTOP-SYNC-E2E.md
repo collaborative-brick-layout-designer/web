@@ -34,10 +34,10 @@ connection; the browsers carry on).
 4. Presence: the web draws the desktop's cursor, and the desktop sees
    the web user's cursor.
 5. Offline: the desktop disconnects; both sides edit, including one
-   brick both move. The desktop's edits don't reach the server, not even
-   after it reconnects, until they are resolved. Resolving with "keep
-   mine" for the clash gives the expected merged layout on the server, in
-   the browser and on the desktop.
+   brick both move. Back online, the desktop's edits that clash with
+   nothing go to the server by themselves; the brick both moved waits
+   for review. Resolving it with "keep mine" gives the expected merged
+   layout on the server, in the browser and on the desktop.
 
 Two more tests in the same spec cover what the full review's area 4 left
 out:
