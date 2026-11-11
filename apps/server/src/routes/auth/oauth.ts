@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import * as client from 'openid-client';
 import { callbackUrl, google, github, oidcConfig, type NormalisedProfile, type OAuthProvider, type ProviderId } from '../../auth/providers.js';
 import { and, eq } from 'drizzle-orm';
-import { linkProvider, resolveOauthUser } from '../../auth/users.js';
+import { IssuerChangedError, linkProvider, resolveOauthUser } from '../../auth/users.js';
 import { createSession } from '../../auth/session.js';
 import { requireUser, setSessionCookie } from '../../auth/cookie.js';
 import { isDemoUser } from '../../demo/demoAccount.js';
@@ -31,7 +31,7 @@ const NONCE_COOKIE = 'cld_oauth_nonce';
  */
 export function oauthFailure(
   reply: import('fastify').FastifyReply,
-  error: 'invalid_state' | 'oauth_error' | 'email_not_verified' | 'email_unavailable' | 'sso_unavailable' | 'canceled',
+  error: 'invalid_state' | 'oauth_error' | 'email_not_verified' | 'email_unavailable' | 'sso_unavailable' | 'sso_issuer_changed' | 'canceled',
 ) {
   reply.clearCookie(NEXT_COOKIE, { path: '/' });
   return reply.redirect(`/login?error=${error}`);
@@ -105,7 +105,7 @@ export async function oauthRoutes(app: FastifyInstance) {
       reply.clearCookie(PENDING_LINK_COOKIE, { path: '/' });
       return reply.code(409).send({ error: 'provider_account_already_linked' });
     }
-    await linkProvider(user.id, link.provider, link.providerUserId);
+    await linkProvider(user.id, link.provider, link.providerUserId, link.issuer);
     consumePendingLink(token);
     reply.clearCookie(PENDING_LINK_COOKIE, { path: '/' });
     return { ok: true, provider: link.provider };
@@ -254,6 +254,7 @@ export async function fetchOidcProfile(config: client.Configuration, tokens: cli
   const name = typeof info.name === 'string' ? info.name : '';
   return {
     providerUserId: claims.sub,
+    issuer: claims.iss,
     email: info.email,
     // Not the email when the provider has no name: the person is asked for one after signing in.
     displayName: name && !looksLikeEmail(name) ? providerDisplayName(name) : '',
@@ -282,13 +283,20 @@ export async function completeLogin(
   next = '',
 ) {
   reply.clearCookie(NEXT_COOKIE, { path: '/' });
-  const { user, linkPrompt } = await resolveOauthUser(provider, profile);
+  let resolved: Awaited<ReturnType<typeof resolveOauthUser>>;
+  try {
+    resolved = await resolveOauthUser(provider, profile);
+  } catch (e) {
+    if (e instanceof IssuerChangedError) return oauthFailure(reply, 'sso_issuer_changed');
+    throw e;
+  }
+  const { user, linkPrompt } = resolved;
   if (linkPrompt) {
     // Redirect to the link-confirmation page. The pending link is kept
     // server-side (see auth/pendingLinks.ts); the cookie only carries an
     // opaque token. POST /api/auth/link commits it once the user is
     // signed in to the existing account.
-    const token = createPendingLink({ provider, providerUserId: profile.providerUserId, userId: user.id });
+    const token = createPendingLink({ provider, providerUserId: profile.providerUserId, ...(profile.issuer ? { issuer: profile.issuer } : {}), userId: user.id });
     reply.setCookie(PENDING_LINK_COOKIE, token, {
       httpOnly: true,
       secure: env.cookieSecure,

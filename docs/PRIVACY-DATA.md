@@ -23,7 +23,7 @@ host's to keep or not.
 | `sessions` | which browsers are signed in, since when (`created_at`) and until when, when each was last used (`last_used_at`, to the nearest 5 minutes) and a rough browser name (`device`, e.g. "Firefox on Linux") | yes (no ids) | The id is a hash of the cookie: a secret. `created_at` is kept so a sign-in ends at its longest (Admin › Site settings › Sign-in); sessions from before it existed got the upgrade's time. The full user agent is never stored. Shown to the person under Profile › Browsers and devices, where they can sign each out. |
 | `api_tokens` | desktop sign-ins: name, prefix and last 4 characters, scopes, last used | yes (no hash) | Revoked rows are kept so the Devices list can show them. |
 | `device_codes` | desktop sign-in codes a person approved or denied | yes (no codes) | Expire after minutes. |
-| `oauth_accounts` | the Google / GitHub / OIDC account id linked | yes | |
+| `oauth_accounts` | the Google / GitHub / OIDC account id linked, and for single sign-on the issuer that handed out the id (`issuer`) | yes | The issuer is kept so a changed `OIDC_ISSUER_URL` can't map old ids to new people. Links made before it was kept get it filled in the next time that person signs in. |
 | `email_verifications` | open "confirm your email" links | yes (no token) | |
 | `password_resets` | open "Forgot password?" links: when asked for, when they end | yes (no token) | Only a hash of the link is kept. A link works once, for an hour; it's deleted when used, when a newer one is asked for, or when the password changes, and expired ones are swept with old sign-ins. |
 | `user_preferences` | theme, text size, help and tour settings | yes | |

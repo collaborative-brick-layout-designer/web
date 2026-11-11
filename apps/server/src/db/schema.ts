@@ -157,6 +157,10 @@ export const oauthAccounts = sqliteTable(
     userId: text('user_id')
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
+    // Single sign-on only: the issuer that handed out providerUserId (the
+    // `sub`). Null for Google and GitHub (fixed issuers) and for links made
+    // before this was kept; the first sign-in after fills it in.
+    issuer: text('issuer'),
   },
   (t) => ({
     pk: primaryKey({ columns: [t.provider, t.providerUserId] }),

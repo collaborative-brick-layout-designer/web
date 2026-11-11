@@ -16,6 +16,8 @@ export interface NormalisedProfile {
   email: string;
   displayName: string;
   avatarUrl: string | null;
+  /** Single sign-on only: the issuer (`iss`) that vouched for providerUserId. */
+  issuer?: string;
 }
 
 /**

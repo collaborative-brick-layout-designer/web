@@ -140,6 +140,7 @@ describe('GitHub sign-in', () => {
     expect(user?.displayName).toBe('Nina Rails');
     const linked = db.select().from(schema.oauthAccounts).where(eq(schema.oauthAccounts.providerUserId, '4242')).get();
     expect(linked?.provider).toBe('github');
+    expect(linked?.issuer).toBeNull();
   });
 
   it('a refused code, an unreachable GitHub and no verified email each say why on the sign-in page', async () => {
@@ -302,6 +303,48 @@ describe('Single sign-on (OpenID Connect)', () => {
     expect(user?.displayName).toBe('Mira Switch');
     const linked = db.select().from(schema.oauthAccounts).where(eq(schema.oauthAccounts.providerUserId, 'u-9')).get();
     expect(linked?.provider).toBe('oidc');
+    expect(linked?.issuer).toBe('https://sso.test');
+  });
+
+  /** Signs in as `sub` with an existing person, the ID token naming `iss`. */
+  const ssoSignIn = async (sub: string, iss: string) => {
+    provider({ 'https://sso.test/.well-known/openid-configuration': () => json(SSO_DISCOVERY) });
+    const s = await start('/api/auth/oidc');
+    const nonce = s.to.searchParams.get('nonce')!;
+    provider({
+      'https://sso.test/.well-known/openid-configuration': () => json(SSO_DISCOVERY),
+      'https://sso.test/token': () => json({ access_token: 't', token_type: 'Bearer', id_token: idToken({ sub, nonce, email: 'old@example.com', email_verified: true }, iss, 'oidc-client') }),
+    });
+    return app.inject({ method: 'GET', url: `/api/auth/oidc/callback?code=x&state=${s.state}`, headers: { cookie: s.cookie } });
+  };
+  const seedLink = (issuer: string | null) => {
+    db.insert(schema.users).values({ id: 'old-user', email: 'old@example.com', displayName: 'Old', emailVerified: true, createdAt: new Date() }).run();
+    db.insert(schema.oauthAccounts).values({ provider: 'oidc', providerUserId: 'sub-1', userId: 'old-user', issuer }).run();
+  };
+  const linkRow = () => db.select().from(schema.oauthAccounts).where(eq(schema.oauthAccounts.providerUserId, 'sub-1')).get();
+
+  it('a link from before issuers were kept signs in by its sub once, and gets the issuer filled in', async () => {
+    seedLink(null);
+    const back = await ssoSignIn('sub-1', 'https://sso.test');
+    expect(back.headers.location).toBe('/');
+    expect(setCookies(back).some((c) => /^cld_session=[^;]+;/.test(c))).toBe(true);
+    expect(linkRow()?.issuer).toBe('https://sso.test');
+  });
+
+  it('a link made by the same issuer keeps signing in', async () => {
+    seedLink('https://sso.test');
+    const back = await ssoSignIn('sub-1', 'https://sso.test');
+    expect(back.headers.location).toBe('/');
+    expect(linkRow()?.issuer).toBe('https://sso.test');
+  });
+
+  it('a sub from another issuer does not sign in to that account, and says the provider changed', async () => {
+    seedLink('https://old-sso.test');
+    const back = await ssoSignIn('sub-1', 'https://sso.test');
+    expect(back.headers.location).toBe('/login?error=sso_issuer_changed');
+    expect(setCookies(back).some((c) => /^cld_session=[^;]+;/.test(c))).toBe(false);
+    expect(linkRow()?.issuer).toBe('https://old-sso.test');
+    expect(db.select().from(schema.users).all()).toHaveLength(1);
   });
 
   it('cancelling at the single sign-on provider says so', async () => {

@@ -17,6 +17,7 @@ export const SIGN_IN_ERRORS: Record<string, string> = {
   oauth_error: 'The sign-in didn’t go through. Please try again.',
   email_not_verified: 'That account’s email address isn’t confirmed with the provider yet. Confirm it there, or use another way to sign in.',
   email_unavailable: 'GitHub didn’t share a confirmed email address for that account. Add one in GitHub’s settings, or use another way to sign in.',
+  sso_issuer_changed: 'This sign-in provider changed, so ask your admin.',
   sso_unavailable: 'Single sign-on isn’t answering right now. Try again in a minute, or use another way to sign in.',
 };
 

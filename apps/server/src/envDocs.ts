@@ -35,7 +35,7 @@ export const ENV_VARS: readonly EnvVarDoc[] = [
   { name: 'GITHUB_CLIENT_ID', default: '', inApp: '', notes: 'With `GITHUB_CLIENT_SECRET`: sign in with GitHub.' },
   { name: 'GITHUB_CLIENT_SECRET', default: '', inApp: '', notes: '' },
   { name: 'OAUTH_MOCK_ORIGIN', default: '', inApp: '', notes: 'Tests only, ignored when `NODE_ENV=production`: send GitHub and Google sign-in to the end-to-end tests’ stand-in at this origin (`apps/web/e2e/oauthMock.ts`).' },
-  { name: 'OIDC_ISSUER_URL', default: '', inApp: '', notes: 'With `OIDC_CLIENT_ID` and `OIDC_CLIENT_SECRET`: any OpenID Connect provider (Microsoft Entra, Auth0, Keycloak…).' },
+  { name: 'OIDC_ISSUER_URL', default: '', inApp: '', notes: 'With `OIDC_CLIENT_ID` and `OIDC_CLIENT_SECRET`: any OpenID Connect provider (Microsoft Entra, Auth0, Keycloak…). Each linked account remembers its issuer; if you change this address, people linked under the old one cannot sign in and are told to ask an admin.' },
   { name: 'OIDC_CLIENT_ID', default: '', inApp: '', notes: '' },
   { name: 'OIDC_CLIENT_SECRET', default: '', inApp: '', notes: '' },
   { name: 'SMTP_HOST', default: '', inApp: 'Admin › Site settings › SMTP server (wins once saved)', notes: 'With `SMTP_FROM`: invites and email confirmations are emailed. Without it, invites are copy-paste links and confirmation links go to the server log.' },

@@ -23,6 +23,7 @@ const MAX_PENDING = 10_000;
 export interface PendingLink {
   provider: ProviderId;
   providerUserId: string;
+  issuer?: string;
   userId: string;
   expiresAt: number;
 }

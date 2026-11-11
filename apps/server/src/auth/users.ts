@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq, isNull, sql } from 'drizzle-orm';
 import { db, schema } from '../db/index.js';
 import type { User } from '../db/schema.js';
 import type { NormalisedProfile, ProviderId } from './providers.js';
@@ -34,11 +34,20 @@ export async function hasVerifiedEmail(user: Pick<User, 'emailVerified'>): Promi
   return !settings.requireEmailVerification;
 }
 
+/** A single sign-on link whose sub came from an issuer other than the configured one. */
+export class IssuerChangedError extends Error {
+  constructor() {
+    super('single sign-on issuer changed');
+  }
+}
+
 /**
  * Resolve or create a user from an OAuth profile.
  *
  * Three cases, in order:
- *  1. (provider, providerUserId) is already linked → return that user.
+ *  1. (provider, providerUserId) is already linked → return that user. For
+ *     single sign-on the issuer must match too: a link with none recorded
+ *     gets the current one now; a different one throws IssuerChangedError.
  *  2. The provider's email matches an existing user → return that user with
  *     `linkPrompt: true` so the route layer can ask the user to confirm
  *     linking before we attach the provider. This avoids takeover via
@@ -50,7 +59,7 @@ export async function resolveOauthUser(
   profile: NormalisedProfile,
 ): Promise<{ user: User; linkPrompt: boolean }> {
   const existingLink = await db
-    .select({ user: schema.users })
+    .select({ user: schema.users, issuer: schema.oauthAccounts.issuer })
     .from(schema.oauthAccounts)
     .innerJoin(schema.users, eq(schema.users.id, schema.oauthAccounts.userId))
     .where(
@@ -60,7 +69,28 @@ export async function resolveOauthUser(
       ),
     )
     .get();
-  if (existingLink) return { user: existingLink.user, linkPrompt: false };
+  if (existingLink) {
+    if (profile.issuer) {
+      if (existingLink.issuer === null) {
+        // A link made before the issuer was kept: trust it once, by sub, and
+        // record who issued it. One row, written as it is used.
+        await db
+          .update(schema.oauthAccounts)
+          .set({ issuer: profile.issuer })
+          .where(
+            and(
+              eq(schema.oauthAccounts.provider, provider),
+              eq(schema.oauthAccounts.providerUserId, profile.providerUserId),
+              isNull(schema.oauthAccounts.issuer),
+            ),
+          );
+      } else if (existingLink.issuer !== profile.issuer) {
+        // The sub was handed out by another issuer: it may be someone else now.
+        throw new IssuerChangedError();
+      }
+    }
+    return { user: existingLink.user, linkPrompt: false };
+  }
 
   const emailMatch = await findUserByEmail(profile.email);
   if (emailMatch) return { user: emailMatch, linkPrompt: true };
@@ -89,6 +119,7 @@ export async function resolveOauthUser(
     provider,
     providerUserId: profile.providerUserId,
     userId: id,
+    issuer: profile.issuer ?? null,
   });
   return { user: created, linkPrompt: false };
 }
@@ -97,10 +128,11 @@ export async function linkProvider(
   userId: string,
   provider: ProviderId,
   providerUserId: string,
+  issuer?: string,
 ): Promise<void> {
   await db
     .insert(schema.oauthAccounts)
-    .values({ provider, providerUserId, userId })
+    .values({ provider, providerUserId, userId, issuer: issuer ?? null })
     .onConflictDoNothing();
 }
 
