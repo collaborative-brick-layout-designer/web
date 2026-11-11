@@ -331,10 +331,11 @@ function boxOf(part: Konva.Node): Box {
   return { x0: x - r, y0: y - r, x1: x + r, y1: y + r };
 }
 
-function markWhole(t: Track, node: Konva.Node | null, what: string): void {
+/** The layer's canvases must be drawn whole; the view picture too, unless `picture` is false. */
+function markWhole(t: Track, node: Konva.Node | null, what: string, picture = true): void {
   t.cause.node = node;
   t.cause.what = what;
-  for (const p of [t.scene, t.hit, t.pic]) {
+  for (const p of picture ? [t.scene, t.hit, t.pic] : [t.scene, t.hit]) {
     p.whole = true;
     p.marked = true;
     p.parts.clear();
@@ -412,8 +413,12 @@ function changed(node: Konva.Node, what: string): void {
     else if (what !== ASKED || on.track.cause.node !== node) markWhole(on.track, node, what);
     else markWhole(on.track, node, on.track.cause.what);
   } else if (node.nodeType === 'Stage') {
-    for (const t of tracks.values()) if (t.layer.parent === node) markWhole(t, node, what);
-    for (const [layer, f] of followed) if (layer.parent === node) f.changed = true;
+    // The view moved, or stopped listening while it moves: the canvases
+    // are drawn whole, but the view picture is of the map, and still
+    // right (whether it covers the view is its own to tell, viewBitmap).
+    // Counting this as a change took the picture afresh, from every part,
+    // at the start of each pan.
+    for (const t of tracks.values()) if (t.layer.parent === node) markWhole(t, node, what, false);
   } else if (followed.size > 0) {
     for (let n: Konva.Node | null = node; n; n = n.parent) {
       const f = followed.get(n);
@@ -715,10 +720,7 @@ export function redrawWhole(layer: Konva.Layer): void {
   const t = tracks.get(layer);
   if (!t) return;
   // (The view picture is another canvas: what changed for it still stands.)
-  const pic = t.pic;
-  t.pic = newPending();
-  markWhole(t, null, 'its canvas was drawn on');
-  t.pic = pic;
+  markWhole(t, null, 'its canvas was drawn on', false);
   t.scene.at = null;
   t.hit.at = null;
 }

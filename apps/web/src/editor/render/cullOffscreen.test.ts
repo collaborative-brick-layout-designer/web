@@ -386,6 +386,27 @@ describe('what the view picture is told', () => {
     expect(pictureChanges(other)).toBeNull();
     off();
   });
+
+  // A pan starts by moving the stage, or by turning its listening off:
+  // the picture kept for it was taken afresh, from every part.
+  it('nothing of the view moving: the picture is of the map', () => {
+    const other = new Konva.Layer();
+    stage.add(other);
+    const off = followForPicture(other);
+    pictureTaken(layer);
+    pictureTaken(other);
+    stage.listening(false);
+    stage.position({ x: -40, y: -20 });
+    stage.scale({ x: 1.5, y: 1.5 });
+    expect(pictureChanges(layer)).toEqual([]);
+    expect(pictureChanges(other)).toEqual([]);
+    // The canvases themselves are drawn whole for the new view.
+    expect(draw()).toMatchObject({ whole: 2, partial: 0 });
+    // And a part changed after it is still told.
+    parts[34]!.x(parts[34]!.x() + 8);
+    expect(pictureChanges(layer)).toHaveLength(2);
+    off();
+  });
 });
 
 describe('apart', () => {
