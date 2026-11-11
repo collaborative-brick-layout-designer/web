@@ -45,6 +45,10 @@ export const FEATURES = [
   // A deleted layout, module or venue waits 30 days in Recently deleted (trash/trash.ts), so the
   // desktop's delete boxes can say so instead of "This can't be undone".
   'recentlyDeleted',
+  // The web app here reads a module's part keys (doc shape 3, docs/module-members.md):
+  // a desktop writes them only on a server that says so, so an older web app
+  // is never shut out of a layout by a newer desktop.
+  'moduleMemberKeys',
 ] as const;
 
 interface Parsed {
