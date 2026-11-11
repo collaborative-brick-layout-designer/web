@@ -19,11 +19,16 @@
 // view stops, the stage is moved to it and the sheets are drawn sharp again,
 // as before.
 //
+// While the view is still, the picture is kept ready for the next move.
+// After a change that drew only some places of the parts sheet again
+// (cullOffscreen.ts: a part moved, by anyone), only those places of the
+// picture are drawn again; after any other change it's taken afresh.
+//
 // Konva draws a layer through its `drawScene`; while frozen, each frozen
 // layer's own `drawScene` is swapped for one that draws the picture. A draw
 // into another canvas (an export) goes through as usual.
 
-import { drawCulled } from './cullOffscreen';
+import { apart, drawCulled, lastDrawBoxes, redrawWhole, type Box, type PxBox } from './cullOffscreen';
 import Konva from 'konva';
 import { SceneCanvas } from 'konva/lib/Canvas';
 
@@ -81,6 +86,12 @@ export class ViewBitmap {
   private readonly opts: ViewBitmapOptions;
   private canvas: SceneCanvas | null = null;
   private picture: Picture | null = null;
+  /**
+   * The places where the sheets, as drawn on screen, differ from the
+   * picture (the stage's own units); null when that isn't known, and the
+   * picture must be taken afresh.
+   */
+  private patch: Box[] | null = null;
   private frozen = false;
   /** Whether the canvases are moved by CSS (`follow`). */
   private following = false;
@@ -96,6 +107,8 @@ export class ViewBitmap {
   private readonly offDraw: (() => void)[] = [];
   /** How many pictures were taken (for tests and profiling). */
   taken = 0;
+  /** How many times the kept picture was brought up to date in places instead. */
+  patched = 0;
 
   constructor(
     private readonly stage: Konva.Stage,
@@ -114,10 +127,11 @@ export class ViewBitmap {
     this.frozen = true;
     this.cancelIdle();
     // A picture of this very map is used as long as it covers the view.
-    if (this.picture && this.picture.version !== this.version) this.picture = null;
     // The canvases stay as they are drawn while the view moves, so the
     // picture is needed from the first frame.
-    if (!this.picture || !this.covers(this.picture)) this.take();
+    if (!this.picture || this.picture.version !== this.version || !this.covers(this.picture)) this.take();
+    // From here the sheets draw the picture, not themselves.
+    this.patch = null;
     layers.forEach((layer, i) => {
       const own = Object.prototype.hasOwnProperty.call(layer, 'drawScene') ? layer.drawScene : undefined;
       const base = layer.drawScene;
@@ -206,9 +220,8 @@ export class ViewBitmap {
       this.layers()[0]?.batchDraw();
       return;
     }
-    // Not moving: the picture is out of date. A new one is taken once the
-    // map has been still for a moment, so the next move starts smoothly.
-    this.picture = null;
+    // Not moving: the picture is out of date. It's brought up to date once
+    // the map has been still for a moment, so the next move starts smoothly.
     this.prepareWhenIdle(SETTLE_MS);
   }
 
@@ -221,6 +234,11 @@ export class ViewBitmap {
     for (const layer of this.layers()) {
       const onDraw = () => {
         if (this.frozen) return;
+        // Which places it drew again, when it drew only some (the parts
+        // sheet, for a change to parts); a whole draw may have changed anything.
+        const boxes = lastDrawBoxes(layer);
+        if (boxes && this.patch) this.patch.push(...boxes);
+        else this.patch = null;
         if (this.sharpDrawPending.delete(layer)) return;
         this.invalidate();
       };
@@ -279,6 +297,8 @@ export class ViewBitmap {
     const canvas = layer.getCanvas();
     const ctx = canvas.getContext();
     ctx.clear();
+    // Its own drawing is gone from its canvas: its next draw is a whole one.
+    redrawWhole(layer);
     if (!bottom) return;
     let p = this.picture;
     const changed = !!p && p.version !== this.version;
@@ -317,6 +337,25 @@ export class ViewBitmap {
     const cw = Math.ceil(w * (1 + 2 * m));
     const ch = Math.ceil(h * (1 + 2 * m));
     const ratio = Math.min(layers[0]!.getCanvas().getPixelRatio(), Math.sqrt(this.opts.maxPixels / (cw * ch)));
+    // The sheets were drawn for this very view a moment ago (not frozen,
+    // nothing waiting to be drawn).
+    const current = !this.frozen && layers.every((l) => !l.isVisible() || !(l as unknown as { _waitingForDraw?: boolean })._waitingForDraw);
+    const kept = this.picture;
+    const patch = this.patch;
+    this.patch = current ? [] : null;
+    if (
+      current && kept && patch && this.canvas &&
+      kept.stageX === s.x() && kept.stageY === s.y() && kept.scale === scale && kept.stageW === w && kept.stageH === h &&
+      this.canvas.pixelRatio === ratio && this.canvas.width === Math.floor(cw * ratio) && this.canvas.height === Math.floor(ch * ratio)
+    ) {
+      // The kept picture is of this view: only the places that were drawn
+      // again since are drawn again in it.
+      this.drawPatch(layers, patch, w, h, ratio);
+      kept.version = this.version;
+      this.patched++;
+      this.lastTakenAt = performance.now();
+      return kept;
+    }
     if (!this.canvas) {
       this.canvas = new SceneCanvas({ width: cw, height: ch, pixelRatio: ratio });
       const el = this.canvas._canvas;
@@ -350,11 +389,9 @@ export class ViewBitmap {
       drawCulled(canvas, { x0: (x - s.x()) / scale, y0: (y - s.y()) / scale, x1: (x + rw - s.x()) / scale, y1: (y + rh - s.y()) / scale }, drawAll);
       ctx.restore();
     };
-    // The sheets were drawn for this very view a moment ago (not frozen,
-    // nothing waiting to be drawn): the view is copied from them, and only
+    // The sheets are current: the view is copied from them, and only
     // the margin around it is drawn. On a big layout that is most of the
     // work saved after each change (anyone's): it used to draw every part again.
-    const current = !this.frozen && layers.every((l) => !l.isVisible() || !(l as unknown as { _waitingForDraw?: boolean })._waitingForDraw);
     if (current) {
       for (const layer of layers) if (layer.isVisible()) ctx.drawImage(layer.getCanvas()._canvas, 0, 0, w, h);
       const mw = m * w;
@@ -384,6 +421,77 @@ export class ViewBitmap {
       version: this.version,
     };
     return this.picture;
+  }
+
+  /**
+   * Draws the places `boxes` (the stage's own units) of the kept picture
+   * again: the view copied from the sheets' canvases, the margin drawn from
+   * the parts that reach into those places.
+   */
+  private drawPatch(layers: Konva.Layer[], boxes: readonly Box[], w: number, h: number, ratio: number): void {
+    const canvas = this.canvas;
+    if (!canvas || boxes.length === 0) return;
+    const s = this.stage;
+    const scale = s.scaleX();
+    const mw = this.opts.margin * w;
+    const mh = this.opts.margin * h;
+    // The places in the picture's device px, whole ones so nothing blends
+    // along their edges, and apart from each other (cullOffscreen's `apart`).
+    const all: PxBox[] = [];
+    for (const b of boxes) {
+      const x0 = Math.max(0, Math.floor((b.x0 * scale + s.x() + mw) * ratio));
+      const y0 = Math.max(0, Math.floor((b.y0 * scale + s.y() + mh) * ratio));
+      const x1 = Math.min(canvas.width, Math.ceil((b.x1 * scale + s.x() + mw) * ratio));
+      const y1 = Math.min(canvas.height, Math.ceil((b.y1 * scale + s.y() + mh) * ratio));
+      if (x1 > x0 && y1 > y0) all.push({ x: x0, y: y0, w: x1 - x0, h: y1 - y0 });
+    }
+    const ctx = canvas.getContext();
+    const c = ctx._context;
+    const drawAll = (): void => {
+      for (const layer of layers) {
+        if (!layer.isVisible()) continue;
+        for (const child of layer.getChildren()) child.drawScene(canvas);
+      }
+    };
+    for (const r of apart(all, 6)) {
+      c.save();
+      const base = c.getTransform();
+      c.setTransform(1, 0, 0, 1, 0, 0);
+      c.clearRect(r.x, r.y, r.w, r.h);
+      c.beginPath();
+      c.rect(r.x, r.y, r.w, r.h);
+      c.clip();
+      c.setTransform(base);
+      ctx.translate(mw, mh);
+      for (const layer of layers) if (layer.isVisible()) ctx.drawImage(layer.getCanvas()._canvas, 0, 0, w, h);
+      // The place in the stage's own units.
+      const only: Box = {
+        x0: (r.x / ratio - mw - s.x()) / scale,
+        y0: (r.y / ratio - mh - s.y()) / scale,
+        x1: ((r.x + r.w) / ratio - mw - s.x()) / scale,
+        y1: ((r.y + r.h) / ratio - mh - s.y()) / scale,
+      };
+      // The margin: each strip around the view that the place reaches into.
+      const strip = (x: number, y: number, rw: number, rh: number): void => {
+        const x0 = (x - s.x()) / scale;
+        const y0 = (y - s.y()) / scale;
+        const x1 = (x + rw - s.x()) / scale;
+        const y1 = (y + rh - s.y()) / scale;
+        if (!(only.x1 > x0 && only.x0 < x1 && only.y1 > y0 && only.y0 < y1)) return;
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(x, y, rw, rh);
+        ctx.clip();
+        drawCulled(canvas, { x0, y0, x1, y1 }, drawAll, [only]);
+        ctx.restore();
+      };
+      strip(-mw, -mh, w + 2 * mw, mh);
+      strip(-mw, h, w + 2 * mw, mh);
+      strip(-mw, 0, mw, h);
+      strip(w, 0, mw, h);
+      c.restore();
+    }
+    (canvas as unknown as { _trimIsolationCanvas?: () => void })._trimIsolationCanvas?.();
   }
 
   /**
