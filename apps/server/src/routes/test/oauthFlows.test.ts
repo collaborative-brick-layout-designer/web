@@ -282,4 +282,28 @@ describe('Single sign-on (OpenID Connect)', () => {
     expect(back.headers.location).toBe('/login?error=email_not_verified');
     expect(db.select().from(schema.users).where(eq(schema.users.email, 'v@example.com')).get()).toBeUndefined();
   });
+
+  it('takes the verified mark only as true or "true"; any other value does not sign in', async () => {
+    const signIn = async (sub: string, email: string, mark: unknown) => {
+      provider({ 'https://sso.test/.well-known/openid-configuration': () => json(SSO_DISCOVERY) });
+      const s = await start('/api/auth/oidc');
+      const nonce = s.to.searchParams.get('nonce')!;
+      provider({
+        'https://sso.test/.well-known/openid-configuration': () => json(SSO_DISCOVERY),
+        'https://sso.test/token': () => json({ access_token: 't', token_type: 'Bearer', id_token: idToken({ sub, nonce, email, email_verified: mark }, 'https://sso.test', 'oidc-client') }),
+      });
+      return app.inject({ method: 'GET', url: `/api/auth/oidc/callback?code=x&state=${s.state}`, headers: { cookie: s.cookie } });
+    };
+    for (const [i, mark] of ['false', 0, 'no', 'False', null, 1, ''].entries()) {
+      const back = await signIn(`w-${i}`, `w${i}@example.com`, mark);
+      expect(back.headers.location, JSON.stringify(mark)).toBe('/login?error=email_not_verified');
+      expect(setCookies(back).some((c) => /^cld_session=[^;]+;/.test(c)), JSON.stringify(mark)).toBe(false);
+      expect(db.select().from(schema.users).where(eq(schema.users.email, `w${i}@example.com`)).get(), JSON.stringify(mark)).toBeUndefined();
+    }
+    for (const [i, mark] of [true, 'true'].entries()) {
+      const back = await signIn(`y-${i}`, `y${i}@example.com`, mark);
+      expect(back.headers.location, JSON.stringify(mark)).toBe('/');
+      expect(db.select().from(schema.users).where(eq(schema.users.email, `y${i}@example.com`)).get(), JSON.stringify(mark)).toBeDefined();
+    }
+  });
 });
