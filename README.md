@@ -204,6 +204,11 @@ the exact `chown` to run for that uid and gid (CI starts the image as
 99:100 on fresh volumes, and as 12345:12345 on root-owned ones, to keep
 this true).
 
+The same check covers the database's own files (`cbld.sqlite` and its
+`-wal` and `-shm`): one restored or copied in as another user stops the
+server at start with `cbld: ERROR: the database file … is not writable`,
+instead of failing on the first write. The `chown -R` it prints fixes that too.
+
 **Upgrading from an image that ran as root** (any release up to v2.0.0, and
 `:nightly` before this change): the volumes it made belong to root, and the
 server stops at start with a line like `cbld: ERROR: the database folder

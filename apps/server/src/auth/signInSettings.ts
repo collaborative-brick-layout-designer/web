@@ -137,6 +137,30 @@ export function forcedSignIn(info: SignInSettingInfo, source: NodeJS.ProcessEnv 
   return v !== null && inRange(info, v) ? v : null;
 }
 
+/**
+ * At start: one line for each SIGN_IN_* env var that is set but can't be
+ * used (not a duration, or out of range). It forces nothing, so without
+ * this line a typo would pass unnoticed and the admin's setting (or the
+ * default) would quietly apply.
+ */
+export function signInEnvWarnings(source: NodeJS.ProcessEnv = process.env): string[] {
+  const out: string[] = [];
+  for (const info of SIGN_IN_SETTINGS) {
+    const raw = source[info.envVar];
+    if (raw === undefined || raw.trim() === '') continue;
+    const v = parseDuration(raw);
+    if (v !== null && inRange(info, v)) continue;
+    const why =
+      v === null
+        ? 'it isn’t a duration. Use days ("30" or "30d"), hours ("12h")' + (info.allowNever ? ' or "never"' : '')
+        : v === 'never'
+          ? '"never" isn’t allowed for this one. Use days ("30" or "30d") or hours ("12h")'
+          : `it is out of range. Use ${info.min} to ${info.max} hours` + (info.allowNever ? ', or "never"' : '');
+    out.push(`${info.envVar}=${JSON.stringify(raw)} is ignored: ${why}. Until it is fixed, the value from Admin › Settings › Sign-in (or the default) applies.`);
+  }
+  return out;
+}
+
 export interface SignInSettingState extends SignInSettingInfo {
   /** What applies now. */
   value: SignInValue;
