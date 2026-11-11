@@ -128,7 +128,7 @@ export function TouchDrawBar() {
       data-no-gesture
     >
       <p role="status" className="px-1 pb-1 text-center text-sm font-semibold text-ink">{words}</p>
-      {/* A phone on its side is short: the colors and the buttons share a row, so the map keeps some room. */}
+      {/* A phone on its side is short: the colors and the buttons share a row, so more of the map stays in view. */}
       <div className="flex flex-col [@media(max-height:480px)]:flex-row [@media(max-height:480px)]:items-center [@media(max-height:480px)]:justify-center [@media(max-height:480px)]:gap-4">
       {tool === 'paint' && (
         <div role="radiogroup" aria-label="Paint color" className="flex items-center justify-center gap-2 pb-1">
