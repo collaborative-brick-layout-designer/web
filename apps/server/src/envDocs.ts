@@ -78,7 +78,7 @@ export function envTablesMarkdown(): string {
   }
   lines.push(
     '',
-    '**Sign-in.** How long a sign-in lasts, on the website and in the desktop app. Each is also set in Admin › Site settings › Sign-in; when the variable is set to a duration in range (`30d` or `30` for days, `12h` for hours, `never` for the longest), it wins and the page says so. A change applies to existing sign-ins the next time they are used. Demo sign-ins always end at each demo reset, and after 24 hours at most.',
+    '**Sign-in.** How long a sign-in lasts, on the website and in the desktop app. Each is also set in Admin › Site settings › Sign-in; when the variable is set to a duration in range (`30d` or `30` for days, `12h` for hours, `never` for the longest), it wins and the page says so. A change applies to existing sign-ins the next time they are used. A demo sign-in always ends with its demo space (1 hour after it was made by default, at most 24 hours), whatever is set here.',
     '',
   );
   lines.push('| Variable | Built-in default | Range | Setting |', '|---|---|---|---|');

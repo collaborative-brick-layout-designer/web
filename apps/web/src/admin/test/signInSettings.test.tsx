@@ -62,7 +62,7 @@ describe('Admin › Settings › Sign-in', () => {
     expect((within(row('desktopMaxHours')).getByRole('spinbutton') as HTMLInputElement).value).toBe('180');
     expect(row('webMaxHours').textContent).toContain('Default: 90 days.');
     expect(screen.getByRole('button', { name: 'Help: How long sign-ins last' })).toBeTruthy();
-    expect(screen.getByTestId('sign-in-demo').textContent).toBe('Demo visitors are signed out at each demo reset, and after 24 hours at most.');
+    expect(screen.getByTestId('sign-in-demo').textContent).toBe('Demo visitors are signed out when their demo space’s time is up (1 hour by default).');
     // Nothing changed: no Save buttons.
     expect(screen.queryByRole('button', { name: 'Save' })).toBeNull();
   });

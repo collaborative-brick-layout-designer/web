@@ -34,7 +34,7 @@ test('an admin changes how long sign-ins last, and nobody is signed out', async 
     await expect(section.getByRole('heading', { name: /Sign-in/ })).toBeVisible();
     await expect(section.getByRole('group', { name: 'On the website' })).toBeVisible();
     await expect(section.getByRole('group', { name: 'In the desktop app' })).toBeVisible();
-    await expect(section.getByTestId('sign-in-demo')).toHaveText('Demo visitors are signed out at each demo reset, and after 24 hours at most.');
+    await expect(section.getByTestId('sign-in-demo')).toHaveText('Demo visitors are signed out when their demo space’s time is up (1 hour by default).');
 
     // The "?" explains it.
     await section.getByRole('button', { name: 'Help: How long sign-ins last' }).click();

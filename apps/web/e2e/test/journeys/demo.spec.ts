@@ -99,7 +99,7 @@ test('an admin turns on the demo, each visitor gets a private space, Reset now s
     // Each space lasts 1 hour unless changed; the setting has ⓘ help.
     await expect(admin.getByTestId('demo-lifetime').getByLabel('1 hour')).toBeChecked();
     await admin.getByTestId('demo-lifetime').getByRole('button', { name: /help/i }).click();
-    await expect(admin.getByText(/Each visitor gets this much time/).first()).toBeVisible();
+    await expect(admin.getByText(/A visitor sees a friendly countdown/).first()).toBeVisible();
     await admin.keyboard.press('Escape');
     await expect(admin.getByTestId('demo-live-spaces')).toHaveText('0 demo spaces in use now');
     await admin.getByTestId('demo-max-spaces').getByRole('button', { name: /help/i }).click();
