@@ -4,6 +4,7 @@
 // merges them onto what it has.
 
 import { sanitizePreferences, type Preferences } from './theme';
+import { sendThroughRestart } from '../serverRestart';
 
 export interface PreferencesResponse {
   prefs: Preferences;
@@ -22,12 +23,15 @@ export async function fetchPreferences(fetchImpl: FetchLike = fetch): Promise<Pr
 }
 
 export async function savePreferences(changes: Partial<Preferences>, fetchImpl: FetchLike = fetch): Promise<PreferencesResponse> {
-  const res = await fetchImpl(URL, {
-    method: 'PUT',
-    credentials: 'include',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ prefs: changes }),
-  });
+  // A server restart is waited out (serverRestart.ts), not shown as an error.
+  const res = await sendThroughRestart(() =>
+    fetchImpl(URL, {
+      method: 'PUT',
+      credentials: 'include',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ prefs: changes }),
+    }),
+  );
   if (!res.ok) throw new Error(`preferences: ${res.status}`);
   const body = (await res.json()) as { prefs?: unknown; updatedAt?: unknown };
   return { prefs: sanitizePreferences(body.prefs), updatedAt: typeof body.updatedAt === 'string' ? body.updatedAt : null };

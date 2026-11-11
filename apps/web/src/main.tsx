@@ -36,6 +36,7 @@ import { DemoResetNotice } from './demo/DemoResetNotice';
 import { NamePrompt } from './auth/NamePrompt';
 import { CollectionToastHost } from './catalog/collectionToast';
 import { ConfirmDialogHost, ToastHost } from './ui/ConfirmDialog';
+import { ServerRestartNote } from './ui/ServerRestartNote';
 import { HelpPage } from './help/HelpPage';
 import { SettingsPage } from './settings/SettingsPage';
 import { PrefsProvider } from './theme/PrefsProvider';
@@ -94,6 +95,7 @@ createRoot(root).render(
         <CollectionToastHost />
         <ConfirmDialogHost />
         <ToastHost />
+        <ServerRestartNote />
         <TourProvider>
         <Suspense fallback={null}>
         <Routes>
