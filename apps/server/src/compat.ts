@@ -5,6 +5,7 @@
 
 import type { FastifyInstance } from 'fastify';
 import { getPlatformSettings } from './auth/platformSettings.js';
+import { isOwnSignOut } from './auth/cookie.js';
 
 /** The oldest desktop that works with this server (see compat.json "why"). */
 export const DESKTOP_MINIMUM = '1.2.0';
@@ -161,6 +162,8 @@ export function registerDesktopGate(app: FastifyInstance): void {
   app.addHook('preHandler', async (req, reply) => {
     const path = req.url.split('?', 1)[0]!;
     if (!path.startsWith('/api/') || OPEN_TO_OLD_DESKTOPS.has(path)) return;
+    // Sign Out works from any version: an old desktop can still end its own token.
+    if (isOwnSignOut(req)) return;
     const minimum = await blockedDesktopMinimum(req.headers['user-agent']);
     if (minimum) return reply.code(426).header('Upgrade', 'BrickLayoutDesigner').send(updateRequiredBody(minimum));
   });

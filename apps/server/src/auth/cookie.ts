@@ -81,7 +81,8 @@ export async function attachUser(req: FastifyRequest, reply: FastifyReply): Prom
       return reply.code(403).send({ error: 'insufficient_scope' });
     }
     // An account waiting to be deleted: the desktop says why, instead of failing.
-    if (result.user.deletionDueAt) {
+    // Its Sign Out still ends the token (below).
+    if (result.user.deletionDueAt && !isOwnSignOut(req)) {
       return reply.code(403).send({
         error: 'account_pending_deletion',
         deletionDueAt: result.user.deletionDueAt.getTime(),
@@ -107,6 +108,16 @@ export async function attachUser(req: FastifyRequest, reply: FastifyReply): Prom
   if (result.refreshed) setSessionCookie(reply, token, result.session.expiresAt);
   req.user = withoutDemoPowers(result.user);
   return refuseIfRestricted(req, reply);
+}
+
+/**
+ * The desktop's Sign Out (DELETE /api/tokens/current): a token may always
+ * end itself, whatever state its account is in (on hold, waiting to be
+ * deleted) and however old the desktop is (compat.ts). Refusing it would
+ * leave a working token behind after the person signed out.
+ */
+export function isOwnSignOut(req: Pick<FastifyRequest, 'method' | 'url'>): boolean {
+  return req.method === 'DELETE' && req.url.split('?', 1)[0] === '/api/tokens/current';
 }
 
 /**
@@ -141,6 +152,7 @@ export function withoutDemoPowers(user: User): User {
 function refuseIfRestricted(req: FastifyRequest, reply: FastifyReply): FastifyReply | undefined {
   const u = req.user;
   if (!u?.restrictedAt) return undefined;
+  if (isOwnSignOut(req)) return undefined;
   if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') return undefined;
   if (allowedWhileRestricted(req.url)) return undefined;
   return reply.code(403).send({
