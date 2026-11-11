@@ -269,12 +269,17 @@ describe('the one-time fix strip-catalog-budgets', () => {
       backupBeforeFix(sqlite, fixId, backups, (l) => log.push(l));
     };
 
+    /** What the start log said about this fix. */
+    const said = () => log.filter((l) => l.includes(STRIP_BUDGETS_FIX_ID));
     // Not asked: one line that says how many, nothing written, no copy made.
     let run = runDataFixes(sqlite, askedFixes(undefined), (l) => log.push(l), undefined, backup);
     expect(run).toEqual({ ran: [], pending: [STRIP_BUDGETS_FIX_ID] });
-    expect(log).toHaveLength(1);
-    expect(log[0]).toContain(`${STRIP_BUDGETS_FIX_ID} (4 published layout copies hold a budget)`);
-    expect(log[0]).toContain('CBLD_DATA_FIX=<name>');
+    expect(said()).toHaveLength(1);
+    expect(said()[0]).toContain(`not run yet: ${STRIP_BUDGETS_FIX_ID} (4 published layout copies hold a budget)`);
+    expect(said()[0]).toContain('CBLD_DATA_FIX=<name>');
+    // (The other fix had nothing to do here, and says so.)
+    expect(log).toHaveLength(2);
+    expect(log[0]).toBe(`[dataFix] ${CLAMP_FIX_ID}: looked, nothing to fix; recorded as done`);
     expect(dump()).toEqual(before);
     expect(readdirSync(backups)).toEqual([]);
     expect(sqlite.prepare('select id from data_fixes').all()).toEqual([{ id: CLAMP_FIX_ID }]);
@@ -286,7 +291,7 @@ describe('the one-time fix strip-catalog-budgets', () => {
       throw new Error('disk full');
     });
     expect(run).toEqual({ ran: [], pending: [] });
-    expect(log).toEqual([expect.stringContaining("not run, the database couldn't be copied first (disk full)")]);
+    expect(said()).toEqual([expect.stringContaining("not run, the database couldn't be copied first (disk full)")]);
     expect(dump()).toEqual(before);
     expect(sqlite.prepare('select id from data_fixes where id = ?').all(STRIP_BUDGETS_FIX_ID)).toEqual([]);
 
@@ -294,7 +299,8 @@ describe('the one-time fix strip-catalog-budgets', () => {
     log.length = 0;
     run = runDataFixes(sqlite, askedFixes(STRIP_BUDGETS_FIX_ID), (l) => log.push(l), undefined, backup);
     expect(run.ran.map((r) => r.id)).toEqual([STRIP_BUDGETS_FIX_ID]);
-    expect(log[0]).toContain(`copied the database to ${preFixBackupName(STRIP_BUDGETS_FIX_ID)}`);
+    expect(log.join('\n')).toContain(`copied the database to ${preFixBackupName(STRIP_BUDGETS_FIX_ID)}`);
+    expect(log.findIndex((l) => l.includes('copied the database to'))).toBeLessThan(log.findIndex((l) => l.includes(`${STRIP_BUDGETS_FIX_ID}: running`)));
     expect(log.join('\n')).toMatch(/5 published layout copies checked, 4 had their budget removed/);
     for (const id of w.withBudget) expect(read(stored(id)).hasKey).toBe(false);
     const rec = sqlite.prepare('select summary from data_fixes where id = ?').get(STRIP_BUDGETS_FIX_ID) as { summary: string };
@@ -320,23 +326,24 @@ describe('the one-time fix strip-catalog-budgets', () => {
     log.length = 0;
     run = runDataFixes(sqlite, askedFixes(STRIP_BUDGETS_FIX_ID), (l) => log.push(l), undefined, backup);
     expect(run).toEqual({ ran: [], pending: [] });
-    expect(log).toEqual([expect.stringContaining('already ran')]);
+    expect(said()).toEqual([expect.stringContaining('already ran')]);
     expect(dump()).toEqual(afterRun);
     expect(read(stored(lateV!)).budget).toEqual(BUDGET);
     expect(audits()).toHaveLength(1);
-    // And once recorded, not asked: not a word.
+    // And once recorded, not asked: every start says it already ran, and does nothing.
     log.length = 0;
     runDataFixes(sqlite, askedFixes(''), (l) => log.push(l), undefined, backup);
-    expect(log).toEqual([]);
+    expect(said()).toEqual([expect.stringMatching(new RegExp(`^\\[dataFix\\] ${STRIP_BUDGETS_FIX_ID}: already ran on \\d{4}-.*; nothing to do$`))]);
+    expect(dump()).toEqual(afterRun);
   });
 
-  it('a server with no budget in any copy records it as done and says nothing', () => {
+  it('a server with no budget in any copy records it as done and says so', () => {
     item('layout', 'public', [{ status: 'public', bytes: copy() }]);
     const before = dump();
     const log: string[] = [];
     const run = runDataFixes(sqlite, askedFixes(undefined), (l) => log.push(l));
     expect(run).toEqual({ ran: [], pending: [] });
-    expect(log).toEqual([]);
+    expect(log).toContain(`[dataFix] ${STRIP_BUDGETS_FIX_ID}: looked, nothing to fix (0 published layout copies hold a budget); recorded as done`);
     expect(dump()).toEqual(before);
     const rec = sqlite.prepare('select summary from data_fixes where id = ?').get(STRIP_BUDGETS_FIX_ID) as { summary: string };
     expect(JSON.parse(rec.summary)).toMatchObject({ apply: false, changed: 0 });

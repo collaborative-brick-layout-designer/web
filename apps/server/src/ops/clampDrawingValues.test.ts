@@ -447,11 +447,13 @@ describe('the clamp-drawing-values fix on a database', () => {
     const before = dump();
     const log: string[] = [];
     // Not asked: one line, nothing written.
+    /** What the start log said about this fix. */
+    const said = () => log.filter((l) => l.includes(CLAMP_FIX_ID));
     let run = runDataFixes(sqlite, askedFixes(undefined), (l) => log.push(l));
     expect(run).toEqual({ ran: [], pending: [CLAMP_FIX_ID] });
-    expect(log).toHaveLength(1);
-    expect(log[0]).toContain(`CBLD_DATA_FIX=<name>`);
-    expect(log[0]).toContain(CLAMP_FIX_ID);
+    expect(said()).toHaveLength(1);
+    expect(said()[0]).toContain(`CBLD_DATA_FIX=<name>`);
+    expect(said()[0]).toContain(`not run yet: ${CLAMP_FIX_ID}`);
     expect(dump()).toEqual(before);
     expect(sqlite.prepare('select count(*) as n from data_fixes where id = ?').get(CLAMP_FIX_ID)).toEqual({ n: 0 });
 
@@ -473,26 +475,29 @@ describe('the clamp-drawing-values fix on a database', () => {
     log.length = 0;
     run = runDataFixes(sqlite, askedFixes(CLAMP_FIX_ID), (l) => log.push(l));
     expect(run).toEqual({ ran: [], pending: [] });
-    expect(log).toEqual([expect.stringContaining('already ran')]);
+    expect(said()).toEqual([expect.stringContaining('already ran')]);
     expect(dump()).toEqual(afterRun);
     expect(drawingProblems(layoutDoc(later)).size).toBeGreaterThan(0);
-    // And once recorded, not asked: not a word.
+    // And once recorded, not asked: every start says it already ran, and does nothing.
     log.length = 0;
     runDataFixes(sqlite, askedFixes(''), (l) => log.push(l));
-    expect(log).toEqual([]);
+    expect(said()).toEqual([expect.stringMatching(/already ran on \d{4}-.*; nothing to do$/)]);
+    expect(dump()).toEqual(afterRun);
   });
 
-  it('a server with nothing to fix records it as done and says nothing', () => {
+  it('a server with nothing to fix records it as done and says so', () => {
     const log: string[] = [];
     const run = runDataFixes(sqlite, askedFixes(undefined), (l) => log.push(l));
     expect(run).toEqual({ ran: [], pending: [] });
-    expect(log).toEqual([]);
+    expect(log).toContain(`[dataFix] ${CLAMP_FIX_ID}: looked, nothing to fix; recorded as done`);
     const rec = sqlite.prepare('select id, summary from data_fixes where id = ?').all(CLAMP_FIX_ID) as { id: string; summary: string }[];
     expect(rec.map((r) => r.id)).toEqual([CLAMP_FIX_ID]);
     expect(JSON.parse(rec[0]!.summary)).toMatchObject({ apply: false });
-    // Next start: still quiet.
+    // Next start: it says it already ran, and that is all.
+    log.length = 0;
     runDataFixes(sqlite, askedFixes(undefined), (l) => log.push(l));
-    expect(log).toEqual([]);
+    expect(log.filter((l) => l.includes(CLAMP_FIX_ID))).toEqual([expect.stringContaining('already ran on')]);
+    expect(log.every((l) => l.includes('already ran on'))).toBe(true);
   });
 
   async function until(what: () => boolean): Promise<void> {
