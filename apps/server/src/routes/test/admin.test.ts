@@ -15,6 +15,7 @@ import { layoutRoutes } from '../layouts.js';
 import { orgRoutes } from '../orgs.js';
 import { adminRoutes } from '../admin.js';
 import { clubDeletionRoutes } from '../clubDeletion.js';
+import { readSecret } from '../../secrets/secretBox.js';
 
 async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({ bodyLimit: 10 * 1024 * 1024 });
@@ -731,7 +732,9 @@ describe('admin settings', () => {
     });
 
     const row = await db.select().from(schema.platformSettings).get();
-    expect(row?.smtpPass).toBe('first-secret');
+    // Stored encrypted (secrets/secretBox.ts), and still the same password.
+    expect(row?.smtpPass).not.toContain('first-secret');
+    expect(readSecret(row?.smtpPass)).toEqual({ state: 'ok', value: 'first-secret' });
     expect(row?.smtpFrom).toBe('updated@example.com');
   });
 

@@ -124,7 +124,7 @@ export function SettingsTab() {
             </span>
           </span>
         </label>
-        {requireVerification && !settings.data.smtp.active && (
+        {requireVerification && !settings.data.smtp.active && !settings.data.smtp.passUnreadable && (
           <p className="rounded-lg border border-amber-900 bg-amber-950/30 p-2 text-xs text-amber-300">
             No SMTP server is configured below (or in the environment) — verification links
             will only be written to the server log, not emailed.
@@ -137,7 +137,7 @@ export function SettingsTab() {
           <h2 className="text-sm font-semibold text-neutral-300">SMTP server</h2>
           <p className="text-xs text-muted">
             Used for signup verification links and club and layout invite emails.{' '}
-            {settings.data.smtp.source === 'database' && (
+            {settings.data.smtp.source === 'database' && !settings.data.smtp.passUnreadable && (
               <span className="text-emerald-400">Using the configuration below.</span>
             )}
             {settings.data.smtp.source === 'env' && (
@@ -150,6 +150,15 @@ export function SettingsTab() {
             )}
           </p>
         </div>
+
+        {settings.data.smtp.passUnreadable && (
+          <p role="alert" data-testid="smtp-pass-unreadable" className="rounded-lg border border-amber-900 bg-amber-950/30 p-2 text-xs text-amber-300">
+            The SMTP password can&apos;t be read. Please enter it again.
+            <span className="mt-1 block text-muted">
+              No email is sent until you do: invites are links to copy, and confirmation links go to the server log.
+            </span>
+          </p>
+        )}
 
         <div className="grid grid-cols-2 gap-3">
           <label className="col-span-2 space-y-1 text-xs text-muted">
@@ -201,7 +210,7 @@ export function SettingsTab() {
               value={smtpPass}
               onChange={(e) => { setSmtpPass(e.target.value); setSmtpPassTouched(true); }}
               disabled={!usingDbSmtp}
-              placeholder={settings.data.smtp.passSet ? '•••••••• (set — leave blank to keep)' : '(not set)'}
+              placeholder={settings.data.smtp.passUnreadable ? 'Enter the password again' : settings.data.smtp.passSet ? '•••••••• (set — leave blank to keep)' : '(not set)'}
               className="block w-full rounded-lg border border-border bg-panel px-2 py-1.5 text-sm text-ink disabled:opacity-40"
             />
           </label>

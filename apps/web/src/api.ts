@@ -92,6 +92,8 @@ const ERROR_MESSAGES: Record<string, string> = {
   invite_only: 'This club takes new members by invite only. Ask one of its admins.',
   too_many_requests: 'You’re waiting to hear from a lot of clubs already. Take some requests back, or wait for an answer.',
   message_too_long: 'Please keep the note to 300 characters.',
+  secret_key_unavailable: 'The password wasn’t saved: the server can’t read or make its key file. The server log says why.',
+  invalid_smtp_pass: 'That password is too long (1,024 characters at most).',
   invalid_join_policy: 'Pick who can join: Invite only, Ask to join or Open.',
   invalid_expiry: 'Pick between 1 and 30 days.',
   org_owned_rooms_can_only_move_to_orgs: "A club's venue stays with the club. Its author can take it back, or make a copy for yourself.",
@@ -1794,6 +1796,8 @@ export interface AdminSettings {
     from: string | null;
     /** true if a password is saved in the DB, without ever sending the value itself. */
     passSet: boolean;
+    /** A password is saved, but the server can't read it any more (its key is missing or changed): ask for it again. */
+    passUnreadable?: boolean;
     /** Which config is actually in effect right now — null means neither is configured. */
     source: 'database' | 'env' | null;
     active: boolean;

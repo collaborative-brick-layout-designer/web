@@ -7,7 +7,9 @@
 //     a restart part-way leaves only a .tmp, which the next run deletes,
 //     never a cut-off `.gz` that looks like that day's backup;
 //   - the layouts' background pictures (`<data>/bgimages/`) go beside it as
-//     `cbld-<date>.bgimages.tar.gz`, kept and dropped with the database copy.
+//     `cbld-<date>.bgimages.tar.gz`, kept and dropped with the database copy;
+//   - the key file (`<data>/cbld-secret.key`) is never copied: the database
+//     copies hold the mail password encrypted, and the key stays out of them.
 
 import { closeSync, createReadStream, createWriteStream, existsSync, fsyncSync, mkdirSync, openSync, readdirSync, readFileSync, renameSync, statSync, unlinkSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
@@ -16,6 +18,7 @@ import { pipeline } from 'node:stream/promises';
 import { Readable, Writable } from 'node:stream';
 import type Database from 'better-sqlite3';
 import { classifyBackups } from './retention.js';
+import { SECRET_KEY_FILE } from '../secrets/secretBox.js';
 
 // @types/node's pipeline overloads don't take these streams under
 // exactOptionalPropertyTypes; they are valid at runtime.
@@ -62,9 +65,20 @@ export async function gzipAtomic(src: string | Readable, dest: string): Promise<
   }
 }
 
-/** Every regular file in `dir` (not below it), as a plain tar stream (ustar). */
+/**
+ * The key that saved secrets are encrypted with (secrets/secretBox.ts) is
+ * never part of a backup: a backup with the key in it would be no safer
+ * than an unencrypted one. Its leftovers (`.tmp`) count too.
+ */
+export const neverBackedUp = (name: string) => name === SECRET_KEY_FILE || name.startsWith(`${SECRET_KEY_FILE}.`);
+
+/** Every regular file in `dir` (not below it), as a plain tar stream (ustar). Never the key file. */
 export function tarOfFolder(dir: string): Readable {
-  const names = existsSync(dir) ? readdirSync(dir).filter((n) => statSync(join(dir, n)).isFile()).sort() : [];
+  const names = existsSync(dir)
+    ? readdirSync(dir)
+        .filter((n) => !neverBackedUp(n) && statSync(join(dir, n)).isFile())
+        .sort()
+    : [];
   function* blocks(): Generator<Buffer> {
     for (const name of names) {
       const data = readFileSync(join(dir, name));

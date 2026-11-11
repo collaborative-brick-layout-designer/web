@@ -43,6 +43,7 @@ export const ENV_VARS: readonly EnvVarDoc[] = [
   { name: 'SMTP_USER', default: '', inApp: 'Admin › Site settings › SMTP server', notes: '' },
   { name: 'SMTP_PASS', default: '', inApp: 'Admin › Site settings › SMTP server', notes: '' },
   { name: 'SMTP_FROM', default: '', inApp: 'Admin › Site settings › SMTP server', notes: 'The sender address.' },
+  { name: 'CBLD_SECRET_KEY', default: 'unset (the key file is used)', inApp: '', notes: 'The key the saved SMTP password is encrypted with, at least 16 characters (for example from `openssl rand -base64 32`). Unset, the server makes and uses the key file `cbld-secret.key` beside the database (`/data` in Docker). Change or lose the key and the SMTP password has to be entered again in Admin › Site settings.' },
   { name: 'BACKUPS_ENABLED', default: 'unset (the switch decides; on)', inApp: 'Admin › Site settings › Background jobs', notes: 'When set, forces the daily database backup on or off.' },
   { name: 'BACKUPS_DIR', default: '`/backups`', inApp: '', notes: 'Where backups go.' },
   { name: 'DAILY_COMPACTION_ENABLED', default: 'unset (the switch decides; on)', inApp: 'Admin › Site settings › Background jobs', notes: 'When set, forces the daily compaction of layout histories on or off.' },

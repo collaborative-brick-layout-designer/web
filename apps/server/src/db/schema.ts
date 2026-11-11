@@ -223,11 +223,10 @@ export const platformSettings = sqliteTable('platform_settings', {
   /**
    * SMTP override. All fields null = "use env.smtp (or none)". Any
    * non-null smtpHost is treated as "DB config is in use" — see
-   * mergeSmtpConfig in auth/platformSettings.ts. smtpPass is stored in
-   * plaintext in SQLite (matches SMTP_PASS's own trust model — this DB
-   * file already holds password hashes and session tokens) and is
-   * NEVER returned by GET /api/admin/settings; the API returns
-   * `smtpPassSet: boolean` instead.
+   * mergeSmtpConfig in auth/platformSettings.ts. smtpPass is stored
+   * encrypted (secrets/secretBox.ts; the key is in a file beside the
+   * database, never in a backup) and is NEVER returned by
+   * GET /api/admin/settings; the API returns `passSet: boolean` instead.
    */
   smtpHost: text('smtp_host'),
   smtpPort: integer('smtp_port'),

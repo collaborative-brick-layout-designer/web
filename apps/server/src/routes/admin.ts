@@ -24,6 +24,7 @@ import { invalidatePartsCache } from './parts.js';
 import { getPlatformSettings, mergeSmtpConfig, PLATFORM_SETTINGS_ID } from '../auth/platformSettings.js';
 import { invalidateLimitCaches } from '../limits/limits.js';
 import { invalidateTransporter } from '../email/transporter.js';
+import { encryptSecret } from '../secrets/secretBox.js';
 import { layoutStatsByOrg, layoutStatsByUser, layoutStatsForSingleUser, sizeByLayoutId } from './adminLayoutStats.js';
 import { escapeLike, trimmed } from '../utils/validate.js';
 import { docHub } from '../ws/docHub.js';
@@ -1202,12 +1203,15 @@ export async function adminRoutes(app: FastifyInstance): Promise<void> {
         user: settings.smtpUser,
         from: settings.smtpFrom,
         passSet: !!settings.smtpPass,
+        // A password is saved but this server's key doesn't open it (the
+        // key file is missing or another one): the page asks for it again.
+        passUnreadable: resolvedSmtp?.passUnreadable ?? false,
         // What's actually active right now, for display — lets the UI
         // show "using .env" vs "using database config" and warn when
         // neither is configured (verification links will only be
         // logged, not emailed).
         source: resolvedSmtp?.source ?? null,
-        active: resolvedSmtp !== null,
+        active: resolvedSmtp !== null && !resolvedSmtp.passUnreadable,
       },
       // "Oldest desktop allowed": what the admin set (null = the code's
       // own), what's in force, and the floor it can't go below.
@@ -1315,7 +1319,16 @@ export async function adminRoutes(app: FastifyInstance): Promise<void> {
       // non-empty value replaces it. This mirrors the GET response
       // never echoing the real password back, so the form can't
       // "round-trip" a masked placeholder into a real clear.
-      patch.smtpPass = body.smtpPass === '' ? null : body.smtpPass;
+      if (body.smtpPass === '' || body.smtpPass === null) {
+        patch.smtpPass = null;
+      } else if (typeof body.smtpPass !== 'string' || body.smtpPass.length > 1024) {
+        return reply.code(400).send({ error: 'invalid_smtp_pass' });
+      } else {
+        // Stored encrypted (secrets/secretBox.ts), never as typed.
+        const sealed = encryptSecret(body.smtpPass);
+        if (!sealed) return reply.code(500).send({ error: 'secret_key_unavailable' });
+        patch.smtpPass = sealed;
+      }
     }
 
     if ('minDesktopVersion' in body) {
