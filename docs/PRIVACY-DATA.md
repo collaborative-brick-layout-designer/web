@@ -104,7 +104,7 @@ host's to keep or not.
 "Try the demo" makes a private demo space for each visitor: a `users` row
 with `is_demo_account` set, a made-up name ("Demo builder 7f3a"), a
 `demo-…@demo.invalid` address (no real email, no password) and
-`demo_expires_at`, the end of its one sign-in. Its `sessions` row records
+`demo_expires_at`, the end of its one sign-in: a fixed time after it was made, 1 hour by default (an admin may set 30 minutes, 2, 6 or 24 hours; `platform_settings.demo_space_minutes`). Its `sessions` row records
 no user agent, device name or IP. The space gets a copy of the samples, and anything the
 visitor makes is stored like anyone's. It can't invite, share, make public
 links, join clubs, send to the catalog, upload parts or connect a desktop
@@ -112,8 +112,9 @@ app, so nothing it makes outlives it; a background picture is at most 2 MB.
 
 The space, everything it owns (layouts and their history, modules and their
 versions, venues, background pictures, preferences) and its sign-in are
-deleted when its time is up: at the next demo reset, or after 24 hours at
-most, or a minute after its sign-in ends. The clean-up runs at start-up and
+deleted when its time is up (its `demo_expires_at`), or a minute after its
+sign-in ends. A site-wide demo reset only refreshes the samples and ends
+nobody's visit early. The clean-up runs at start-up and
 every few minutes, by the clock, so a closed tab or a restart leaves nothing
 behind. Each deletion writes one `demo_space_deleted` audit event with the
 counts (no names or contents); audit events are kept as above.

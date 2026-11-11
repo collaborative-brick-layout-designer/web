@@ -1,0 +1,1 @@
+ALTER TABLE `platform_settings` ADD `demo_space_minutes` integer DEFAULT 60 NOT NULL;

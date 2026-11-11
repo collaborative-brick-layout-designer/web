@@ -10,7 +10,7 @@ import http from 'node:http';
 import { WebSocket } from 'ws';
 import type { AddressInfo } from 'node:net';
 import { randomUUID } from 'node:crypto';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import rateLimit from '@fastify/rate-limit';
 import { and, eq, ne } from 'drizzle-orm';
 import { db, loginAs, resetDb, schema } from '../test/helpers.js';
@@ -89,7 +89,7 @@ describe('the demo account is off until an admin turns it on', () => {
     expect((await call({ method: 'POST', url: '/api/auth/demo' })).statusCode).toBe(404);
     expect(db.select().from(schema.users).where(eq(schema.users.id, DEMO_USER_ID)).get()).toBeUndefined();
     const settings = (await call({ url: '/api/admin/settings', cookie: admin.cookie })).json() as { demo: Record<string, unknown> };
-    expect(settings.demo).toEqual({ enabled: false, resetEvery: 'daily', lastResetAt: null, nextResetAt: null, items: 0, maxSpaces: 100, liveSpaces: 0 });
+    expect(settings.demo).toEqual({ enabled: false, resetEvery: 'daily', lastResetAt: null, nextResetAt: null, items: 0, maxSpaces: 100, spaceMinutes: 60, liveSpaces: 0 });
   });
 
   it('only site admins may change it or reset it, and changes are audited', async () => {
@@ -137,15 +137,17 @@ describe('turning it on', () => {
     expect((await call({ url: '/api/auth/providers' })).json()).toMatchObject({ demoEnabled: true });
 
     const demo = await tryDemo();
-    const me = (await call({ url: '/api/auth/me', cookie: demo })).json() as { user: { id: string; displayName: string; isDemoAccount: boolean; demo: { resetEvery: string; nextResetAt: number } } };
-    expect(me.user).toMatchObject({ isDemoAccount: true, demo: { resetEvery: 'daily', nextResetAt: settings.demo.nextResetAt } });
+    const me = (await call({ url: '/api/auth/me', cookie: demo })).json() as { user: { id: string; displayName: string; isDemoAccount: boolean; demo: { resetEvery: string; nextResetAt: number; expiresAt: number; spaceMinutes: number } } };
+    expect(me.user).toMatchObject({ isDemoAccount: true, demo: { resetEvery: 'daily', nextResetAt: settings.demo.nextResetAt, spaceMinutes: 60 } });
     expect(me.user.id).not.toBe(DEMO_USER_ID);
     expect(me.user.displayName).toMatch(/^Demo builder [0-9a-f]{4}$/);
     // Its own copy of each sample, each remembering which sample it came from.
     const space = db.select().from(schema.users).where(eq(schema.users.id, me.user.id)).get()!;
     expect(space).toMatchObject({ passwordHash: null, isGlobalAdmin: false, isModerator: false });
     expect(space.email).toMatch(/^demo-[0-9a-f]+@demo\.invalid$/);
-    expect(space.demoExpiresAt!.getTime()).toBe(settings.demo.nextResetAt);
+    // A fixed hour from when the space was made, not tied to the reset.
+    expect(space.demoExpiresAt!.getTime() - space.createdAt.getTime()).toBe(3600_000);
+    expect(me.user.demo.expiresAt).toBe(space.demoExpiresAt!.getTime());
     expect(owned(schema.layouts, me.user.id).map((l) => (l as { copiedFromId: string }).copiedFromId)).toEqual([DEMO_SAMPLE_IDS.layout]);
     expect(owned(schema.modules, me.user.id).map((l) => (l as { copiedFromId: string }).copiedFromId)).toEqual([DEMO_SAMPLE_IDS.module]);
     expect(owned(schema.venueLibrary, me.user.id).map((l) => (l as { copiedFromId: string }).copiedFromId)).toEqual([DEMO_SAMPLE_IDS.venue]);
@@ -206,7 +208,7 @@ describe('turning it on', () => {
 });
 
 describe('a reset', () => {
-  it('deletes every demo space, only what demo accounts own, and puts the samples back', async () => {
+  it('puts the samples back, leaves visitors’ spaces and sign-ins alone, and touches nothing of anyone else', async () => {
     // Alice's things, which must survive.
     const aliceLayout = (await call({ method: 'POST', url: '/api/layouts', cookie: alice.cookie, payload: { title: 'Alice layout' } })).json() as { id: string };
     await call({ method: 'POST', url: '/api/modules', cookie: alice.cookie, payload: { title: 'Alice module' } });
@@ -237,13 +239,12 @@ describe('a reset', () => {
     expect(res.json()).toMatchObject({ ok: true, items: 3 });
 
     expect(titles(DEMO_USER_ID)).toEqual([DEMO_SAMPLES.layout.title]);
-    // The visitor's space and everything in it are gone, with one audit event saying how much.
-    expect(spaces()).toHaveLength(0);
-    for (const t of [schema.layouts, schema.modules, schema.venueLibrary] as const) expect(owned(t, visitor.id)).toHaveLength(0);
-    const gone = db.select().from(schema.auditEvents).where(eq(schema.auditEvents.eventType, 'demo_space_deleted')).all();
-    expect(gone).toHaveLength(1);
-    expect(JSON.parse(String(gone[0]!.payload))).toEqual({ why: 'reset', layouts: 2, modules: 2, venues: 2, parts: 0 });
-    expect(db.select().from(schema.auditEvents).where(eq(schema.auditEvents.eventType, 'layout_delete')).all()).toHaveLength(0);
+    // The visitor's space, its things and its sign-in are still there: a reset never ends a visit.
+    expect(spaces()).toHaveLength(1);
+    expect(titles(visitor.id)).toEqual(['Visitor layout', 'Visitor was here']);
+    expect(owned(schema.modules, visitor.id)).toHaveLength(2);
+    expect(db.select().from(schema.auditEvents).where(eq(schema.auditEvents.eventType, 'demo_space_deleted')).all()).toHaveLength(0);
+    expect(((await call({ url: '/api/auth/me', cookie: demo })).json() as { user: unknown }).user).not.toBeNull();
     // The same id as before the reset: links to the sample keep working.
     expect((owned(schema.layouts, DEMO_USER_ID)[0] as { id: string }).id).toBe(sample.id);
     expect((owned(schema.modules, DEMO_USER_ID) as { title: string }[]).map((m) => m.title)).toEqual([DEMO_SAMPLES.module.title]);
@@ -255,8 +256,7 @@ describe('a reset', () => {
     expect(db.select().from(schema.layouts).where(eq(schema.layouts.id, aliceLayout.id)).get()).toBeDefined();
     expect(owned(schema.modules, alice.id)).toHaveLength(1);
     expect(owned(schema.venueLibrary, alice.id)).toHaveLength(1);
-    // The visitor was signed out by the reset; trying again shows the fresh sample.
-    expect(((await call({ url: '/api/auth/me', cookie: demo })).json() as { user: unknown }).user).toBeNull();
+    // A new visitor sees the fresh sample.
     const list = (await call({ url: '/api/layouts', cookie: await tryDemo() })).json() as { layouts: { title: string }[] };
     expect(list.layouts.map((l) => l.title)).toEqual([DEMO_SAMPLES.layout.title]);
     expect((await getPlatformSettings()).demoLastResetAt).not.toBeNull();
@@ -344,7 +344,7 @@ describe('when a reset is due', () => {
 
   it('is shown only while the demo is on', async () => {
     const s = await getPlatformSettings();
-    expect(demoStatus({ ...s, ...base })).toEqual({ enabled: true, resetEvery: '6h', lastResetAt: base.demoLastResetAt.getTime(), nextResetAt: base.demoLastResetAt.getTime() + 6 * 3600_000 });
+    expect(demoStatus({ ...s, ...base })).toEqual({ enabled: true, resetEvery: '6h', lastResetAt: base.demoLastResetAt.getTime(), nextResetAt: base.demoLastResetAt.getTime() + 6 * 3600_000, spaceMinutes: 60 });
     expect(demoStatus({ ...s, ...base, demoEnabled: false }).nextResetAt).toBeNull();
   });
 });
@@ -434,18 +434,47 @@ describe('demo sign-ins', () => {
   const signedIn = async (c: string) => ((await call({ url: '/api/auth/me', cookie: c })).json() as { user: unknown }).user !== null;
   const HOUR = 60 * 60 * 1000;
 
-  it('end at the next reset and are never pushed back', async () => {
-    await setDemo({ demoEnabled: true, demoResetEvery: '6h' });
+  it('end an hour after the space was made, are never pushed back, and differ between visitors', async () => {
+    await setDemo({ demoEnabled: true });
+    const t0 = Date.now();
     const demo = await tryDemo();
-    const next = nextDemoReset(await getPlatformSettings())!.getTime();
     const [row] = demoSessions();
-    expect(row!.expiresAt.getTime()).toBe(next);
+    const space = spaces()[0]!;
+    expect(space.demoExpiresAt!.getTime() - space.createdAt.getTime()).toBe(HOUR);
+    expect(row!.expiresAt.getTime()).toBe(space.demoExpiresAt!.getTime());
+    expect(row!.expiresAt.getTime()).toBeGreaterThanOrEqual(t0 + HOUR);
     // Used a lot: its end stays where it was (a web session would slide).
+    const end = row!.expiresAt.getTime();
     for (let i = 0; i < 3; i++) expect(await signedIn(demo)).toBe(true);
-    expect(demoSessions()[0]!.expiresAt.getTime()).toBe(next);
-    // At the reset time it has ended, even before the timer gets round to the reset.
-    db.update(schema.sessions).set({ expiresAt: new Date(Date.now() - 1) }).where(eq(schema.sessions.id, demoSessions()[0]!.id)).run();
+    expect(demoSessions()[0]!.expiresAt.getTime()).toBe(end);
+    // A visitor who starts later ends later.
+    await new Promise((r) => setTimeout(r, 20));
+    await tryDemo();
+    const ends = spaces().map((u) => u.demoExpiresAt!.getTime());
+    expect(new Set(ends).size).toBe(2);
+    expect(Math.max(...ends)).toBeGreaterThan(end);
+    // At its time it has ended, even before the clean-up gets round to it.
+    db.update(schema.sessions).set({ expiresAt: new Date(Date.now() - 1) }).where(eq(schema.sessions.id, row!.id)).run();
     expect(await signedIn(demo)).toBe(false);
+  });
+
+  it('honor the lifetime an admin sets, for spaces made after it', async () => {
+    await setDemo({ demoEnabled: true });
+    for (const bad of [0, 45, 61, 2000, -30, '60', null, 30.5]) expect((await setDemo({ demoSpaceMinutes: bad })).statusCode).toBe(400);
+    const first = await visit();
+    for (const minutes of [30, 120, 360, 1440]) {
+      expect((await setDemo({ demoSpaceMinutes: minutes })).statusCode).toBe(200);
+      expect((await getPlatformSettings()).demoSpaceMinutes).toBe(minutes);
+      const v = await visit();
+      const u = db.select().from(schema.users).where(eq(schema.users.id, v.id)).get()!;
+      expect(u.demoExpiresAt!.getTime() - u.createdAt.getTime()).toBe(minutes * 60_000);
+      const me = (await call({ url: '/api/auth/me', cookie: v.cookie })).json() as { user: { demo: { spaceMinutes: number } } };
+      expect(me.user.demo.spaceMinutes).toBe(minutes);
+    }
+    // The earlier space kept its own hour.
+    const f = db.select().from(schema.users).where(eq(schema.users.id, first.id)).get()!;
+    expect(f.demoExpiresAt!.getTime() - f.createdAt.getTime()).toBe(HOUR);
+    expect((await setDemo({ demoSpaceMinutes: 7 }, alice)).statusCode).toBe(403);
   });
 
   it('last 24 hours at most, whatever the stored end says', async () => {
@@ -461,31 +490,36 @@ describe('demo sign-ins', () => {
     expect(demoSessions()).toHaveLength(0);
   });
 
-  it('a reset signs every demo visitor out, web sessions and tokens, and nobody else', async () => {
+  it('a reset signs nobody out, while turning the demo off signs every visitor out, sessions and tokens', async () => {
     await setDemo({ demoEnabled: true });
     const { cookie: one, id: oneId } = await visit();
     const two = await tryDemo();
-    // The demo can't get a desktop token, but one made anyway (a database edit) goes too.
+    // The demo can't get a desktop token, but one made anyway (a database edit) goes with turning it off.
     const now = new Date();
     db.insert(schema.apiTokens)
       .values({ id: randomUUID(), userId: oneId, name: 'x', tokenHash: randomUUID(), prefix: 'bld_pat_x', last4: 'xxxx', scopes: 'layouts:read', createdAt: now, lastUsedAt: null, expiresAt: new Date(now.getTime() + HOUR), revokedAt: null })
       .run();
     expect(await signedIn(one)).toBe(true);
     expect((await resetNow()).statusCode).toBe(200);
-    expect(await signedIn(one)).toBe(false);
-    expect(await signedIn(two)).toBe(false);
-    expect(demoSessions()).toHaveLength(0);
-    expect(db.select().from(schema.apiTokens).where(eq(schema.apiTokens.userId, oneId)).all()).toEqual([]);
+    expect(await signedIn(one)).toBe(true);
+    expect(await signedIn(two)).toBe(true);
+    expect(demoSessions()).toHaveLength(2);
+    expect(db.select().from(schema.apiTokens).where(eq(schema.apiTokens.userId, oneId)).all()).toHaveLength(1);
+    // The timer's reset (due long after) does not end them either: they end by their own time.
+    db.update(schema.platformSettings).set({ demoLastResetAt: new Date(Date.now() - 25 * HOUR) }).run();
+    expect(await demoTick()).toBe(true);
+    expect(await signedIn(one)).toBe(true);
     // Other people stay signed in.
     expect(await signedIn(alice.cookie)).toBe(true);
     expect(await signedIn(admin.cookie)).toBe(true);
-    // …and the timer's reset does the same.
-    const three = await tryDemo();
-    expect(await demoTick(new Date(Date.now() + 25 * HOUR))).toBe(true);
-    expect(await signedIn(three)).toBe(false);
+    // Off: everyone goes.
+    await setDemo({ demoEnabled: false });
+    expect(await signedIn(one)).toBe(false);
+    expect(await signedIn(two)).toBe(false);
+    expect(db.select().from(schema.apiTokens).where(eq(schema.apiTokens.userId, oneId)).all()).toEqual([]);
   });
 
-  it('a visitor with a live layout open is closed with the reason demo_reset', async () => {
+  it('a visitor with a live layout open stays connected through a reset', async () => {
     await setDemo({ demoEnabled: true });
     const visitor = await visit();
     const demo = visitor.cookie;
@@ -500,12 +534,12 @@ describe('demo sign-ins', () => {
       ws.once('error', reject);
     });
     await resetNow();
-    const got = await Promise.race([closed, new Promise<'timeout'>((r) => setTimeout(() => r('timeout'), 3000))]);
-    expect(got).not.toBe('timeout');
-    expect((got as { reason: string }).reason).toBe('demo_reset');
+    const got = await Promise.race([closed, new Promise<'timeout'>((r) => setTimeout(() => r('timeout'), 1000))]);
+    expect(got).toBe('timeout');
+    ws.close();
   });
 
-  it('Try the demo runs a reset that is due first, so the new sign-in isn’t ended by it', async () => {
+  it('Try the demo runs a reset that is due first, and the new space still gets its full time', async () => {
     await setDemo({ demoEnabled: true, demoResetEvery: '1h' });
     // The last reset was two hours ago: one is due, and the timer hasn't run yet.
     const old = new Date(Date.now() - 2 * HOUR);
@@ -514,7 +548,8 @@ describe('demo sign-ins', () => {
     const after = (await getPlatformSettings()).demoLastResetAt!.getTime();
     expect(after).toBeGreaterThan(old.getTime());
     expect(await signedIn(demo)).toBe(true);
-    expect(demoSessions()[0]!.expiresAt.getTime()).toBe(after + HOUR);
+    const space = spaces()[0]!;
+    expect(space.demoExpiresAt!.getTime() - space.createdAt.getTime()).toBe(HOUR);
   });
 });
 
@@ -619,6 +654,114 @@ describe('each visitor has a private demo space', () => {
     expect(owned(schema.layouts, DEMO_USER_ID)).toHaveLength(1);
     expect(db.select().from(schema.layouts).where(eq(schema.layouts.id, aliceLayout.id)).get()).toBeDefined();
     // A brand-new space (its sign-in is made just after it) isn't swept.
+    expect(await sweepDemoSpaces()).toBe(0);
+  });
+
+  it('the timer’s tick deletes every expired space with its sessions and things, one audit event each, and leaves live ones', async () => {
+    await setDemo({ demoEnabled: true });
+    const expiredA = await visit();
+    const expiredB = await visit();
+    const liveA = await visit();
+    const liveB = await visit();
+    const past = new Date(Date.now() - 1000);
+    // Both expired spaces still have a live sign-in row and a token: only the clock says they are over.
+    db.update(schema.users).set({ demoExpiresAt: past }).where(eq(schema.users.id, expiredA.id)).run();
+    db.update(schema.users).set({ demoExpiresAt: new Date(Date.now() - 60_000) }).where(eq(schema.users.id, expiredB.id)).run();
+    const now = new Date();
+    db.insert(schema.apiTokens).values({ id: randomUUID(), userId: expiredA.id, name: 'x', tokenHash: randomUUID(), prefix: 'bld_pat_x', last4: 'xxxx', scopes: 'layouts:read', createdAt: now, lastUsedAt: null, expiresAt: new Date(now.getTime() + 3600_000), revokedAt: null }).run();
+    expect(await demoTick()).toBe(false);
+    expect(spaces().map((u) => u.id).sort()).toEqual([liveA.id, liveB.id].sort());
+    for (const id of [expiredA.id, expiredB.id]) {
+      for (const t of [schema.layouts, schema.modules, schema.venueLibrary] as const) expect(owned(t, id)).toHaveLength(0);
+      expect(db.select().from(schema.sessions).where(eq(schema.sessions.userId, id)).all()).toHaveLength(0);
+      expect(db.select().from(schema.apiTokens).where(eq(schema.apiTokens.userId, id)).all()).toHaveLength(0);
+      expect(db.select().from(schema.users).where(eq(schema.users.id, id)).get()).toBeUndefined();
+    }
+    const events = db.select().from(schema.auditEvents).where(eq(schema.auditEvents.eventType, 'demo_space_deleted')).all();
+    expect(events.map((e) => e.resourceId).sort()).toEqual([expiredA.id, expiredB.id].sort());
+    for (const id of [liveA.id, liveB.id]) {
+      expect(owned(schema.layouts, id)).toHaveLength(1);
+      expect(db.select().from(schema.sessions).where(eq(schema.sessions.userId, id)).all()).toHaveLength(1);
+    }
+  });
+
+  it('an expired demo sign-in gets 401 on every API call and is refused on the WebSocket, by the server, past its end', async () => {
+    await setDemo({ demoEnabled: true });
+    const v = await visit();
+    const layout = owned(schema.layouts, v.id)[0] as { id: string };
+    await app.listen({ port: 0, host: '127.0.0.1' });
+    const port = (app.server.address() as AddressInfo).port;
+    const open = (cookieStr: string) =>
+      new Promise<'open' | 'refused'>((resolve) => {
+        let opened = false;
+        const ws = new WebSocket(`ws://127.0.0.1:${port}/ws/layout/${layout.id}`, { headers: { cookie: cookieStr } });
+        ws.on('error', () => resolve('refused'));
+        ws.on('unexpected-response', () => resolve('refused'));
+        // Refused at once, or opened and then closed by the server within a moment.
+        ws.on('close', () => resolve('refused'));
+        ws.on('open', () => {
+          opened = true;
+          setTimeout(() => {
+            if (opened) ws.close();
+            resolve('open');
+          }, 700);
+        });
+      });
+    expect((await call({ url: '/api/layouts', cookie: v.cookie })).statusCode).toBe(200);
+    expect(await open(v.cookie)).toBe('open');
+    // Past the end by the clock only: the session row says it would last (a database edit, a stale clean-up).
+    const end = db.select().from(schema.users).where(eq(schema.users.id, v.id)).get()!.demoExpiresAt!.getTime();
+    db.update(schema.sessions).set({ expiresAt: new Date(end + 10 * 3600_000) }).where(eq(schema.sessions.userId, v.id)).run();
+    vi.useFakeTimers({ now: end + 1000, toFake: ['Date'] });
+    try {
+      for (const url of ['/api/layouts', `/api/layouts/${layout.id}`, '/api/modules']) {
+        const res = await call({ url, cookie: v.cookie });
+        expect(res.statusCode, url).toBe(401);
+      }
+      // (/api/auth/me answers "nobody" rather than 401.)
+      expect(((await call({ url: '/api/auth/me', cookie: v.cookie })).json() as { user: unknown }).user).toBeNull();
+      expect(await open(v.cookie)).toBe('refused');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('a space with no stored end (older than the column) ends at its creation plus the lifetime, never forever', async () => {
+    await setDemo({ demoEnabled: true });
+    const old = await visit();
+    const fresh = await visit();
+    const kept = await visit();
+    const HOURS = 3600_000;
+    // Created 2 hours ago and no stored end: an hour is up. Just made and no stored end: still live.
+    db.update(schema.users).set({ demoExpiresAt: null, createdAt: new Date(Date.now() - 2 * HOURS) }).where(eq(schema.users.id, old.id)).run();
+    db.update(schema.users).set({ demoExpiresAt: null }).where(eq(schema.users.id, fresh.id)).run();
+    // A space from before this change keeps the end it already has.
+    db.update(schema.users).set({ demoExpiresAt: new Date(Date.now() + 3 * HOURS) }).where(eq(schema.users.id, kept.id)).run();
+    db.update(schema.sessions).set({ expiresAt: new Date(Date.now() + 3 * HOURS) }).where(eq(schema.sessions.userId, kept.id)).run();
+    const keptEnd = db.select().from(schema.users).where(eq(schema.users.id, kept.id)).get()!.demoExpiresAt!.getTime();
+    // The page still shows a finite end for the fresh one.
+    const me = (await call({ url: '/api/auth/me', cookie: fresh.cookie })).json() as { user: { demo: { expiresAt: number } } };
+    const created = db.select().from(schema.users).where(eq(schema.users.id, fresh.id)).get()!.createdAt.getTime();
+    expect(me.user.demo.expiresAt).toBe(created + HOURS);
+    expect(await sweepDemoSpaces()).toBe(1);
+    expect(spaces().map((u) => u.id).sort()).toEqual([fresh.id, kept.id].sort());
+    expect(db.select().from(schema.users).where(eq(schema.users.id, kept.id)).get()!.demoExpiresAt!.getTime()).toBe(keptEnd);
+    // An hour and a bit later the fresh one is swept too.
+    expect(await sweepDemoSpaces(new Date(created + HOURS + 1000))).toBe(1);
+    expect(spaces().map((u) => u.id)).toEqual([kept.id]);
+  });
+
+  it('lowering the lifetime later only affects new spaces', async () => {
+    await setDemo({ demoEnabled: true, demoSpaceMinutes: 360 });
+    const before = await visit();
+    await setDemo({ demoSpaceMinutes: 30 });
+    const after = await visit();
+    const span = (id: string) => {
+      const u = db.select().from(schema.users).where(eq(schema.users.id, id)).get()!;
+      return u.demoExpiresAt!.getTime() - u.createdAt.getTime();
+    };
+    expect(span(before.id)).toBe(360 * 60_000);
+    expect(span(after.id)).toBe(30 * 60_000);
     expect(await sweepDemoSpaces()).toBe(0);
   });
 

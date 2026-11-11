@@ -13,7 +13,7 @@
 //   3. the built-in default below
 // Read live (a short cache, cleared on save). A change applies to every
 // existing sign-in at its next check; saving never signs anyone out by
-// itself. Demo sign-ins aren't set here: they end at each demo reset, and
+// itself. Demo sign-ins aren't set here: they end with their demo space, and
 // after 24 hours at most (demo/demoAccount.ts).
 
 import { getPlatformSettings } from './platformSettings.js';

@@ -3,7 +3,7 @@
 // Demo account, and the dashboard's demo line. The API is a stubbed fetch.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
 import type { ReactNode } from 'react';
@@ -84,14 +84,56 @@ describe('Try the demo on the sign-in page', () => {
 });
 
 describe('the demo banner', () => {
-  it('tells demo visitors how often it resets and when next', async () => {
-    vi.useFakeTimers({ now: NOW, toFake: ['Date'] });
-    routes['GET /api/auth/me'] = () => ({ body: demoUser({ enabled: true, resetEvery: '6h', lastResetAt: NOW - 3600_000, nextResetAt: NOW + 5 * 3600_000 + 12 * 60_000 }) });
+  it('tells a visitor how long their space has left, and ticks down by itself', async () => {
+    vi.useFakeTimers({ now: NOW, toFake: ['Date', 'setInterval', 'clearInterval'] });
+    routes['GET /api/auth/me'] = () => ({ body: demoUser({ enabled: true, resetEvery: 'daily', lastResetAt: NOW, nextResetAt: NOW + 86400_000, spaceMinutes: 60, expiresAt: NOW + 45 * 60_000 }) });
     renderAt(<DemoBanner />);
-    const banner = await screen.findByTestId('demo-banner');
-    expect(banner.textContent).toContain('This is a demo. Everything resets every 6 hours (next reset in 5 h 12 min).');
-    // A phone gets one short line.
-    expect(screen.getByTestId('demo-banner-short').textContent).toBe('Demo · resets in 5 h 12 min');
+    const text = await screen.findByTestId('demo-banner-text');
+    expect(text.textContent).toBe('Your demo space is yours for about 45 more minutes.');
+    expect(screen.getByTestId('demo-banner').getAttribute('data-state')).toBe('running');
+    expect(screen.queryByTestId('demo-banner-download')).toBeNull();
+    // Ten minutes go by with no refresh.
+    await act(async () => {
+      vi.setSystemTime(NOW + 10 * 60_000);
+      vi.advanceTimersByTime(10_000);
+    });
+    expect(screen.getByTestId('demo-banner-text').textContent).toBe('Your demo space is yours for about 35 more minutes.');
+  });
+
+  it('says it is ending soon in the last 5 minutes and offers to download the layout', async () => {
+    vi.useFakeTimers({ now: NOW, toFake: ['Date', 'setInterval', 'clearInterval'] });
+    routes['GET /api/auth/me'] = () => ({ body: demoUser({ enabled: true, resetEvery: 'daily', lastResetAt: NOW, nextResetAt: NOW + 86400_000, spaceMinutes: 60, expiresAt: NOW + 6 * 60_000 }) });
+    renderAt(<DemoBanner />);
+    expect((await screen.findByTestId('demo-banner-text')).textContent).toContain('yours for about 6 more minutes');
+    await act(async () => {
+      vi.setSystemTime(NOW + 2 * 60_000);
+      vi.advanceTimersByTime(10_000);
+    });
+    expect(screen.getByTestId('demo-banner').getAttribute('data-state')).toBe('ending');
+    expect(screen.getByTestId('demo-banner-text').textContent).toBe('Your demo space is ending soon: 3 min left.');
+    // Not in an editor: it points to the layouts instead of a dead link.
+    expect(screen.getByTestId('demo-banner-download').getAttribute('href')).toBe('/');
+  });
+
+  it('downloads the open layout from an editor', async () => {
+    routes['GET /api/auth/me'] = () => ({ body: demoUser({ enabled: true, resetEvery: 'daily', lastResetAt: NOW, nextResetAt: NOW + 86400_000, spaceMinutes: 60, expiresAt: Date.now() + 2 * 60_000 }) });
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={qc}>
+        <MemoryRouter initialEntries={['/editor/abc-123']}>
+          <DemoBanner />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    const link = await screen.findByTestId('demo-banner-download');
+    expect(link.textContent).toBe('Download this layout');
+    expect(link.getAttribute('href')).toBe('/api/layouts/abc-123/export.bld-layout');
+  });
+
+  it('asks who is signed in again when the time is up', async () => {
+    routes['GET /api/auth/me'] = () => ({ body: demoUser({ enabled: true, resetEvery: 'daily', lastResetAt: NOW, nextResetAt: NOW + 86400_000, spaceMinutes: 60, expiresAt: Date.now() - 1000 }) });
+    renderAt(<DemoBanner />);
+    await waitFor(() => expect(calls.filter((c) => c.path === '/api/auth/me').length).toBeGreaterThan(1));
   });
 
   it('is not shown to anyone else', async () => {
@@ -130,6 +172,19 @@ describe('Admin › Settings › Demo account', () => {
     await waitFor(() => expect(calls.find((c) => c.method === 'PATCH')?.body).toEqual({ demoEnabled: true }));
   });
 
+  it('picks how long each demo space lasts (1 hour by default), with help', async () => {
+    routes['GET /api/admin/settings'] = settings({ enabled: true, resetEvery: 'daily', lastResetAt: NOW, nextResetAt: NOW + 86400_000, items: 1, spaceMinutes: 60 });
+    routes['PATCH /api/admin/settings'] = () => ({ body: { ok: true } });
+    renderAt(<DemoAccountSection />);
+    const group = await screen.findByTestId('demo-lifetime');
+    const radios = Array.from(group.querySelectorAll('input[type=radio]')) as HTMLInputElement[];
+    expect(radios.map((r) => r.parentElement!.textContent)).toEqual(['30 minutes', '1 hour', '2 hours', '6 hours', '24 hours']);
+    expect(radios.map((r) => r.checked)).toEqual([false, true, false, false, false]);
+    expect(group.querySelector('[data-help-key="admin.demoLifetime"]')).not.toBeNull();
+    fireEvent.click(radios[2]!);
+    await waitFor(() => expect(calls.find((c) => c.method === 'PATCH')?.body).toEqual({ demoSpaceMinutes: 120 }));
+  });
+
   it('picks how often it resets, resets now, and shows the last reset', async () => {
     vi.useFakeTimers({ now: NOW, toFake: ['Date'] });
     routes['GET /api/admin/settings'] = settings({ enabled: true, resetEvery: 'daily', lastResetAt: NOW - 3600_000, nextResetAt: NOW + 23 * 3600_000, items: 1 });
@@ -138,7 +193,7 @@ describe('Admin › Settings › Demo account', () => {
     renderAt(<DemoAccountSection />);
     expect(((await screen.findByLabelText('Daily')) as HTMLInputElement).checked).toBe(true);
     expect(screen.getByTestId('demo-last-reset').textContent).toContain('· next in 23 h · 1 thing in it now');
-    fireEvent.click(screen.getByLabelText('1 hour'));
+    fireEvent.click(screen.getAllByLabelText('1 hour')[1]!);
     await waitFor(() => expect(calls.find((c) => c.method === 'PATCH')?.body).toEqual({ demoResetEvery: '1h' }));
     // Turning it off sends demoEnabled: false.
     fireEvent.click(screen.getByLabelText('Enable the demo account'));

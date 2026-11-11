@@ -3,7 +3,7 @@
 // lasts unused, and the longest it can last however much it is used
 // ("never" allowed). A server env var may force one, and then the page
 // says so. A change applies at each sign-in's next check; saving signs
-// nobody out. Demo sign-ins always end at each demo reset.
+// nobody out. A demo sign-in ends with its demo space.
 
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -211,7 +211,7 @@ export function SignInSettingsSection() {
       <Group title="On the website" rows={rows.filter((r) => r.app === 'web')} saving={save.isPending} onSave={onSave} />
       <Group title="In the desktop app" rows={rows.filter((r) => r.app === 'desktop')} saving={save.isPending} onSave={onSave} />
       <p className="text-xs text-muted" data-testid="sign-in-demo">
-        Demo visitors are signed out at each demo reset, and after 24 hours at most.
+        Demo visitors are signed out when their demo space’s time is up (1 hour by default).
       </p>
       {save.isError && <p className="text-sm text-danger">{(save.error as Error).message}</p>}
     </section>

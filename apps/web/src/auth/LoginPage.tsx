@@ -126,7 +126,7 @@ function TryDemo({ next }: { next: string }) {
       >
         {go.isPending ? 'Opening the demo…' : 'Try the demo'}
       </button>
-      <p className="text-xs text-muted">No account needed. You get a private demo space of your own. It’s deleted when you leave or at the next reset, so don’t keep anything there.</p>
+      <p className="text-xs text-muted">No account needed. You get a private demo space of your own. It’s deleted when its time is up (about an hour), so download anything you want to keep.</p>
       {go.error && <p className="text-sm text-danger">{go.error.message}</p>}
     </div>
   );

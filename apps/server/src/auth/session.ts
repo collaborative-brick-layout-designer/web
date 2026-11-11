@@ -33,12 +33,18 @@ export function sessionIdForToken(token: string): string {
 
 type SessionRow = { createdAt: Date; expiresAt: Date };
 
+/** The end of a demo space as the server sees it (a space with no stored end: its creation plus the lifetime). */
+export function demoSpaceEnd(user: { createdAt: Date; demoExpiresAt: Date | null }, lifetimeMinutes: number): number {
+  return user.demoExpiresAt?.getTime() ?? user.createdAt.getTime() + lifetimeMinutes * 60_000;
+}
+
 /** When this session ends now, before any push back: its stored expiry, or sooner under today's rules. */
-async function endOf(row: SessionRow, isDemo: boolean, now: number): Promise<{ end: number; slid: number; idleMs: number }> {
+async function endOf(row: SessionRow, isDemo: boolean, now: number, demoUntil: Date | null = null): Promise<{ end: number; slid: number; idleMs: number }> {
   const created = row.createdAt.getTime();
   const stored = row.expiresAt.getTime();
   if (isDemo) {
-    const end = Math.min(stored, created + DEMO_SIGN_IN_MAX_MS);
+    // The sign-in never outlives its space's own end.
+    const end = Math.min(stored, created + DEMO_SIGN_IN_MAX_MS, demoUntil?.getTime() ?? Infinity);
     return { end, slid: end, idleMs: 0 };
   }
   const rule = (await signInLimits(now)).web;
@@ -49,19 +55,19 @@ async function endOf(row: SessionRow, isDemo: boolean, now: number): Promise<{ e
 /** True while the session behind `sessionId` exists and hasn't ended. */
 export async function isSessionActive(sessionId: string): Promise<boolean> {
   const row = await db
-    .select({ createdAt: schema.sessions.createdAt, expiresAt: schema.sessions.expiresAt, isDemo: schema.users.isDemoAccount })
+    .select({ createdAt: schema.sessions.createdAt, expiresAt: schema.sessions.expiresAt, isDemo: schema.users.isDemoAccount, demoUntil: schema.users.demoExpiresAt })
     .from(schema.sessions)
     .innerJoin(schema.users, eq(schema.sessions.userId, schema.users.id))
     .where(eq(schema.sessions.id, sessionId))
     .get();
   if (!row) return false;
   const now = Date.now();
-  return (await endOf(row, row.isDemo, now)).end >= now;
+  return (await endOf(row, row.isDemo, now, row.demoUntil)).end >= now;
 }
 
-/** When a new session ends: the idle window, or for the demo the next reset (24 hours at most). */
+/** When a new session ends: the idle window, or for a demo space its own time. */
 async function firstExpiry(userId: string, now: number): Promise<Date> {
-  // A demo space (or the template): its sign-in ends at the next reset, 24 hours at most.
+  // A demo space (or the template): its sign-in ends with its time.
   const user = await db.select({ demo: schema.users.isDemoAccount, until: schema.users.demoExpiresAt }).from(schema.users).where(eq(schema.users.id, userId)).get();
   if (user?.demo) {
     const { demoSessionEnd } = await import('../demo/demoAccount.js');
@@ -142,7 +148,7 @@ export async function validateSession(
   if (!row) return null;
 
   const now = Date.now();
-  const { end, slid, idleMs } = await endOf(row.session, row.user.isDemoAccount, now);
+  const { end, slid, idleMs } = await endOf(row.session, row.user.isDemoAccount, now, row.user.demoExpiresAt);
   if (end < now) {
     await db.delete(schema.sessions).where(eq(schema.sessions.id, id));
     return null;

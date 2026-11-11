@@ -1,13 +1,14 @@
 // Admin › Settings › Demo account: anyone can try the site from the sign-in
 // page, in a private demo space of their own (a copy of the samples). Off by
-// default. It resets itself on a timer (or now, with "Reset now"): every
-// space is deleted and the samples come back. The most spaces at once is
-// set here, next to how many there are now.
+// default. Each space lasts a set time from when it was made (1 hour unless
+// changed here). The samples are put back on a timer (or now, with "Reset
+// now"); that never ends a visitor's space. The most spaces at once is set
+// here, next to how many there are now.
 
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api';
-import { RESET_CHOICES, timeUntil } from '../demo/demoText';
+import { RESET_CHOICES, SPACE_LIFETIME_CHOICES, timeUntil } from '../demo/demoText';
 import { HelpButton } from '../help/HelpButton';
 
 /** The most demo spaces at once an admin may set (the server checks the same). */
@@ -33,7 +34,7 @@ export function DemoAccountSection() {
       <p className="text-xs text-muted">
         Anyone can try the site from the sign-in page, without signing up. Each visitor gets a private demo space with their own
         copy of the samples. They can build, edit and export layouts, venues and modules, but can’t invite, share, join clubs or
-        upload parts. Each space is deleted when its sign-in ends, and the samples are put back on a timer.
+        upload parts. Each space lasts a set time from when it was made, then it is deleted. The samples are put back on a timer.
       </p>
       <label className="flex items-center gap-2 text-sm">
         <input
@@ -53,10 +54,30 @@ export function DemoAccountSection() {
         onSave={(n) => save.mutate({ demoMaxSpaces: n })}
       />
       <p className="text-xs text-muted" data-testid="demo-sign-in-note">
-        Demo sign-ins end at each demo reset (at most 24 hours): every reset signs the visitors out, and their page offers to start again.
+        Putting the samples back never cuts a visit short. When a space’s time is up, its visitor is signed out and their page offers to start again.
       </p>
+      <fieldset className="space-y-1 text-sm" data-testid="demo-lifetime">
+        <legend className="mb-1 flex items-center gap-1 text-xs text-muted">
+          Each demo space lasts
+          <HelpButton helpKey="admin.demoLifetime" target='[data-testid="demo-lifetime"]' />
+        </legend>
+        <div className="flex flex-wrap gap-4">
+          {SPACE_LIFETIME_CHOICES.map(([value, label]) => (
+            <label key={value} className="flex items-center gap-2">
+              <input
+                type="radio"
+                name="demo-space-minutes"
+                checked={(demo.spaceMinutes ?? 60) === value}
+                disabled={save.isPending}
+                onChange={() => save.mutate({ demoSpaceMinutes: value })}
+              />
+              {label}
+            </label>
+          ))}
+        </div>
+      </fieldset>
       <fieldset className="space-y-1 text-sm">
-        <legend className="mb-1 text-xs text-muted">Reset it every</legend>
+        <legend className="mb-1 text-xs text-muted">Put the samples back every</legend>
         <div className="flex flex-wrap gap-4">
           {RESET_CHOICES.map(([value, label]) => (
             <label key={value} className="flex items-center gap-2">

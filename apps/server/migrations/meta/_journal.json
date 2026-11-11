@@ -330,6 +330,13 @@
       "when": 1794279838749,
       "tag": "0046_trash_items",
       "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "6",
+      "when": 1794361579916,
+      "tag": "0047_demo_space_lifetime",
+      "breakpoints": true
     }
   ]
 }
