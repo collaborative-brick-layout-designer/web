@@ -20,7 +20,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import * as Y from 'yjs';
 import { WebsocketProvider } from 'y-websocket';
 import { Awareness } from 'y-protocols/awareness';
-import { canReadDoc, mayAddDuplicates, removeDuplicateItems, repairSidecarCache, stampMemberKeys } from '@cld/ydoc';
+import { canReadDoc, keepSidecarThroughUndo, mayAddDuplicates, removeDuplicateItems, repairSidecarCache, stampMemberKeys } from '@cld/ydoc';
 import { watchModuleMerges } from './moduleMergeGuard';
 import { keepRefusedCopy, type RefusedWhy } from './refusedCopies';
 import { announceSignInEnded } from '../demo/demoVisitor';
@@ -554,6 +554,9 @@ export function useLayoutDoc(layoutId: string, canEdit?: boolean): LayoutDocStat
     // Two people changing one module's name or look at the same instant:
     // the change made here is put back on top of theirs (moduleMergeGuard.ts).
     const stopModuleMerges = watchModuleMerges(fresh);
+    // An undo right after someone else wrote the same module, label or
+    // sidecar at the same instant doesn't leave it missing (@cld/ydoc).
+    const stopSidecarUndo = keepSidecarThroughUndo(fresh, SIDECAR_REPAIR_ORIGIN);
 
     // The layout's first copy over HTTP, with progress (layoutDownload.ts),
     // then the live connection, which only sends what changed since. Without
@@ -577,6 +580,7 @@ export function useLayoutDoc(layoutId: string, canEdit?: boolean): LayoutDocStat
       provider.off('connection-close', onConnectionClose);
       fresh.off('afterTransaction', onTransaction);
       stopModuleMerges();
+      stopSidecarUndo();
       fresh.off('update', onDocUpdate);
       fresh.off('afterTransaction', onOfflineEdit);
       if (repairTimer) clearTimeout(repairTimer);

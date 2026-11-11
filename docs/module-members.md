@@ -100,6 +100,41 @@ again. A layout whose modules nobody changes stays in the shape it has.
 desktop release that carries this is the first to read shape 3;
 `desktop.recommended` should be raised to it when it is released.
 
+## Undo
+
+Undo and redo are Yjs's own: undoing an added part deletes its key, undoing
+a part taken out deletes its `false`, and other people's keys are left
+alone. The shape 3 stamp is never undone.
+
+One thing had to be closed in both apps, and it is older than the keys.
+When two people write the same sidecar value at the same instant (both
+write `meta.cache` whenever they change a module or a label) and the one
+whose value was kept then undoes, Yjs takes that value back and, with the
+other person's value in between, puts nothing in its place: the key is
+gone, and for `meta.cache` that is the whole sidecar. The web's repair
+covered this except in the instant before it ran; the desktop had no
+repair. Now both write such a value again as it was, after any undo or
+redo that leaves it missing (web `keepSidecarThroughUndo`, desktop
+`SyncDoc` `restoreSidecar`); `meta.cache` gets its modules and labels from
+the items as they are now, so the undo still takes back what it should.
+
+Known limit, desktop only: when two people make the very same change to
+the very same part of one module at the same instant (both add it, or both
+take it out) and the desktop then undoes its own, the part follows the
+undo, though the other person made the same change. The web can tell the
+two apart (it can ask Yjs what a value replaced) and keeps the other
+person's change.
+
+## Offline on the desktop
+
+The desktop keeps its offline edits apart and merges them on reconnecting
+(`LayoutMerge`). A module both sides changed used to be a clash to ask
+about. Now the parts I added or took out go on top of the server's list,
+and so does a field only one side changed; it is asked about only when
+both changed the same field (its name, say) to different values. The web
+has no such step: its offline edits are in the Yjs doc and merge by the
+keys.
+
 ## The server
 
 Stores the doc as it does now: no database change. The live checks accept

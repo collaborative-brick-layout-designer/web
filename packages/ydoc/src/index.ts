@@ -476,6 +476,95 @@ function itemsKnownForBlob(items: Y.Map<unknown>, blob: Record<string, unknown>)
   return items.get('__blob') === blobHash(blob);
 }
 
+// ---------------------------------------------------------------------------
+// Undo after two people wrote the same sidecar value at the same instant.
+//
+// Undo takes back the value this browser wrote and puts the one before it
+// back. But when someone else wrote the same key at the same instant and
+// ours was the one Yjs kept, theirs sits between ours and the one before,
+// and Yjs then puts nothing back (it won't write over a value it sees as
+// someone else's): the key is simply gone. For `meta.cache` that is the
+// whole sidecar (venue, views, every module and label); for `m:<id>` it is
+// the module; for a part key it is the part someone else also added or
+// took out. So after an undo or redo, a sidecar value that was there
+// before, is gone now, and was replaced that way is written again as it
+// was (`meta.cache` with its modules and labels as the items now hold
+// them). What the undo took back besides stays taken back.
+// ---------------------------------------------------------------------------
+
+/** What Yjs keeps for one value of a map key (yjs's Item, the fields read here). */
+interface KeyEntry {
+  id: { client: number; clock: number };
+  length: number;
+  /** The value it replaced, as its writer saw it. */
+  origin: { client: number; clock: number } | null;
+  /** The value before it in the key's history. */
+  left: KeyEntry | null;
+  deleted: boolean;
+}
+
+/** Whether `key`'s last value is gone and had been written at the same instant as someone else's (theirs sits before it). */
+function goneAfterConcurrentWrite(map: Y.Map<unknown>, key: string): boolean {
+  const top = (map as unknown as { _map: Map<string, KeyEntry> })._map.get(key);
+  if (!top || !top.deleted || !top.left) return false;
+  const o = top.origin;
+  return !o || top.left.id.client !== o.client || top.left.id.clock + top.left.length - 1 !== o.clock;
+}
+
+/**
+ * Watches `doc`: a sidecar value an undo or redo left missing because
+ * someone else wrote it at the same instant is put back (see above), in a
+ * transaction of origin `origin` (not an undo step). Returns how to stop.
+ */
+export function keepSidecarThroughUndo(doc: Y.Doc, origin: unknown): () => void {
+  const meta = doc.getMap('meta');
+  const items = doc.getMap<unknown>(SIDECAR_ITEMS);
+  let lastBlob: unknown;
+  let lastItems = new Map<string, unknown>();
+  const remember = (): void => {
+    lastBlob = meta.get('cache');
+    lastItems = new Map(items.entries());
+  };
+  remember();
+  const onTransaction = (tr: Y.Transaction): void => {
+    const touched =
+      tr.changed.has(meta as unknown as Y.AbstractType<Y.YEvent<Y.AbstractType<unknown>>>) ||
+      tr.changed.has(items as unknown as Y.AbstractType<Y.YEvent<Y.AbstractType<unknown>>>);
+    if (!touched) return;
+    if (!(tr.origin instanceof Y.UndoManager)) {
+      remember();
+      return;
+    }
+    const back: [string, unknown][] = [];
+    for (const [k, v] of lastItems) {
+      if (k === '__blob' || v instanceof Y.AbstractType || items.has(k) || !goneAfterConcurrentWrite(items, k)) continue;
+      back.push([k, v]);
+    }
+    const wasBlob = lastBlob && typeof lastBlob === 'object' && !(lastBlob instanceof Y.AbstractType) ? (lastBlob as Record<string, unknown>) : null;
+    const blobGone = !!wasBlob && meta.get('cache') === undefined && goneAfterConcurrentWrite(meta, 'cache');
+    const hashGone = lastItems.has('__blob') && !items.has('__blob') && goneAfterConcurrentWrite(items, '__blob');
+    if (back.length > 0 || blobGone || hashGone) {
+      const wasHash = lastItems.get('__blob');
+      doc.transact(() => {
+        for (const [k, v] of back) items.set(k, v);
+        if (!blobGone && !hashGone) return;
+        const blob = blobGone ? wasBlob! : meta.get('cache');
+        if (!blob || typeof blob !== 'object') return;
+        // The items went with the blob (a writer of both made it): its
+        // modules and labels are the items'. Else the blob as it was.
+        const paired = wasBlob !== null && wasHash === blobHash(wasBlob) && idsUnique(blob as Record<string, unknown>);
+        const out = paired ? mergedSidecar(blob as Record<string, unknown>, items) : (blob as Record<string, unknown>);
+        meta.set('cache', out);
+        if (paired) items.set('__blob', blobHash(out));
+        else if (typeof wasHash === 'string') items.set('__blob', wasHash);
+      }, origin);
+    }
+    remember();
+  };
+  doc.on('afterTransaction', onTransaction);
+  return () => doc.off('afterTransaction', onTransaction);
+}
+
 /**
  * Yjs can't move an item: a reorder or a move to another sheet deletes it and
  * inserts a copy. When two people move the same part at once, both copies

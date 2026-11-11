@@ -15,6 +15,7 @@ import {
   decodeDoc,
   encodeDoc,
   exportSidecarFromDoc,
+  keepSidecarThroughUndo,
   memberKey,
   memberWrites,
   moduleMembers,
@@ -538,6 +539,123 @@ describe('older and newer builds on one layout', () => {
     expect(parts(a)).toEqual(['a', 'z', 'y', 'x']);
   });
 });
+});
+
+// Undo right after someone else wrote the same value at the same instant
+// (before the editor's repair ran): Yjs takes ours back and, with theirs in
+// between, puts nothing in its place. keepSidecarThroughUndo does.
+describe.each([
+  ['the one who undoes has the higher client id (their value was the one kept)', 2002, 1001],
+  ['the one who undoes has the lower client id', 1001, 2002],
+] as const)('undo straight after a change at the same instant: %s', (_name, first, second) => {
+  const full = { ...start, venue: { name: 'Hall' }, views: [{ id: 'v1', name: 'All' }], anchoredLabels: [{ id: 'l1', text: 'Sign' }] };
+  function two(): { a: Y.Doc; b: Y.Doc; undo: Y.UndoManager } {
+    clientIds = [first, second];
+    const [a, b] = pair(full);
+    keepSidecarThroughUndo(a, 'repair');
+    keepSidecarThroughUndo(b, 'repair');
+    const undo = new Y.UndoManager([a.getMap('meta'), a.getMap('sidecarItems')], { trackedOrigins: new Set([LOCAL]), captureTimeout: 0 });
+    return { a, b, undo };
+  }
+  const rest = (d: Y.Doc) => {
+    const c = readSidecarCache(d)!;
+    return { venue: c.venue, views: c.views, labels: c.anchoredLabels };
+  };
+  const whole = { venue: full.venue, views: full.views, labels: full.anchoredLabels };
+
+  it('both add a part, one undoes at once: the sidecar is all still there, with the other person\'s part', () => {
+    const { a, b, undo } = two();
+    add(a, 'c');
+    add(b, 'd');
+    sync(a, b);
+    undo.undo();
+    expect(a.getMap('meta').get('cache')).toBeDefined();
+    settle(a, b);
+    for (const d of [a, b]) {
+      expect(parts(d)).toEqual(['a', 'b', 'd']);
+      expect(rest(d)).toEqual(whole);
+      expect(blob(d).modules[0]!.members).toEqual(['a', 'b', 'd']);
+    }
+    undo.redo();
+    settle(a, b);
+    for (const d of [a, b]) {
+      expect([...parts(d)!].sort()).toEqual(['a', 'b', 'c', 'd']);
+      expect(rest(d)).toEqual(whole);
+    }
+  });
+
+  it('both rename the module, one undoes at once: the module is still there', () => {
+    const { a, b, undo } = two();
+    change(a, 'm1', (m) => ({ ...m, name: 'North' }));
+    change(b, 'm1', (m) => ({ ...m, name: 'South' }));
+    sync(a, b);
+    undo.undo();
+    settle(a, b);
+    for (const d of [a, b]) {
+      expect(mods(d)).toHaveLength(1);
+      expect(['North', 'South']).toContain(mod(d)!.name);
+      expect(parts(d)).toEqual(['a', 'b']);
+      expect(rest(d)).toEqual(whole);
+    }
+    expect(mod(a)).toEqual(mod(b));
+  });
+
+  it('both add the same part, one undoes at once: the part the other added stays', () => {
+    const { a, b, undo } = two();
+    add(a, 'c');
+    add(b, 'c');
+    sync(a, b);
+    undo.undo();
+    settle(a, b);
+    for (const d of [a, b]) expect(parts(d)).toEqual(['a', 'b', 'c']);
+  });
+
+  it('both take the same part out, one undoes at once: it stays out', () => {
+    const { a, b, undo } = two();
+    take(a, 'a');
+    take(b, 'a');
+    sync(a, b);
+    undo.undo();
+    settle(a, b);
+    for (const d of [a, b]) expect(parts(d)).toEqual(['b']);
+  });
+
+  it('nobody else wrote: undo takes back what it always did', () => {
+    const { a, b, undo } = two();
+    // The first module's part, a new module, a rename: each undone in turn.
+    add(a, 'c');
+    a.transact(() => {
+      const c = readSidecarCache(a)!;
+      writeSidecarCache(a, { ...c, modules: [...(c.modules as Mod[]), { id: 'm2', name: 'Town', members: ['x'] }] });
+    }, LOCAL);
+    change(a, 'm1', (m) => ({ ...m, name: 'Harbour' }));
+    settle(a, b);
+    undo.undo();
+    expect(mod(a)!.name).toBe('Yard');
+    undo.undo();
+    expect(mods(a).map((m) => m.id)).toEqual(['m1']);
+    expect(a.getMap('sidecarItems').has('m:m2')).toBe(false);
+    undo.undo();
+    expect(parts(a)).toEqual(['a', 'b']);
+    expect(itemKeys(a)).toEqual([]);
+    settle(a, b);
+    expect(mods(b)).toEqual(mods(a));
+    expect(rest(b)).toEqual(whole);
+  });
+
+  it('undoing the layout\'s very first sidecar leaves it without one, as before', () => {
+    clientIds = [first, second];
+    const a = new Y.Doc();
+    a.clientID = first;
+    keepSidecarThroughUndo(a, 'repair');
+    const undo = new Y.UndoManager([a.getMap('meta'), a.getMap('sidecarItems')], { trackedOrigins: new Set([LOCAL]), captureTimeout: 0 });
+    a.transact(() => writeSidecarCache(a, start), LOCAL);
+    undo.undo();
+    expect(a.getMap('meta').get('cache')).toBeUndefined();
+    expect(a.getMap('sidecarItems').size).toBe(0);
+    undo.redo();
+    expect(parts(a)).toEqual(['a', 'b']);
+  });
 });
 
 describe('values no writer makes', () => {
