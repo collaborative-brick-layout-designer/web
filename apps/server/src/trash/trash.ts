@@ -11,7 +11,14 @@
 //           meanwhile is skipped, and the restore says so)
 //   venue:  the venue
 //
-// Not kept: open invites and hand-over offers (they're re-sent).
+// Not kept: open invites and hand-over offers (they're re-sent), and a
+// layout's public link (deleting says links stop working: a restored
+// layout is private until it's shared again).
+//
+// Restoring is growth like any other: the owner's limits apply (the
+// layout count, their space), and a collection that filled up meanwhile is
+// skipped. Something made by an account that's been erased since comes back
+// credited "Builder #…", the way the account's other things were left.
 
 import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, readdirSync, unlinkSync, writeFileSync } from 'node:fs';
@@ -20,6 +27,8 @@ import { gunzipSync, gzipSync } from 'node:zlib';
 import { and, eq, inArray, isNull, lt, or } from 'drizzle-orm';
 import { db, schema } from '../db/index.js';
 import { clubAccessMap } from '../access/clubPermissions.js';
+import { checkGrowth } from '../limits/limits.js';
+import type { User } from '../db/schema.js';
 import { imagesDirFor } from '../workers/backup.js';
 import { env } from '../env.js';
 
@@ -140,7 +149,8 @@ export async function trashLayout(layoutId: string, doc: Uint8Array, actorId: st
       title: row.title,
       ownerUserId: row.ownerUserId,
       ownerOrgId: row.ownerOrgId,
-      rows: { layouts: [{ ...row, docSnapshot: Buffer.from(doc) }], layoutCollaborators: collaborators },
+      // Its public link isn't kept.
+      rows: { layouts: [{ ...row, publicShareToken: null, docSnapshot: Buffer.from(doc) }], layoutCollaborators: collaborators },
       ...(picture ? { picture } : {}),
     },
     actorId,
@@ -248,15 +258,19 @@ async function mine(userId: string, trashId: string) {
 export interface CollectionsBack {
   back: { id: string; title: string }[];
   gone: number;
+  /** Collections that filled up meanwhile: it isn't back in these. */
+  full: { id: string; title: string }[];
 }
 
 export type RestoreResult =
   | { ok: true; kind: TrashKind; itemId: string; collections?: CollectionsBack }
-  | { ok: false; code: number; error: string };
+  | { ok: false; code: number; error: string; body?: Record<string, unknown> };
 
-// Matches routes/collections.ts (MAX_NOTE); not imported, to keep the trash
-// free of the routes.
+// Match routes/collections.ts (MAX_NOTE, MAX_COLLECTION_ITEMS); not
+// imported, to keep the trash free of the routes (trash.test.ts checks
+// they agree).
 const MAX_CURATOR_NOTE = 1500;
+export const TRASH_MAX_COLLECTION_ITEMS = 60;
 
 /**
  * Put a restored module back into the collections it was in, in its old
@@ -264,12 +278,18 @@ const MAX_CURATOR_NOTE = 1500;
  * curators were told it left, so they're told it's back.
  */
 function restoreMemberships(tx: Parameters<Parameters<typeof db.transaction>[0]>[0], moduleId: string, title: string, kept: Membership[]): CollectionsBack {
-  const out: CollectionsBack = { back: [], gone: 0 };
+  const out: CollectionsBack = { back: [], gone: 0, full: [] };
   const line = `“${title}” was restored from Recently deleted, so it's back in this collection.`;
   for (const m of kept) {
     const c = tx.select().from(schema.catalogCollections).where(eq(schema.catalogCollections.id, m.id)).get();
     if (!c) {
       out.gone += 1;
+      continue;
+    }
+    // It filled up while this was away: it stays as it is.
+    const members = tx.select({ id: schema.catalogCollectionModules.moduleId }).from(schema.catalogCollectionModules).where(eq(schema.catalogCollectionModules.collectionId, c.id)).all();
+    if (members.length >= TRASH_MAX_COLLECTION_ITEMS && !members.some((m2) => m2.id === moduleId)) {
+      out.full.push({ id: c.id, title: c.title });
       continue;
     }
     tx.insert(schema.catalogCollectionModules).values({ collectionId: c.id, moduleId, position: m.position }).onConflictDoNothing().run();
@@ -286,17 +306,44 @@ function restoreMemberships(tx: Parameters<Parameters<typeof db.transaction>[0]>
   return out;
 }
 
+/** The bytes a kept row holds (its blobs and long text), for the owner's space. */
+function rowBytes(row: Row): number {
+  let n = 0;
+  for (const v of Object.values(row)) {
+    if (Buffer.isBuffer(v) || v instanceof Uint8Array) n += v.length;
+  }
+  return n;
+}
+
 /** Put it back, under its own id. */
-export async function restoreFromTrash(userId: string, trashId: string): Promise<RestoreResult> {
+export async function restoreFromTrash(user: User, trashId: string): Promise<RestoreResult> {
+  const userId = user.id;
   const row = await mine(userId, trashId);
   if (!row) return { ok: false, code: 404, error: 'not_found' };
   const payload = unpack(row.payload as Uint8Array);
   const table = row.kind === 'layout' ? schema.layouts : row.kind === 'module' ? schema.modules : schema.venueLibrary;
   // Its id was taken meanwhile (a copy restored twice can't be).
   if (await db.select({ id: table.id }).from(table).where(eq(table.id, row.itemId)).get()) return { ok: false, code: 409, error: 'already_restored' };
-  // Collaborators who've since left the site are left out.
-  const users = new Set((await db.select({ id: schema.users.id }).from(schema.users).all()).map((u) => u.id));
   const order: TableName[] = ['layouts', 'modules', 'venueLibrary', 'layoutCollaborators', 'moduleVersions', 'moduleCollaborators'];
+  // Coming back is growth: the owner's limits apply, as for anything new.
+  const main = payload.rows[row.kind === 'layout' ? 'layouts' : row.kind === 'module' ? 'modules' : 'venueLibrary'] ?? [];
+  const bytes =
+    order.reduce((n, name) => n + (payload.rows[name] ?? []).reduce((m, r) => m + rowBytes(r), 0), 0) +
+    (payload.picture ? Buffer.byteLength(payload.picture.data, 'base64') : 0);
+  const owner = row.ownerOrgId ? ({ kind: 'org', id: row.ownerOrgId } as const) : ({ kind: 'user', id: row.ownerUserId ?? userId } as const);
+  const refusal = await checkGrowth({ actor: user, owner, add: { ...(row.kind === 'layout' ? { layouts: main.length } : {}), bytes } });
+  if (refusal) return { ok: false, code: refusal.status, error: refusal.body.error, body: refusal.body as unknown as Record<string, unknown> };
+  // People who've since left the site: collaborators are left out, and
+  // what they made is credited "Builder #…". Only the ids in these rows are looked up.
+  const named = new Set<string>();
+  for (const name of order) {
+    for (const r of payload.rows[name] ?? []) {
+      for (const col of ['userId', 'authorId', 'createdBy'] as const) if (typeof r[col] === 'string') named.add(r[col]);
+    }
+  }
+  const users = new Set(
+    named.size ? (await db.select({ id: schema.users.id }).from(schema.users).where(inArray(schema.users.id, [...named])).all()).map((u) => u.id) : [],
+  );
   let collections: CollectionsBack | undefined;
   db.transaction((tx) => {
     for (const name of order) {
@@ -304,6 +351,18 @@ export async function restoreFromTrash(userId: string, trashId: string): Promise
       if (!rows || rows.length === 0) continue;
       const kept = name.endsWith('Collaborators') ? rows.filter((r) => users.has(String(r.userId))) : rows;
       if (name === 'moduleVersions') for (const r of kept) if (r.authorId && !users.has(String(r.authorId))) r.authorId = null;
+      if (name === 'layouts' || name === 'modules') {
+        for (const r of kept) {
+          // Its maker's account was erased while it waited: whoever restores
+          // it stands in, and the credit keeps the old id (as account deletion does).
+          if (typeof r.createdBy === 'string' && !users.has(r.createdBy)) {
+            r.deletedAuthorId ??= r.createdBy;
+            r.createdBy = userId;
+          }
+          // Kept before public links were left out: it comes back private.
+          if (name === 'layouts') r.publicShareToken = null;
+        }
+      }
       if (kept.length === 0) continue;
       tx.insert(TABLES[name]).values(kept as never).run();
     }
@@ -319,25 +378,34 @@ export async function restoreFromTrash(userId: string, trashId: string): Promise
   return { ok: true, kind: row.kind, itemId: row.itemId, ...(collections ? { collections } : {}) };
 }
 
+/** A deleted layout's background picture goes from disk, unless the layout is back. */
+async function removePictureOf(layoutId: string): Promise<void> {
+  const dir = imagesDirFor(env.dbPath);
+  if (!existsSync(dir)) return;
+  if (await db.select({ id: schema.layouts.id }).from(schema.layouts).where(eq(schema.layouts.id, layoutId)).get()) return;
+  for (const f of readdirSync(dir)) {
+    if (!f.startsWith(`${layoutId}.`)) continue;
+    try {
+      unlinkSync(join(dir, f));
+    } catch {
+      /* gone */
+    }
+  }
+}
+
 /** Erase it now, before its 30 days are up. */
-export async function deleteFromTrash(userId: string, trashId: string): Promise<boolean> {
+export async function deleteFromTrash(userId: string, trashId: string): Promise<{ kind: TrashKind; itemId: string; title: string; ownerOrgId: string | null } | null> {
   const row = await mine(userId, trashId);
-  if (!row) return false;
+  if (!row) return null;
   await db.delete(schema.trashItems).where(eq(schema.trashItems.id, row.id));
-  return true;
+  if (row.kind === 'layout') await removePictureOf(row.itemId);
+  return { kind: row.kind, itemId: row.itemId, title: row.title, ownerOrgId: row.ownerOrgId };
 }
 
 /** The privacy clean-up: erase what has waited its 30 days. */
 export async function purgeTrash(now = new Date()): Promise<number> {
   const gone = await db.delete(schema.trashItems).where(lt(schema.trashItems.purgeAt, now)).returning({ id: schema.trashItems.id, kind: schema.trashItems.kind, itemId: schema.trashItems.itemId });
   // A layout's picture, if the layout wasn't restored meanwhile.
-  const dir = imagesDirFor(env.dbPath);
-  if (existsSync(dir)) {
-    for (const g of gone) {
-      if (g.kind !== 'layout') continue;
-      if (await db.select({ id: schema.layouts.id }).from(schema.layouts).where(eq(schema.layouts.id, g.itemId)).get()) continue;
-      for (const f of readdirSync(dir)) if (f.startsWith(`${g.itemId}.`)) try { unlinkSync(join(dir, f)); } catch { /* gone */ }
-    }
-  }
+  for (const g of gone) if (g.kind === 'layout') await removePictureOf(g.itemId);
   return gone.length;
 }

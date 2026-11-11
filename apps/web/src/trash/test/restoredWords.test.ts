@@ -30,4 +30,14 @@ describe('restoredWords', () => {
       'Restored “Siding”. It’s back in “Town”. 2 other collections it was in have been deleted since, so it isn’t in those.',
     );
   });
+  it('names a collection that filled up meanwhile, and says what to do', () => {
+    expect(restoredWords('Yard', { collections: { back: [], gone: 0, full: [{ id: 'c', title: 'Picks' }] } })).toBe(
+      'Restored “Yard”. “Picks” is full now, so it isn’t back in that one. Take something out of it, then add this again.',
+    );
+    expect(restoredWords('Yard', { collections: { back: [{ id: 'a', title: 'Best' }], gone: 0, full: [{ id: 'c', title: 'Picks' }, { id: 'd', title: 'Show' }] } })).toBe(
+      'Restored “Yard”. It’s back in “Best”. “Picks” and “Show” are full now, so it isn’t back in those. Take something out of them, then add this again.',
+    );
+    // An older server says nothing about full collections.
+    expect(restoredWords('Yard', { collections: { back: [], gone: 0 } })).toBe('Restored “Yard”');
+  });
 });

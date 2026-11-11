@@ -38,7 +38,13 @@ async function shot(page: Page, name: string): Promise<void> {
 test('a deleted layout or venue waits in Recently deleted, and comes back', async ({ page, browser }) => {
   test.setTimeout(120_000);
   await signIn(page, ADA, 'Ada Trash');
-  expect((await page.request.post('/api/layouts', { data: { title: LAYOUT } })).ok()).toBe(true);
+  const made = await page.request.post('/api/layouts', { data: { title: LAYOUT } });
+  expect(made.ok()).toBe(true);
+  // It has a public link: deleting stops it, and restoring doesn't bring it back.
+  const layoutId = ((await made.json()) as { id: string }).id;
+  const { token } = (await (await page.request.post(`/api/layouts/${layoutId}/public-share`)).json()) as { token: string };
+  const linkOpens = async () => ((await (await page.request.get(`/api/public-layouts/${token}`)).json()) as { layout: unknown }).layout !== null;
+  expect(await linkOpens()).toBe(true);
   expect((await page.request.post('/api/venues', { data: { name: VENUE, data: { name: VENUE, edges: [], obstacles: [] } } })).ok()).toBe(true);
   await page.goto('/');
   const layoutRow = page.getByRole('button', { name: `More for ${LAYOUT}` }).first();
@@ -88,6 +94,8 @@ test('a deleted layout or venue waits in Recently deleted, and comes back', asyn
   await trash.locator('li', { hasText: LAYOUT }).getByRole('button', { name: 'Restore' }).click();
   await expect(layoutRow).toBeVisible({ timeout: 10000 });
   await expect(trash).toContainText('Recently deleted (1)');
+  // It came back private: the old public link stays stopped.
+  expect(await linkOpens()).toBe(false);
   // Delete the venue now, after asking.
   await trash.locator('li', { hasText: VENUE }).getByRole('button', { name: 'Delete now' }).click();
   await expect(dialog.getByRole('heading')).toHaveText(`Delete “${VENUE}” for good?`);

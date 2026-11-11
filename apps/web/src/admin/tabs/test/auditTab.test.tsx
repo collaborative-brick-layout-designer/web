@@ -74,3 +74,12 @@ describe('AuditTab', () => {
     ).toBeTruthy();
   });
 });
+
+describe('Admin › Audit log: erased from Recently deleted', () => {
+  it('says what was erased early, in words', async () => {
+    const { auditSentence } = await import('../AuditTab');
+    expect(
+      auditSentence({ id: 9, layoutId: null, resourceKind: 'module', resourceId: 'm1', userId: 'u1', userName: 'Ada', eventType: 'delete_forever', payload: { title: 'Station' }, createdAt: 1 } as never),
+    ).toBe('Erased the module “Station” from Recently deleted, before its 30 days were up.');
+  });
+});

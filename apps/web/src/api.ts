@@ -2303,7 +2303,7 @@ export interface RestoreResult {
   kind: TrashItem['kind'];
   id: string;
   /** A restored module's collections (absent for a layout or venue, or a module that was in none). */
-  collections?: { back: { id: string; title: string }[]; gone: number };
+  collections?: { back: { id: string; title: string }[]; gone: number; /** Collections that filled up meanwhile. */ full?: { id: string; title: string }[] };
 }
 
 /** One thing in Recently deleted. */

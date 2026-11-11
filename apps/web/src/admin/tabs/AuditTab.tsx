@@ -16,6 +16,10 @@ export function auditSentence(e: AdminAuditEvent): string | null {
       const d = (e.payload ?? {}) as { title?: string; owner?: string; clubName?: string | null };
       return `Deleted the layout “${d.title ?? '?'}”${d.owner === 'club' ? ` (the club ${d.clubName ?? 'it belonged to'}’s)` : ''}.`;
     }
+    case 'delete_forever': {
+      const d = (e.payload ?? {}) as { title?: string };
+      return `Erased the ${e.resourceKind ?? 'item'} “${d.title ?? '?'}” from Recently deleted, before its 30 days were up.`;
+    }
     case 'admin_layout_delete':
       return `A site admin deleted the layout “${(e.payload as { title?: string } | null)?.title ?? '?'}”.`;
     case 'layout_merge_refused':
