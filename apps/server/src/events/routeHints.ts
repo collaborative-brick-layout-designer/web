@@ -492,7 +492,27 @@ export const ROUTE_HINTS: Record<string, HintSpec> = {
       return resource(kind, { reply: 'id' }).after(c);
     },
   },
-  'DELETE /api/trash/:id': me,
+  // Erased now. A club's item is in every club admin's Recently deleted:
+  // theirs updates too, not only the list of whoever pressed Delete now.
+  'DELETE /api/trash/:id': {
+    before: async (c) => {
+      const row = await db
+        .select({ kind: schema.trashItems.kind, itemId: schema.trashItems.itemId, org: schema.trashItems.ownerOrgId })
+        .from(schema.trashItems)
+        .where(eq(schema.trashItems.id, c.params.id ?? ''))
+        .get();
+      c.before.trash = row ?? null;
+      c.before.members = row?.org ? await memberIds(row.org) : [];
+    },
+    after: async (c) => {
+      const out = await me.after(c);
+      const row = c.before.trash as { kind: 'layout' | 'module' | 'venue'; itemId: string; org: string | null } | null;
+      if (row?.org) {
+        out.push({ hint: { kind: row.kind, owner: { kind: 'org', id: row.org }, id: row.itemId, action: 'delete:trash' }, reach: { users: c.before.members as string[] } });
+      }
+      return out;
+    },
+  },
   'POST /api/venues/:id/copy': resource('venue', { reply: 'id' }),
   'POST /api/venues/:id/move': resource('venue'),
   'POST /api/venues/:id/take-back': returned('venue'),

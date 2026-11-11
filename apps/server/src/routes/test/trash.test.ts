@@ -297,3 +297,32 @@ describe('Recently deleted: restoring is safe', () => {
     expect((await db.select().from(schema.auditEvents).where(eq(schema.auditEvents.eventType, 'delete_forever')).all()).length).toBe(1);
   });
 });
+
+describe('Recently deleted: Delete now reaches the club’s other admins', () => {
+  it('a club item erased by one admin tells the club’s members to look again; a person’s own tells only them', async () => {
+    const { ROUTE_HINTS } = await import('../../events/routeHints.js');
+    const spec = ROUTE_HINTS['DELETE /api/trash/:id']!;
+    const club = (await call(ada, 'POST', '/api/orgs', { name: 'Hint Club' })).json() as { slug: string };
+    const orgId = (await db.select().from(schema.orgs).where(eq(schema.orgs.slug, club.slug)).get())!.id;
+    await db.insert(schema.orgMembers).values({ orgId, userId: bob.id, role: 'member', joinedAt: new Date() } as never);
+    const now = new Date();
+    const layoutId = randomUUID();
+    await db.insert(schema.layouts).values({ id: layoutId, title: 'Club yard', ownerOrgId: orgId, createdBy: ada.id, createdAt: now, updatedAt: now, docSnapshot: Buffer.from(encodeDoc(createDefaultLayoutDoc())) });
+    const clubTrash = ((await call(ada, 'DELETE', `/api/layouts/${layoutId}`)).json() as { trashId: string }).trashId;
+    const own = (await call(ada, 'POST', '/api/layouts', { title: 'Mine' })).json() as { id: string };
+    const ownTrash = ((await call(ada, 'DELETE', `/api/layouts/${own.id}`)).json() as { trashId: string }).trashId;
+
+    const hintsFor = async (trashId: string) => {
+      const ctx = { req: { method: 'DELETE', routeOptions: { url: '/api/trash/:id' } }, params: { id: trashId }, body: {}, reply: { ok: true }, userId: ada.id, before: {} } as never;
+      await spec.before!(ctx);
+      expect((await call(ada, 'DELETE', `/api/trash/${trashId}`)).statusCode).toBe(200);
+      return (await spec.after(ctx)) as unknown as { hint: { kind: string; id?: string; owner?: { kind: string; id: string } }; reach?: { users: string[] } }[];
+    };
+    const forClub = await hintsFor(clubTrash);
+    expect(forClub.map((h) => h.hint.kind)).toEqual(['me', 'layout']);
+    expect(forClub[1]!.hint).toMatchObject({ id: layoutId, owner: { kind: 'org', id: orgId } });
+    expect([...forClub[1]!.reach!.users].sort()).toEqual([ada.id, bob.id].sort());
+    const forOwn = await hintsFor(ownTrash);
+    expect(forOwn.map((h) => h.hint.kind)).toEqual(['me']);
+  });
+});
