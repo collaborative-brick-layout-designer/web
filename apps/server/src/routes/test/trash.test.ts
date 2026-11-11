@@ -326,3 +326,28 @@ describe('Recently deleted: Delete now reaches the club’s other admins', () =>
     expect(forOwn.map((h) => h.hint.kind)).toEqual(['me']);
   });
 });
+
+describe('Recently deleted: a club’s things say whose they are and who deleted them', () => {
+  it('each admin sees the club’s name and the other’s public name, never an email; their own things say neither', async () => {
+    const club = (await call(ada, 'POST', '/api/orgs', { name: 'Named Club' })).json() as { slug: string };
+    const orgId = (await db.select().from(schema.orgs).where(eq(schema.orgs.slug, club.slug)).get())!.id;
+    await db.insert(schema.orgMembers).values({ orgId, userId: bob.id, role: 'admin', joinedAt: new Date() } as never);
+    const now = new Date();
+    const layoutId = randomUUID();
+    await db.insert(schema.layouts).values({ id: layoutId, title: 'Club yard', ownerOrgId: orgId, createdBy: ada.id, createdAt: now, updatedAt: now, docSnapshot: Buffer.from(encodeDoc(createDefaultLayoutDoc())) });
+    expect((await call(ada, 'DELETE', `/api/layouts/${layoutId}`)).statusCode).toBe(200);
+    const own = (await call(ada, 'POST', '/api/layouts', { title: 'Mine' })).json() as { id: string };
+    await call(ada, 'DELETE', `/api/layouts/${own.id}`);
+
+    type Item = { title: string; clubName: string | null; deletedByYou: boolean; deletedByName: string | null };
+    const list = async (who: Who) => ((await call(who, 'GET', '/api/trash')).json() as { items: Item[] }).items;
+    const adas = await list(ada);
+    expect(adas.find((i) => i.title === 'Club yard')).toMatchObject({ clubName: 'Named Club', deletedByYou: true, deletedByName: null });
+    expect(adas.find((i) => i.title === 'Mine')).toMatchObject({ clubName: null, deletedByYou: true, deletedByName: null });
+    const bobs = await call(bob, 'GET', '/api/trash');
+    const item = (bobs.json() as { items: Item[] }).items.find((i) => i.title === 'Club yard');
+    // Bob is a club admin (he may delete club items): he sees it, with Ada's public name.
+    expect(item).toMatchObject({ clubName: 'Named Club', deletedByYou: false, deletedByName: 'ada' });
+    expect(bobs.body).not.toContain('ada@example.com');
+  });
+});

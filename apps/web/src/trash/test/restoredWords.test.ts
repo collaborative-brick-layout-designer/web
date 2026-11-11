@@ -41,3 +41,23 @@ describe('restoredWords', () => {
     expect(restoredWords('Yard', { collections: { back: [], gone: 0 } })).toBe('Restored “Yard”');
   });
 });
+
+describe('the line under a deleted thing', () => {
+  const at = { deletedAt: new Date(2026, 10, 11, 12).getTime(), purgeAt: new Date(2026, 11, 11, 12).getTime() };
+  const day = (ms: number) => new Date(ms).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+
+  it('your own thing: when it was deleted and when it goes', async () => {
+    const { deletedLine } = await import('../RecentlyDeleted');
+    expect(deletedLine({ ...at, clubName: null, deletedByYou: true, deletedByName: null })).toBe(`Deleted ${day(at.deletedAt)} · gone for good on ${day(at.purgeAt)}`);
+    // An older server sends none of the new fields.
+    expect(deletedLine(at)).toBe(`Deleted ${day(at.deletedAt)} · gone for good on ${day(at.purgeAt)}`);
+  });
+
+  it('a club’s thing: whose it is, and who deleted it', async () => {
+    const { deletedLine } = await import('../RecentlyDeleted');
+    expect(deletedLine({ ...at, clubName: 'Rail Club', deletedByYou: false, deletedByName: 'Bob' })).toBe(`Rail Club’s · deleted ${day(at.deletedAt)} by Bob · gone for good on ${day(at.purgeAt)}`);
+    expect(deletedLine({ ...at, clubName: 'Rail Club', deletedByYou: true, deletedByName: null })).toBe(`Rail Club’s · deleted ${day(at.deletedAt)} by you · gone for good on ${day(at.purgeAt)}`);
+    // Whoever deleted it has since left the site.
+    expect(deletedLine({ ...at, clubName: 'Rail Club', deletedByYou: false, deletedByName: null })).toBe(`Rail Club’s · deleted ${day(at.deletedAt)} · gone for good on ${day(at.purgeAt)}`);
+  });
+});
