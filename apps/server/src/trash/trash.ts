@@ -200,6 +200,62 @@ export async function trashVenue(venueId: string, actorId: string, now = new Dat
   );
 }
 
+/** What one deleted item holds, for "Download my data" (privacy/exportFiles.ts). */
+export interface TrashContent {
+  id: string;
+  kind: TrashKind;
+  itemId: string;
+  title: string;
+  /** A layout's or module's document. */
+  doc?: Uint8Array;
+  sidecar?: Uint8Array | null;
+  /** A layout's background picture. */
+  picture?: { ext: string; bytes: Uint8Array };
+  /** A module's picture. */
+  thumbnail?: { ext: string; bytes: Uint8Array };
+  /** A venue: its name and its JSON as saved. */
+  venue?: { name: string; data: string };
+}
+
+/** The ids of what `owner` has in Recently deleted, oldest first. */
+export async function trashIdsOf(owner: { kind: 'user' | 'org'; id: string }): Promise<string[]> {
+  const rows = await db
+    .select({ id: schema.trashItems.id })
+    .from(schema.trashItems)
+    .where(owner.kind === 'user' ? eq(schema.trashItems.ownerUserId, owner.id) : eq(schema.trashItems.ownerOrgId, owner.id))
+    .orderBy(schema.trashItems.deletedAt)
+    .all();
+  return rows.map((r) => r.id);
+}
+
+/** One deleted item's contents (read one at a time: each can be big). Null when it's gone or can't be read. */
+export async function trashContent(id: string): Promise<TrashContent | null> {
+  const row = await db.select().from(schema.trashItems).where(eq(schema.trashItems.id, id)).get();
+  if (!row) return null;
+  let p: Payload;
+  try {
+    p = unpack(row.payload as Uint8Array);
+  } catch {
+    return null;
+  }
+  const out: TrashContent = { id: row.id, kind: row.kind, itemId: row.itemId, title: row.title };
+  const bytes = (v: unknown): Uint8Array | null => (v instanceof Uint8Array ? v : null);
+  if (row.kind === 'venue') {
+    const v = p.rows.venueLibrary?.[0];
+    if (v && typeof v.data === 'string') out.venue = { name: typeof v.name === 'string' ? v.name : row.title, data: v.data };
+    return out;
+  }
+  const item = (row.kind === 'layout' ? p.rows.layouts : p.rows.modules)?.[0];
+  if (!item) return out;
+  const doc = bytes(item.docSnapshot);
+  if (doc) out.doc = doc;
+  out.sidecar = bytes(item.sidecarSnapshot);
+  if (p.picture) out.picture = { ext: p.picture.name.split('.').pop() ?? 'png', bytes: Buffer.from(p.picture.data, 'base64') };
+  const thumb = bytes(item.thumbnail);
+  if (thumb) out.thumbnail = { ext: item.thumbnailMime === 'image/webp' ? 'webp' : 'png', bytes: thumb };
+  return out;
+}
+
 export interface TrashEntry {
   id: string;
   kind: TrashKind;
