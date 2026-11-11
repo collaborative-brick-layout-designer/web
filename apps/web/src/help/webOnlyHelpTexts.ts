@@ -39,12 +39,12 @@ export const WEB_ONLY_HELP_TEXTS = {
   'admin.demoStorage': {
     title: 'Space for each demo space',
     short: 'How much one visitor’s demo space may hold: their layouts, modules, venues and background pictures together.',
-    more: 'Keep it small: anyone can open a demo space without an account. A visitor who fills theirs is told it is full and can delete something to make room. It holds even when usage limits are switched off, and a demo space never gets more than “Space per person”.',
+    more: 'Keep it small: anyone can open a demo space without an account. A visitor who fills theirs is told it is full and can delete something to free up space. It holds even when usage limits are switched off, and a demo space never gets more than “Space per person”.',
   },
   'admin.demoPerAddress': {
     title: 'Demo spaces from one network address',
     short: 'How many demo spaces can be open at once from the same address, so one visitor can’t take them all.',
-    more: 'People on one Wi-Fi (a club night, a show) share an address, so leave room for them; someone who presses “Try the demo” again in the same browser just goes back to the space they have. Past it, “Try the demo” says to try again when a space ends, and 0 means no cap. Behind a reverse proxy, set TRUST_PROXY, or every visitor looks like the same address.',
+    more: 'People on one Wi-Fi (a club night, a show) share an address, so allow enough for them; someone who presses “Try the demo” again in the same browser just goes back to the space they have. Past it, “Try the demo” says to try again when a space ends, and 0 means no cap. Behind a reverse proxy, set TRUST_PROXY, or every visitor looks like the same address.',
   },
   'admin.demoLifetime': {
     title: 'How long a demo space lasts',
