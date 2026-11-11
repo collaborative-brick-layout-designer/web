@@ -12,7 +12,8 @@ updates:
       day: monday
     open-pull-requests-limit: 10
     versioning-strategy: increase
-    labels: [dependencies, npm]
+    # (Only labels the repository has: Dependabot complains about any other.)
+    labels: [dependencies, javascript]
     commit-message:
       prefix: chore
       include: scope
@@ -31,7 +32,7 @@ updates:
     schedule:
       interval: weekly
       day: monday
-    labels: [dependencies, ci]
+    labels: [dependencies]
     commit-message:
       prefix: ci
     groups:
@@ -43,7 +44,7 @@ updates:
     schedule:
       interval: weekly
       day: monday
-    labels: [dependencies, docker]
+    labels: [dependencies]
     commit-message:
       prefix: build
     groups:
