@@ -11,6 +11,7 @@ import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
 import { db, sqlite } from './db/index.js';
 import { env, trustProxyWarning } from './env.js';
 import { attachUser } from './auth/cookie.js';
+import { signInEnvWarnings } from './auth/signInSettings.js';
 import { ensureBootstrapAdmin } from './auth/bootstrap.js';
 import { registerDesktopGate } from './compat.js';
 import { syncLibrariesFromDisk } from './routes/admin.js';
@@ -78,6 +79,8 @@ async function main() {
   starting.attach((line) => app.log.info(line));
   const proxyWarning = trustProxyWarning(env.trustProxy);
   if (proxyWarning) app.log.warn(proxyWarning);
+  // A mistyped SIGN_IN_* setting forces nothing: say so, once, at start.
+  for (const line of signInEnvWarnings()) app.log.warn(line);
 
   await app.register(helmet, {
     contentSecurityPolicy: false, // securityHeaders.ts sets SANDBOX_CSP for /api and /parts, SPA_CSP for the app's HTML

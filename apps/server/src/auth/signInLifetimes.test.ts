@@ -277,3 +277,16 @@ describe('env vars', () => {
     expect((await signInLimits()).web).toEqual({ idleMs: 30 * DAY, maxMs: 30 * DAY });
   });
 });
+
+describe('a mistyped SIGN_IN_* setting is said at start, not ignored without a word', () => {
+  it('names each one that can’t be used, why, and what applies meanwhile; good and unset ones say nothing', async () => {
+    const { signInEnvWarnings } = await import('./signInSettings.js');
+    expect(signInEnvWarnings({})).toEqual([]);
+    expect(signInEnvWarnings({ SIGN_IN_WEB_IDLE: '30d', SIGN_IN_WEB_MAX: 'never', SIGN_IN_DESKTOP_IDLE: '12h', SIGN_IN_DESKTOP_MAX: ' ' })).toEqual([]);
+    const lines = signInEnvWarnings({ SIGN_IN_WEB_IDLE: '30 days', SIGN_IN_WEB_MAX: '0', SIGN_IN_DESKTOP_IDLE: 'never', SIGN_IN_DESKTOP_MAX: '90d' });
+    expect(lines).toHaveLength(3);
+    expect(lines[0]).toBe('SIGN_IN_WEB_IDLE="30 days" is ignored: it isn’t a duration. Use days ("30" or "30d"), hours ("12h"). Until it is fixed, the value from Admin › Settings › Sign-in (or the default) applies.');
+    expect(lines[1]).toMatch(/^SIGN_IN_WEB_MAX="0" is ignored: it is out of range\. Use 1 to 87600 hours, or "never"\./);
+    expect(lines[2]).toMatch(/^SIGN_IN_DESKTOP_IDLE="never" is ignored: "never" isn’t allowed for this one\./);
+  });
+});
