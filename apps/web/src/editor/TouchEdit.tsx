@@ -289,7 +289,7 @@ export function AddPartSheet({ onPick, onClose }: { onPick: (part: PartWire) => 
   };
 
   return (
-    <div className="fixed inset-0 z-40" data-no-gesture>
+    <div className="fixed inset-0 z-40" data-no-gesture data-bottom-sheet>
       <button
         type="button"
         aria-label="Close"

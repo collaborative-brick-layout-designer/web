@@ -48,7 +48,7 @@ export function TouchModuleSheet({ doc, moduleId, onClose }: { doc: Y.Doc; modul
     ...library(mod),
   ];
   return (
-    <div className="fixed inset-0 z-40" data-no-gesture>
+    <div className="fixed inset-0 z-40" data-no-gesture data-bottom-sheet>
       <button
         type="button"
         aria-label="Close"

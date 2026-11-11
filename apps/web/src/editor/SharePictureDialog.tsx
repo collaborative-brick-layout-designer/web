@@ -180,6 +180,7 @@ export function SharePictureDialog({ layoutTitle, views, map, sidecar, exportIma
       role="dialog"
       aria-modal="true"
       aria-labelledby="share-picture-title"
+      data-bottom-sheet={phone ? '' : undefined}
       className={`fixed inset-0 z-50 flex bg-black/60 ${phone ? 'items-end' : 'items-center justify-center p-4'}`}
       onClick={onClose}
     >

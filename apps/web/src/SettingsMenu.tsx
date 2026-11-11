@@ -294,6 +294,8 @@ export function SettingsMenu({
             id="settings-menu"
             role="menu"
             aria-label="Menu"
+            // A bottom sheet on a phone (max-sm): notices move clear of it (styles.css).
+            data-bottom-sheet="phone"
             onKeyDown={onMenuKey}
             onClick={(e) => {
               if ((e.target as HTMLElement).closest('[role=menuitem]')) setOpen(false);

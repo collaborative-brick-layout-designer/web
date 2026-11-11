@@ -482,6 +482,24 @@ body,
   }
 }
 
+/* A notice (.notice-dock: the editor's, the app's toasts) while a bottom
+   sheet is open goes to the top of the screen, over the dimmed map, so
+   it never covers the sheet's buttons for the seconds it shows. A sheet
+   marked "phone" (a menu that is a sheet only on a phone) counts only on
+   one. */
+body:has([data-bottom-sheet]:not([data-bottom-sheet='phone'])) .notice-dock {
+  top: max(0.5rem, env(safe-area-inset-top));
+  bottom: auto;
+  z-index: 60;
+}
+@media (max-width: 639px) {
+  body:has([data-bottom-sheet='phone']) .notice-dock {
+    top: max(0.5rem, env(safe-area-inset-top));
+    bottom: auto;
+    z-index: 60;
+  }
+}
+
 /* The map's one font (editor/render/mapText.ts), the same file the
    desktop bundles: Liberation Sans, SIL OFL 1.1 (assets/fonts). */
 @font-face { font-family: 'BLD Map Sans'; src: url('./assets/fonts/LiberationSans-Regular.woff2') format('woff2'); font-weight: 400; font-style: normal; font-display: block; }

@@ -32,7 +32,7 @@ export function BottomSheet({ title, onClose, children, footer }: {
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
   return (
-    <div className="fixed inset-0 z-40" data-no-gesture>
+    <div className="fixed inset-0 z-40" data-no-gesture data-bottom-sheet>
       <button
         type="button"
         aria-label="Close"

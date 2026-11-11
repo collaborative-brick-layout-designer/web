@@ -50,7 +50,7 @@ export function TouchToolsSheet({ onClose }: { onClose: () => void }) {
     onClose();
   };
   return (
-    <div className="fixed inset-0 z-40" data-no-gesture>
+    <div className="fixed inset-0 z-40" data-no-gesture data-bottom-sheet>
       <button
         type="button"
         aria-label="Close"
