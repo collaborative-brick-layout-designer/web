@@ -164,6 +164,20 @@ test("someone else's move draws only where the part was and is", async ({ browse
   expect(await sameAsAWholeDraw(bob)).toEqual(SAME);
   expect(await sameAsAWholeDraw(alice)).toEqual(SAME);
 
+  // In the mover's own tab, letting go of the part, picking it again and
+  // moving it draw only around it too (the selection's halo is drawn over
+  // just the picked parts: it used to draw the whole view).
+  for (const [what, act] of [
+    ['let go', () => alice.keyboard.press('Escape')],
+    ['picked', () => alice.mouse.click(part!.x + 1, part!.y)],
+    ['moved', nudge],
+  ] as const) {
+    const own = await drawsFor(alice, act);
+    expect(own.whole, `${what}: whole draws, the last for: ${own.why}`).toBe(0);
+    expect(own.pictures, what).toBeLessThan(PARTS * 0.1);
+    expect(await sameAsAWholeDraw(alice), what).toEqual(SAME);
+  }
+
   // Zoomed in: the same, with part of the map off screen.
   for (let i = 0; i < 10; i++) await bob.getByRole('button', { name: 'Zoom in' }).first().click();
   const zoomed = await drawsFor(bob, nudge);

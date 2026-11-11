@@ -290,20 +290,52 @@ test('a big layout: while the view moves the map is one moving picture, kept up 
   await expect(page.locator('footer')).toContainText(/selected: 1\b/);
   await page.waitForTimeout(2000);
 
-  // ── An edit during a pan shows during the pan: the picture is taken again. ──
+  // ── An edit during a pan shows during the pan: the picture is drawn
+  // again where the part was, not taken afresh from every part. ──
   const pieces = page.getByText('939 pieces').first();
   const at = { x: area.x + area.width / 2 - 200, y: area.y + area.height / 2 - 100 };
   await page.mouse.move(at.x, at.y);
   await page.mouse.down({ button: 'middle' });
   await panHeld(page, at, 10);
+  /** The moving picture's pixels: kept (`keep`), or how many differ from those kept, and over how wide and tall a box. */
+  const picture = (keep: boolean) =>
+    page.evaluate((keep) => {
+      const el = document.querySelector<HTMLCanvasElement>('canvas[data-view-bitmap]')!;
+      const data = el.getContext('2d')!.getImageData(0, 0, el.width, el.height).data;
+      const w = window as unknown as { __pic?: Uint8ClampedArray };
+      if (keep) {
+        w.__pic = data.slice();
+        return { differ: 0, w: 0, h: 0, of: el.width * el.height };
+      }
+      const was = w.__pic!;
+      let differ = 0;
+      let x0 = Infinity;
+      let y0 = Infinity;
+      let x1 = -1;
+      let y1 = -1;
+      for (let i = 0; i < data.length; i += 4) {
+        if (Math.abs(data[i]! - was[i]!) + Math.abs(data[i + 1]! - was[i + 1]!) + Math.abs(data[i + 2]! - was[i + 2]!) + Math.abs(data[i + 3]! - was[i + 3]!) <= 8) continue;
+        differ++;
+        const x = (i / 4) % el.width;
+        const y = Math.floor(i / 4 / el.width);
+        x0 = Math.min(x0, x);
+        x1 = Math.max(x1, x);
+        y0 = Math.min(y0, y);
+        y1 = Math.max(y1, y);
+      }
+      return { differ, w: x1 - x0 + 1, h: y1 - y0 + 1, of: el.width * el.height };
+    }, keep);
+  await picture(true);
   done = await count(page);
   await page.keyboard.press('Delete');
   await expect(pieces).toBeVisible();
   await panHeld(page, { x: at.x + 40, y: at.y + 20 }, 20);
   const edited = await done();
+  const changed = await picture(false);
   await page.mouse.up({ button: 'middle' });
-  expect(edited.partsScene, 'the map is drawn again for the picture once the part is gone').toBeGreaterThan(900);
-  expect(edited.partsScene, 'once or twice, not on every frame').toBeLessThan(3 * 940);
+  expect(changed.differ, 'the picture shows the part gone').toBeGreaterThan(0);
+  expect(changed.w * changed.h, 'only around where it was').toBeLessThan(changed.of / 20);
+  expect(edited.partsScene, 'only the parts around it are drawn for the picture (it was every part)').toBeLessThan(100);
 });
 
 /** Counts React commits (both renderers: the page and the map's react-konva) through the devtools hook, from page load. */
