@@ -10,6 +10,7 @@ import * as Y from 'yjs';
 import { mayAddDuplicates, readSidecarCache, removeDuplicateItems, repairSidecarCache } from '@cld/ydoc';
 import {
   addAnchoredLabel,
+  addLayer,
   addLinearRuler,
   deleteBricks,
   deleteRulerItem,
@@ -18,6 +19,7 @@ import {
   ensureRulerLayer,
   moveArea,
   moveBrick,
+  moveBricksToLayer,
   moveRulerItem,
   paintAreaCells,
   placeBrick,
@@ -195,6 +197,78 @@ describe('parts', () => {
     settle(a, b);
     const moved = (list(a, L, 'bricks') as Y.Map<unknown>[]).find((m) => m.get('id') === p)!;
     expect((moved.get('displayArea') as { x: number }).x).not.toBe(0);
+  });
+});
+
+// The look through every item for copies (removeDuplicateItems) runs only
+// after a change that may have made one (mayAddDuplicates): on a layout of
+// 7,520 parts it took about 38 ms after each of someone else's moves.
+describe('which changes may leave an item there twice', () => {
+  /** Whether `change`, as it arrives in someone else's tab, may have. */
+  function arrivesAsInsert(seed: (d: Y.Doc) => void, change: (d: Y.Doc) => void): boolean {
+    const { a, b } = pair(seed);
+    change(a);
+    const may = watchDuplicates(b);
+    sync(a, b);
+    return may();
+  }
+  let L = '';
+  let L2 = '';
+  let p = '';
+  const seed = (d: Y.Doc) => {
+    L = ensureBrickLayer(d);
+    p = placeBrick(d, L, { ...brick, x: 0, y: 0 });
+    placeBrick(d, L, { ...brick, x: 10, y: 0 });
+  };
+
+  it('not a part moved, or brought to front, in place', () => {
+    expect(arrivesAsInsert(seed, (d) => moveBrick(d, L, p, 50, 50))).toBe(false);
+    expect(arrivesAsInsert(seed, (d) => reorderBricks(d, [p], 'front'))).toBe(false);
+  });
+
+  it('a part placed, deleted, or moved to another sheet', () => {
+    expect(arrivesAsInsert(seed, (d) => placeBrick(d, L, { ...brick, x: 20, y: 0 }))).toBe(true);
+    expect(arrivesAsInsert(seed, (d) => deleteBricks(d, L, [p]))).toBe(true);
+    const two = (d: Y.Doc) => {
+      seed(d);
+      L2 = addLayer(d, 'brick');
+    };
+    expect(arrivesAsInsert(two, (d) => moveBricksToLayer(d, new Map([[L, [p]]]), L2))).toBe(true);
+  });
+
+  it('a new sheet, a ruler added and a cell painted, but not a ruler moved in place', () => {
+    expect(arrivesAsInsert(seed, (d) => addLayer(d, 'brick'))).toBe(true);
+    let R = '';
+    let ruler = '';
+    const withRuler = (d: Y.Doc) => {
+      R = ensureRulerLayer(d);
+      ruler = addLinearRuler(d, R, { x: 0, y: 0 }, { x: 10, y: 0 });
+    };
+    expect(arrivesAsInsert(withRuler, (d) => addLinearRuler(d, R, { x: 0, y: 5 }, { x: 10, y: 5 }))).toBe(true);
+    expect(arrivesAsInsert(withRuler, (d) => moveRulerItem(d, R, ruler, 5, 0))).toBe(false);
+    let A = '';
+    const withArea = (d: Y.Doc) => {
+      A = ensureAreaLayer(d);
+    };
+    expect(arrivesAsInsert(withArea, (d) => paintAreaCells(d, A, [{ x: 1, y: 1, color: 'FF000000' }]))).toBe(true);
+  });
+
+  // A build from before doc shape 2 moves a part to the front by deleting
+  // it and inserting a copy: two of those at once are still cleaned up.
+  it('two copies of a part, from builds that reorder by delete and insert, are still found', () => {
+    const { a, b } = pair(seed);
+    for (const d of [a, b]) {
+      const arr = (d.getMap('layerData').get(L) as Y.Map<unknown>).get('bricks') as Y.Array<Y.Map<unknown>>;
+      d.transact(() => {
+        const i = arr.toArray().findIndex((m) => m.get('id') === p);
+        const copy = new Y.Map<unknown>(Object.entries(arr.get(i).toJSON() as Record<string, unknown>));
+        arr.delete(i, 1);
+        arr.push([copy]);
+      });
+    }
+    settle(a, b);
+    expect((list(a, L, 'bricks') as Y.Map<unknown>[]).filter((m) => m.get('id') === p)).toHaveLength(1);
+    expect(list(b, L, 'bricks')).toHaveLength(2);
   });
 });
 

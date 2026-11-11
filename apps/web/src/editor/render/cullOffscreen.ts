@@ -491,6 +491,26 @@ function watchChanges(): void {
       quiet--;
     }
   };
+  // A part given another place in its sheet's order (put back after a
+  // drag, brought to front): Konva has the sheet ask for a draw, which
+  // drew the whole view. Only where the part is shows it.
+  type Order = Record<string, (this: Konva.Node, ...args: unknown[]) => unknown>;
+  const order = Konva.Node.prototype as unknown as Order;
+  for (const name of ['setZIndex', 'moveToTop', 'moveToBottom', 'moveUp', 'moveDown']) {
+    const move = order[name]!;
+    order[name] = function (this: Konva.Node, ...args: unknown[]) {
+      const parent = this.parent;
+      const on = tracks.size > 0 && parent && this.attrs.cullR !== undefined ? trackOf(parent) : null;
+      if (!on || on.part) return move.apply(this, args);
+      markPart(on.track, this);
+      quiet++;
+      try {
+        return move.apply(this, args);
+      } finally {
+        quiet--;
+      }
+    };
+  }
   const container = Konva.Container.prototype as unknown as { add: (...children: Konva.Node[]) => unknown };
   const add = container.add;
   container.add = function (this: Konva.Container, ...children: Konva.Node[]) {

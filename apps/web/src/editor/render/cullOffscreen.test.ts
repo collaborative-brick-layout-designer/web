@@ -163,6 +163,26 @@ describe('a watched layer', () => {
     expect(draw()).toMatchObject({ whole: 0, partial: 2, drawn: 0 });
   });
 
+  // A dragged part is lifted to another layer and put back at its place in
+  // the order (BrickLayer's liftForDrag): that drew the whole view.
+  it('draws only around a part put back at its place in the order, or brought to front', () => {
+    const p = parts[12]!;
+    const z = p.zIndex();
+    const other = new Konva.Layer();
+    stage.add(other);
+    p.moveTo(other);
+    draw();
+    p.moveTo(sheet);
+    p.zIndex(z);
+    expect(sheet.getChildren()[12]).toBe(p);
+    expect(draw()).toMatchObject({ whole: 0, partial: 2, drawn: 2, scene: [[198, 98, 104, 104]] });
+    p.moveToTop();
+    expect(draw()).toMatchObject({ whole: 0, partial: 2, drawn: 2, scene: [[198, 98, 104, 104]] });
+    p.moveToBottom();
+    expect(draw()).toMatchObject({ whole: 0, partial: 2, drawn: 2, scene: [[198, 98, 104, 104]] });
+    other.destroy();
+  });
+
   it('draws everything when something other than a part changes', () => {
     const text = new Konva.Rect({ x: 5, y: 5, width: 30, height: 10, fill: 'black' });
     layer.add(text);
@@ -170,9 +190,6 @@ describe('a watched layer', () => {
     text.x(40);
     expect(draw()).toMatchObject({ whole: 2, partial: 0 });
     expect(stats().why).toContain('Rect');
-    // The parts' order.
-    parts[5]!.moveToTop();
-    expect(draw()).toMatchObject({ whole: 2, partial: 0 });
     // The sheet's fade.
     sheet.opacity(0.5);
     expect(draw()).toMatchObject({ whole: 2, partial: 0 });
