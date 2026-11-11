@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { and, eq, gte } from 'drizzle-orm';
-import { invalidateOtherSessions, invalidateSession, publicSessionId, SESSION_COOKIE, sessionIdForToken } from '../../auth/session.js';
+import { demoSpaceEnd, invalidateOtherSessions, invalidateSession, publicSessionId, SESSION_COOKIE, sessionIdForToken } from '../../auth/session.js';
 import { notifyCredentialRevoked } from '../../auth/revocation.js';
 import { clearSessionCookie, requireUser } from '../../auth/cookie.js';
 import { listLinkedProviders } from '../../auth/users.js';
@@ -8,7 +8,7 @@ import { listProviders } from '../../auth/providers.js';
 import { db, schema } from '../../db/index.js';
 import { env } from '../../env.js';
 import { getPlatformSettings } from '../../auth/platformSettings.js';
-import { demoStatus, isDemoUser } from '../../demo/demoAccount.js';
+import { DEMO_USER_ID, demoStatus, isDemoUser } from '../../demo/demoAccount.js';
 import { looksLikeEmail, needsName, publicName, suggestedName } from '../../utils/publicName.js';
 
 const DISPLAY_NAME_MIN = 1;
@@ -39,7 +39,7 @@ export async function sessionRoutes(app: FastifyInstance) {
         // one): the account page offers to set one.
         hasPassword: !!req.user.passwordHash,
         // The demo banner: when this space ends, and how often the samples reset.
-        ...(isDemoUser(req.user) ? { demo: { ...demoStatus(await getPlatformSettings()), expiresAt: req.user.demoExpiresAt?.getTime() ?? null } } : {}),
+        ...(isDemoUser(req.user) ? { demo: { ...demoStatus(await getPlatformSettings()), expiresAt: req.user.id === DEMO_USER_ID ? null : demoSpaceEnd(req.user, (await getPlatformSettings()).demoSpaceMinutes) } } : {}),
       },
     };
   });

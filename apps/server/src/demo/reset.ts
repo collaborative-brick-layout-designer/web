@@ -22,7 +22,7 @@ import { docHub } from '../ws/docHub.js';
 import { publish } from '../events/audience.js';
 import { getPlatformSettings, PLATFORM_SETTINGS_ID } from '../auth/platformSettings.js';
 import { DEMO_USER_ID, ensureDemoUser, signOutDemo } from './demoAccount.js';
-import { invalidateAllSessions } from '../auth/session.js';
+import { demoSpaceEnd, invalidateAllSessions } from '../auth/session.js';
 import { writeAuditEvent } from '../audit/writeAuditEvent.js';
 
 /**
@@ -194,9 +194,11 @@ export async function sweepDemoSpaces(now = new Date()): Promise<number> {
     .from(schema.users)
     .where(and(eq(schema.users.isDemoAccount, true), ne(schema.users.id, DEMO_USER_ID)))
     .all();
+  const lifetime = (await getPlatformSettings()).demoSpaceMinutes;
   let n = 0;
   for (const sp of spaces) {
-    const timeUp = !sp.expiresAt || sp.expiresAt.getTime() <= now.getTime();
+    // No stored end (older than the column): its creation plus the lifetime, never forever.
+    const timeUp = demoSpaceEnd({ createdAt: sp.createdAt, demoExpiresAt: sp.expiresAt }, lifetime) <= now.getTime();
     // Its sign-ins all over (a minute's grace: Try the demo makes the space, then its sign-in).
     const signedOut = !live.has(sp.id) && now.getTime() - sp.createdAt.getTime() > 60_000;
     if (timeUp || signedOut) n += Number(await deleteDemoSpace(sp.id, 'expired'));
