@@ -453,7 +453,7 @@ describe('the clamp-drawing-values fix on a database', () => {
     expect(log[0]).toContain(`CBLD_DATA_FIX=<name>`);
     expect(log[0]).toContain(CLAMP_FIX_ID);
     expect(dump()).toEqual(before);
-    expect(sqlite.prepare('select count(*) as n from data_fixes').get()).toEqual({ n: 0 });
+    expect(sqlite.prepare('select count(*) as n from data_fixes where id = ?').get(CLAMP_FIX_ID)).toEqual({ n: 0 });
 
     // Asked: it runs and is recorded.
     log.length = 0;
@@ -463,7 +463,7 @@ describe('the clamp-drawing-values fix on a database', () => {
     expect(log.join('\n')).toMatch(/layouts: 3 checked, 2 changed \(34 values\)/);
     expect(log.join('\n')).toMatch(/by setting: .*grid\.subDivisionNumber 6/);
     expect([...drawingProblems(layoutDoc(w.inSnapshot))]).toEqual([]);
-    const rec = sqlite.prepare('select id, summary from data_fixes').all() as { id: string; summary: string }[];
+    const rec = sqlite.prepare('select id, summary from data_fixes where id = ?').all(CLAMP_FIX_ID) as { id: string; summary: string }[];
     expect(rec.map((r) => r.id)).toEqual([CLAMP_FIX_ID]);
     expect(JSON.parse(rec[0]!.summary)).toMatchObject({ apply: true, layouts: { changed: 2 } });
 
@@ -487,7 +487,7 @@ describe('the clamp-drawing-values fix on a database', () => {
     const run = runDataFixes(sqlite, askedFixes(undefined), (l) => log.push(l));
     expect(run).toEqual({ ran: [], pending: [] });
     expect(log).toEqual([]);
-    const rec = sqlite.prepare('select id, summary from data_fixes').all() as { id: string; summary: string }[];
+    const rec = sqlite.prepare('select id, summary from data_fixes where id = ?').all(CLAMP_FIX_ID) as { id: string; summary: string }[];
     expect(rec.map((r) => r.id)).toEqual([CLAMP_FIX_ID]);
     expect(JSON.parse(rec[0]!.summary)).toMatchObject({ apply: false });
     // Next start: still quiet.

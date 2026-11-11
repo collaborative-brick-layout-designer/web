@@ -18,7 +18,7 @@ import { registerLimitHooks } from './limits/hooks.js';
 import { registerRequestMetrics } from './metrics/activity.js';
 import { startRollup, stopRollup } from './metrics/rollup.js';
 import { startWorkers, stopWorkers } from './workers/index.js';
-import { backupBeforeMigrating } from './workers/backup.js';
+import { backupBeforeFix, backupBeforeMigrating } from './workers/backup.js';
 import { holdServerLock } from './ops/serverLock.js';
 import { failInterruptedExports } from './privacy/exports.js';
 import { registerErrorHandler } from './utils/errorHandler.js';
@@ -43,8 +43,15 @@ async function main() {
   }
   migrate(db, { migrationsFolder: resolve('./migrations') });
   // One-time data fixes: only those an operator asks for (CBLD_DATA_FIX),
-  // before anyone connects. Otherwise one log line when one waits.
-  runDataFixes(sqlite, askedFixes(env.dataFix), (line) => console.log(line), (id) => docHub.peek(id)?.doc);
+  // before anyone connects. Otherwise one log line when one waits. A fix
+  // that writes gets a copy of the database as it was first.
+  runDataFixes(
+    sqlite,
+    askedFixes(env.dataFix),
+    (line) => console.log(line),
+    (id) => docHub.peek(id)?.doc,
+    (fixId) => backupBeforeFix(sqlite, fixId, env.backupsDir, (line) => console.log(line)),
+  );
   await ensureBootstrapAdmin();
   // Data downloads that were building when the server stopped can be asked for again.
   await failInterruptedExports();

@@ -215,5 +215,27 @@ export function backupBeforeMigrating(sqlite: Database.Database, migrationsFolde
   return path;
 }
 
+/** The copy of the database made before a one-time data fix writes. */
+export const preFixBackupName = (fixId: string) => `cbld-before-fix-${fixId}.sqlite`;
+
+/**
+ * Before a one-time data fix (ops/dataFixes.ts) changes the database: a
+ * plain copy of it as it is, `cbld-before-fix-<fix>.sqlite`, whole or not
+ * there (written beside it, then renamed). It replaces one left by an
+ * earlier try, which changed nothing. Nothing deletes it: the operator
+ * does, once the fix is known to be good. Throws when the copy can't be made.
+ */
+export function backupBeforeFix(sqlite: Database.Database, fixId: string, dir: string, log: (line: string) => void = () => {}): string {
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+  const name = preFixBackupName(fixId);
+  const path = resolve(dir, name);
+  const tmp = `${path}.tmp`;
+  if (existsSync(tmp)) unlinkSync(tmp);
+  sqlite.prepare('VACUUM INTO ?').run(tmp);
+  renameSync(tmp, path);
+  log(`[backup] copied the database to ${name} before the data fix ${fixId}`);
+  return path;
+}
+
 /** The background pictures' folder for a database at `dbPath`. */
 export const imagesDirFor = (dbPath: string) => join(dirname(dbPath), 'bgimages');

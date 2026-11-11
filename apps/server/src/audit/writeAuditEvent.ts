@@ -157,7 +157,10 @@ export type AuditEventType =
   // A club's logo set or removed by one of its admins.
   | 'club_logo_set'
   | 'club_logo_remove'
-  | 'club_erased';
+  | 'club_erased'
+  // A one-time data fix ran at server start (ops/dataFixes.ts): its name
+  // and counts, written by the fix itself. Subject is `data_fix:<name>`.
+  | 'data_fix';
 
 export type AuditResourceKind =
   | 'layout'
