@@ -17,7 +17,7 @@
 // Start again?". The site-wide reset only puts the template's samples back.
 
 import { randomBytes } from 'node:crypto';
-import { and, count, eq, ne, or, type SQL } from 'drizzle-orm';
+import { and, count, eq, inArray, ne, or, type SQL } from 'drizzle-orm';
 import { db, schema } from '../db/index.js';
 import type { PlatformSettings, User } from '../db/schema.js';
 import { invalidateAllSessions } from '../auth/session.js';
@@ -180,4 +180,41 @@ export async function createDemoSpace(expiresAt: Date, now = new Date()): Promis
   };
   await db.insert(schema.users).values(row);
   return row;
+}
+
+// ---------------------------------------------------------------------------
+// One address can't take every space. Which address opened which space is
+// kept in memory only (the database never records addresses): after a
+// restart the count starts again, and the spaces themselves still end on time.
+// ---------------------------------------------------------------------------
+
+const spacesByAddress = new Map<string, { id: string; expiresAt: number }[]>();
+
+/** Note that `address` opened the space `id`. */
+export function noteDemoSpace(address: string, id: string, expiresAt: number): void {
+  spacesByAddress.set(address, [...(spacesByAddress.get(address) ?? []), { id, expiresAt }]);
+}
+
+/** How many live demo spaces `address` opened (those past their time, or deleted, don't count). */
+export async function demoSpacesFrom(address: string, now: number = Date.now()): Promise<number> {
+  // Tidy every address while here, so the map never grows past the live spaces.
+  for (const [addr, list] of spacesByAddress) {
+    const live = list.filter((s) => s.expiresAt > now);
+    if (live.length === 0) spacesByAddress.delete(addr);
+    else if (live.length !== list.length) spacesByAddress.set(addr, live);
+  }
+  const mine = spacesByAddress.get(address);
+  if (!mine) return 0;
+  const there = new Set(
+    (await db.select({ id: schema.users.id }).from(schema.users).where(inArray(schema.users.id, mine.map((s) => s.id))).all()).map((r) => r.id),
+  );
+  const live = mine.filter((s) => there.has(s.id));
+  if (live.length === 0) spacesByAddress.delete(address);
+  else spacesByAddress.set(address, live);
+  return live.length;
+}
+
+/** Tests: forget which address opened what. */
+export function forgetDemoAddresses(): void {
+  spacesByAddress.clear();
 }

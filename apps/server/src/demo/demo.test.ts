@@ -18,7 +18,8 @@ import { attachUser } from '../auth/cookie.js';
 import { registerApiRoutes } from '../routes/all.js';
 import { registerChangeHints } from '../events/routeHints.js';
 import { closeAll } from '../events/hub.js';
-import { DEMO_DISPLAY_NAME, DEMO_USER_ID, demoResetDue, demoStatus, isDemoSpace, isDemoUser, nextDemoReset } from './demoAccount.js';
+import { DEMO_DISPLAY_NAME, DEMO_USER_ID, demoResetDue, demoStatus, forgetDemoAddresses, isDemoSpace, isDemoUser, nextDemoReset } from './demoAccount.js';
+import { checkGrowth, invalidateLimitCaches, userLimits } from '../limits/limits.js';
 import { DEMO_SAMPLE_IDS, DEMO_SAMPLES, sweepDemoSpaces, uuidV5 } from './reset.js';
 import * as Y from 'yjs';
 import { docToBbm } from '@cld/ydoc';
@@ -31,6 +32,8 @@ let alice: { cookie: string; id: string };
 
 beforeEach(async () => {
   resetDb();
+  forgetDemoAddresses();
+  invalidateLimitCaches();
   db.delete(schema.venueLibrary).run();
   db.delete(schema.catalogItems).run();
   app = Fastify();
@@ -854,3 +857,114 @@ async function until(pred: () => boolean, ms = 2000): Promise<void> {
   const t0 = Date.now();
   while (!pred() && Date.now() - t0 < ms) await new Promise((r) => setTimeout(r, 10));
 }
+
+describe('one visitor can’t take the demo from everyone', () => {
+  beforeEach(async () => {
+    await setDemo({ demoEnabled: true });
+  });
+  const setLimits = (payload: Record<string, number | null>) => call({ method: 'PATCH', url: '/api/admin/limits', cookie: admin.cookie, payload });
+  /** "Try the demo" from a network address, with or without the browser's cookie. */
+  const tryFrom = (remoteAddress: string, cookie?: string) =>
+    app.inject({ method: 'POST', url: '/api/auth/demo', remoteAddress, headers: cookie ? { cookie } : {}, payload: {} });
+
+  it('Try the demo again in the same browser goes back to the space it has, however often', async () => {
+    const first = await visit();
+    for (let i = 0; i < 20; i++) {
+      const again = await call({ method: 'POST', url: '/api/auth/demo', cookie: first.cookie, payload: {} });
+      expect(again.statusCode).toBe(200);
+      expect(again.json()).toEqual({ ok: true, reused: true });
+      // The sign-in it has stays: no new cookie.
+      expect(again.headers['set-cookie']).toBeUndefined();
+    }
+    expect(spaces().map((u) => u.id)).toEqual([first.id]);
+    expect(((await call({ url: '/api/auth/me', cookie: first.cookie })).json() as { user: { id: string } }).user.id).toBe(first.id);
+    // Once its time is up, the same button starts a new one.
+    db.update(schema.users).set({ demoExpiresAt: new Date(Date.now() - 1000) }).where(eq(schema.users.id, first.id)).run();
+    const next = await call({ method: 'POST', url: '/api/auth/demo', cookie: first.cookie, payload: {} });
+    expect(next.statusCode).toBe(200);
+    expect(next.json()).toEqual({ ok: true });
+    expect(cookieOf(next)).not.toBe('');
+  });
+
+  it('one address opens 10 at once by default, and the 100 are still there for others', async () => {
+    for (let i = 0; i < 10; i++) expect((await tryFrom('203.0.113.7')).statusCode).toBe(200);
+    const refused = await tryFrom('203.0.113.7');
+    expect(refused.statusCode).toBe(429);
+    expect(refused.json()).toEqual({ error: 'demo_busy', message: 'There are already 10 demo spaces open from your network. Try again when one ends, in 1 hour at most.' });
+    expect(refused.headers['set-cookie']).toBeUndefined();
+    expect(spaces()).toHaveLength(10);
+    // Someone else, somewhere else, gets in.
+    expect((await tryFrom('198.51.100.20')).statusCode).toBe(200);
+    expect(spaces()).toHaveLength(11);
+  });
+
+  it('the cap is a setting; a space that ended, or was deleted, makes room; 0 means no cap', async () => {
+    expect((await setLimits({ demoSpacesPerAddress: 2 })).statusCode).toBe(200);
+    await setDemo({ demoSpaceMinutes: 30 });
+    const a = await tryFrom('203.0.113.7');
+    const b = await tryFrom('203.0.113.7');
+    expect([a.statusCode, b.statusCode]).toEqual([200, 200]);
+    const refused = await tryFrom('203.0.113.7');
+    expect(refused.statusCode).toBe(429);
+    expect((refused.json() as { message: string }).message).toBe('There are already 2 demo spaces open from your network. Try again when one ends, in 30 minutes at most.');
+    // The visitor whose browser has a space still gets it back.
+    expect((await tryFrom('203.0.113.7', cookieOf(a))).json()).toEqual({ ok: true, reused: true });
+    // One is swept (its time was up): room for one more.
+    const ids = spaces().map((u) => u.id);
+    db.update(schema.users).set({ demoExpiresAt: new Date(Date.now() - 1000) }).where(eq(schema.users.id, ids[0]!)).run();
+    await sweepDemoSpaces();
+    expect((await tryFrom('203.0.113.7')).statusCode).toBe(200);
+    expect((await tryFrom('203.0.113.7')).statusCode).toBe(429);
+    // 1: the words are for one.
+    await setLimits({ demoSpacesPerAddress: 1 });
+    expect(((await tryFrom('203.0.113.7')).json() as { message: string }).message).toMatch(/^There is already a demo space open from your network\./);
+    // 0: no cap for an address (the most at once still holds).
+    await setLimits({ demoSpacesPerAddress: 0 });
+    for (let i = 0; i < 12; i++) expect((await tryFrom('203.0.113.7')).statusCode).toBe(200);
+    // Back to the default.
+    await setLimits({ demoSpacesPerAddress: null });
+    expect((await tryFrom('203.0.113.7')).statusCode).toBe(429);
+  });
+
+  it('a demo space holds 50 MB, not a person’s 2 GB; the template and real people are as before', async () => {
+    const v = await visit();
+    const space = db.select().from(schema.users).where(eq(schema.users.id, v.id)).get()!;
+    const lim = await userLimits(space);
+    expect(lim.storagePerUser).toEqual({ value: 50 * 1024 * 1024, source: 'smart', reason: 'A demo space' });
+    const grow = (actor: typeof space, bytes: number) => checkGrowth({ actor, owner: { kind: 'user', id: actor.id }, add: { bytes } });
+    expect(await grow(space, 10 * 1024 * 1024)).toBeNull();
+    const full = await grow(space, 60 * 1024 * 1024);
+    expect(full?.status).toBe(403);
+    expect(full?.body).toMatchObject({ error: 'limit_reached', limit: 'storagePerUser', message: 'Your demo space is full (50 MB). Delete something you don’t need to make room.' });
+    const template = db.select().from(schema.users).where(eq(schema.users.id, DEMO_USER_ID)).get()!;
+    expect((await userLimits(template)).storagePerUser.value).toBe(2 * 1024 * 1024 * 1024);
+    const real = db.select().from(schema.users).where(eq(schema.users.id, alice.id)).get()!;
+    expect((await userLimits(real)).storagePerUser).toEqual({ value: 2 * 1024 * 1024 * 1024, source: 'default' });
+    expect(await grow(real, 60 * 1024 * 1024)).toBeNull();
+  });
+
+  it('an admin sets it; a real upload past it is refused in plain words, even with usage limits off', async () => {
+    // (Small numbers: this test's server takes bodies up to 1 MB.)
+    expect((await setLimits({ storagePerDemoSpace: 256 * 1024 })).statusCode).toBe(200);
+    const listed = (await call({ url: '/api/admin/limits', cookie: admin.cookie })).json() as { limits: { key: string; applies: string; value: number; unit: string }[] };
+    expect(listed.limits.find((l) => l.key === 'storagePerDemoSpace')).toMatchObject({ applies: 'demo', value: 256 * 1024, unit: 'bytes' });
+    expect(listed.limits.find((l) => l.key === 'demoSpacesPerAddress')).toMatchObject({ applies: 'demo', value: 10, unit: 'count' });
+    const v = await visit();
+    const upload = (cookie: string, kb: number) =>
+      call({ method: 'POST', url: '/api/layouts', cookie, payload: { title: 'big', sidecar: JSON.stringify({ schemaVersion: 1, bbmHashSha256: '', notes: 'x'.repeat(kb * 1024) }) } });
+    const refused = await upload(v.cookie, 600);
+    expect(refused.statusCode).toBe(403);
+    expect((refused.json() as { message: string }).message).toMatch(/^Your demo space is full \(256 KB\)\. Delete something you don’t need to make room\.$/);
+    // Small things still save, and a real person isn't held to the demo's number.
+    expect((await call({ method: 'POST', url: '/api/layouts', cookie: v.cookie, payload: { title: 'small' } })).statusCode).toBe(201);
+    expect((await upload(alice.cookie, 600)).statusCode).toBe(201);
+    // Usage limits off: people aren't refused, a demo space still is.
+    expect((await setDemo({ limitsEnforced: false })).statusCode).toBe(200);
+    invalidateLimitCaches();
+    expect((await upload(v.cookie, 600)).statusCode).toBe(403);
+    expect((await upload(alice.cookie, 600)).statusCode).toBe(201);
+    // The demo's limits aren't offered for one person or club.
+    const person = (await call({ url: `/api/admin/users/${alice.id}/usage`, cookie: admin.cookie })).body;
+    expect(person).not.toContain('storagePerDemoSpace');
+  });
+});

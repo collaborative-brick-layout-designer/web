@@ -440,7 +440,8 @@ export function GlobalLimitsForm() {
   });
   if (data.isLoading) return <p className="text-sm text-muted">Loading limits…</p>;
   if (!data.data) return null;
-  const limits = data.data.limits;
+  // The demo's own limits are in Demo account, above.
+  const limits = data.data.limits.filter((l) => l.applies !== 'demo');
   const values = draft ?? Object.fromEntries(limits.map((l) => [l.key, toInput(l.value, l.unit)]));
   const submit = () => {
     const patch: Record<string, number | null> = {};

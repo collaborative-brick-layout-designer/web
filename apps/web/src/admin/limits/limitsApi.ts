@@ -10,7 +10,8 @@ export interface GlobalLimit {
   label: string;
   help: string;
   unit: LimitUnit;
-  applies: 'user' | 'org' | 'both';
+  /** 'demo' limits are set in Admin › Settings › Demo account, not in the Usage limits list. */
+  applies: 'user' | 'org' | 'both' | 'demo';
   value: number;
   default: number;
   builtIn: number;
