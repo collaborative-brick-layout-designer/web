@@ -16,7 +16,17 @@ import { moduleRoutes } from '../modules.js';
 import { venueRoutes } from '../venues.js';
 import { trashRoutes } from '../trash.js';
 import { collectionRoutes } from '../collections.js';
-import { purgeTrash } from '../../trash/trash.js';
+import { purgeTrash, TRASH_MAX_COLLECTION_ITEMS } from '../../trash/trash.js';
+import { MAX_COLLECTION_ITEMS } from '../collections.js';
+import { orgRoutes } from '../orgs.js';
+import { adminLimitsRoutes } from '../adminLimits.js';
+import { invalidateLimitCaches } from '../../limits/limits.js';
+import { eraseUser } from '../../privacy/accountDeletion.js';
+import { imagesDirFor } from '../../workers/backup.js';
+import { env } from '../../env.js';
+import { existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { randomUUID } from 'node:crypto';
 
 type Who = { cookie: string; id: string };
 let app: FastifyInstance;
@@ -30,7 +40,8 @@ beforeEach(async () => {
   app = Fastify({ bodyLimit: 10 * 1024 * 1024 });
   await app.register(cookie);
   app.addHook('preHandler', attachUser);
-  for (const r of [passwordRoutes, layoutRoutes, moduleRoutes, venueRoutes, trashRoutes, collectionRoutes]) await app.register(r);
+  for (const r of [passwordRoutes, layoutRoutes, moduleRoutes, venueRoutes, trashRoutes, collectionRoutes, orgRoutes, adminLimitsRoutes]) await app.register(r);
+  invalidateLimitCaches();
   ada = await loginAs(app, 'ada@example.com');
   bob = await loginAs(app, 'bob@example.com');
 });
@@ -149,5 +160,140 @@ describe('Recently deleted', () => {
     expect((await db.select().from(schema.trashItems).all()).length).toBe(1);
     await db.delete(schema.users).where(eq(schema.users.id, ada.id));
     expect((await db.select().from(schema.trashItems).all()).length).toBe(0);
+  });
+});
+
+describe('Recently deleted: restoring is safe', () => {
+  const doc = () => Buffer.from(encodeDoc(createDefaultLayoutDoc()));
+  const trashIdOf = (res: { json: () => unknown }) => (res.json() as { trashId: string }).trashId;
+
+  it('a club layout and module come back after their maker’s account was erased, credited to the old id', async () => {
+    const club = (await call(ada, 'POST', '/api/orgs', { name: 'Rail Club' })).json() as { id: string; slug: string };
+    const orgId = (await db.select().from(schema.orgs).where(eq(schema.orgs.slug, club.slug)).get())!.id;
+    await db.insert(schema.orgMembers).values({ orgId, userId: bob.id, role: 'member', joinedAt: new Date() } as never);
+    const now = new Date();
+    const layoutId = randomUUID();
+    const moduleId = randomUUID();
+    await db.insert(schema.layouts).values({ id: layoutId, title: 'Club yard', ownerOrgId: orgId, createdBy: bob.id, createdAt: now, updatedAt: now, docSnapshot: doc() });
+    await db.insert(schema.modules).values({ id: moduleId, title: 'Club module', ownerOrgId: orgId, createdBy: bob.id, docSnapshot: doc(), latestVersion: 1, createdAt: now, updatedAt: now });
+    await db.insert(schema.moduleVersions).values({ id: randomUUID(), moduleId, version: 1, docSnapshot: doc(), authorId: bob.id, createdAt: now } as never);
+    const t1 = trashIdOf(await call(ada, 'DELETE', `/api/layouts/${layoutId}`));
+    const t2 = trashIdOf(await call(ada, 'DELETE', `/api/modules/${moduleId}`));
+    await eraseUser(bob.id, 'admin', ada.id);
+    expect(await db.select().from(schema.users).where(eq(schema.users.id, bob.id)).get()).toBeUndefined();
+
+    expect((await call(ada, 'POST', `/api/trash/${t1}/restore`)).json()).toEqual({ ok: true, kind: 'layout', id: layoutId });
+    expect((await call(ada, 'POST', `/api/trash/${t2}/restore`)).json()).toEqual({ ok: true, kind: 'module', id: moduleId });
+    const layout = (await db.select().from(schema.layouts).where(eq(schema.layouts.id, layoutId)).get())!;
+    expect(layout).toMatchObject({ ownerOrgId: orgId, createdBy: ada.id, deletedAuthorId: bob.id });
+    const mod = (await db.select().from(schema.modules).where(eq(schema.modules.id, moduleId)).get())!;
+    expect(mod).toMatchObject({ ownerOrgId: orgId, createdBy: ada.id, deletedAuthorId: bob.id });
+    expect((await db.select().from(schema.moduleVersions).where(eq(schema.moduleVersions.moduleId, moduleId)).all()).map((v) => v.authorId)).toEqual([null]);
+    expect((await trash(ada)).items).toEqual([]);
+  });
+
+  it('restoring past the layout limit is refused in plain words, and the item waits', async () => {
+    db.update(schema.users).set({ isGlobalAdmin: true }).where(eq(schema.users.id, ada.id)).run();
+    const mk = async (title: string) => ((await call(bob, 'POST', '/api/layouts', { title })).json() as { id: string }).id;
+    const a = await mk('A');
+    await mk('B');
+    const t = trashIdOf(await call(bob, 'DELETE', `/api/layouts/${a}`));
+    await mk('C');
+    expect((await app.inject({ method: 'PATCH', url: '/api/admin/limits', headers: { cookie: ada.cookie }, payload: { layoutsPerUser: 2 } })).statusCode).toBe(200);
+    invalidateLimitCaches();
+    const refused = await call(bob, 'POST', `/api/trash/${t}/restore`);
+    expect(refused.statusCode).toBe(403);
+    expect(refused.json()).toMatchObject({ error: 'limit_reached', limit: 'layoutsPerUser', message: 'You have 2 layouts, the most allowed. Delete one you don’t need, or ask the site admin for more.' });
+    // Still there to restore once there's room.
+    expect((await trash(bob)).items.map((i) => i.title)).toEqual(['A']);
+    expect(await db.select().from(schema.layouts).where(eq(schema.layouts.id, a)).get()).toBeUndefined();
+    const b = (await db.select().from(schema.layouts).where(eq(schema.layouts.title, 'B')).get())!.id;
+    await call(bob, 'DELETE', `/api/layouts/${b}`);
+    expect((await call(bob, 'POST', `/api/trash/${t}/restore`)).statusCode).toBe(200);
+    // Space counts too.
+    const big = trashIdOf(await call(bob, 'DELETE', `/api/layouts/${a}`));
+    await app.inject({ method: 'PATCH', url: '/api/admin/limits', headers: { cookie: ada.cookie }, payload: { layoutsPerUser: null, storagePerUser: 10 } });
+    invalidateLimitCaches();
+    const full = await call(bob, 'POST', `/api/trash/${big}/restore`);
+    expect(full.statusCode).toBe(403);
+    expect(full.json()).toMatchObject({ error: 'limit_reached', limit: 'storagePerUser' });
+    await app.inject({ method: 'PATCH', url: '/api/admin/limits', headers: { cookie: ada.cookie }, payload: { storagePerUser: null } });
+    invalidateLimitCaches();
+  });
+
+  it('a collection that filled up meanwhile is left as it is, and the restore says which', async () => {
+    expect(TRASH_MAX_COLLECTION_ITEMS).toBe(MAX_COLLECTION_ITEMS);
+    const now = new Date();
+    const mk = async (title: string) => {
+      const id = randomUUID();
+      await db.insert(schema.modules).values({ id, title, ownerUserId: ada.id, createdBy: ada.id, docSnapshot: doc(), latestVersion: 1, createdAt: now, updatedAt: now });
+      return id;
+    };
+    const coll = randomUUID();
+    await db.insert(schema.catalogCollections).values({ id: coll, title: 'Picks', ownerUserId: ada.id, status: 'draft', audience: 'private', createdAt: now, updatedAt: now } as never);
+    const first = await mk('First');
+    await db.insert(schema.catalogCollectionModules).values({ collectionId: coll, moduleId: first, position: 0 });
+    const t = trashIdOf(await call(ada, 'DELETE', `/api/modules/${first}`));
+    for (let i = 0; i < MAX_COLLECTION_ITEMS; i++) await db.insert(schema.catalogCollectionModules).values({ collectionId: coll, moduleId: await mk(`M${i}`), position: i });
+    const res = (await call(ada, 'POST', `/api/trash/${t}/restore`)).json() as { ok: boolean; collections: { back: unknown[]; gone: number; full: { id: string; title: string }[] } };
+    expect(res.ok).toBe(true);
+    expect(res.collections).toEqual({ back: [], gone: 0, full: [{ id: coll, title: 'Picks' }] });
+    expect((await db.select().from(schema.catalogCollectionModules).where(eq(schema.catalogCollectionModules.collectionId, coll)).all()).length).toBe(MAX_COLLECTION_ITEMS);
+    // The module itself is back.
+    expect(await db.select().from(schema.modules).where(eq(schema.modules.id, first)).get()).toBeTruthy();
+  });
+
+  it('a public link stops when the layout is deleted and stays stopped after a restore', async () => {
+    const { id } = (await call(ada, 'POST', '/api/layouts', { title: 'Shared' })).json() as { id: string };
+    const share = (await call(ada, 'POST', `/api/layouts/${id}/public-share`)).json() as { token: string };
+    // A link that has stopped answers 200 with no layout (so old links don't add up to a burst of 404s).
+    const open = async () => ((await app.inject({ method: 'GET', url: `/api/public-layouts/${share.token}` })).json() as { layout: { id: string } | null }).layout;
+    expect((await open())?.id).toBe(id);
+    const t = trashIdOf(await call(ada, 'DELETE', `/api/layouts/${id}`));
+    expect(await open()).toBeNull();
+    expect((await call(ada, 'POST', `/api/trash/${t}/restore`)).statusCode).toBe(200);
+    expect(await open()).toBeNull();
+    expect((await db.select().from(schema.layouts).where(eq(schema.layouts.id, id)).get())!.publicShareToken).toBeNull();
+    // One kept before links were left out (the token still in its row) comes back private too.
+    await db.update(schema.layouts).set({ publicShareToken: share.token }).where(eq(schema.layouts.id, id));
+    const { trashLayout } = await import('../../trash/trash.js');
+    const row = (await db.select().from(schema.layouts).where(eq(schema.layouts.id, id)).get())!;
+    const t2 = (await trashLayout(id, row.docSnapshot as Uint8Array, ada.id))!;
+    const { gunzipSync, gzipSync } = await import('node:zlib');
+    const kept = (await db.select().from(schema.trashItems).where(eq(schema.trashItems.id, t2)).get())!;
+    const old = JSON.parse(gunzipSync(kept.payload as Uint8Array).toString('utf8')) as { rows: { layouts: { publicShareToken: string | null }[] } };
+    expect(old.rows.layouts[0]!.publicShareToken).toBeNull();
+    old.rows.layouts[0]!.publicShareToken = share.token;
+    await db.update(schema.trashItems).set({ payload: gzipSync(Buffer.from(JSON.stringify(old))) }).where(eq(schema.trashItems.id, t2));
+    await db.delete(schema.layouts).where(eq(schema.layouts.id, id));
+    expect((await call(ada, 'POST', `/api/trash/${t2}/restore`)).statusCode).toBe(200);
+    expect(await open()).toBeNull();
+  });
+
+  it('Delete now takes the background picture off the disk and leaves a record; a restored layout keeps its picture', async () => {
+    const dir = imagesDirFor(env.dbPath);
+    mkdirSync(dir, { recursive: true });
+    const mk = async (title: string) => {
+      const { id } = (await call(ada, 'POST', '/api/layouts', { title })).json() as { id: string };
+      writeFileSync(join(dir, `${id}.png`), 'a picture');
+      return id;
+    };
+    const gone = await mk('Gone');
+    const kept = await mk('Kept');
+    const t1 = trashIdOf(await call(ada, 'DELETE', `/api/layouts/${gone}`));
+    const t2 = trashIdOf(await call(ada, 'DELETE', `/api/layouts/${kept}`));
+    expect((await call(ada, 'POST', `/api/trash/${t2}/restore`)).statusCode).toBe(200);
+    expect((await call(ada, 'DELETE', `/api/trash/${t1}`)).statusCode).toBe(200);
+    const left = existsSync(dir) ? readdirSync(dir) : [];
+    expect(left).not.toContain(`${gone}.png`);
+    expect(left).toContain(`${kept}.png`);
+    const events = await db.select().from(schema.auditEvents).where(eq(schema.auditEvents.eventType, 'delete_forever')).all();
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ userId: ada.id, resourceKind: 'layout', resourceId: gone });
+    expect(JSON.parse(events[0]!.payload)).toEqual({ title: 'Gone' });
+    // Someone else's try leaves no record.
+    const t3 = trashIdOf(await call(ada, 'DELETE', `/api/layouts/${kept}`));
+    expect((await call(bob, 'DELETE', `/api/trash/${t3}`)).statusCode).toBe(404);
+    expect((await db.select().from(schema.auditEvents).where(eq(schema.auditEvents.eventType, 'delete_forever')).all()).length).toBe(1);
   });
 });

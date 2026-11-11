@@ -19,13 +19,17 @@ const andList = (parts: string[]) => (parts.length <= 2 ? parts.join(' and ') : 
  */
 export function restoredWords(title: string, r: Pick<RestoreResult, 'collections'>): string {
   const c = r.collections;
-  if (!c || (c.back.length === 0 && c.gone === 0)) return `Restored “${title}”`;
+  const full = c?.full ?? [];
+  if (!c || (c.back.length === 0 && c.gone === 0 && full.length === 0)) return `Restored “${title}”`;
   const parts = [`Restored “${title}”.`];
   if (c.back.length > 3) parts.push(`It’s back in its ${c.back.length} collections.`);
   else if (c.back.length > 0) parts.push(`It’s back in ${andList(c.back.map((b) => `“${b.title}”`))}.`);
   const other = c.back.length ? 'other ' : '';
   if (c.gone === 1) parts.push(`The ${other}collection it was in has been deleted since, so it isn’t in that one.`);
   else if (c.gone > 1) parts.push(`${c.gone} ${other}collections it was in have been deleted since, so it isn’t in those.`);
+  // A collection that filled up while it was away: said by name, with what to do.
+  if (full.length === 1) parts.push(`“${full[0]!.title}” is full now, so it isn’t back in that one. Take something out of it, then add this again.`);
+  else if (full.length > 1) parts.push(`${andList(full.map((f) => `“${f.title}”`))} are full now, so it isn’t back in those. Take something out of them, then add this again.`);
   return parts.join(' ');
 }
 

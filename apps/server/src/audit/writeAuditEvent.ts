@@ -52,6 +52,8 @@ export type AuditEventType =
   | 'layout_delete'
   // Taken back out of Recently deleted (routes/trash.ts).
   | 'restore_deleted'
+  // Erased from Recently deleted before its 30 days were up (routes/trash.ts): who, what kind, its title.
+  | 'delete_forever'
   // Platform-admin actions. Subject is the resource being modified
   // (`resourceKind: 'user' | 'org' | 'layout' | ...`); the userId
   // field on the event is the admin who performed the action.
