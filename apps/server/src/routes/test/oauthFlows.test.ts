@@ -163,12 +163,66 @@ describe('GitHub sign-in', () => {
     expect(back.headers.location).toBe('/login?error=email_unavailable');
   });
 
+  // Pressing Cancel on GitHub's page comes back with error=access_denied and
+  // our state, and no code: said as what it was, not "took too long".
+  it('cancelling at GitHub says so, and GitHub is never asked for a token', async () => {
+    const s = await start('/api/auth/github?next=%2Fdevice');
+    const seen = provider({});
+    const back = await app.inject({
+      method: 'GET',
+      url: `/api/auth/github/callback?error=access_denied&error_description=The+user+has+denied+your+application+access.&state=${s.state}`,
+      headers: { cookie: s.cookie },
+    });
+    expect(back.statusCode).toBe(302);
+    expect(back.headers.location).toBe('/login?error=canceled');
+    expect(seen).toHaveLength(0);
+    expect(setCookies(back).some((c) => /^cld_session=[^;]+;/.test(c))).toBe(false);
+
+    // Another problem the provider reports itself: the sign-in didn't go through.
+    const t = await start('/api/auth/github');
+    const other = await app.inject({ method: 'GET', url: `/api/auth/github/callback?error=server_error&state=${t.state}`, headers: { cookie: t.cookie } });
+    expect(other.headers.location).toBe('/login?error=oauth_error');
+
+    // "Cancelled" with a state that isn't ours is not believed.
+    const u = await start('/api/auth/github');
+    const forged = await app.inject({ method: 'GET', url: '/api/auth/github/callback?error=access_denied&state=someone-elses', headers: { cookie: u.cookie } });
+    expect(forged.headers.location).toBe('/login?error=invalid_state');
+  });
+
+  // A provider's name is cut to the 60 characters a display name may have.
+  it('a very long name from the provider is cut to 60 characters', async () => {
+    const { cookie, state } = await start('/api/auth/github');
+    const long = 'Bartholomew Maximilian Fitzgerald-Montgomery von Hohenzollern the Third of Northumberland';
+    provider({
+      'https://github.com/login/oauth/access_token': () => json({ access_token: 'gho_abc', token_type: 'bearer' }),
+      'https://api.github.com/user/emails': () => json([{ email: 'bart@example.com', primary: true, verified: true }]),
+      'https://api.github.com/user': () => json({ id: 777, login: 'bart', name: `  ${long}  `, avatar_url: null, email: null }),
+    });
+    const back = await app.inject({ method: 'GET', url: `/api/auth/github/callback?code=c&state=${state}`, headers: { cookie } });
+    expect(back.statusCode, back.body).toBe(302);
+    const user = db.select().from(schema.users).where(eq(schema.users.email, 'bart@example.com')).get();
+    expect(user?.displayName).toBe(long.slice(0, 60).trim());
+    expect(user!.displayName.length).toBeLessThanOrEqual(60);
+  });
+
   it('a state that is not the one it sent is refused before GitHub is asked', async () => {
     const s = await start('/api/auth/github');
     const seen = provider({});
     const back = await app.inject({ method: 'GET', url: '/api/auth/github/callback?code=x&state=someone-elses', headers: { cookie: s.cookie } });
     expect(back.headers.location).toBe('/login?error=invalid_state');
     expect(seen).toHaveLength(0);
+  });
+});
+
+describe('providerDisplayName', () => {
+  it('trims, keeps a short name whole, and never cuts through an emoji', () => {
+    expect(oauth.providerDisplayName('  Nina Rails ')).toBe('Nina Rails');
+    expect(oauth.providerDisplayName('x'.repeat(60))).toBe('x'.repeat(60));
+    expect(oauth.providerDisplayName('x'.repeat(61))).toBe('x'.repeat(60));
+    // 59 letters, then an emoji that takes two: it doesn't fit, so it's left off whole.
+    expect(oauth.providerDisplayName('x'.repeat(59) + '🚂')).toBe('x'.repeat(59));
+    expect(oauth.providerDisplayName('x'.repeat(58) + '🚂')).toBe('x'.repeat(58) + '🚂');
+    expect(oauth.providerDisplayName('y'.repeat(59) + ' zzz')).toBe('y'.repeat(59));
   });
 });
 
@@ -248,6 +302,16 @@ describe('Single sign-on (OpenID Connect)', () => {
     expect(user?.displayName).toBe('Mira Switch');
     const linked = db.select().from(schema.oauthAccounts).where(eq(schema.oauthAccounts.providerUserId, 'u-9')).get();
     expect(linked?.provider).toBe('oidc');
+  });
+
+  it('cancelling at the single sign-on provider says so', async () => {
+    const seen = provider({ 'https://sso.test/.well-known/openid-configuration': () => json(SSO_DISCOVERY) });
+    const { cookie, state } = await start('/api/auth/oidc');
+    const asked = seen.length;
+    const back = await app.inject({ method: 'GET', url: `/api/auth/oidc/callback?error=access_denied&state=${state}`, headers: { cookie } });
+    expect(back.headers.location).toBe('/login?error=canceled');
+    // The provider's token endpoint is never asked.
+    expect(seen.slice(asked).some((s) => s.url.startsWith('https://sso.test/token'))).toBe(false);
   });
 
   it('a provider whose discovery document can’t be read says so on the sign-in page, and is asked again next time', async () => {

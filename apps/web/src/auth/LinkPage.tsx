@@ -15,6 +15,8 @@ export function LinkPage() {
   const qc = useQueryClient();
   const navigate = useNavigate();
   const pending = useQuery({ queryKey: ['pending-link'], queryFn: api.pendingLink, retry: false });
+  // (For "Forgot password?": only where signing in with a password is on.)
+  const providers = useQuery({ queryKey: ['providers'], queryFn: api.providers });
   const confirm = useMutation({
     mutationFn: api.confirmLink,
     onSuccess: async () => {
@@ -91,6 +93,15 @@ export function LinkPage() {
               >
                 Sign in to that account
               </Link>
+              {providers.data?.passwordEnabled && (
+                <p className="text-sm text-muted">
+                  Don’t know its password?{' '}
+                  <Link to="/login?forgot=1&next=%2Flink" className="tap-target inline-flex items-center text-accent-text hover:underline">
+                    Forgot password?
+                  </Link>{' '}
+                  We’ll email you a link to choose a new one; then sign in and come back here.
+                </p>
+              )}
               <button
                 type="button"
                 className="tap-target text-sm text-accent-text hover:underline"

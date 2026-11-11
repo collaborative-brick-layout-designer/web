@@ -15,7 +15,7 @@ import {
 } from '../../auth/pendingLinks.js';
 import { db, schema } from '../../db/index.js';
 import { env } from '../../env.js';
-import { looksLikeEmail } from '../../utils/publicName.js';
+import { DISPLAY_NAME_MAX, looksLikeEmail } from '../../utils/publicName.js';
 import { safeNextPath } from '../../utils/validate.js';
 
 const STATE_COOKIE = 'cld_oauth_state';
@@ -29,9 +29,37 @@ const NONCE_COOKIE = 'cld_oauth_nonce';
  * A sign-in that didn't work goes back to the sign-in page, which says
  * why in plain words, never to a page of JSON.
  */
-export function oauthFailure(reply: import('fastify').FastifyReply, error: 'invalid_state' | 'oauth_error' | 'email_not_verified' | 'email_unavailable' | 'sso_unavailable') {
+export function oauthFailure(
+  reply: import('fastify').FastifyReply,
+  error: 'invalid_state' | 'oauth_error' | 'email_not_verified' | 'email_unavailable' | 'sso_unavailable' | 'canceled',
+) {
   reply.clearCookie(NEXT_COOKIE, { path: '/' });
   return reply.redirect(`/login?error=${error}`);
+}
+
+/**
+ * The provider sent the person back without a code: they pressed Cancel
+ * there (`error=access_denied`, RFC 6749 §4.1.2.1), or the provider had a
+ * problem of its own. Only believed with the state this browser was sent
+ * off with; anything else is the usual "took too long or another tab".
+ */
+function sentBackWithoutCode(params: { code?: string; state?: string; error?: string }, storedState: string | undefined): 'canceled' | 'oauth_error' | null {
+  if (params.code || !params.error || !params.state || !storedState || params.state !== storedState) return null;
+  return params.error === 'access_denied' ? 'canceled' : 'oauth_error';
+}
+
+/**
+ * A provider's name for someone as a display name here: trimmed and cut to
+ * DISPLAY_NAME_MAX (never through the middle of an emoji), so a very long
+ * one doesn't stretch every list it's shown in.
+ */
+export function providerDisplayName(name: string): string {
+  let out = '';
+  for (const ch of name.trim()) {
+    if (out.length + ch.length > DISPLAY_NAME_MAX) break;
+    out += ch;
+  }
+  return out.trim();
 }
 
 export async function oauthRoutes(app: FastifyInstance) {
@@ -115,8 +143,10 @@ function providerRoutes(app: FastifyInstance, provider: OAuthProvider) {
 
   // codeql[js/missing-rate-limiting] - rate limited via Fastify config.rateLimit
   app.get(`/api/auth/${id}/callback`, { config: { rateLimit: { max: 20, timeWindow: '1 minute' } } }, async (req, reply) => {
-    const params = req.query as { code?: string; state?: string };
+    const params = req.query as { code?: string; state?: string; error?: string };
     const stored = takeStateCookies(req, reply);
+    const sentBack = sentBackWithoutCode(params, stored.state);
+    if (sentBack) return oauthFailure(reply, sentBack);
     if (!params.code || !params.state || !stored.state || params.state !== stored.state) {
       return oauthFailure(reply, 'invalid_state');
     }
@@ -177,8 +207,10 @@ function oidcRoutes(app: FastifyInstance) {
 
   // codeql[js/missing-rate-limiting] - rate limited via Fastify config.rateLimit
   app.get('/api/auth/oidc/callback', { config: { rateLimit: { max: 20, timeWindow: '1 minute' } } }, async (req, reply) => {
-    const params = req.query as { code?: string; state?: string };
+    const params = req.query as { code?: string; state?: string; error?: string };
     const stored = takeStateCookies(req, reply);
+    const sentBack = sentBackWithoutCode(params, stored.state);
+    if (sentBack) return oauthFailure(reply, sentBack);
     if (!params.code || !params.state || !stored.state || params.state !== stored.state) {
       return oauthFailure(reply, 'invalid_state');
     }
@@ -224,7 +256,7 @@ export async function fetchOidcProfile(config: client.Configuration, tokens: cli
     providerUserId: claims.sub,
     email: info.email,
     // Not the email when the provider has no name: the person is asked for one after signing in.
-    displayName: name && !looksLikeEmail(name) ? name : '',
+    displayName: name && !looksLikeEmail(name) ? providerDisplayName(name) : '',
     avatarUrl: typeof info.picture === 'string' ? info.picture : null,
   };
 }
@@ -346,7 +378,7 @@ export async function fetchGoogleProfile(
     providerUserId: data.sub,
     email: data.email,
     // Not the email when Google has no name: the person is asked for one after signing in.
-    displayName: data.name && !looksLikeEmail(data.name) ? data.name : '',
+    displayName: data.name && !looksLikeEmail(data.name) ? providerDisplayName(data.name) : '',
     avatarUrl: data.picture ?? null,
   };
 }
@@ -380,7 +412,7 @@ export async function fetchGithubProfile(
   return {
     providerUserId: String(user.id),
     email,
-    displayName: user.name && !looksLikeEmail(user.name) ? user.name : user.login,
+    displayName: providerDisplayName(user.name && !looksLikeEmail(user.name) ? user.name : user.login),
     avatarUrl: user.avatar_url,
   };
 }

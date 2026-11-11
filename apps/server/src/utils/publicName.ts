@@ -11,6 +11,9 @@
 // a name after they next sign in (see `needsName`).
 
 /** Anything with an '@' could be an address; names don't need one. */
+/** The longest display name an account may have (Profile refuses a longer one). */
+export const DISPLAY_NAME_MAX = 60;
+
 export function looksLikeEmail(name: string | null | undefined): boolean {
   return !!name && name.includes('@');
 }
