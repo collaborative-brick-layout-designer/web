@@ -143,4 +143,22 @@ describe('matchesLegoColor', () => {
     expect(matchesLegoColor(lbg, '19')).toBe(false);
     expect(matchesLegoColor(lbg, 'red')).toBe(false);
   });
+
+  it('finds the BrickLink matches Rebrickable filled in, by BrickLink name or number', async () => {
+    const { matchesLegoColor } = await import('./LegoColorPicker');
+    const { legoColor, LEGO_COLORS } = await import('@cld/model');
+    const lemon = legoColor(15)!; // Lemon, BrickLink Lemon (171): Studio had none
+    expect(lemon.blId).toBe(171);
+    expect(matchesLegoColor(lemon, '171')).toBe(true);
+    const lilac = legoColor(220)!; // Light Lilac, BrickLink 246
+    expect(matchesLegoColor(lilac, '246')).toBe(true);
+    // Where Studio and Rebrickable differ, Rebrickable's BrickLink match.
+    expect(legoColor(179)).toMatchObject({ blId: 239, bl: 'Bionicle Silver' });
+    expect(legoColor(196)).toMatchObject({ blId: 109, bl: 'Dark Blue-Violet' });
+    expect(matchesLegoColor(legoColor(196)!, 'dark blue-violet')).toBe(true);
+    // Only four LEGO colors are left without a BrickLink match, each with no name either.
+    const none = LEGO_COLORS.filter((c) => c.blId === 0);
+    expect(none.map((c) => c.id).sort((a, b) => a - b)).toEqual([13, 131, 296, 337]);
+    expect(none.every((c) => c.bl === '')).toBe(true);
+  });
 });
