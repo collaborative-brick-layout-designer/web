@@ -6,7 +6,7 @@ import Konva from 'konva';
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { HitCanvas } from 'konva/lib/Canvas';
 import { cullOffscreen } from './cullOffscreen';
-import { hitsHeld, holdHits, releaseHits } from './viewMoving';
+import { deferHitDraws, hitsHeld, holdHits, releaseHits, undeferHitDraws } from './viewMoving';
 
 beforeAll(() => {
   // jsdom has no canvas: a 2D context that takes every call.
@@ -123,5 +123,35 @@ describe('holding the hits while the view moves', () => {
     } finally {
       node._clearSelfAndDescendantCache = clear;
     }
+  });
+
+  it('when the view stops, a draw of the sheets leaves the hit canvases for later', () => {
+    const cullDrawHit = parts.drawHit;
+    holdHits(stage);
+    stage.position({ x: -30, y: -10 });
+    releaseHits(stage);
+    // (EditorPage's stopViewMoving: the sheets on the next frame, the hits once idle.)
+    deferHitDraws(stage);
+    hits = 0;
+    stage.draw();
+    expect(hits).toBe(0);
+    // Hits are tested as usual meanwhile (a press draws them first: freshHit).
+    let asked = 0;
+    const own = parts.getIntersection.bind(parts);
+    parts.getIntersection = (p) => {
+      asked++;
+      return own(p);
+    };
+    stage.getIntersection({ x: 8, y: 8 });
+    expect(asked).toBe(1);
+    // An export still draws every shape.
+    parts.drawHit(new HitCanvas({ width: 400, height: 300 }));
+    expect(hits).toBeGreaterThan(0);
+    hits = 0;
+    undeferHitDraws(stage);
+    expect(parts.drawHit).toBe(cullDrawHit);
+    expect(Object.prototype.hasOwnProperty.call(other, 'drawHit')).toBe(false);
+    parts.drawHit();
+    expect(hits).toBeGreaterThan(0);
   });
 });

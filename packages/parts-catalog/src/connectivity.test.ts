@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { BbmMap, Brick, Layer, LayerBrick } from '@cld/model';
-import { rebuildConnectivity } from './connectivity.js';
+import { connectionPoints, linkBricks, makeCatalogLookup, rebuildConnectivity } from './connectivity.js';
+import { imageOffset } from './footprint.js';
 import type { Catalog, PartMetadata } from './types.js';
 
 // Helpers for building synthetic test scenarios. Each part has
@@ -399,5 +400,154 @@ describe('rebuildConnectivity', () => {
 
     expect(rebuildConnectivity(map, catalog).linkedCount).toBe(2);
     expect(a.connexions[1]!.linkedTo).toBe(b.connexions[1]!.id);
+  });
+});
+
+// The rules of rebuildConnectivity written out the plain way (every pair
+// of connections compared, every brick copied), for comparing the bucketed
+// one against on layouts made at random.
+function reference(map: BbmMap, catalog: Catalog): BbmMap {
+  const out = structuredClone(map);
+  const lookup = makeCatalogLookup(catalog);
+  for (const layer of out.layers) {
+    if (layer.type !== 'brick') continue;
+    const unknown = new Set<string>();
+    for (const b of layer.bricks) if (!lookup(b.partNumber)) for (const c of b.connexions) if (c.id) unknown.add(c.id);
+    const previous = new Map<string, string>();
+    const all: { b: Brick; i: number; x: number; y: number; type: string }[] = [];
+    let fresh = 0;
+    for (const b of layer.bricks) {
+      const meta = lookup(b.partNumber);
+      if (!meta) continue;
+      const n = meta.connections.length;
+      for (let k = b.connexions.length; k < n; k++) b.connexions.push({ id: `${b.id}_${k}`, linkedTo: '' });
+      b.connexions.length = n;
+      const off = imageOffset(meta, b.orientation);
+      const t = (b.orientation * Math.PI) / 180;
+      for (let i = 0; i < n; i++) {
+        const cp = b.connexions[i]!;
+        if (!cp.id) cp.id = `${b.id}_c${fresh++}`;
+        if (cp.linkedTo && unknown.has(cp.linkedTo)) continue;
+        if (cp.linkedTo) previous.set(cp.id, cp.linkedTo);
+        cp.linkedTo = '';
+        const c = meta.connections[i]!;
+        if (c.type === '') continue;
+        const cx = b.displayArea.x + b.displayArea.width / 2 + off.x;
+        const cy = b.displayArea.y + b.displayArea.height / 2 + off.y;
+        all.push({ b, i, x: cx + (c.x * Math.cos(t) - c.y * Math.sin(t)), y: cy + (c.x * Math.sin(t) + c.y * Math.cos(t)), type: c.type });
+      }
+    }
+    const onLinked = (b: Brick, i: number) => {
+      if (b.activeConnectionPointIndex !== i) return;
+      const n = b.connexions.length;
+      const pref = lookup(b.partNumber)!.connections[i]?.nextConnexionPreference ?? 0;
+      b.activeConnectionPointIndex = Math.min(Math.max(pref, 0), n - 1);
+      if (b.myGroup || b.connexions[b.activeConnectionPointIndex]!.linkedTo === '') return;
+      for (let s = 1; s < n; s++) {
+        const k = (b.activeConnectionPointIndex + s) % n;
+        if (b.connexions[k]!.linkedTo === '') return void (b.activeConnectionPointIndex = k);
+      }
+    };
+    for (let i = 0; i < all.length; i++) {
+      const a = all[i]!;
+      const ca = a.b.connexions[a.i]!;
+      if (ca.linkedTo !== '') continue;
+      const j = all.findIndex((o, k) => k !== i && o.b !== a.b && o.type === a.type && o.b.connexions[o.i]!.linkedTo === '' && Math.abs(o.x - a.x) < 0.5 && Math.abs(o.y - a.y) < 0.5);
+      if (j < 0) continue;
+      const o = all[j]!;
+      const cb = o.b.connexions[o.i]!;
+      const isNew = previous.get(ca.id) !== cb.id;
+      if (isNew) onLinked(a.b, a.i);
+      ca.linkedTo = cb.id;
+      if (isNew) onLinked(o.b, o.i);
+      cb.linkedTo = ca.id;
+    }
+    for (const w of all) {
+      const cp = w.b.connexions[w.i]!;
+      if (!previous.has(cp.id) || cp.linkedTo !== '') continue;
+      const act = w.b.activeConnectionPointIndex;
+      if (act >= 0 && act < w.b.connexions.length && w.b.connexions[act]!.linkedTo !== '') w.b.activeConnectionPointIndex = w.i;
+    }
+  }
+  return out;
+}
+
+describe('rebuildConnectivity in buckets', () => {
+  const STRAIGHT = makeMeta('STRAIGHT', [
+    { x: -4, y: 0, type: 'rail' },
+    { x: 4, y: 0, type: 'rail' },
+  ]);
+  const CROSS = { ...makeMeta('CROSS', [
+    { x: -4, y: 0, type: 'rail' },
+    { x: 4, y: 0, type: 'rail' },
+    { x: 0, y: -4, type: 'rail' },
+    { x: 0, y: 4, type: 'road' },
+  ]), connections: makeMeta('CROSS', [
+    { x: -4, y: 0, type: 'rail' },
+    { x: 4, y: 0, type: 'rail' },
+    { x: 0, y: -4, type: 'rail' },
+    { x: 0, y: 4, type: 'road' },
+  ]).connections.map((c, i) => ({ ...c, nextConnexionPreference: (i + 2) % 4 })) };
+  const catalog: Catalog = new Map([[STRAIGHT.key, STRAIGHT], [CROSS.key, CROSS]]);
+  let seed = 7;
+  const rnd = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;
+  function randomLayer(n: number, at = 0): Brick[] {
+    const out: Brick[] = [];
+    for (let i = 0; i < n; i++) {
+      const b = makeBrick(`b${i}`, rnd() < 0.7 ? 'STRAIGHT' : rnd() < 0.9 ? 'CROSS' : 'GONE', at + Math.round(rnd() * 12) * 4 + (rnd() < 0.2 ? 0.3 : 0), at + Math.round(rnd() * 6) * 4, [0, 90, 180, 270][Math.floor(rnd() * 4)]!);
+      b.myGroup = rnd() < 0.2 ? 'g' : '';
+      b.activeConnectionPointIndex = Math.floor(rnd() * 3);
+      const k = Math.floor(rnd() * 5);
+      for (let c = 0; c < k; c++) b.connexions.push({ id: rnd() < 0.1 ? '' : `${b.id}:${c}`, linkedTo: '' });
+      out.push(b);
+    }
+    // Some links as a file might have them, right or stale.
+    for (const b of out) for (const c of b.connexions) if (rnd() < 0.3) c.linkedTo = out[Math.floor(rnd() * out.length)]!.connexions[0]?.id ?? '';
+    return out;
+  }
+
+  it('links as the rules say, on layouts made at random', () => {
+    for (let round = 0; round < 40; round++) {
+      const map = makeMap([makeBrickLayer(randomLayer(60))]);
+      const want = reference(map, catalog);
+      rebuildConnectivity(map, catalog);
+      expect(map).toEqual(want);
+      // And again from there, as after a change elsewhere.
+      const again = reference(map, catalog);
+      rebuildConnectivity(map, catalog);
+      expect(map).toEqual(again);
+    }
+  });
+
+  it('links far from the origin too, where the buckets are named another way', () => {
+    for (const at of [(1 << 24) - 6, 1e9, -1e9 - 50]) {
+      const map = makeMap([makeBrickLayer(randomLayer(40, at))]);
+      const want = reference(map, catalog);
+      rebuildConnectivity(map, catalog);
+      expect(map).toEqual(want);
+    }
+    const a = makeBrick('a', 'STRAIGHT', (1 << 24) - 4, 0);
+    const b = makeBrick('b', 'STRAIGHT', (1 << 24) + 4, 0);
+    expect(rebuildConnectivity(makeMap([makeBrickLayer([a, b])]), catalog).linkedCount).toBe(2);
+  });
+
+  it('linkBricks gives what rebuildConnectivity writes, leaving the bricks as they are', () => {
+    const bricks = randomLayer(80);
+    const before = structuredClone(bricks);
+    const asked: Brick[] = [];
+    const { links } = linkBricks(bricks, makeCatalogLookup(catalog), (b, meta) => {
+      asked.push(b);
+      return connectionPoints(b, meta);
+    });
+    expect(bricks).toEqual(before);
+    // Each known brick's points are asked for once at most.
+    expect(new Set(asked).size).toBe(asked.length);
+    const map = makeMap([makeBrickLayer(structuredClone(bricks))]);
+    rebuildConnectivity(map, catalog);
+    const layer = map.layers[0] as LayerBrick;
+    links.forEach((l, i) => {
+      if (!l) expect(layer.bricks[i]).toEqual(before[i]);
+      else expect({ connexions: layer.bricks[i]!.connexions, activeConnectionPointIndex: layer.bricks[i]!.activeConnectionPointIndex }).toEqual(l);
+    });
   });
 });
