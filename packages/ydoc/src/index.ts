@@ -253,12 +253,51 @@ export function readSidecarCache(doc: Y.Doc): Record<string, unknown> | null {
   const blob = doc.getMap('meta').get('cache');
   if (!blob || typeof blob !== 'object') return null;
   const cache = blob as Record<string, unknown>;
-  const items = doc.getMap(SIDECAR_ITEMS);
-  const read = items.size === 0 || items.get('__blob') !== blobHash(cache) || !idsUnique(cache) ? cache : mergedSidecar(cache, items);
   // Inside a transaction a change may be half made (a module's parts
   // deleted before the new ones go in, replaceModuleParts): the write at
   // its end leaves out what's gone.
-  return inTransaction(doc) ? read : withoutGoneParts(doc, read);
+  if (inTransaction(doc)) return mergedRead(doc, cache);
+  // The same answer while the sidecar, its items and the ids on the map
+  // stay as they were: each read hashed the whole sidecar, and put its
+  // modules together again (about 1 ms a read on 7,520 parts in modules,
+  // many reads per render).
+  const ids = liveBrickIds(doc);
+  const idsReads = ids ? (brickIdMemo.get(doc)?.reads ?? -1) : -1;
+  let memo = sidecarMemo.get(doc);
+  if (!memo) {
+    const entry: SidecarMemo = { blob: null, stamp: 0, idsReads: -1, out: null };
+    memo = entry;
+    sidecarMemo.set(doc, entry);
+    const meta = doc.getMap('meta');
+    const items = doc.getMap(SIDECAR_ITEMS);
+    doc.on('beforeObserverCalls', (tr: Y.Transaction) => {
+      if (tr.changed.has(meta as unknown as Y.AbstractType<Y.YEvent<Y.AbstractType<unknown>>>) || tr.changed.has(items as unknown as Y.AbstractType<Y.YEvent<Y.AbstractType<unknown>>>)) entry.stamp++;
+    });
+  } else if (memo.out && memo.blob === blob && memo.idsReads === idsReads && memo.stamp === memo.stampRead) {
+    return memo.out;
+  }
+  const out = withoutGoneParts(doc, mergedRead(doc, cache));
+  memo.blob = blob;
+  memo.idsReads = idsReads;
+  memo.stampRead = memo.stamp;
+  memo.out = out;
+  return out;
+}
+
+interface SidecarMemo {
+  blob: unknown;
+  /** Bumped by each transaction that changes `meta` or the items. */
+  stamp: number;
+  /** `stamp` when `out` was read. */
+  stampRead?: number;
+  idsReads: number;
+  out: Record<string, unknown> | null;
+}
+const sidecarMemo = new WeakMap<Y.Doc, SidecarMemo>();
+
+function mergedRead(doc: Y.Doc, cache: Record<string, unknown>): Record<string, unknown> {
+  const items = doc.getMap(SIDECAR_ITEMS);
+  return items.size === 0 || items.get('__blob') !== blobHash(cache) || !idsUnique(cache) ? cache : mergedSidecar(cache, items);
 }
 
 // ---------------------------------------------------------------------------
@@ -295,7 +334,7 @@ interface BrickIdMemo {
   /** Lists to read again; `all` when the sheets themselves changed. */
   dirty: Set<Y.Array<unknown>>;
   all: boolean;
-  /** How many times a list or the whole map was read (for tests). */
+  /** How many times a list or the whole map was read (for tests); also tells a changed `ids` apart. */
   reads: number;
 }
 
@@ -436,11 +475,28 @@ export function liveBrickIdReads(doc: Y.Doc): number {
 }
 
 /** `cache` without module members that aren't on the map (the same object when there are none). */
+// The last answer for each sidecar read, while the ids on the map stay as
+// they were: every read went through every module's parts again (each part
+// of a module-heavy layout, many times per render).
+const goneMemo = new WeakMap<object, { doc: Y.Doc; reads: number; out: Record<string, unknown> }>();
+
 function withoutGoneParts(doc: Y.Doc, cache: Record<string, unknown>): Record<string, unknown> {
   const modules = cache.modules;
   if (!Array.isArray(modules) || modules.length === 0) return cache;
   const ids = liveBrickIds(doc);
   if (!ids) return cache;
+  const memo = inTransaction(doc) ? undefined : brickIdMemo.get(doc);
+  if (memo) {
+    const had = goneMemo.get(cache);
+    if (had && had.doc === doc && had.reads === memo.reads) return had.out;
+    const out = withoutGone(cache, modules, ids);
+    goneMemo.set(cache, { doc, reads: memo.reads, out });
+    return out;
+  }
+  return withoutGone(cache, modules, ids);
+}
+
+function withoutGone(cache: Record<string, unknown>, modules: unknown[], ids: ReadonlySet<string>): Record<string, unknown> {
   let changed = false;
   const kept: unknown[] = [];
   for (const m of modules) {

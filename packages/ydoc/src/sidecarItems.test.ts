@@ -412,6 +412,30 @@ describe('module lists without deleted parts', () => {
     expect(members(other)).toEqual(['m1:b1,b2,b3x']);
   });
 
+  it('a read is the same answer until the sidecar, its items or the parts change', () => {
+    const a = createDefaultLayoutDoc();
+    a.transact(() => {
+      for (let i = 0; i < 5; i++) addBrick(a, `b${i}`);
+      writeSidecarCache(a, { ...base, modules: [{ id: 'm1', name: 'Yard', members: ['b1', 'b2'] }] });
+    });
+    const first = readSidecarCache(a);
+    // A part moved in place: the same answer, not worked out again.
+    a.transact(() => brickLayer(a).get(1).set('x', 3));
+    expect(readSidecarCache(a)).toBe(first);
+    // A module renamed, here or by someone else: the new name.
+    a.transact(() => writeSidecarCache(a, { ...readSidecarCache(a)!, modules: [{ id: 'm1', name: 'Harbour', members: ['b1', 'b2'] }] }));
+    expect(names(a)).toEqual(['Harbour']);
+    const b = new Y.Doc();
+    Y.applyUpdate(b, Y.encodeStateAsUpdate(a));
+    expect(names(b)).toEqual(['Harbour']);
+    b.on('update', (u: Uint8Array) => Y.applyUpdate(a, u));
+    b.transact(() => writeSidecarCache(b, { ...readSidecarCache(b)!, modules: [{ id: 'm1', name: 'Town', members: ['b1', 'b2'] }] }));
+    expect(names(a)).toEqual(['Town']);
+    // A part of it deleted: gone from the answer.
+    a.transact(() => deleteBrick(a, 'b2'));
+    expect(members(a)).toEqual(['m1:b1']);
+  });
+
   it('a sidecar kept on its own (no map) keeps its lists', () => {
     const a = new Y.Doc();
     a.getMap('meta').set('cache', { ...base, modules: [{ id: 'm1', name: 'Yard', members: ['b1'] }] });
