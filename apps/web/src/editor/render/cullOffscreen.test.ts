@@ -195,15 +195,37 @@ describe('a watched layer', () => {
     expect(draw()).toMatchObject({ whole: 2, partial: 0 });
   });
 
-  it('draws everything when the view moves, and only the view', () => {
+  it('when the view moves by whole px, shifts what the canvases have and draws only what came in', () => {
+    const shifted = cullStats.shifted;
     stage.position({ x: -300, y: 0 });
     const d = draw();
-    expect(d).toMatchObject({ whole: 2, partial: 0 });
-    // Three columns went off the left edge (their reach, with the cull margin of 64, ends before 300).
-    expect(d.drawn).toBe(2 * 8 * 8);
+    // Both canvases: the column the move brought in (300 px on the right), not the view.
+    expect(d).toMatchObject({ whole: 0, partial: 2, scene: [[700, 0, 300, 800]], hit: [[700, 0, 300, 800]] });
+    expect(cullStats.shifted - shifted).toBe(2);
+    // The parts reaching into it: three columns of eight, and the one beside them.
+    expect(d.drawn).toBeLessThanOrEqual(2 * 8 * 4);
+    // A part moved while the view moved too: where it was and is, as well.
+    stage.position({ x: -300, y: -100 });
+    parts[34]!.x(parts[34]!.x() + 8);
+    const e = draw();
+    expect(e).toMatchObject({ whole: 0, partial: 2 });
+    expect(e.scene).toContainEqual([0, 700, 1000, 100]);
+    expect(e.scene).toContainEqual([98, 198, 112, 104]);
     // A move at this view is partial again, in this view's px.
     parts[34]!.x(parts[34]!.x() + 8);
-    expect(draw()).toMatchObject({ whole: 0, partial: 2, scene: [[98, 298, 112, 104]] });
+    expect(draw()).toMatchObject({ whole: 0, partial: 2, scene: [[106, 198, 112, 104]] });
+  });
+
+  it('draws everything when the view zooms, moves by part of a px, or past most of the canvas', () => {
+    stage.scale({ x: 0.5, y: 0.5 });
+    expect(draw()).toMatchObject({ whole: 2, partial: 0 });
+    stage.position({ x: -10.5, y: 0 });
+    expect(draw()).toMatchObject({ whole: 2, partial: 0 });
+    stage.position({ x: -10.5 - 600, y: 0 });
+    const d = draw();
+    expect(d).toMatchObject({ whole: 2, partial: 0 });
+    // Only the view: the parts the moves took off screen aren't drawn.
+    expect(d.drawn).toBeLessThan(2 * 80);
   });
 
   it('leaves a change off screen alone, and says so to whoever follows its draws', () => {

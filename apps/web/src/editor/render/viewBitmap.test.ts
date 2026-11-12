@@ -10,6 +10,7 @@ import Konva from 'konva';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cullOffscreen, cullStats } from './cullOffscreen';
 import { ViewBitmap } from './viewBitmap';
+import { holdHits, releaseHits } from './viewMoving';
 
 beforeAll(() => {
   // The layer is drawn by the test, when it says (not on the next frame).
@@ -144,5 +145,41 @@ describe('the picture for the next pan', () => {
     vb.freeze();
     expect(vb.taken).toBe(2);
     vb.thaw();
+  });
+});
+
+describe('the parts sheet while the view moves', () => {
+  it('is hidden, not cleared, and when the view stops its draw shifts what it has', () => {
+    // The sheet under it (the background) shows the picture; the parts sheet is the one watched part by part.
+    const bottom = new Konva.Layer();
+    stage.add(bottom);
+    bottom.moveToBottom();
+    const pvb = new ViewBitmap(stage, () => [bottom, layer]);
+    pvb.watchLayers();
+    stage.draw();
+    const el = layer.getNativeCanvasElement();
+    const stats = () => (layer as unknown as { redrawStats: () => { whole: number; partial: number } }).redrawStats();
+    // (As EditorPage does: no hit canvas is drawn while the view moves.)
+    holdHits(stage);
+    pvb.freeze();
+    bottom.draw();
+    layer.draw();
+    expect(el.style.visibility).toBe('hidden');
+    // The view moves 40 px while frozen (a catch-up draws the sheets from the picture).
+    stage.position({ x: -40, y: 0 });
+    bottom.draw();
+    layer.draw();
+    expect(el.style.visibility).toBe('hidden');
+    releaseHits(stage);
+    pvb.thaw();
+    const was = stats();
+    cullStats.drawn = 0;
+    layer.draw();
+    // Shown again, drawn as the canvas it kept, shifted: the 40 px brought in.
+    expect(el.style.visibility).toBe('');
+    expect(stats().whole - was.whole).toBe(0);
+    expect(stats().partial - was.partial).toBe(2);
+    expect(cullStats.drawn).toBeLessThan(2 * 60);
+    pvb.dispose();
   });
 });

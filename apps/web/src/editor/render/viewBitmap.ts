@@ -31,7 +31,7 @@
 // layer's own `drawScene` is swapped for one that draws the picture. A draw
 // into another canvas (an export) goes through as usual.
 
-import { apart, drawCulled, followForPicture, lastDrawBoxes, pictureChanges, pictureTaken, redrawWhole, type Box, type PxBox } from './cullOffscreen';
+import { apart, drawCulled, followForPicture, lastDrawBoxes, pictureChanges, pictureTaken, redrawWhole, shiftsItsDrawing, type Box, type PxBox } from './cullOffscreen';
 import Konva from 'konva';
 import { SceneCanvas } from 'konva/lib/Canvas';
 
@@ -205,6 +205,19 @@ export class ViewBitmap {
     if (el) el.style.display = 'none';
   }
 
+  /** Sheets hidden while the view moves (`drawFrozen`), each shown again once it has drawn. */
+  private hidden = new Set<Konva.Layer>();
+  private hide(layer: Konva.Layer): void {
+    if (this.hidden.has(layer)) return;
+    this.hidden.add(layer);
+    layer.getNativeCanvasElement().style.visibility = 'hidden';
+  }
+  private show(layer: Konva.Layer): void {
+    if (!this.hidden.delete(layer)) return;
+    layer.off('draw.view-bitmap-show');
+    layer.getNativeCanvasElement().style.visibility = '';
+  }
+
   /** The view has stopped: the sheets draw themselves again (the caller asks for the draw, then calls `settled`). */
   thaw(): void {
     if (!this.frozen) return;
@@ -213,6 +226,8 @@ export class ViewBitmap {
       if (own) layer.drawScene = own;
       else delete (layer as Partial<Konva.Layer>).drawScene;
     }
+    // A hidden sheet shows again with its next draw (the one asked for now).
+    for (const layer of this.hidden) layer.on('draw.view-bitmap-show', () => this.show(layer));
     this.swapped = [];
     // The sharp draw that follows isn't a change to the map.
     this.sharpDrawPending = new Set(this.layers());
@@ -267,6 +282,7 @@ export class ViewBitmap {
 
   dispose(): void {
     this.thaw();
+    for (const layer of [...this.hidden]) this.show(layer);
     this.unfollow();
     this.canvas?._canvas.remove();
     this.cancelIdle();
@@ -315,9 +331,18 @@ export class ViewBitmap {
   private drawFrozen(layer: Konva.Layer, bottom: boolean): void {
     const canvas = layer.getCanvas();
     const ctx = canvas.getContext();
-    ctx.clear();
-    // Its own drawing is gone from its canvas: its next draw is a whole one.
-    redrawWhole(layer);
+    if (!bottom && shiftsItsDrawing(layer)) {
+      // Hidden, not cleared: when the view stops, its draw shifts what its
+      // canvases have and draws only what the move brought in and what
+      // changed meanwhile (cullOffscreen.ts). Drawn whole, the parts sheet
+      // was one long task at the end of each pan (about 50 ms zoomed in on
+      // 7,520 parts at 4x slowed CPU).
+      this.hide(layer);
+    } else {
+      ctx.clear();
+      // Its own drawing is gone from its canvas: its next draw is a whole one.
+      redrawWhole(layer);
+    }
     if (!bottom) {
       // Something on it changed: the picture (drawn by the bottom sheet) is brought up to date.
       const c = pictureChanges(layer);

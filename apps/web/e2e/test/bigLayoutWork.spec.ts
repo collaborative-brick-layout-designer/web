@@ -281,13 +281,14 @@ test('a big layout: while the view moves the map is one moving picture, kept up 
   done = await count(page);
   // How many hit shapes are drawn in the very frame the parts are drawn sharp in.
   await page.evaluate(() => {
-    type L = { name: () => string; drawScene: (...a: unknown[]) => unknown };
-    const w = window as unknown as { Konva: { stages: { getLayers: () => L[] }[] }; __n: Counts; __sharpFrameHits?: number };
-    const layer = w.Konva.stages[0]!.getLayers().find((l) => l.name() === 'parts-layer')!;
-    const own = layer.drawScene;
-    layer.drawScene = function (this: L, ...a: unknown[]) {
-      if (a.length > 0) return own.apply(this, a);
-      layer.drawScene = own;
+    type L = { name: () => string };
+    type P = { drawScene: (...a: unknown[]) => unknown };
+    const w = window as unknown as { Konva: { Layer: { prototype: P } }; __n: Counts; __sharpFrameHits?: number };
+    const proto = w.Konva.Layer.prototype;
+    const own = proto.drawScene;
+    proto.drawScene = function (this: L, ...a: unknown[]) {
+      if (this.name() !== 'parts-layer') return own.apply(this, a);
+      proto.drawScene = own;
       const before = w.__n.hits;
       const out = own.apply(this, a);
       // After everything else that frame draws.

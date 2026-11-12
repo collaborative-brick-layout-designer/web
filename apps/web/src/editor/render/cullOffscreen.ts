@@ -36,7 +36,7 @@ let culling: (Box & { canvas: unknown; only?: readonly Box[] }) | null = null;
  * Counts for tests and measurements: parts the last culls left out and
  * drew, and how many draws of a layer's own canvases were whole or partial.
  */
-export const cullStats = { skipped: 0, drawn: 0, whole: 0, partial: 0 };
+export const cullStats = { skipped: 0, drawn: 0, whole: 0, partial: 0, shifted: 0 };
 
 let patched = false;
 
@@ -454,7 +454,12 @@ function changed(node: Konva.Node, what: string): void {
     // are drawn whole, but the view picture is of the map, and still
     // right (whether it covers the view is its own to tell, viewBitmap).
     // Counting this as a change took the picture afresh, from every part,
-    // at the start of each pan.
+    // at the start of each pan. A view moved without zooming is told by
+    // the draw itself (another view than the canvas was drawn for), which
+    // can then shift what the canvas has (`shiftFor`).
+    // (Konva has the stage ask for a draw after each of its attributes
+    // changes: that attribute was told here already.)
+    if (what === 'x' || what === 'y' || what === ASKED) return;
     for (const t of tracks.values()) if (t.layer.parent === node) markWhole(t, node, what, false);
   } else if (followed.size > 0) {
     const f = followedOf(node);
@@ -672,7 +677,41 @@ function changedBoxes(layer: Konva.Layer, p: Pending): Box[] | null {
 
 type Draw = (canvas?: unknown, top?: unknown) => Konva.Layer;
 type Own = { drawScene: Draw; drawHit: Draw };
-type CanvasLike = { width: number; height: number; pixelRatio: number; getContext: () => { _context: CanvasRenderingContext2D } };
+type CanvasLike = { width: number; height: number; pixelRatio: number; _canvas: HTMLCanvasElement; getContext: () => { _context: CanvasRenderingContext2D } };
+
+/**
+ * How far, in whole device px, the canvas's content moves from the view it
+ * was drawn for (`was`) to `now`: null unless only the view's place
+ * changed (the zoom, the canvas and its size the same), by whole device px,
+ * and not off the canvas.
+ */
+function shiftFor(was: string, now: string): { dx: number; dy: number } | null {
+  const a = was.split('|').map(Number);
+  const b = now.split('|').map(Number);
+  if (a.length !== 7 || b.length !== 7 || a.some((v) => !Number.isFinite(v)) || b.some((v) => !Number.isFinite(v))) return null;
+  for (let i = 2; i < 7; i++) if (a[i] !== b[i]) return null;
+  const pr = b[6]!;
+  const dx = (b[0]! - a[0]!) * pr;
+  const dy = (b[1]! - a[1]!) * pr;
+  if (dx !== Math.round(dx) || dy !== Math.round(dy)) return null;
+  if (Math.abs(dx) >= b[4]! || Math.abs(dy) >= b[5]!) return null;
+  return { dx, dy };
+}
+
+/** The parts of a w x h canvas the shift brings in from outside it (device px). */
+function exposedBy(shift: { dx: number; dy: number }, w: number, h: number): PxBox[] {
+  const out: PxBox[] = [];
+  const { dx, dy } = shift;
+  // Columns on the left or right, all the way down.
+  if (dx > 0) out.push({ x: 0, y: 0, w: dx, h });
+  if (dx < 0) out.push({ x: w + dx, y: 0, w: -dx, h });
+  // Rows at the top or bottom, between them.
+  const x0 = Math.max(0, dx);
+  const x1 = Math.min(w, w + dx);
+  if (dy > 0) out.push({ x: x0, y: 0, w: x1 - x0, h: dy });
+  if (dy < 0) out.push({ x: x0, y: h + dy, w: x1 - x0, h: -dy });
+  return out.filter((r) => r.w > 0 && r.h > 0);
+}
 
 /** One draw of a watched layer's own canvas: only the changed places when it can, the whole view when not. */
 function drawOwn(layer: Konva.Layer, which: 'scene' | 'hit', canvas: CanvasLike, base: () => Konva.Layer): Konva.Layer {
@@ -684,7 +723,11 @@ function drawOwn(layer: Konva.Layer, which: 'scene' | 'hit', canvas: CanvasLike,
   // A hit canvas Konva won't draw now (the layer hidden, a drag on it) is cleared and left empty.
   const drawable = which === 'scene' ? layer.isVisible() : layer.shouldDrawHit();
   const at = drawnFor(layer, canvas);
-  const boxes = drawable && p.at === at && layer.clearBeforeDraw() ? changedBoxes(layer, p) : null;
+  // The view only moved since (no zoom), by whole device px: what the
+  // canvas has is shifted, and only what the move brought in is drawn,
+  // with the places that changed meanwhile.
+  const shift = drawable && p.at !== null && p.at !== at && !p.whole && layer.clearBeforeDraw() ? shiftFor(p.at, at) : null;
+  const boxes = !drawable || !layer.clearBeforeDraw() ? null : p.at === at ? changedBoxes(layer, p) : shift ? (p.marked ? changedBoxes(layer, p) : []) : null;
   p.whole = false;
   p.marked = false;
   p.parts.clear();
@@ -706,10 +749,12 @@ function drawOwn(layer: Konva.Layer, which: 'scene' | 'hit', canvas: CanvasLike,
       const y1 = Math.min(canvas.height, Math.ceil((b.y1 * scale + sy) * pr));
       if (x1 > x0 && y1 > y0) px.push({ x: x0, y: y0, w: x1 - x0, h: y1 - y0 });
     }
+    if (shift) px.push(...exposedBy(shift, canvas.width, canvas.height));
     px = apart(px, MAX_PASSES);
     if (px.reduce((sum, r) => sum + r.w * r.h, 0) > MAX_SHARE * canvas.width * canvas.height) px = null;
   }
-  if (which === 'scene') t.last = px ? boxes : null;
+  // (Shifted: everything on it moved, as after a whole draw.)
+  if (which === 'scene') t.last = px && !shift ? boxes : null;
 
   const before = culling;
   if (!px) {
@@ -732,6 +777,20 @@ function drawOwn(layer: Konva.Layer, which: 'scene' | 'hit', canvas: CanvasLike,
   cullStats.partial++;
   t.partial++;
   if (which === 'hit') t.cause = { node: null, what: '' };
+  if (shift) {
+    // What the canvas has, moved with the view (a copy of whole device px:
+    // each pixel as it was, where a draw at the new view puts it).
+    const c = canvas.getContext()._context;
+    c.save();
+    try {
+      c.setTransform(1, 0, 0, 1, 0, 0);
+      c.globalCompositeOperation = 'copy';
+      c.drawImage(canvas._canvas, shift.dx, shift.dy);
+    } finally {
+      c.restore();
+    }
+    cullStats.shifted++;
+  }
   if (px.length === 0) {
     // Everything that changed is off screen: nothing to draw, but whoever
     // follows this layer's draws (the view picture, the bend handles) hears of it.
@@ -777,6 +836,15 @@ function drawOwn(layer: Konva.Layer, which: 'scene' | 'hit', canvas: CanvasLike,
     if (hadClear && clear !== undefined) attrs.clearBeforeDraw = clear;
     else delete attrs.clearBeforeDraw;
   }
+}
+
+/**
+ * Whether the layer is one given to `cullOffscreen`: its next draw after
+ * the view moved (no zoom) shifts what its canvases hold, so they're best
+ * kept, not cleared, while the view moves (viewBitmap hides them instead).
+ */
+export function shiftsItsDrawing(layer: Konva.Layer): boolean {
+  return tracks.has(layer);
 }
 
 /**
