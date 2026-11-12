@@ -293,6 +293,39 @@ export function freeConnectionsCached(
   return connectionsCached(map, partsByKey).conns;
 }
 
+// Each part's own ends, per part object (the shared projection keeps a
+// part the same object while it doesn't change), so a new layout after a
+// drop works out only the parts that changed: every end of every part was
+// worked out again at the start of each drag (about 25 ms on 7,520 parts
+// at 4x slowed CPU).
+const brickConnCache = new WeakMap<Map<string, PartWire>, WeakMap<Brick, { conns: OwnedWorldConnection[]; linked: LinkedWorldConnection[] }>>();
+
+function brickConnections(brick: Brick, partsByKey: Map<string, PartWire>): { conns: OwnedWorldConnection[]; linked: LinkedWorldConnection[] } {
+  const conns: OwnedWorldConnection[] = [];
+  const linked: LinkedWorldConnection[] = [];
+  const meta = lookupPart(partsByKey, brick.partNumber);
+  if (!meta) return { conns, linked };
+  for (let i = 0; i < meta.connections.length; i++) {
+    const cp = meta.connections[i]!;
+    if (!cp.type) continue;
+    const link = brick.connexions[i];
+    const [wx, wy] = transformLocalToWorld(cp.x, cp.y, brick, meta);
+    const conn = {
+      x: wx,
+      y: wy,
+      type: cp.type,
+      angle: mod360(cp.angle + brick.orientation),
+      brickId: brick.id,
+      index: i,
+    };
+    // Taken ends are kept aside: one linked to a part being dragged
+    // away is free for that drag.
+    if (link && link.linkedTo !== '') linked.push({ ...conn, linkedTo: link.linkedTo });
+    else conns.push(conn);
+  }
+  return { conns, linked };
+}
+
 function connectionsCached(
   map: BbmMap,
   partsByKey: Map<string, PartWire>,
@@ -301,29 +334,15 @@ function connectionsCached(
   if (hit && hit.partsByKey === partsByKey) return hit;
   const conns: OwnedWorldConnection[] = [];
   const linked: LinkedWorldConnection[] = [];
+  let kept = brickConnCache.get(partsByKey);
+  if (!kept) brickConnCache.set(partsByKey, (kept = new WeakMap()));
   for (const layer of map.layers) {
     if (!isBrickLayer(layer)) continue;
     for (const brick of layer.bricks) {
-      const meta = lookupPart(partsByKey, brick.partNumber);
-      if (!meta) continue;
-      for (let i = 0; i < meta.connections.length; i++) {
-        const cp = meta.connections[i]!;
-        if (!cp.type) continue;
-        const link = brick.connexions[i];
-        const [wx, wy] = transformLocalToWorld(cp.x, cp.y, brick, meta);
-        const conn = {
-          x: wx,
-          y: wy,
-          type: cp.type,
-          angle: mod360(cp.angle + brick.orientation),
-          brickId: brick.id,
-          index: i,
-        };
-        // Taken ends are kept aside: one linked to a part being dragged
-        // away is free for that drag.
-        if (link && link.linkedTo !== '') linked.push({ ...conn, linkedTo: link.linkedTo });
-        else conns.push(conn);
-      }
+      let own = kept.get(brick);
+      if (!own) kept.set(brick, (own = brickConnections(brick, partsByKey)));
+      for (const c of own.conns) conns.push(c);
+      for (const c of own.linked) linked.push(c);
     }
   }
   const entry = { partsByKey, conns, linked };
@@ -927,6 +946,29 @@ function gridFallback(drag: DragSnapInput, movingConnCount: number): DragSnapRes
  * free connections.
  */
 function collectFreeConnectionsExcludingSet(
+  map: BbmMap,
+  partsByKey: Map<string, PartWire>,
+  excludeIds: Set<string>,
+  keys: ReadonlySet<string>,
+): OwnedWorldConnection[] {
+  // A drag asks on every frame with the same layout and moving parts: the
+  // list is kept for those (it was every free connection of the layout
+  // again on each frame, about 3 ms of each at 4x slowed CPU on 7,520 parts).
+  const last = lastExcluding;
+  if (last && last.map === map && last.partsByKey === partsByKey && sameSet(last.excludeIds, excludeIds) && sameSet(last.keys, keys)) return last.out;
+  const out = freeConnectionsExcludingSet(map, partsByKey, excludeIds, keys);
+  lastExcluding = { map, partsByKey, excludeIds: new Set(excludeIds), keys: new Set(keys), out };
+  return out;
+}
+let lastExcluding: { map: BbmMap; partsByKey: Map<string, PartWire>; excludeIds: ReadonlySet<string>; keys: ReadonlySet<string>; out: OwnedWorldConnection[] } | null = null;
+
+function sameSet(a: ReadonlySet<string>, b: ReadonlySet<string>): boolean {
+  if (a.size !== b.size) return false;
+  for (const v of a) if (!b.has(v)) return false;
+  return true;
+}
+
+function freeConnectionsExcludingSet(
   map: BbmMap,
   partsByKey: Map<string, PartWire>,
   excludeIds: Set<string>,

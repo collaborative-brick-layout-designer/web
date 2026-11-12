@@ -62,9 +62,6 @@ function layerRunEnds(layer: LayerBrick, want: ReadonlySet<string>, parts: Reado
     const p = partOf(partNumber);
     return !!p && p.connections.length > 0 && p.connections.length <= 2 && p.connections.some((c) => connectionHingeAngle(c.type) !== 0);
   };
-  const owner = new Map<string, string>(); // connection id -> brick id
-  const byId = new Map(layer.bricks.map((b) => [b.id, b]));
-  for (const b of layer.bricks) for (const c of b.connexions) if (c.id) owner.set(c.id, b.id);
   const run = new Set<string>();
   const todo: string[] = [];
   for (const b of layer.bricks) {
@@ -73,6 +70,13 @@ function layerRunEnds(layer: LayerBrick, want: ReadonlySet<string>, parts: Reado
       todo.push(b.id);
     }
   }
+  // No flex part picked on this sheet: nothing to index (it indexed every
+  // part and connection of the sheet after each change while anything was
+  // picked, about 25 ms on 7,520 parts at 4x slowed CPU).
+  if (todo.length === 0) return [];
+  const owner = new Map<string, string>(); // connection id -> brick id
+  const byId = new Map(layer.bricks.map((b) => [b.id, b]));
+  for (const b of layer.bricks) for (const c of b.connexions) if (c.id) owner.set(c.id, b.id);
   while (todo.length > 0) {
     const b = byId.get(todo.pop()!)!;
     for (const c of b.connexions) {

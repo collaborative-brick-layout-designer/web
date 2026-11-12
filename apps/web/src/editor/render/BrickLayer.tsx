@@ -81,7 +81,9 @@ export const DRAG_LAYER = 'drag-layer';
  */
 export function liftForDrag(nodes: readonly Konva.Node[]): () => void {
   const stage = nodes[0]?.getStage();
-  const layer = stage?.findOne(`.${DRAG_LAYER}`) as Konva.Layer | undefined;
+  // The stage's own children: a find went through every node of the map
+  // (about 70 ms of a drag's start on 7,520 parts at 4x slowed CPU).
+  const layer = stage?.getLayers().find((l) => l.hasName(DRAG_LAYER));
   if (!layer) return () => undefined;
   const was = nodes
     .map((node) => ({ node, parent: node.getParent(), z: node.zIndex() }))
@@ -89,7 +91,7 @@ export function liftForDrag(nodes: readonly Konva.Node[]): () => void {
   const layers = new Set(was.map((w) => w.node.getLayer()).filter((l): l is Konva.Layer => !!l));
   // The selection overlay draws only the parts on its own layer: the drag
   // layer gets a copy, above the parts, for the ones that move there.
-  const overlay = [...layers].map((l) => l.findOne<Konva.Shape>(`.${SELECTION_OVERLAY}`)).find((n) => !!n);
+  const overlay = [...layers].map((l) => shallowFind(l, SELECTION_OVERLAY)).find((n) => !!n);
   for (const w of was) w.node.moveTo(layer);
   const overlayCopy = overlay?.clone() as Konva.Shape | undefined;
   if (overlayCopy) layer.add(overlayCopy);
@@ -103,6 +105,21 @@ export function liftForDrag(nodes: readonly Konva.Node[]): () => void {
     for (const l of layers) l.batchDraw();
     layer.batchDraw();
   };
+}
+
+/**
+ * The node named `name` among a layer's children and theirs: where
+ * BrickLayer puts its selection overlay, next to the sheets' groups. A
+ * `findOne` looked through every part on the way.
+ */
+function shallowFind(layer: Konva.Layer, name: string): Konva.Shape | undefined {
+  for (const child of layer.getChildren()) {
+    if (child.hasName(name)) return child as Konva.Shape;
+    const grand = (child as Partial<Konva.Container>).getChildren?.();
+    const found = grand?.find((n) => n.hasName(name));
+    if (found) return found as Konva.Shape;
+  }
+  return undefined;
 }
 
 /** How long the live pose stays after a drop, while the layout redraws with the parts in place (ms). */
@@ -272,7 +289,7 @@ export const BrickLayer = memo(function BrickLayer({ map, doc, isViewer = false,
     doc, isViewer, view.tool, view.showConnectionPoints, view.alwaysShowConnections, dotsInParts ? selectedIds : null,
     getMap, getModules, modules, editingModuleId, editFrame, partsByKey, byBarePartNumber, glyphs, onEditBrick, onTurn,
   ];
-  const elements = useRef(new Map<string, { shared: unknown[]; made: WeakMap<Brick, ReactElement> }>());
+  const elements = useRef(new Map<string, { shared: unknown[]; made: WeakMap<Brick, ReactElement>; runs: Map<string, KeptRun> }>());
 
   return (
     <Group>
@@ -290,14 +307,14 @@ export const BrickLayer = memo(function BrickLayer({ map, doc, isViewer = false,
         const sheetShared = [...shared, opacity, showHull, hullColor, hull.hullThickness, showElevation];
         let kept = elements.current.get(layer.id);
         if (!kept || kept.shared.length !== sheetShared.length || kept.shared.some((v, i) => v !== sheetShared[i])) {
-          kept = { shared: sheetShared, made: new WeakMap() };
+          kept = { shared: sheetShared, made: new WeakMap(), runs: new Map() };
           elements.current.set(layer.id, kept);
         }
         const made = kept.made;
         return (
           <Group key={layer.id} name={SHEET_FADE} opacity={fade(layer.id)} {...({ partsIndexed: true } as object)}>
             {/* The sheet's own order, like BlueBrick (an altitude edit sorts the sheet: editBrick). */}
-            {layer.bricks.map((brick) => {
+            {inRuns(layer.bricks, kept, (brick) => {
               const had = made.get(brick);
               if (had) return had;
               const lower = brick.partNumber.toLowerCase();
@@ -345,6 +362,76 @@ export const BrickLayer = memo(function BrickLayer({ map, doc, isViewer = false,
     </Group>
   );
 });
+
+/** A run of a sheet's parts and the element made for it (inRuns). */
+interface KeptRun {
+  bricks: readonly Brick[];
+  el: ReactElement;
+}
+
+/** How many times a run of parts was rendered (for tests). */
+export const partRunRenders = { count: 0 };
+
+/**
+ * A run of a sheet's parts: no node of its own, its parts go straight into
+ * the sheet's group, in order.
+ */
+function PartRun({ parts }: { parts: readonly ReactElement[] }) {
+  partRunRenders.count++;
+  return <>{parts}</>;
+}
+
+/** About one part in this many starts a run (inRuns). */
+const RUN_EVERY = 64;
+
+/** Whether a part starts a run: from its id alone, so a part put in or taken out changes only its own run. */
+export function startsRun(id: string): boolean {
+  // FNV-1a.
+  let h = 0x811c9dc5;
+  for (let i = 0; i < id.length; i++) h = Math.imul(h ^ id.charCodeAt(i), 0x01000193);
+  return (h >>> 0) % RUN_EVERY === 0;
+}
+
+/**
+ * A sheet's part elements in runs of about 64, each run kept as one
+ * element while its parts are the same objects: after someone's change
+ * React passes over the runs that didn't change without going through
+ * their parts (it went through all 7,520 parts' elements after each
+ * change). Where a run starts comes from the part ids, so a move changes
+ * one run, and a part added or deleted changes only the run it is in.
+ */
+export function inRuns(bricks: readonly Brick[], kept: { runs: Map<string, KeptRun> }, elementFor: (brick: Brick) => ReactElement): ReactElement[] {
+  const out: ReactElement[] = [];
+  const runs = new Map<string, KeptRun>();
+  let key = '';
+  let from = 0;
+  const close = (to: number) => {
+    if (to === from) return;
+    // Two runs started by one id (a part there twice for a moment): keys stay apart.
+    let k = key;
+    for (let n = 1; runs.has(k); n++) k = `${key}#${n}`;
+    const had = kept.runs.get(k);
+    let run: KeptRun;
+    if (had && had.bricks.length === to - from && had.bricks.every((b, i) => b === bricks[from + i])) run = had;
+    else {
+      const part = bricks.slice(from, to);
+      run = { bricks: part, el: <PartRun key={k} parts={part.map(elementFor)} /> };
+    }
+    runs.set(k, run);
+    out.push(run.el);
+  };
+  for (let i = 0; i < bricks.length; i++) {
+    const id = bricks[i]!.id;
+    if (i > from && startsRun(id)) {
+      close(i);
+      from = i;
+      key = id;
+    }
+  }
+  close(bricks.length);
+  kept.runs = runs;
+  return out;
+}
 
 const BrickGlyph = memo(function BrickGlyph({
   brick,
