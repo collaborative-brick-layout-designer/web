@@ -400,8 +400,45 @@ function markOver(t: Track, node: Konva.Node): boolean {
   return true;
 }
 
-/** Layers the view picture follows that aren't watched part by part: whether anything on them changed since it was taken. */
-const followed = new Map<Konva.Node, { changed: boolean }>();
+/**
+ * Layers the view picture follows that aren't watched part by part (the
+ * drag layer: the parts being dragged, the module outlines). Whether
+ * anything on them changed since the picture was taken; and which of
+ * their children changed since they were last drawn, with where each child
+ * was then, so a draw of the layer while the view is still tells the
+ * picture which places to draw again (`lastDrawBoxes`). The mover's own
+ * tab took the picture afresh after each drag (about 740 part pictures
+ * on 7,520 parts zoomed in), as the drag layer had drawn whole.
+ */
+interface Followed {
+  changed: boolean;
+  /** Children changed since the layer's last draw; null when anything on it may have. */
+  kids: Set<Konva.Node> | null;
+  /** Where each child was at the layer's last draw (the layer's own coordinates). */
+  at: Map<Konva.Node, Box>;
+  /** The places the last draw changed; null when it may have changed anything. */
+  last: Box[] | null;
+}
+const followed = new Map<Konva.Node, Followed>();
+/** Past this many children, a followed layer's draws aren't told apart. */
+const MAX_FOLLOWED_KIDS = 200;
+
+/** The followed layer `node` is on (or is), and the child of it that `node` is in (null: the layer itself). */
+function followedOf(node: Konva.Node): { f: Followed; kid: Konva.Node | null } | null {
+  let kid: Konva.Node | null = null;
+  for (let n: Konva.Node | null = node; n; n = n.parent) {
+    const f = followed.get(n);
+    if (f) return { f, kid };
+    kid = n;
+  }
+  return null;
+}
+
+function markFollowed(on: { f: Followed; kid: Konva.Node | null }): void {
+  on.f.changed = true;
+  if (!on.kid) on.f.kids = null;
+  else on.f.kids?.add(on.kid);
+}
 
 /** `node` changed in a way that shows (`what`: the attribute, or how). */
 function changed(node: Konva.Node, what: string): void {
@@ -420,13 +457,8 @@ function changed(node: Konva.Node, what: string): void {
     // at the start of each pan.
     for (const t of tracks.values()) if (t.layer.parent === node) markWhole(t, node, what, false);
   } else if (followed.size > 0) {
-    for (let n: Konva.Node | null = node; n; n = n.parent) {
-      const f = followed.get(n);
-      if (f) {
-        f.changed = true;
-        break;
-      }
-    }
+    const f = followedOf(node);
+    if (f) markFollowed(f);
   }
 }
 
@@ -482,6 +514,19 @@ function watchChanges(): void {
   const remove = node._remove;
   node._remove = function (this: Konva.Node) {
     const parent = this.parent;
+    // A child of a followed layer leaves it (a dragged part put back): where it was is drawn again.
+    const f = followed.size > 0 && parent ? followedOf(this) : null;
+    if (f) {
+      // (Konva has the layer ask for a draw as its children are counted again: nothing else changed.)
+      markFollowed(f);
+      quiet++;
+      try {
+        remove.call(this);
+      } finally {
+        quiet--;
+      }
+      return;
+    }
     const on = tracks.size > 0 && parent && this.attrs.cullR !== undefined ? trackOf(parent) : null;
     if (!on || on.part) {
       remove.call(this);
@@ -505,6 +550,16 @@ function watchChanges(): void {
     const move = order[name]!;
     order[name] = function (this: Konva.Node, ...args: unknown[]) {
       const parent = this.parent;
+      const f = followed.size > 0 && parent ? followedOf(this) : null;
+      if (f) {
+        markFollowed(f);
+        quiet++;
+        try {
+          return move.apply(this, args);
+        } finally {
+          quiet--;
+        }
+      }
       const on = tracks.size > 0 && parent && this.attrs.cullR !== undefined ? trackOf(parent) : null;
       if (!on || on.part) return move.apply(this, args);
       markPart(on.track, this);
@@ -521,6 +576,18 @@ function watchChanges(): void {
   container.add = function (this: Konva.Container, ...children: Konva.Node[]) {
     if (this.attrs.partsIndexed) for (const c of children) reindex(this, c);
     const child = children.length === 1 ? children[0] : undefined;
+    // A child joins a followed layer (a part lifted for a drag): where it is gets drawn.
+    const f = followed.size > 0 && child && !child.parent ? followedOf(this) : null;
+    if (f) {
+      quiet++;
+      try {
+        add.apply(this, children);
+      } finally {
+        quiet--;
+      }
+      markFollowed(followedOf(child!) ?? f);
+      return this;
+    }
     const on = tracks.size > 0 && child && !child.parent && child.attrs.cullR !== undefined ? trackOf(this) : null;
     if (!on || on.part) return add.apply(this, children);
     // A part joins the layer (placed, pasted, or back from a drag): where it is gets drawn.
@@ -731,7 +798,63 @@ export function redrawWhole(layer: Konva.Layer): void {
  * or isn't a layer given to `cullOffscreen`.
  */
 export function lastDrawBoxes(layer: Konva.Layer): readonly Box[] | null {
-  return tracks.get(layer)?.last ?? null;
+  const t = tracks.get(layer);
+  if (t) return t.last;
+  return followed.get(layer)?.last ?? null;
+}
+
+/** Where a child of a followed layer is now, in the layer's coordinates, with the fixed-size margin. */
+function followedBox(layer: Konva.Layer, kid: Konva.Node): Box | null {
+  if (!kid.isVisible()) return null;
+  // A shape drawn over some parts (the selection overlay's copy for the
+  // dragged parts) has no size of its own: it covers those parts.
+  const over = kid.attrs.overDraws as OverDraws | undefined;
+  if (typeof over === 'function') {
+    let box: Box | null = null;
+    for (const n of over()) {
+      const b = n.getLayer() === layer ? followedBox(layer, n) : null;
+      if (b) box = box ? { x0: Math.min(box.x0, b.x0), y0: Math.min(box.y0, b.y0), x1: Math.max(box.x1, b.x1), y1: Math.max(box.y1, b.y1) } : b;
+    }
+    return box;
+  }
+  const r = kid.getClientRect({ relativeTo: layer });
+  if (!(r.width >= 0 && r.height >= 0) || !Number.isFinite(r.x) || !Number.isFinite(r.y)) return null;
+  const pad = PAD_PX / (layer.getStage()?.scaleX() || 1);
+  return { x0: r.x - pad, y0: r.y - pad, x1: r.x + r.width + pad, y1: r.y + r.height + pad };
+}
+
+/** A followed layer drew: the places its changed children were and are. */
+function followedDrew(layer: Konva.Layer, f: Followed): void {
+  const kids = layer.getChildren();
+  if (!f.kids || kids.length > MAX_FOLLOWED_KIDS) {
+    // Anything may have changed: the next ones are told from here.
+    f.last = null;
+    f.at.clear();
+    if (kids.length > MAX_FOLLOWED_KIDS) {
+      f.kids = null;
+      return;
+    }
+    for (const k of kids) {
+      const b = followedBox(layer, k);
+      if (b) f.at.set(k, b);
+    }
+    f.kids = new Set();
+    return;
+  }
+  const out: Box[] = [];
+  for (const k of f.kids) {
+    const was = f.at.get(k);
+    if (was) out.push(was);
+    f.at.delete(k);
+    if (k.parent !== layer) continue;
+    const now = followedBox(layer, k);
+    if (now) {
+      out.push(now);
+      f.at.set(k, now);
+    }
+  }
+  f.kids.clear();
+  f.last = out;
 }
 
 /**
@@ -742,9 +865,13 @@ export function lastDrawBoxes(layer: Konva.Layer): readonly Box[] | null {
 export function followForPicture(layer: Konva.Layer): () => void {
   watchChanges();
   if (tracks.has(layer) || followed.has(layer)) return () => undefined;
-  const f = { changed: true };
+  const f: Followed = { changed: true, kids: null, at: new Map(), last: null };
   followed.set(layer, f);
+  // (Before whoever listens to the layer's draws hears of this one.)
+  const drew = (): void => followedDrew(layer, f);
+  layer.on('draw.follow-picture', drew);
   return () => {
+    layer.off('draw.follow-picture', drew);
     if (followed.get(layer) === f) followed.delete(layer);
   };
 }

@@ -78,7 +78,7 @@ import { scaleBar, studDisplay } from './scaleBar';
 import { areaForPivot, areaSize, pivotOf } from './brickGeometry';
 import { imageOffset } from '@cld/parts-catalog/browser';
 import { askForPermission } from '../orgs/clubPermissions';
-import { canAddToBudget, countUsage, overBudgetCount, withinBudget } from './budgetUsage';
+import { canAddToBudget, countUsage, overBudgetCount, sameBudgetOr, withinBudget } from './budgetUsage';
 import { BudgetReachedDialog, BUDGET_REFUSED_STATUS } from './BudgetReachedDialog';
 import { venueAfterDraw, VENUE_MIN_POINTS_MESSAGE } from './venueValidator';
 import { docToBbm } from '@cld/ydoc';
@@ -140,6 +140,7 @@ import { pxToStud, studToPx } from './render/coords';
 import { SNAP_MARKS } from './render/selectionStyle';
 import { ensureSprite, getSpriteSync, resetSpriteProgress, subscribeSpriteProgress, wantSprites } from './render/spriteCache';
 import { ViewBitmap, VIEW_LIVE } from './render/viewBitmap';
+import { hitsHeld, holdHits, releaseHits } from './render/viewMoving';
 import { layoutSpriteUrls } from './render/layoutSprites';
 import { MapLoadingCard, OpeningLayoutScreen } from './LoadingCard';
 import { PlaceGhost } from './render/PlaceGhost';
@@ -594,11 +595,15 @@ function Editor({ layoutId, docState, moduleMode }: { layoutId: string; docState
   const docMap = useDocMap(doc);
   // Budget limits live in the doc's meta (shared with collaborators,
   // undoable). A meta change yields a new docMap, so re-read on that.
-  const budgetLimits = useMemo(
+  const budgetRead = useMemo(
     () => (doc ? readBudgetLimits(doc) : new Map<string, number>()),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [doc, docMap],
   );
+  // The same Map while the limits are the same (sameBudgetOr).
+  const budgetKept = useRef(budgetRead);
+  budgetKept.current = sameBudgetOr(budgetKept.current, budgetRead);
+  const budgetLimits = budgetKept.current;
 
   saveModuleRef.current = async () => {
     if (!doc) return;
@@ -2267,10 +2272,14 @@ function Canvas({
   const viewBitmapRef = useRef<ViewBitmap | null>(null);
   function setViewMoving(moving: boolean): void {
     const stage = stageRef.current;
-    if (!stage || stage.listening() === !moving) return;
-    stage.listening(!moving);
+    if (!stage || hitsHeld(stage) === moving) return;
+    if (moving) holdHits(stage);
+    else releaseHits(stage);
     if (moving) {
       viewBitmapRef.current?.freeze();
+      // The sheets show the picture from the next frame (the stage's
+      // `listening` switch used to have them drawn again, which did this).
+      for (const layer of stage.getLayers()) layer.batchDraw();
       // The canvas follows the view by CSS from here (followView), and the
       // map renders nothing until the move ends.
       holdStageView(true);
@@ -2312,7 +2321,7 @@ function Canvas({
   /** Draws the hit canvas now if it's behind the view, so a hit test sees the map where it is. */
   function freshHit(): void {
     const stage = stageRef.current;
-    if (!stage || !hitStaleRef.current || !stage.listening()) return;
+    if (!stage || !hitStaleRef.current || hitsHeld(stage)) return;
     hitStaleRef.current = false;
     for (const layer of stage.getLayers()) if (layer.isListening()) layer.drawHit();
   }
@@ -2422,7 +2431,7 @@ function Canvas({
       if (viewStillTimer.current !== null) {
         window.clearTimeout(viewStillTimer.current);
         viewStillTimer.current = null;
-        stage.listening(true);
+        releaseHits(stage);
         if (isStageViewHeld() || viewBitmapRef.current?.isFrozen) stopViewMoving(stage);
         hitStaleRef.current = true;
       }

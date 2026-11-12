@@ -110,18 +110,43 @@ export function RulerLayers({
   const layers = map.layers.filter(
     (l): l is LayerRuler => l.type === 'ruler' && l.visible,
   );
-  // Index brick centres by id for O(1) lookup of attached endpoints.
+  // The centres of the parts the rulers are attached to, by id. Only
+  // those: on 7,520 parts, working out every part's centre after each
+  // change (anyone's move) took about 20 ms at 4x slowed CPU. And the same
+  // Map while they stay put, so the rulers aren't rendered again.
+  const centresKept = useRef<Map<string, { x: number; y: number }>>(new Map());
   const brickCentres = useMemo(() => {
-    const m = new Map<string, { x: number; y: number }>();
+    const attached = new Set<string>();
     for (const layer of map.layers) {
-      if (layer.type !== 'brick') continue;
-      for (const b of layer.bricks) {
-        // Attached ends follow the sprite centre, like desktop
-        // SceneBuilder brickCentreByGuid_ (imageCentre).
-        m.set(b.id, pivotOf(b, partsByKey?.get(b.partNumber.toLowerCase())));
+      if (layer.type !== 'ruler') continue;
+      for (const r of layer.rulerItems) {
+        for (const id of r.kind === 'linear' ? [r.attachedBrick1Id, r.attachedBrick2Id] : [r.attachedBrickId]) if (id) attached.add(id);
       }
     }
-    return m;
+    const m = new Map<string, { x: number; y: number }>();
+    if (attached.size > 0) {
+      for (const layer of map.layers) {
+        if (layer.type !== 'brick') continue;
+        for (const b of layer.bricks) {
+          // Attached ends follow the sprite centre, like desktop
+          // SceneBuilder brickCentreByGuid_ (imageCentre).
+          if (attached.has(b.id)) m.set(b.id, pivotOf(b, partsByKey?.get(b.partNumber.toLowerCase())));
+        }
+      }
+    }
+    const was = centresKept.current;
+    let same = was.size === m.size;
+    if (same) {
+      for (const [id, c] of m) {
+        const w = was.get(id);
+        if (!w || w.x !== c.x || w.y !== c.y) {
+          same = false;
+          break;
+        }
+      }
+    }
+    if (!same) centresKept.current = m;
+    return centresKept.current;
   }, [map, partsByKey]);
 
   // The editor re-renders this on every frame of a box-select drag. The

@@ -6,7 +6,7 @@ import * as Y from 'yjs';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createDefaultLayoutDoc, decodeDoc, encodeDoc, exportSidecarFromDoc, readSidecarCache, removeDuplicateBricks, repairSidecarCache, sidecarBlobHash, writeSidecarCache } from './index.js';
+import { createDefaultLayoutDoc, decodeDoc, encodeDoc, exportSidecarFromDoc, liveBrickIdReads, readSidecarCache, removeDuplicateBricks, repairSidecarCache, sidecarBlobHash, writeSidecarCache } from './index.js';
 
 const base = { schemaVersion: 1, bbmHashSha256: '', modules: [{ id: 'm0', name: 'Yard', members: [] }] };
 const sync = (a: Y.Doc, b: Y.Doc) => {
@@ -350,6 +350,89 @@ describe('module lists without deleted parts', () => {
     expect(members(a)).toEqual(['m1:b1,b3']);
     // And a read after a delete sees it at once.
     a.transact(() => deleteBrick(a, 'b3'));
+    expect(members(a)).toEqual(['m1:b1']);
+  });
+
+  it('the ids on the map are read again only where parts were added or taken out', () => {
+    const a = createDefaultLayoutDoc();
+    a.transact(() => {
+      for (let i = 0; i < 50; i++) addBrick(a, `b${i}`);
+      writeSidecarCache(a, { ...base, modules: [{ id: 'm1', name: 'Yard', members: ['b1', 'b2', 'b3'] }] });
+    });
+    expect(members(a)).toEqual(['m1:b1,b2,b3']);
+    // Someone else's tab, kept in step as it goes.
+    const other = new Y.Doc();
+    Y.applyUpdate(other, Y.encodeStateAsUpdate(a));
+    expect(members(other)).toEqual(['m1:b1,b2,b3']);
+    a.on('update', (u: Uint8Array) => Y.applyUpdate(other, u));
+    const reads = liveBrickIdReads(a);
+    // A part moved in place (almost every edit): nothing is read again.
+    for (let i = 0; i < 20; i++) {
+      a.transact(() => brickLayer(a).get(1).set('x', i));
+      expect(members(a)).toEqual(['m1:b1,b2,b3']);
+    }
+    expect(liveBrickIdReads(a)).toBe(reads);
+    // Taken out, then put back: its list is read again, once each.
+    a.transact(() => deleteBrick(a, 'b2'));
+    expect(members(a)).toEqual(['m1:b1,b3']);
+    expect(members(a)).toEqual(['m1:b1,b3']);
+    expect(members(other)).toEqual(['m1:b1,b3']);
+    expect(liveBrickIdReads(a)).toBe(reads + 1);
+    // (A read leaves it out; the module still lists it until a write.)
+    a.transact(() => addBrick(a, 'b2'));
+    expect(members(a)).toEqual(['m1:b1,b2,b3']);
+    // A part given another id.
+    a.transact(() => brickLayer(a).toArray().find((b) => b.get('id') === 'b3')!.set('id', 'b3x'));
+    expect(members(a)).toEqual(['m1:b1,b2']);
+    // A part there twice (two people moving it at once), one copy taken out: it's still on the map.
+    a.transact(() => addBrick(a, 'b1'));
+    a.transact(() => deleteBrick(a, 'b1'));
+    expect(members(a)).toEqual(['m1:b1,b2']);
+    // A new sheet with its own parts, and another sheet's list given anew.
+    a.transact(() => {
+      const id = 'sheet2';
+      const l = new Y.Map<unknown>();
+      l.set('type', 'brick');
+      const list = new Y.Array<Y.Map<unknown>>();
+      const b = new Y.Map<unknown>();
+      b.set('id', 'c1');
+      list.push([b]);
+      l.set('bricks', list);
+      a.getMap('layerData').set(id, l);
+      a.getArray<string>('layers').push([id]);
+    });
+    a.transact(() => writeSidecarCache(a, { ...readSidecarCache(a)!, modules: [{ id: 'm1', name: 'Yard', members: ['b1', 'b2', 'b3x', 'c1'] }] }));
+    expect(members(a)).toEqual(['m1:b1,b2,b3x,c1']);
+    a.transact(() => (a.getMap('layerData').get('sheet2') as Y.Map<unknown>).set('bricks', new Y.Array()));
+    expect(members(a)).toEqual(['m1:b1,b2,b3x']);
+    // And another doc that receives all of it agrees.
+    const b = new Y.Doc();
+    Y.applyUpdate(b, Y.encodeStateAsUpdate(a));
+    expect(members(b)).toEqual(['m1:b1,b2,b3x']);
+    expect(members(other)).toEqual(['m1:b1,b2,b3x']);
+  });
+
+  it('a read is the same answer until the sidecar, its items or the parts change', () => {
+    const a = createDefaultLayoutDoc();
+    a.transact(() => {
+      for (let i = 0; i < 5; i++) addBrick(a, `b${i}`);
+      writeSidecarCache(a, { ...base, modules: [{ id: 'm1', name: 'Yard', members: ['b1', 'b2'] }] });
+    });
+    const first = readSidecarCache(a);
+    // A part moved in place: the same answer, not worked out again.
+    a.transact(() => brickLayer(a).get(1).set('x', 3));
+    expect(readSidecarCache(a)).toBe(first);
+    // A module renamed, here or by someone else: the new name.
+    a.transact(() => writeSidecarCache(a, { ...readSidecarCache(a)!, modules: [{ id: 'm1', name: 'Harbour', members: ['b1', 'b2'] }] }));
+    expect(names(a)).toEqual(['Harbour']);
+    const b = new Y.Doc();
+    Y.applyUpdate(b, Y.encodeStateAsUpdate(a));
+    expect(names(b)).toEqual(['Harbour']);
+    b.on('update', (u: Uint8Array) => Y.applyUpdate(a, u));
+    b.transact(() => writeSidecarCache(b, { ...readSidecarCache(b)!, modules: [{ id: 'm1', name: 'Town', members: ['b1', 'b2'] }] }));
+    expect(names(a)).toEqual(['Town']);
+    // A part of it deleted: gone from the answer.
+    a.transact(() => deleteBrick(a, 'b2'));
     expect(members(a)).toEqual(['m1:b1']);
   });
 

@@ -232,6 +232,41 @@ test("someone else's move draws only where the part was and is", async ({ browse
   await nudge();
   await bob.waitForTimeout(1500);
   expect(await sameAsAWholeDraw(bob)).toEqual(SAME);
+
+  // Zoomed in, the mover's own tab: once still after a drag, the picture
+  // kept for the next pan (with the parts around the view) is brought up
+  // to date only where the part was and is. The drag layer drew whole
+  // during the drag, so it was taken afresh, every part around the view
+  // drawn again (about 740 on 7,520 parts).
+  for (let i = 0; i < 10; i++) await alice.getByRole('button', { name: 'Zoom in' }).first().click();
+  await alice.waitForTimeout(500);
+  const near = (await alice.evaluate(() => {
+    type N = { getClassName: () => string; name: () => string; getClientRect: () => { x: number; y: number; width: number; height: number } };
+    const st = (window as unknown as { Konva: { stages: { container: () => HTMLElement; find: (f: (n: N) => boolean) => N[] }[] } }).Konva.stages[0]!;
+    const b = st.container().getBoundingClientRect();
+    let best: { x: number; y: number; d: number } | null = null;
+    for (const n of st.find((n) => n.getClassName() === 'Group' && n.name().startsWith('brick-'))) {
+      const r = n.getClientRect();
+      if (r.width < 14 || r.height < 14) continue;
+      const x = r.x + r.width / 2;
+      const y = r.y + r.height / 2;
+      const d = Math.hypot(x - b.width / 2, y - b.height / 2);
+      if (!best || d < best.d) best = { x: b.left + x, y: b.top + y, d };
+    }
+    return best;
+  }))!;
+  await alice.mouse.click(near.x, near.y);
+  const zoomedDrag = await drawsFor(alice, async () => {
+    await alice.mouse.move(near.x, near.y);
+    await alice.mouse.down();
+    await alice.mouse.move(near.x + 10, near.y + 4, { steps: 4 });
+    await alice.mouse.move(near.x + 24, near.y + 8, { steps: 4 });
+    await alice.mouse.up();
+  });
+  console.log(`[measure] part pictures drawn in the mover's tab for a drag, zoomed in: ${zoomedDrag.pictures} (${PARTS} parts)`);
+  expect(zoomedDrag.whole, `whole draws, the last for: ${zoomedDrag.why}`).toBe(0);
+  expect(zoomedDrag.pictures).toBeLessThan(PARTS * 0.1);
+  expect(await sameAsAWholeDraw(alice)).toEqual(SAME);
   await ctxA.close();
   await ctxB.close();
 });

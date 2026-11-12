@@ -15,7 +15,7 @@ import { buildLabelIndex, labelAnchorStuds } from '../mixedSelection';
 import { bricksInMarquee } from '../render/marqueeMath';
 import { electricOverlay } from '../render/electricCircuits';
 import { freeConnectionsCached, nearestConnectionIndex, snapPlacement } from '../snap';
-import { fixStaleAreasInDoc } from '../useConnectivity';
+import { fixStaleAreasInDoc, watchPartChanges } from '../useConnectivity';
 
 // A 4 x 2 stud sprite (32 x 16 px) whose <hull> is its left half: the
 // displayArea is that 2 x 2 box and the sprite centre sits 1 stud right of
@@ -206,6 +206,45 @@ describe('stale boxes are repaired in the doc', () => {
     ]);
     expect(um.undoStack.length).toBe(0);
     expect(fixStaleAreasInDoc(doc, parts)).toBe(0);
+  });
+
+  // After someone else's edit only the parts it changed are looked at: on
+  // 7,520 parts each look through them all took about 34 ms at 4x slowed CPU.
+  it("after someone else's edits, looks only at the parts they changed", () => {
+    const doc = createDefaultLayoutDoc();
+    const layerId = docToBbm(doc).layers.find((l) => l.type === 'brick')!.id;
+    const good = areaForPivot(HULL, 0, { x: 30, y: 5 });
+    const ids: string[] = [];
+    for (let i = 0; i < 300; i++) ids.push(placeBrick(doc, layerId, { partNumber: 'hull.1', x: good.x + i * 4, y: good.y, width: good.width, height: good.height }));
+    const changes = watchPartChanges(doc);
+    // The first time: all of them.
+    expect(changes.take()).toBeNull();
+    expect(changes.take()).toEqual({ bricks: new Set() });
+    const peer = new Y.Doc();
+    Y.applyUpdate(peer, Y.encodeStateAsUpdate(doc));
+    const peerBricks = () => {
+      const data = peer.getMap('layerData').get(layerId) as Y.Map<unknown>;
+      return data.get('bricks') as Y.Array<Y.Map<unknown>>;
+    };
+    peer.on('update', (u: Uint8Array) => Y.applyUpdate(doc, u, 'remote'));
+    // A part given a stale box, one moved, one added with a stale box.
+    peer.transact(() => peerBricks().get(5).set('displayArea', { x: 1, y: 1, width: 4, height: 2 }));
+    peer.transact(() => peerBricks().get(9).set('displayArea', { ...good, x: good.x + 999 }));
+    peer.transact(() => {
+      const b = new Y.Map<unknown>();
+      b.set('id', 'added');
+      b.set('partNumber', 'hull.1');
+      b.set('orientation', 0);
+      b.set('displayArea', { x: 2, y: 2, width: 4, height: 2 });
+      peerBricks().insert(100, [b]);
+    });
+    const only = changes.take()!;
+    expect(only.bricks.size).toBe(3);
+    expect(fixStaleAreasInDoc(doc, parts, only)).toBe(2);
+    // A new sheet: all of them again.
+    peer.transact(() => peer.getArray('layers').push(['another']));
+    expect(changes.take()).toBeNull();
+    changes.stop();
   });
 });
 

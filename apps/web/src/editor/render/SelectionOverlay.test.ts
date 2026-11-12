@@ -15,13 +15,13 @@ const brick = (over: Partial<Brick> = {}): Brick =>
 const part = (connections: { type: string; x: number; y: number }[], extra: Partial<PartWire> = {}): PartWire =>
   ({ connections, ...extra }) as unknown as PartWire;
 
-/** A canvas context that records the calls the overlay makes. */
-function recorder() {
+/** A canvas context that records the calls the overlay makes; `at` is its transform (the layer's own canvas: its pixel ratio, 2). */
+function recorder(at = { a: 2, b: 0, c: 0, d: 2, e: 0, f: 0 }) {
   const calls: string[] = [];
   const c = new Proxy(
     {},
     {
-      get: (_t, k) => (k === 'canvas' ? {} : (...args: unknown[]) => calls.push(`${String(k)}(${args.filter((a) => typeof a === 'number').map((n) => Math.round(n as number)).join(',')})`)),
+      get: (_t, k) => (k === 'canvas' ? {} : k === 'getTransform' ? () => at : (...args: unknown[]) => calls.push(`${String(k)}(${args.filter((a) => typeof a === 'number').map((n) => Math.round(n as number)).join(',')})`)),
       set: (_t, k, v) => {
         calls.push(`${String(k)}=${String(v)}`);
         return true;
@@ -57,7 +57,8 @@ describe('selection overlay', () => {
   // Stand-ins for Konva nodes (jsdom has no canvas): a layer, and a part's group at (x, y).
   const parts = { name: 'parts' };
   const drag = { name: 'drag' };
-  const shapeOn = (layer: object) => ({ getLayer: () => layer, attrs: {} as Record<string, unknown> }) as unknown as Konva.Shape;
+  const shapeOn = (layer: object) =>
+    ({ getLayer: () => layer, getAbsoluteTransform: () => ({ getMatrix: () => [1, 0, 0, 1, 0, 0] }), attrs: {} as Record<string, unknown> }) as unknown as Konva.Shape;
   const groupAt = (layer: object, x: number, y: number) =>
     ({ getLayer: () => layer, getAbsoluteTransform: () => ({ getMatrix: () => [1, 0, 0, 1, x, y] }) }) as unknown as Konva.Group;
 
@@ -86,6 +87,25 @@ describe('selection overlay', () => {
     // A copy of the overlay on the drag layer draws c only.
     const copy = shapeOn(drag);
     expect(drawSelection(recorder().ctx, copy, { glyphs, haloIds: ['a', 'b', 'c'], dotIds: [], colors: () => ({ stroke: 'x', fill: 'y' }), bendHandles: true })).toBe(1);
+  });
+
+  // The picture kept for a pan has a margin around the view: the layer is
+  // drawn into it moved by that margin. The halos were drawn at the view's
+  // device px, a margin away from their parts.
+  it('on another canvas, draws the halos where that canvas has the parts', () => {
+    const overlay = shapeOn(parts);
+    const glyphs = new Map<string, GlyphInfo>([['a', { group: { current: groupAt(parts, 10, 20) }, brick: brick({ id: 'a' }), meta: undefined, spriteW: 8, spriteH: 8 }]]);
+    const draw = (at: { a: number; b: number; c: number; d: number; e: number; f: number }) => {
+      const { calls, ctx } = recorder(at);
+      drawSelection(ctx, overlay, { glyphs, haloIds: ['a'], dotIds: [], colors: () => ({ stroke: 's', fill: 'f' }), bendHandles: true });
+      return calls;
+    };
+    // Its own canvas: drawn at identity, as before.
+    expect(draw({ a: 2, b: 0, c: 0, d: 2, e: 0, f: 0 })).toContain('setTransform(1,0,0,1,0,0)');
+    // The picture: moved 300 by 200 px (the margin), at the same pixel ratio.
+    const moved = draw({ a: 2, b: 0, c: 0, d: 2, e: 300, f: 200 });
+    expect(moved).toContain('setTransform(1,0,0,1,300,200)');
+    expect(moved).toContain('moveTo(10,30)');
   });
 
   it('draws nothing, cheaply, when nothing is picked', () => {
