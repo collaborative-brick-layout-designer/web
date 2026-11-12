@@ -143,6 +143,12 @@ export interface DocProjector {
    * read-only (use `docToBbm` for a private, mutable copy).
    */
   project(): BbmMap;
+  /**
+   * The Y.Map a brick of `project()`'s map was read from (undefined for a
+   * brick that isn't from this projector, as `docToBbm`'s within a
+   * transaction aren't): to write to just the bricks a pass changed.
+   */
+  brickYMap(brick: Brick): Y.Map<unknown> | undefined;
   /** Detach the doc observers. */
   destroy(): void;
 }
@@ -159,6 +165,7 @@ export function createDocProjector(doc: Y.Doc): DocProjector {
   const layerData = doc.getMap<Y.Map<unknown>>('layerData');
   // Keyed on the Y types themselves; entries die with their Y.Map.
   const brickCache = new WeakMap<object, Brick>();
+  const brickSource = new WeakMap<Brick, Y.Map<unknown>>();
   const layerCache = new WeakMap<object, Layer>();
   let current: BbmMap | null = null;
 
@@ -167,6 +174,7 @@ export function createDocProjector(doc: Y.Doc): DocProjector {
     if (!b) {
       b = yMapToBrick(y);
       brickCache.set(y, b);
+      brickSource.set(b, y);
     }
     return b;
   };
@@ -208,6 +216,9 @@ export function createDocProjector(doc: Y.Doc): DocProjector {
       }
       current = { ...readMeta(meta), layers };
       return current;
+    },
+    brickYMap(brick: Brick): Y.Map<unknown> | undefined {
+      return brickSource.get(brick);
     },
     destroy(): void {
       layerData.unobserveDeep(onLayerData);

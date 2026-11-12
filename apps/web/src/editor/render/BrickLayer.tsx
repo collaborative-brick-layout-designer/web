@@ -81,7 +81,9 @@ export const DRAG_LAYER = 'drag-layer';
  */
 export function liftForDrag(nodes: readonly Konva.Node[]): () => void {
   const stage = nodes[0]?.getStage();
-  const layer = stage?.findOne(`.${DRAG_LAYER}`) as Konva.Layer | undefined;
+  // The stage's own children: a find went through every node of the map
+  // (about 70 ms of a drag's start on 7,520 parts at 4x slowed CPU).
+  const layer = stage?.getLayers().find((l) => l.hasName(DRAG_LAYER));
   if (!layer) return () => undefined;
   const was = nodes
     .map((node) => ({ node, parent: node.getParent(), z: node.zIndex() }))
@@ -89,7 +91,7 @@ export function liftForDrag(nodes: readonly Konva.Node[]): () => void {
   const layers = new Set(was.map((w) => w.node.getLayer()).filter((l): l is Konva.Layer => !!l));
   // The selection overlay draws only the parts on its own layer: the drag
   // layer gets a copy, above the parts, for the ones that move there.
-  const overlay = [...layers].map((l) => l.findOne<Konva.Shape>(`.${SELECTION_OVERLAY}`)).find((n) => !!n);
+  const overlay = [...layers].map((l) => shallowFind(l, SELECTION_OVERLAY)).find((n) => !!n);
   for (const w of was) w.node.moveTo(layer);
   const overlayCopy = overlay?.clone() as Konva.Shape | undefined;
   if (overlayCopy) layer.add(overlayCopy);
@@ -103,6 +105,21 @@ export function liftForDrag(nodes: readonly Konva.Node[]): () => void {
     for (const l of layers) l.batchDraw();
     layer.batchDraw();
   };
+}
+
+/**
+ * The node named `name` among a layer's children and theirs: where
+ * BrickLayer puts its selection overlay, next to the sheets' groups. A
+ * `findOne` looked through every part on the way.
+ */
+function shallowFind(layer: Konva.Layer, name: string): Konva.Shape | undefined {
+  for (const child of layer.getChildren()) {
+    if (child.hasName(name)) return child as Konva.Shape;
+    const grand = (child as Partial<Konva.Container>).getChildren?.();
+    const found = grand?.find((n) => n.hasName(name));
+    if (found) return found as Konva.Shape;
+  }
+  return undefined;
 }
 
 /** How long the live pose stays after a drop, while the layout redraws with the parts in place (ms). */

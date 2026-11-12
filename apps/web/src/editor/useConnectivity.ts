@@ -23,8 +23,10 @@
 
 import { useEffect, useMemo } from 'react';
 import * as Y from 'yjs';
-import { rebuildConnectivity, type Catalog } from '@cld/parts-catalog/browser';
+import { connectionPoints, linkBricks, makeCatalogLookup, rebuildConnectivity, type BrickLinks, type Catalog, type PartMetadata } from '@cld/parts-catalog/browser';
 import { docToBbm } from '@cld/ydoc';
+import type { Brick } from '@cld/model';
+import { getDocProjector } from './useDocMap';
 import { LOCAL_ORIGIN } from './useLayoutDoc';
 import type { PartWire } from '../api';
 import { catalogFromParts } from './catalogFromParts';
@@ -57,9 +59,12 @@ export function useConnectivity(doc: Y.Doc | null, parts: PartWire[] | undefined
 
     function runRecompute() {
       if (!doc) return;
-      // (A look through every part: what someone else changed is in it.)
-      changes.take();
-      if (partIndex.size > 0) fixStaleAreasInDoc(doc, partIndex);
+      // Only the parts changed since the last look, here or by someone
+      // else (it looked through all 7,520 parts after every move: about
+      // 25 ms at 4x slowed CPU). The first look, at the first sync, is of
+      // them all.
+      const only = changes.take();
+      if (partIndex.size > 0) fixStaleAreasInDoc(doc, partIndex, only);
       recomputeConnectivity(doc, catalog);
     }
 
@@ -112,24 +117,100 @@ export function useConnectivity(doc: Y.Doc | null, parts: PartWire[] | undefined
 }
 
 /**
+ * What a recompute keeps between runs for one catalog: its part look-up,
+ * and where each brick's connections are, per brick object of the doc's
+ * shared projection (useDocMap), which stays the same object while the
+ * brick doesn't change. So after a move only the moved bricks' points
+ * are worked out again.
+ */
+interface LinkCache {
+  lookup: (partNumber: string) => PartMetadata | undefined;
+  points: (brick: Brick, meta: PartMetadata) => ArrayLike<number>;
+}
+const linkCaches = new WeakMap<Catalog, LinkCache>();
+function linkCache(catalog: Catalog): LinkCache {
+  let c = linkCaches.get(catalog);
+  if (!c) {
+    const known = new WeakMap<Brick, ArrayLike<number>>();
+    c = {
+      lookup: makeCatalogLookup(catalog),
+      points: (brick, meta) => {
+        let p = known.get(brick);
+        if (!p) {
+          p = connectionPoints(brick, meta);
+          known.set(brick, p);
+        }
+        return p;
+      },
+    };
+    linkCaches.set(catalog, c);
+  }
+  return c;
+}
+
+/**
  * Recompute connectivity for the whole doc and write changed links back
  * under CONNECTIVITY_ORIGIN. Exported for tests.
+ *
+ * Reads the doc's shared projection (a copy of every part was made for
+ * each run: about 30 ms on 7,520 parts at 4x slowed CPU), keeps each
+ * part's connection points while the part is the same, and writes to
+ * just the parts whose links changed (it read every part's links back
+ * from the doc to compare).
  */
 export function recomputeConnectivity(doc: Y.Doc, catalog: Catalog): void {
   if (catalog.size === 0) return;
   try {
-    const map = docToBbm(doc);
-    rebuildConnectivity(map, catalog);
-    // The mutate-in-place result needs to be projected back. The
-    // simplest faithful path is to re-seed the doc; the smaller path
-    // is to write only the changed `linkedTo` values directly. We
-    // take the small path because re-seeding loses Yjs identity (and
-    // therefore breaks UndoManager's stack).
-    doc.transact(() => writeBackConnexions(doc, map), CONNECTIVITY_ORIGIN);
+    const projector = getDocProjector(doc);
+    const map = projector.project();
+    const { lookup, points } = linkCache(catalog);
+    const changed: Array<[Y.Map<unknown>, Brick, BrickLinks]> = [];
+    for (const layer of map.layers) {
+      if (layer.type !== 'brick') continue;
+      const { links } = linkBricks(layer.bricks, lookup, points);
+      for (let i = 0; i < layer.bricks.length; i++) {
+        const got = links[i];
+        const brick = layer.bricks[i]!;
+        if (!got || sameLinks(brick, got)) continue;
+        const y = projector.brickYMap(brick);
+        // Not from the projection (read within a transaction): the whole pass the old way.
+        if (!y) return recomputeFromCopy(doc, catalog);
+        changed.push([y, brick, got]);
+      }
+    }
+    if (changed.length === 0) return;
+    doc.transact(() => {
+      for (const [y, brick, got] of changed) {
+        // The active connection moves when a link is made or broken
+        // (BlueBrick's hand-over, rebuildConnectivity).
+        if (brick.activeConnectionPointIndex !== got.activeConnectionPointIndex) y.set('activeConnectionPointIndex', got.activeConnectionPointIndex);
+        if (!sameConnexions(brick.connexions, got.connexions)) y.set('connexions', got.connexions.map((c) => ({ id: c.id, linkedTo: c.linkedTo })));
+      }
+    }, CONNECTIVITY_ORIGIN);
   } catch {
     // Transient parse failures (e.g. mid-import) are fine — we'll
     // try again on the next mutation.
   }
+}
+
+function sameConnexions(a: readonly { id: string; linkedTo: string }[], b: readonly { id: string; linkedTo: string }[]): boolean {
+  // Cheap deep-equal: same length, ids AND linkedTo strings.
+  return a.length === b.length && a.every((c, i) => c.id === b[i]!.id && c.linkedTo === b[i]!.linkedTo);
+}
+function sameLinks(brick: Brick, got: BrickLinks): boolean {
+  return brick.activeConnectionPointIndex === got.activeConnectionPointIndex && sameConnexions(brick.connexions, got.connexions);
+}
+
+/** The recompute on a private copy of the doc, written back by comparing every part. */
+function recomputeFromCopy(doc: Y.Doc, catalog: Catalog): void {
+  const map = docToBbm(doc);
+  rebuildConnectivity(map, catalog);
+  // The mutate-in-place result needs to be projected back. The
+  // simplest faithful path is to re-seed the doc; the smaller path
+  // is to write only the changed `linkedTo` values directly. We
+  // take the small path because re-seeding loses Yjs identity (and
+  // therefore breaks UndoManager's stack).
+  doc.transact(() => writeBackConnexions(doc, map), CONNECTIVITY_ORIGIN);
 }
 
 /**

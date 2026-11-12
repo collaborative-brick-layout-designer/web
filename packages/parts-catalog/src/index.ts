@@ -1,7 +1,7 @@
 export type { Catalog, ConnectionPoint, PartKind, PartMetadata, SnapMargin, SubPart } from './types.js';
 export { parsePartXml, type ParseInput } from './parse.js';
 export { scanCatalog, statRoot, type ScanResult } from './scan.js';
-export { rebuildConnectivity, type RebuildConnectivityResult } from './connectivity.js';
+export { connectionPoints, linkBricks, makeCatalogLookup, rebuildConnectivity, type BrickLinks, type ConnectionPointsOf, type RebuildConnectivityResult } from './connectivity.js';
 export { footprint, imageOffset, type Footprint, type FootprintPart } from './footprint.js';
 export { imageSize, type ImageSize } from './imageSize.js';
 export { effectivePxPerStud, spriteExtensionsFor, VANILLA_PX_PER_STUD, xmlForGifSprite } from './spriteScale.js';
