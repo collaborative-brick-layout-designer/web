@@ -80,6 +80,12 @@ interface Picture {
 
 type DrawScene = Konva.Layer['drawScene'];
 
+/** Taking a picture afresh: its steps, in order, then `done`. */
+interface TakeJob {
+  steps: (() => void)[];
+  done: () => Picture;
+}
+
 /** After a move stops, when to take the next move's picture (after the sharp draw). */
 const AFTER_MOVE_MS = 250;
 /** After the map changes, how long it must stay still before the next move's picture is taken. */
@@ -107,6 +113,8 @@ export class ViewBitmap {
   /** The sheets whose next draw is the sharp one after a move. */
   private sharpDrawPending = new Set<Konva.Layer>();
   private swapped: { layer: Konva.Layer; own: DrawScene | undefined }[] = [];
+  /** A picture being taken afresh while idle, a strip at a time (`prepareWhenIdle`). */
+  private job: TakeJob | null = null;
   private readonly offDraw: (() => void)[] = [];
   /** How many pictures were taken (for tests and profiling). */
   taken = 0;
@@ -238,6 +246,11 @@ export class ViewBitmap {
       this.offDraw.push(followForPicture(layer));
       const onDraw = () => {
         if (this.frozen) return;
+        // A sheet drew while a picture was being taken: it's taken again.
+        if (this.job) {
+          this.abortJob();
+          this.prepareWhenIdle(AFTER_MOVE_MS);
+        }
         // Which places it drew again, when it drew only some (the parts
         // sheet, for a change to parts); a whole draw may have changed anything.
         const boxes = lastDrawBoxes(layer);
@@ -405,6 +418,18 @@ export class ViewBitmap {
 
   /** Draws the sheets for the view on screen, with the margin, into the picture. */
   private take(): Picture | null {
+    this.abortJob();
+    const t = this.startTake();
+    if (!t || !('steps' in t)) return t;
+    for (const step of t.steps) step();
+    return t.done();
+  }
+
+  /**
+   * Starts taking the picture: the kept one brought up to date in places
+   * (done at once), or the steps that take it afresh, then `done`.
+   */
+  private startTake(): Picture | TakeJob | null {
     const s = this.stage;
     const layers = this.layers();
     const w = s.width();
@@ -445,62 +470,94 @@ export class ViewBitmap {
       el.dataset.viewBitmap = '';
     }
     const canvas = this.canvas;
-    if (canvas.pixelRatio !== ratio || canvas.width !== Math.floor(cw * ratio) || canvas.height !== Math.floor(ch * ratio)) {
-      canvas.pixelRatio = ratio;
-      canvas.setSize(cw, ch);
-    } else {
-      canvas.getContext().clear();
-    }
+    // What the canvas holds from here isn't the kept picture.
+    this.picture = null;
     const ctx = canvas.getContext();
-    ctx.save();
-    ctx.translate(m * w, m * h);
     const drawAll = (): void => {
       for (const layer of layers) {
         if (!layer.isVisible()) continue;
         for (const child of layer.getChildren()) child.drawScene(canvas);
       }
     };
+    const sx = s.x();
+    const sy = s.y();
     /** Draws only the parts in this part of the picture (px from the view's corner), clipped to it (cullOffscreen.ts). */
     const drawIn = (x: number, y: number, rw: number, rh: number): void => {
       ctx.save();
+      ctx.translate(m * w, m * h);
       ctx.beginPath();
       ctx.rect(x, y, rw, rh);
       ctx.clip();
-      drawCulled(canvas, { x0: (x - s.x()) / scale, y0: (y - s.y()) / scale, x1: (x + rw - s.x()) / scale, y1: (y + rh - s.y()) / scale }, drawAll);
+      drawCulled(canvas, { x0: (x - sx) / scale, y0: (y - sy) / scale, x1: (x + rw - sx) / scale, y1: (y + rh - sy) / scale }, drawAll);
       ctx.restore();
     };
+    const steps: (() => void)[] = [
+      () => {
+        if (canvas.pixelRatio !== ratio || canvas.width !== Math.floor(cw * ratio) || canvas.height !== Math.floor(ch * ratio)) {
+          canvas.pixelRatio = ratio;
+          canvas.setSize(cw, ch);
+        } else {
+          canvas.getContext().clear();
+        }
+        if (!current) return;
+        ctx.save();
+        ctx.translate(m * w, m * h);
+        for (const layer of layers) if (layer.isVisible()) ctx.drawImage(layer.getCanvas()._canvas, 0, 0, w, h);
+        ctx.restore();
+      },
+    ];
     // The sheets are current: the view is copied from them, and only
     // the margin around it is drawn. On a big layout that is most of the
     // work saved after each change (anyone's): it used to draw every part again.
     if (current) {
-      for (const layer of layers) if (layer.isVisible()) ctx.drawImage(layer.getCanvas()._canvas, 0, 0, w, h);
       const mw = m * w;
       const mh = m * h;
-      drawIn(-mw, -mh, w + 2 * mw, mh);
-      drawIn(-mw, h, w + 2 * mw, mh);
-      drawIn(-mw, 0, mw, h);
-      drawIn(w, 0, mw, h);
+      // The strips above and below in two halves each, split on a whole
+      // device px (so nothing blends along the split): taken while idle,
+      // each half is a step of its own.
+      const half = Math.round((mw + w / 2) * ratio) / ratio - mw;
+      steps.push(
+        () => drawIn(-mw, -mh, half + mw, mh),
+        () => drawIn(half, -mh, w + mw - half, mh),
+        () => drawIn(-mw, h, half + mw, mh),
+        () => drawIn(half, h, w + mw - half, mh),
+        () => drawIn(-mw, 0, mw, h),
+        () => drawIn(w, 0, mw, h),
+      );
     } else {
       // Only the parts in the picture (the view and its margin).
-      drawIn(-m * w, -m * h, cw, ch);
+      steps.push(() => drawIn(-m * w, -m * h, cw, ch));
     }
-    ctx.restore();
-    (canvas as unknown as { _trimIsolationCanvas?: () => void })._trimIsolationCanvas?.();
-    this.taken++;
-    this.lastTakenAt = performance.now();
-    this.picture = {
-      x: (-m * w - s.x()) / scale,
-      y: (-m * h - s.y()) / scale,
-      w: cw / scale,
-      h: ch / scale,
-      scale,
-      stageX: s.x(),
-      stageY: s.y(),
-      stageW: w,
-      stageH: h,
-      version: this.version,
+    const version = this.version;
+    return {
+      steps,
+      done: () => {
+        (canvas as unknown as { _trimIsolationCanvas?: () => void })._trimIsolationCanvas?.();
+        this.taken++;
+        this.lastTakenAt = performance.now();
+        this.picture = {
+          x: (-m * w - sx) / scale,
+          y: (-m * h - sy) / scale,
+          w: cw / scale,
+          h: ch / scale,
+          scale,
+          stageX: sx,
+          stageY: sy,
+          stageW: w,
+          stageH: h,
+          version,
+        };
+        return this.picture;
+      },
     };
-    return this.picture;
+  }
+
+  /** A picture being taken while idle stops: what's on its canvas isn't a picture of anything. */
+  private abortJob(): void {
+    if (!this.job) return;
+    this.job = null;
+    this.picture = null;
+    this.patch = null;
   }
 
   /**
@@ -583,19 +640,38 @@ export class ViewBitmap {
    */
   private prepareWhenIdle(delayMs: number): void {
     this.cancelIdle();
-    const run = () => {
+    const w = window as Window & { requestIdleCallback?: (cb: (d?: { timeRemaining: () => number }) => void, o?: { timeout: number }) => number };
+    // A picture taken afresh is drawn a strip at a time, one or more per
+    // idle moment: in one go it was a long task after each pan (about
+    // 150 ms on 7,520 parts zoomed in at 4x slowed CPU).
+    const run = (deadline?: { timeRemaining: () => number }) => {
       this.idleHandle = null;
-      if (!this.frozen && !this.fits()) this.take();
+      if (this.frozen) return;
+      if (!this.job) {
+        if (this.fits()) return;
+        const t = this.startTake();
+        if (!t || !('steps' in t)) return;
+        this.job = t;
+      }
+      const job = this.job;
+      do job.steps.shift()!();
+      while (job.steps.length > 0 && (!w.requestIdleCallback || (deadline?.timeRemaining() ?? 0) > 10));
+      if (job.steps.length > 0) {
+        this.idleHandle = w.requestIdleCallback!(run, { timeout: 500 });
+        return;
+      }
+      this.job = null;
+      job.done();
     };
     this.idleTimer = setTimeout(() => {
       this.idleTimer = null;
-      const w = window as Window & { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number };
       if (w.requestIdleCallback) this.idleHandle = w.requestIdleCallback(run, { timeout: 500 });
       else run();
     }, delayMs);
   }
 
   private cancelIdle(): void {
+    this.abortJob();
     if (this.idleTimer !== null) clearTimeout(this.idleTimer);
     this.idleTimer = null;
     if (this.idleHandle !== null) (window as Window & { cancelIdleCallback?: (h: number) => void }).cancelIdleCallback?.(this.idleHandle);
