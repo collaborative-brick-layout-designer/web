@@ -167,6 +167,19 @@ export function createDocProjector(doc: Y.Doc): DocProjector {
   const brickCache = new WeakMap<object, Brick>();
   const brickSource = new WeakMap<Brick, Y.Map<unknown>>();
   const layerCache = new WeakMap<object, Layer>();
+  // Each sheet's parts in their order, kept while the list and the parts'
+  // z stay the same: a part moved re-reads only itself, not the order of
+  // the whole sheet (every part's z, about 5 ms on 7,520 parts at 4x
+  // slowed CPU, after each change).
+  const orderCache = new WeakMap<object, Y.Map<unknown>[]>();
+  const brickOrderCached: BrickOrder = (arr) => {
+    let o = orderCache.get(arr);
+    if (!o) {
+      o = itemsInOrder(arr);
+      orderCache.set(arr, o);
+    }
+    return o;
+  };
   let current: BbmMap | null = null;
 
   const readBrickCached: BrickReader = (y) => {
@@ -182,6 +195,8 @@ export function createDocProjector(doc: Y.Doc): DocProjector {
   const onLayerData = (events: Array<Y.YEvent<Y.AbstractType<unknown>>>): void => {
     current = null;
     for (const ev of events) {
+      if (ev.target instanceof Y.Array) orderCache.delete(ev.target);
+      else if (ev.target.parent instanceof Y.Array && (ev as Y.YMapEvent<unknown>).keysChanged?.has('z')) orderCache.delete(ev.target.parent);
       let t: Y.AbstractType<unknown> | null = ev.target;
       while (t && t !== layerData) {
         brickCache.delete(t);
@@ -209,7 +224,7 @@ export function createDocProjector(doc: Y.Doc): DocProjector {
         if (!yLayer) continue;
         let layer = layerCache.get(yLayer);
         if (!layer || layer.id !== id) {
-          layer = readLayer(id, yLayer, readBrickCached);
+          layer = readLayer(id, yLayer, readBrickCached, brickOrderCached);
           layerCache.set(yLayer, layer);
         }
         layers.push(layer);
@@ -379,8 +394,10 @@ function writeLayerRuler(layer: LayerRuler, y: Y.Map<unknown>): void {
 // ---------------------------------------------------------------------------
 
 type BrickReader = (y: Y.Map<unknown>) => Brick;
+/** A sheet's parts in their order (itemsInOrder). */
+type BrickOrder = (bricks: Y.Array<Y.Map<unknown>>) => Y.Map<unknown>[];
 
-function readLayer(id: string, y: Y.Map<unknown>, readBrick: BrickReader = yMapToBrick): Layer {
+function readLayer(id: string, y: Y.Map<unknown>, readBrick: BrickReader = yMapToBrick, brickOrder: BrickOrder = itemsInOrder): Layer {
   const type = requireScalar(y, 'type') as Layer['type'];
   const common = {
     id,
@@ -394,7 +411,7 @@ function readLayer(id: string, y: Y.Map<unknown>, readBrick: BrickReader = yMapT
     case 'grid':
       return readLayerGrid(y, common);
     case 'brick':
-      return readLayerBrick(y, common, readBrick);
+      return readLayerBrick(y, common, readBrick, brickOrder);
     case 'text':
       return readLayerText(y, common);
     case 'area':
@@ -445,14 +462,14 @@ function readCellIndexCorner(v: unknown): PointF {
   return { x: 0, y: 0 };
 }
 
-function readLayerBrick(y: Y.Map<unknown>, c: CommonFields, readBrick: BrickReader): LayerBrick {
+function readLayerBrick(y: Y.Map<unknown>, c: CommonFields, readBrick: BrickReader, brickOrder: BrickOrder = itemsInOrder): LayerBrick {
   const bricksY = y.get('bricks') as Y.Array<Y.Map<unknown>> | undefined;
   const groupsY = y.get('groups') as Y.Array<Y.Map<unknown>> | undefined;
   return {
     ...c,
     type: 'brick',
     displayBrickElevation: requireScalar(y, 'displayBrickElevation') as boolean,
-    bricks: bricksY ? itemsInOrder(bricksY).map(readBrick) : [],
+    bricks: bricksY ? brickOrder(bricksY).map(readBrick) : [],
     groups: groupsY ? groupsY.toArray().map(yMapToGroup) : [],
   };
 }

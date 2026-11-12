@@ -932,6 +932,29 @@ function collectFreeConnectionsExcludingSet(
   excludeIds: Set<string>,
   keys: ReadonlySet<string>,
 ): OwnedWorldConnection[] {
+  // A drag asks on every frame with the same layout and moving parts: the
+  // list is kept for those (it was every free connection of the layout
+  // again on each frame, about 3 ms of each at 4x slowed CPU on 7,520 parts).
+  const last = lastExcluding;
+  if (last && last.map === map && last.partsByKey === partsByKey && sameSet(last.excludeIds, excludeIds) && sameSet(last.keys, keys)) return last.out;
+  const out = freeConnectionsExcludingSet(map, partsByKey, excludeIds, keys);
+  lastExcluding = { map, partsByKey, excludeIds: new Set(excludeIds), keys: new Set(keys), out };
+  return out;
+}
+let lastExcluding: { map: BbmMap; partsByKey: Map<string, PartWire>; excludeIds: ReadonlySet<string>; keys: ReadonlySet<string>; out: OwnedWorldConnection[] } | null = null;
+
+function sameSet(a: ReadonlySet<string>, b: ReadonlySet<string>): boolean {
+  if (a.size !== b.size) return false;
+  for (const v of a) if (!b.has(v)) return false;
+  return true;
+}
+
+function freeConnectionsExcludingSet(
+  map: BbmMap,
+  partsByKey: Map<string, PartWire>,
+  excludeIds: Set<string>,
+  keys: ReadonlySet<string>,
+): OwnedWorldConnection[] {
   const { conns, linked } = connectionsCached(map, partsByKey);
   const out: OwnedWorldConnection[] = [];
   for (const c of conns) {

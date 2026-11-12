@@ -141,7 +141,7 @@ import { SNAP_MARKS } from './render/selectionStyle';
 import { ensureSprite, getSpriteSync, resetSpriteProgress, subscribeSpriteProgress, wantSprites } from './render/spriteCache';
 import { ViewBitmap, VIEW_LIVE } from './render/viewBitmap';
 import { hitsHeld, holdHits, releaseHits } from './render/viewMoving';
-import { layoutSpriteUrls } from './render/layoutSprites';
+import { layoutSpriteUrlsKept } from './render/layoutSprites';
 import { MapLoadingCard, OpeningLayoutScreen } from './LoadingCard';
 import { PlaceGhost } from './render/PlaceGhost';
 import { ModuleGhost } from './render/ModuleGhost';
@@ -2724,11 +2724,12 @@ function Canvas({
   const partOf = (partNumber: string) => partsByKey.get(partNumber.toLowerCase());
   // Ask for every picture the shown layout needs at once, so the loading
   // card counts against the real total ("132 of 480") from the start.
+  const [spriteUrls] = useState(layoutSpriteUrlsKept);
   useEffect(() => {
     const m = shownMap ?? map;
     if (!m || !catalog.data) return;
-    wantSprites(layoutSpriteUrls(m, partsByKey));
-  }, [shownMap, map, partsByKey, catalog.data]);
+    wantSprites(spriteUrls(m, partsByKey));
+  }, [shownMap, map, partsByKey, catalog.data, spriteUrls]);
   const linkCatalog = useMemo(() => catalogFromParts(catalog.data?.parts), [catalog.data]);
   // Placed custom sets whose set changed since (sidecar `sets`, editor/setUpdates.ts).
   const setUpdates = useMemo(
