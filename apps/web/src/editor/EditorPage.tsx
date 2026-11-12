@@ -140,7 +140,7 @@ import { pxToStud, studToPx } from './render/coords';
 import { SNAP_MARKS } from './render/selectionStyle';
 import { ensureSprite, getSpriteSync, resetSpriteProgress, subscribeSpriteProgress, wantSprites } from './render/spriteCache';
 import { ViewBitmap, VIEW_LIVE } from './render/viewBitmap';
-import { hitsHeld, holdHits, releaseHits } from './render/viewMoving';
+import { deferHitDraws, hitsHeld, holdHits, releaseHits, undeferHitDraws } from './render/viewMoving';
 import { layoutSpriteUrlsKept } from './render/layoutSprites';
 import { MapLoadingCard, OpeningLayoutScreen } from './LoadingCard';
 import { PlaceGhost } from './render/PlaceGhost';
@@ -2305,22 +2305,13 @@ function Canvas({
     stage.setAttrs({ x: stageView.panX, y: stageView.panY, scaleX: stageView.zoom, scaleY: stageView.zoom });
     const vb = viewBitmapRef.current;
     vb?.thaw();
-    // The sheets alone (a draw asked for meanwhile, by anything, draws both as before).
-    for (const layer of stage.getLayers()) drawSceneNextFrame(layer);
+    // The sheets alone: their hit canvases wait (freshHit).
+    deferHitDraws(stage);
+    for (const layer of stage.getLayers()) layer.batchDraw();
     // Queued after the layers' draws, so it runs in the same frame, after them.
     Konva.Util.requestAnimFrame(() => {
       vb?.settled();
       freshHitWhenIdle();
-    });
-  }
-  /** Draws the layer's sheet (not its hit canvas) on the next frame, once, as `batchDraw` does both. */
-  function drawSceneNextFrame(layer: Konva.Layer): void {
-    const l = layer as Konva.Layer & { _waitingForDraw?: boolean; _waitingForScene?: boolean };
-    if (l._waitingForDraw || l._waitingForScene) return;
-    l._waitingForScene = true;
-    Konva.Util.requestAnimFrame(() => {
-      l._waitingForScene = false;
-      layer.drawScene();
     });
   }
   const hitIdleRef = useRef<number | null>(null);
@@ -2336,7 +2327,7 @@ function Canvas({
   }
   /**
    * The view has stopped, and the hit canvas (what a click lands on) is
-   * drawn with the sheets on the next frame. Until then it still has the
+   * drawn after the sheets, once the page is idle. Until then it still has the
    * map where it was before the move: it isn't drawn while the view moves.
    * A press that comes first (a fast click right after a pan, a zoom or a
    * pinch; on a quick machine it lands in that same frame) would hit what
@@ -2349,6 +2340,7 @@ function Canvas({
     const stage = stageRef.current;
     if (!stage || !hitStaleRef.current || hitsHeld(stage)) return;
     hitStaleRef.current = false;
+    undeferHitDraws(stage);
     for (const layer of stage.getLayers()) if (layer.isListening()) layer.drawHit();
   }
   /** A catch-up of the stage to the view is waiting for its frame. */
