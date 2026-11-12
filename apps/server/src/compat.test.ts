@@ -144,6 +144,6 @@ describe('desktop gate', () => {
     expect((await as('BrickLayoutDesigner/1.2.0 (desktop)')).statusCode).toBe(426);
     expect((await as('BrickLayoutDesigner/1.3.0 (desktop)')).statusCode).toBe(200);
     const version = (await as('BrickLayoutDesigner/1.2.0 (desktop)', '/api/version')).json();
-    expect(version.desktop).toEqual({ minimum: '1.3.0', recommended: '1.4.0', downloadUrl: DESKTOP_DOWNLOAD_URL });
+    expect(version.desktop).toEqual({ minimum: '1.3.0', recommended: DESKTOP_RECOMMENDED, downloadUrl: DESKTOP_DOWNLOAD_URL });
   });
 });

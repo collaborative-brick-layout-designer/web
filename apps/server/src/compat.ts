@@ -10,7 +10,7 @@ import { isOwnSignOut } from './auth/cookie.js';
 /** The oldest desktop that works with this server (see compat.json "why"). */
 export const DESKTOP_MINIMUM = '1.2.0';
 /** The desktop this server suggests; older ones are asked to update. */
-export const DESKTOP_RECOMMENDED = '1.4.0';
+export const DESKTOP_RECOMMENDED = '2.1.3';
 /** Where a desktop that must update is sent: the desktop's GitHub releases. */
 export const DESKTOP_DOWNLOAD_URL = 'https://github.com/collaborative-brick-layout-designer/desktop/releases/latest';
 /**
