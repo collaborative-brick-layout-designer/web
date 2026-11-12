@@ -106,8 +106,15 @@ export function PrefsProvider({ children }: { children: ReactNode }) {
   // Don't lose a queued change when the tab closes.
   useEffect(() => {
     const onHide = () => void writerRef.current?.flush();
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') onHide();
+    };
     window.addEventListener('pagehide', onHide);
-    return () => window.removeEventListener('pagehide', onHide);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      window.removeEventListener('pagehide', onHide);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
   }, []);
 
   const setPrefs = useCallback(
