@@ -2290,7 +2290,11 @@ function Canvas({
   /**
    * The view has stopped: the stage goes to it and the sheets are drawn
    * sharp on the next frame, and in that same frame the CSS that moved
-   * the canvas comes off.
+   * the canvas comes off. What a click lands on (the hit canvases) is
+   * drawn after that, once the page is idle, or at once when the pointer
+   * moves or presses first (freshHit): in the same frame as the sheets,
+   * the two made one long task of about 50 ms on 7,520 parts zoomed in at
+   * 4x slowed CPU.
    */
   function stopViewMoving(stage: Konva.Stage): void {
     hitStaleRef.current = true;
@@ -2301,12 +2305,34 @@ function Canvas({
     stage.setAttrs({ x: stageView.panX, y: stageView.panY, scaleX: stageView.zoom, scaleY: stageView.zoom });
     const vb = viewBitmapRef.current;
     vb?.thaw();
-    for (const layer of stage.getLayers()) layer.batchDraw();
+    // The sheets alone (a draw asked for meanwhile, by anything, draws both as before).
+    for (const layer of stage.getLayers()) drawSceneNextFrame(layer);
     // Queued after the layers' draws, so it runs in the same frame, after them.
     Konva.Util.requestAnimFrame(() => {
-      hitStaleRef.current = false;
       vb?.settled();
+      freshHitWhenIdle();
     });
+  }
+  /** Draws the layer's sheet (not its hit canvas) on the next frame, once, as `batchDraw` does both. */
+  function drawSceneNextFrame(layer: Konva.Layer): void {
+    const l = layer as Konva.Layer & { _waitingForDraw?: boolean; _waitingForScene?: boolean };
+    if (l._waitingForDraw || l._waitingForScene) return;
+    l._waitingForScene = true;
+    Konva.Util.requestAnimFrame(() => {
+      l._waitingForScene = false;
+      layer.drawScene();
+    });
+  }
+  const hitIdleRef = useRef<number | null>(null);
+  /** The hit canvases, drawn while the page is idle (soon in any case). */
+  function freshHitWhenIdle(): void {
+    if (!hitStaleRef.current || hitIdleRef.current !== null) return;
+    const w = window as Window & { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number };
+    const run = () => {
+      hitIdleRef.current = null;
+      freshHit();
+    };
+    hitIdleRef.current = w.requestIdleCallback ? w.requestIdleCallback(run, { timeout: 200 }) : window.setTimeout(run, 0);
   }
   /**
    * The view has stopped, and the hit canvas (what a click lands on) is
@@ -2440,7 +2466,14 @@ function Canvas({
     el.addEventListener('pointerdown', settle, true);
     el.addEventListener('mousedown', settle, true);
     el.addEventListener('touchstart', settle, { capture: true, passive: true });
+    // A pointer moving over the map after the view stopped, before the
+    // hit canvas was drawn again (freshHitWhenIdle): Konva's hover looks
+    // at it first.
+    el.addEventListener('pointermove', freshHit, true);
+    el.addEventListener('mousemove', freshHit, true);
     return () => {
+      el.removeEventListener('pointermove', freshHit, true);
+      el.removeEventListener('mousemove', freshHit, true);
       el.removeEventListener('pointerdown', settle, true);
       el.removeEventListener('mousedown', settle, true);
       el.removeEventListener('touchstart', settle, true);
