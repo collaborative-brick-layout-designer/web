@@ -106,8 +106,10 @@ function pressRightAfter(page: Page, how: { stop: 'pan' | 'wheel' | 'pinch'; at:
   return page.evaluate(
     async ([src, how]) => {
       const find = new Function(`return (${src})`)() as () => { x: number; y: number; name: string } | null;
-      type St = { content: HTMLElement; listening: () => boolean };
+      type St = { content: HTMLElement; container: () => HTMLElement };
       const st = (window as unknown as { Konva: { stages: St[] } }).Konva.stages[0]!;
+      // The view counts as still once its hits are back (render/viewMoving.ts).
+      const still = () => !('viewMoving' in st.container().dataset);
       const el = st.content;
       const mouse = (type: string, p: { x: number; y: number }, button: number) => {
         const init = { bubbles: true, cancelable: true, composed: true, clientX: p.x, clientY: p.y, button, buttons: type.endsWith('down') ? 1 << (button === 1 ? 2 : 0) : 0 };
@@ -133,10 +135,10 @@ function pressRightAfter(page: Page, how: { stop: 'pan' | 'wheel' | 'pinch'; at:
           ch.port1.onmessage = () => r();
           ch.port2.postMessage(null);
         });
-        while (!st.listening()) await tick();
+        while (!still()) await tick();
         const t0 = performance.now();
-        while (st.listening() && performance.now() - t0 < 50) await tick();
-        while (!st.listening()) await tick();
+        while (still() && performance.now() - t0 < 50) await tick();
+        while (!still()) await tick();
       } else {
         touch('touchstart', [{ x: x - 20, y }, { x: x + 20, y }]);
         for (let d = 30; d <= 60; d += 10) touch('touchmove', [{ x: x - d, y }, { x: x + d, y }]);

@@ -140,6 +140,7 @@ import { pxToStud, studToPx } from './render/coords';
 import { SNAP_MARKS } from './render/selectionStyle';
 import { ensureSprite, getSpriteSync, resetSpriteProgress, subscribeSpriteProgress, wantSprites } from './render/spriteCache';
 import { ViewBitmap, VIEW_LIVE } from './render/viewBitmap';
+import { hitsHeld, holdHits, releaseHits } from './render/viewMoving';
 import { layoutSpriteUrls } from './render/layoutSprites';
 import { MapLoadingCard, OpeningLayoutScreen } from './LoadingCard';
 import { PlaceGhost } from './render/PlaceGhost';
@@ -2271,8 +2272,9 @@ function Canvas({
   const viewBitmapRef = useRef<ViewBitmap | null>(null);
   function setViewMoving(moving: boolean): void {
     const stage = stageRef.current;
-    if (!stage || stage.listening() === !moving) return;
-    stage.listening(!moving);
+    if (!stage || hitsHeld(stage) === moving) return;
+    if (moving) holdHits(stage);
+    else releaseHits(stage);
     if (moving) {
       viewBitmapRef.current?.freeze();
       // The canvas follows the view by CSS from here (followView), and the
@@ -2316,7 +2318,7 @@ function Canvas({
   /** Draws the hit canvas now if it's behind the view, so a hit test sees the map where it is. */
   function freshHit(): void {
     const stage = stageRef.current;
-    if (!stage || !hitStaleRef.current || !stage.listening()) return;
+    if (!stage || !hitStaleRef.current || hitsHeld(stage)) return;
     hitStaleRef.current = false;
     for (const layer of stage.getLayers()) if (layer.isListening()) layer.drawHit();
   }
@@ -2426,7 +2428,7 @@ function Canvas({
       if (viewStillTimer.current !== null) {
         window.clearTimeout(viewStillTimer.current);
         viewStillTimer.current = null;
-        stage.listening(true);
+        releaseHits(stage);
         if (isStageViewHeld() || viewBitmapRef.current?.isFrozen) stopViewMoving(stage);
         hitStaleRef.current = true;
       }
