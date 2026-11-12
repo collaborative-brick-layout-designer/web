@@ -1,8 +1,8 @@
 // The picture kept for the next pan (viewBitmap.ts) is taken afresh while
 // the page is idle: a strip at a time, so it isn't one long task after
 // each pan (about 150 ms on 7,520 parts zoomed in at 4x slowed CPU). A
-// change while it's being taken starts it again; a pan that starts first
-// takes it at once. That the pixels are right is the browser test's job
+// change while it's being taken is drawn into it when it's done; a pan
+// that starts first takes it at once. That the pixels are right is the browser test's job
 // (e2e/test/bigLayoutWork.spec.ts).
 
 import Konva from 'konva';
@@ -107,17 +107,22 @@ describe('the picture for the next pan', () => {
     vb.thaw();
   });
 
-  it('starts again after a change while it is taken, and a move takes it at once', () => {
+  it('brings it up to date after a change while it is taken, and a move takes it at once', () => {
     vb.invalidate();
     vi.advanceTimersByTime(1100);
     idleMoment();
     idleMoment();
-    // A part moves: the sheet draws again, and the half-taken picture goes.
+    // A part moves: the sheet draws again. The picture goes on being
+    // taken (pictures arriving one by one kept starting it again), then
+    // the part's places in it are drawn again.
     parts[600]!.x(parts[600]!.x() + 5);
     layer.draw();
-    vi.advanceTimersByTime(1100);
-    while (idle.size > 0) idleMoment();
+    for (let i = 0; i < 10; i++) {
+      vi.advanceTimersByTime(1100);
+      while (idle.size > 0) idleMoment();
+    }
     expect(vb.taken).toBe(1);
+    expect(vb.patched).toBe(1);
 
     // A change since that's only parts: the kept picture is brought up to
     // date in their places, at once.
@@ -127,7 +132,7 @@ describe('the picture for the next pan', () => {
     expect(idleMoment()).toBeLessThan(20);
     expect(idle.size).toBe(0);
     expect(vb.taken).toBe(1);
-    expect(vb.patched).toBe(1);
+    expect(vb.patched).toBe(2);
 
     // Half taken afresh (after a draw of the whole view) when a move starts: it's taken at once.
     layer.draw();

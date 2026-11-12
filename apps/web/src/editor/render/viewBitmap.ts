@@ -115,6 +115,7 @@ export class ViewBitmap {
   private swapped: { layer: Konva.Layer; own: DrawScene | undefined }[] = [];
   /** A picture being taken afresh while idle, a strip at a time (`prepareWhenIdle`). */
   private job: TakeJob | null = null;
+  private jobHandle: number | null = null;
   private readonly offDraw: (() => void)[] = [];
   /** How many pictures were taken (for tests and profiling). */
   taken = 0;
@@ -137,6 +138,8 @@ export class ViewBitmap {
     if (layers.length === 0) return;
     this.frozen = true;
     this.cancelIdle();
+    // (A picture half taken while idle is of nothing yet: it's taken now if needed.)
+    this.abortJob();
     // A picture of this very map is used as long as it covers the view.
     // The canvases stay as they are drawn while the view moves, so the
     // picture is needed from the first frame.
@@ -246,11 +249,6 @@ export class ViewBitmap {
       this.offDraw.push(followForPicture(layer));
       const onDraw = () => {
         if (this.frozen) return;
-        // A sheet drew while a picture was being taken: it's taken again.
-        if (this.job) {
-          this.abortJob();
-          this.prepareWhenIdle(AFTER_MOVE_MS);
-        }
         // Which places it drew again, when it drew only some (the parts
         // sheet, for a change to parts); a whole draw may have changed anything.
         const boxes = lastDrawBoxes(layer);
@@ -269,6 +267,7 @@ export class ViewBitmap {
     this.unfollow();
     this.canvas?._canvas.remove();
     this.cancelIdle();
+    this.abortJob();
     for (const off of this.offDraw.splice(0)) off();
     this.picture = null;
     this.canvas = null;
@@ -551,6 +550,8 @@ export class ViewBitmap {
   /** A picture being taken while idle stops: what's on its canvas isn't a picture of anything. */
   private abortJob(): void {
     if (!this.job) return;
+    if (this.jobHandle !== null) (window as Window & { cancelIdleCallback?: (h: number) => void }).cancelIdleCallback?.(this.jobHandle);
+    this.jobHandle = null;
     this.job = null;
     this.picture = null;
     this.patch = null;
@@ -637,27 +638,14 @@ export class ViewBitmap {
   private prepareWhenIdle(delayMs: number): void {
     this.cancelIdle();
     const w = window as Window & { requestIdleCallback?: (cb: (d?: { timeRemaining: () => number }) => void, o?: { timeout: number }) => number };
-    // A picture taken afresh is drawn a strip at a time, one or more per
-    // idle moment: in one go it was a long task after each pan (about
-    // 150 ms on 7,520 parts zoomed in at 4x slowed CPU).
     const run = (deadline?: { timeRemaining: () => number }) => {
       this.idleHandle = null;
-      if (this.frozen) return;
-      if (!this.job) {
-        if (this.fits()) return;
-        const t = this.startTake();
-        if (!t || !('steps' in t)) return;
-        this.job = t;
-      }
-      const job = this.job;
-      do job.steps.shift()!();
-      while (job.steps.length > 0 && (!w.requestIdleCallback || (deadline?.timeRemaining() ?? 0) > 10));
-      if (job.steps.length > 0) {
-        this.idleHandle = w.requestIdleCallback!(run, { timeout: 500 });
-        return;
-      }
-      this.job = null;
-      job.done();
+      // (One being taken goes on: it's brought up to date when done.)
+      if (this.frozen || this.job || this.fits()) return;
+      const t = this.startTake();
+      if (!t || !('steps' in t)) return;
+      this.job = t;
+      this.stepJob(deadline);
     };
     this.idleTimer = setTimeout(() => {
       this.idleTimer = null;
@@ -666,8 +654,30 @@ export class ViewBitmap {
     }, delayMs);
   }
 
+  /**
+   * A picture taken afresh is drawn a strip at a time, one or more per idle
+   * moment: in one go it was a long task after each pan (about 150 ms on
+   * 7,520 parts zoomed in at 4x slowed CPU). What changes meanwhile is
+   * drawn into it when it's done, as after any change (`patch`).
+   */
+  private stepJob(deadline?: { timeRemaining: () => number }): void {
+    this.jobHandle = null;
+    const job = this.job;
+    if (!job || this.frozen) return;
+    const w = window as Window & { requestIdleCallback?: (cb: (d?: { timeRemaining: () => number }) => void, o?: { timeout: number }) => number };
+    do job.steps.shift()!();
+    while (job.steps.length > 0 && (!w.requestIdleCallback || (deadline?.timeRemaining() ?? 0) > 10));
+    if (job.steps.length > 0) {
+      // (Soon even when the page isn't idle: the picture is wanted for the next move.)
+      this.jobHandle = w.requestIdleCallback!((d) => this.stepJob(d), { timeout: 50 });
+      return;
+    }
+    this.job = null;
+    job.done();
+    if (!this.fits()) this.prepareWhenIdle(AFTER_MOVE_MS);
+  }
+
   private cancelIdle(): void {
-    this.abortJob();
     if (this.idleTimer !== null) clearTimeout(this.idleTimer);
     this.idleTimer = null;
     if (this.idleHandle !== null) (window as Window & { cancelIdleCallback?: (h: number) => void }).cancelIdleCallback?.(this.idleHandle);
