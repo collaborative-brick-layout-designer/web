@@ -86,9 +86,6 @@ interface TakeJob {
   done: () => Picture;
 }
 
-/** About how many device px across a band of a strip of the picture is, taken while idle (`startTake`). */
-const BAND_PX = 256;
-
 /** After a move stops, when to take the next move's picture (after the sharp draw). */
 const AFTER_MOVE_MS = 250;
 /** After the map changes, how long it must stay still before the next move's picture is taken. */
@@ -508,52 +505,15 @@ export class ViewBitmap {
     };
     const sx = s.x();
     const sy = s.y();
-    /**
-     * Draws only the parts in this part of the picture (px from the view's
-     * corner), clipped to it (cullOffscreen.ts). With `band` (the picture's
-     * device px, whole ones, along x or y), only that band of it.
-     */
-    const drawIn = (x: number, y: number, rw: number, rh: number, band?: { axis: 'x' | 'y'; from: number; to: number }): void => {
+    /** Draws only the parts in this part of the picture (px from the view's corner), clipped to it (cullOffscreen.ts). */
+    const drawIn = (x: number, y: number, rw: number, rh: number): void => {
       ctx.save();
       ctx.translate(m * w, m * h);
       ctx.beginPath();
       ctx.rect(x, y, rw, rh);
       ctx.clip();
-      let box: Box = { x0: (x - sx) / scale, y0: (y - sy) / scale, x1: (x + rw - sx) / scale, y1: (y + rh - sy) / scale };
-      if (band) {
-        // On whole device px, so every pixel is in one band, whole: the
-        // bands come out as the strip drawn in one go.
-        const c = ctx._context;
-        const base = c.getTransform();
-        c.setTransform(1, 0, 0, 1, 0, 0);
-        c.beginPath();
-        if (band.axis === 'x') c.rect(band.from, 0, band.to - band.from, canvas.height);
-        else c.rect(0, band.from, canvas.width, band.to - band.from);
-        c.clip();
-        c.setTransform(base);
-        // The band in the stage's own units (from the picture's corner at -m·w, -m·h).
-        const at = (d: number, mOff: number, sOff: number) => (d / ratio - mOff - sOff) / scale;
-        if (band.axis === 'x') box = { ...box, x0: Math.max(box.x0, at(band.from, m * w, sx)), x1: Math.min(box.x1, at(band.to, m * w, sx)) };
-        else box = { ...box, y0: Math.max(box.y0, at(band.from, m * h, sy)), y1: Math.min(box.y1, at(band.to, m * h, sy)) };
-      }
-      drawCulled(canvas, box, drawAll);
+      drawCulled(canvas, { x0: (x - sx) / scale, y0: (y - sy) / scale, x1: (x + rw - sx) / scale, y1: (y + rh - sy) / scale }, drawAll);
       ctx.restore();
-    };
-    /**
-     * The strip as steps of bands across its long side, BAND_PX device px
-     * or so each: a strip in one go was a long task of its own (about 50
-     * ms zoomed in on 7,520 parts at 4x slowed CPU).
-     */
-    const banded = (x: number, y: number, rw: number, rh: number): (() => void)[] => {
-      const axis = rw >= rh ? 'x' : 'y';
-      const off = axis === 'x' ? m * w : m * h;
-      const d0 = Math.ceil(((axis === 'x' ? x : y) + off) * ratio);
-      const d1 = Math.floor(((axis === 'x' ? x + rw : y + rh) + off) * ratio);
-      const n = Math.max(1, Math.ceil((d1 - d0) / BAND_PX));
-      if (n === 1) return [() => drawIn(x, y, rw, rh)];
-      const edges: number[] = [];
-      for (let i = 0; i <= n; i++) edges.push(i === 0 ? -Infinity : i === n ? Infinity : d0 + Math.round(((d1 - d0) * i) / n));
-      return edges.slice(0, -1).map((from, i) => () => drawIn(x, y, rw, rh, { axis, from: Number.isFinite(from) ? from : -1e9, to: Number.isFinite(edges[i + 1]!) ? edges[i + 1]! : 1e9 }));
     };
     const steps: (() => void)[] = [
       () => {
@@ -576,14 +536,14 @@ export class ViewBitmap {
     if (current) {
       const mw = m * w;
       const mh = m * h;
-      // Taken while idle, each band of a strip is a step of its own. (Split
-      // on whole device px only: a part drawn in two clips that cut a pixel
-      // doesn't come out quite the same.)
+      // Taken while idle, each strip is a step of its own. (Not split any
+      // further: a part drawn in two clips doesn't come out quite the same,
+      // even on whole device px.)
       steps.push(
-        ...banded(-mw, -mh, w + 2 * mw, mh),
-        ...banded(-mw, h, w + 2 * mw, mh),
-        ...banded(-mw, 0, mw, h),
-        ...banded(w, 0, mw, h),
+        () => drawIn(-mw, -mh, w + 2 * mw, mh),
+        () => drawIn(-mw, h, w + 2 * mw, mh),
+        () => drawIn(-mw, 0, mw, h),
+        () => drawIn(w, 0, mw, h),
       );
     } else {
       // Only the parts in the picture (the view and its margin).
