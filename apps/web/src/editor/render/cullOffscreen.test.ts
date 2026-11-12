@@ -387,6 +387,68 @@ describe('what the view picture is told', () => {
     off();
   });
 
+  // The drag layer: a part lifted onto it, dragged and put back. Its draws
+  // whole made the picture be taken afresh after each drag in the mover's
+  // own tab (about 740 part pictures on 7,520 parts zoomed in).
+  it('of another layer: the places its draws changed, child by child', () => {
+    const drag = new Konva.Layer();
+    stage.add(drag);
+    const outline = new Konva.Rect({ x: 600, y: 600, width: 100, height: 50, stroke: 'blue', strokeWidth: 2 });
+    drag.add(outline);
+    const off = followForPicture(drag);
+    // Its first draw: nothing known of before.
+    drag.draw();
+    expect(lastDrawBoxes(drag)).toBeNull();
+    drag.draw();
+    expect(lastDrawBoxes(drag)).toEqual([]);
+    const pad = 32;
+    const near = (b: { x0: number; y0: number; x1: number; y1: number }, x0: number, y0: number, x1: number, y1: number) =>
+      [b.x0, b.y0, b.x1, b.y1].every((v, i) => Math.abs(v - [x0 - pad, y0 - pad, x1 + pad, y1 + pad][i]!) <= 2);
+    // Lifted: where it is now.
+    const p = parts[34]!;
+    p.moveTo(drag);
+    drag.draw();
+    let boxes = lastDrawBoxes(drag)!;
+    expect(boxes).toHaveLength(1);
+    expect(near(boxes[0]!, 440, 340, 460, 360)).toBe(true);
+    // Dragged: where it was and is; the outline, unchanged, isn't drawn again.
+    p.x(p.x() + 30);
+    drag.draw();
+    boxes = lastDrawBoxes(drag)!;
+    expect(boxes).toHaveLength(2);
+    expect(near(boxes[0]!, 440, 340, 460, 360)).toBe(true);
+    expect(near(boxes[1]!, 470, 340, 490, 360)).toBe(true);
+    // Something inside it changed (its picture): its place again.
+    (p.getChildren()[0] as Konva.Rect).fill('green');
+    drag.draw();
+    expect(lastDrawBoxes(drag)).toHaveLength(2);
+    // Put back on its sheet: where it was on the drag layer.
+    p.moveTo(sheet);
+    drag.draw();
+    boxes = lastDrawBoxes(drag)!;
+    expect(boxes).toHaveLength(1);
+    expect(near(boxes[0]!, 470, 340, 490, 360)).toBe(true);
+    // A shape drawn over parts covers them, whatever its own size.
+    const q = parts[12]!;
+    q.moveTo(drag);
+    const halo = new Konva.Shape({ sceneFunc: () => undefined, overDraws: () => [q] } as unknown as Konva.ShapeConfig);
+    drag.add(halo);
+    drag.draw();
+    boxes = lastDrawBoxes(drag)!;
+    expect(boxes).toHaveLength(2);
+    expect(boxes.every((b) => near(b, 240, 140, 260, 160))).toBe(true);
+    halo.destroy();
+    drag.draw();
+    expect(lastDrawBoxes(drag)).toHaveLength(1);
+    // A change to the layer itself may have changed anything.
+    drag.opacity(0.5);
+    drag.draw();
+    expect(lastDrawBoxes(drag)).toBeNull();
+    drag.draw();
+    expect(lastDrawBoxes(drag)).toEqual([]);
+    off();
+  });
+
   // A pan starts by moving the stage, or by turning its listening off:
   // the picture kept for it was taken afresh, from every part.
   it('nothing of the view moving: the picture is of the map', () => {
