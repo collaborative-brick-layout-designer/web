@@ -214,6 +214,16 @@ describe('a watched layer', () => {
     // A move at this view is partial again, in this view's px.
     parts[34]!.x(parts[34]!.x() + 8);
     expect(draw()).toMatchObject({ whole: 0, partial: 2, scene: [[106, 198, 112, 104]] });
+    // Both ways at once: a column and a row, not one box around them.
+    stage.position({ x: -320, y: -110 });
+    const both = draw();
+    expect(both).toMatchObject({ whole: 0, partial: 2 });
+    expect(both.scene).toEqual([[980, 0, 20, 800], [0, 790, 980, 10]]);
+    // From a view at a part-px place, by whole px (a hair off in floating point): shifted too.
+    stage.position({ x: -0.1 - 0.2, y: -100 });
+    draw();
+    stage.position({ x: -0.1 - 0.2 - 37, y: -100 });
+    expect(draw()).toMatchObject({ whole: 0, partial: 2 });
   });
 
   it('draws everything when the view zooms, moves by part of a px, or past most of the canvas', () => {

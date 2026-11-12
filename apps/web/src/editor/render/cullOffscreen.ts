@@ -691,9 +691,11 @@ function shiftFor(was: string, now: string): { dx: number; dy: number } | null {
   if (a.length !== 7 || b.length !== 7 || a.some((v) => !Number.isFinite(v)) || b.some((v) => !Number.isFinite(v))) return null;
   for (let i = 2; i < 7; i++) if (a[i] !== b[i]) return null;
   const pr = b[6]!;
-  const dx = (b[0]! - a[0]!) * pr;
-  const dy = (b[1]! - a[1]!) * pr;
-  if (dx !== Math.round(dx) || dy !== Math.round(dy)) return null;
+  // (A pan by whole px of a view at a part-px place: the difference can
+  // come out a hair off a whole number. A millionth of a px draws the same.)
+  const dx = Math.round((b[0]! - a[0]!) * pr);
+  const dy = Math.round((b[1]! - a[1]!) * pr);
+  if (Math.abs(dx - (b[0]! - a[0]!) * pr) > 1e-6 || Math.abs(dy - (b[1]! - a[1]!) * pr) > 1e-6) return null;
   if (Math.abs(dx) >= b[4]! || Math.abs(dy) >= b[5]!) return null;
   return { dx, dy };
 }
@@ -749,8 +751,11 @@ function drawOwn(layer: Konva.Layer, which: 'scene' | 'hit', canvas: CanvasLike,
       const y1 = Math.min(canvas.height, Math.ceil((b.y1 * scale + sy) * pr));
       if (x1 > x0 && y1 > y0) px.push({ x: x0, y: y0, w: x1 - x0, h: y1 - y0 });
     }
-    if (shift) px.push(...exposedBy(shift, canvas.width, canvas.height));
     px = apart(px, MAX_PASSES);
+    // What the shift brought in: apart from the rest (put together with
+    // them, the column and the row would make one box of the whole canvas).
+    // A place drawn twice comes out the same.
+    if (shift) px.push(...exposedBy(shift, canvas.width, canvas.height));
     if (px.reduce((sum, r) => sum + r.w * r.h, 0) > MAX_SHARE * canvas.width * canvas.height) px = null;
   }
   // (Shifted: everything on it moved, as after a whole draw.)
