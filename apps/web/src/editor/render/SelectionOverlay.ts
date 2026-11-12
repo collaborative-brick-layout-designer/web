@@ -105,7 +105,11 @@ export function drawSelection(ctx: Konva.Context, shape: Konva.Shape, s: Selecti
   let dots = 0;
   let stroke: string | null = null;
   c.save();
-  c.setTransform(1, 0, 0, 1, 0, 0);
+  // Device px of the layer's own canvas; on another canvas (the picture
+  // kept for a pan, with its margin around the view) moved to where that
+  // canvas has the layer. Drawn there at identity, the halos landed a
+  // margin away from their parts in the pan's picture.
+  c.setTransform(...onCanvas(c, shape.getAbsoluteTransform().getMatrix(), pr));
   c.lineJoin = 'miter';
 
   // Dots first: a part's halo fill goes over its dots, as it did in the part.
@@ -177,6 +181,35 @@ export function drawSelection(ctx: Konva.Context, shape: Konva.Shape, s: Selecti
   c.restore();
   record({ halos: drawn, dots, stroke: drawn > 0 ? stroke : null });
   return drawn;
+}
+
+type M6 = [number, number, number, number, number, number];
+
+/**
+ * The transform that puts device px of the layer's own canvas (the shape's
+ * absolute transform times `pr`) where the context draws the shape now:
+ * identity on the layer's own canvas, a move on one drawn with an offset.
+ */
+function onCanvas(c: CanvasRenderingContext2D, shapeAbs: number[], pr: number): M6 {
+  const t = c.getTransform() as unknown as { a: number; b: number; c: number; d: number; e: number; f: number };
+  const now: M6 = [t.a, t.b, t.c, t.d, t.e, t.f];
+  // own = scale(pr) * shapeAbs: where the layer's own canvas has the shape.
+  const own: M6 = [pr * shapeAbs[0]!, pr * shapeAbs[1]!, pr * shapeAbs[2]!, pr * shapeAbs[3]!, pr * shapeAbs[4]!, pr * shapeAbs[5]!];
+  const x = mul(now, inv(own));
+  // The layer's own canvas: exactly identity, as before.
+  const near = (v: number, w: number) => Math.abs(v - w) < 1e-6;
+  if (near(x[0], 1) && near(x[1], 0) && near(x[2], 0) && near(x[3], 1) && near(x[4], 0) && near(x[5], 0)) return [1, 0, 0, 1, 0, 0];
+  return x;
+}
+
+function mul(p: M6, q: M6): M6 {
+  return [p[0] * q[0] + p[2] * q[1], p[1] * q[0] + p[3] * q[1], p[0] * q[2] + p[2] * q[3], p[1] * q[2] + p[3] * q[3], p[0] * q[4] + p[2] * q[5] + p[4], p[1] * q[4] + p[3] * q[5] + p[5]];
+}
+
+function inv(m: M6): M6 {
+  const det = m[0] * m[3] - m[1] * m[2];
+  if (!det) return [1, 0, 0, 1, 0, 0];
+  return [m[3] / det, -m[1] / det, -m[2] / det, m[0] / det, (m[2] * m[5] - m[3] * m[4]) / det, (m[1] * m[4] - m[0] * m[5]) / det];
 }
 
 /** What drawSelection drew last (on the overlay node as `drawn`). */
