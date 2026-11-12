@@ -28,6 +28,8 @@ export async function savePreferences(changes: Partial<Preferences>, fetchImpl: 
     fetchImpl(URL, {
       method: 'PUT',
       credentials: 'include',
+      // Lets the request finish even if the page is closed or navigated away.
+      keepalive: true,
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ prefs: changes }),
     }),

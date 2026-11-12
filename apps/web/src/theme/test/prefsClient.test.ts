@@ -23,6 +23,8 @@ describe('fetchPreferences / savePreferences', () => {
     const [url, init] = f.mock.calls[0]!;
     expect(url).toBe('/api/me/preferences');
     expect(init?.method).toBe('PUT');
+    // So a change made just before leaving the page still arrives.
+    expect(init?.keepalive).toBe(true);
     expect(JSON.parse(String(init?.body))).toEqual({ prefs: { accent: 'ocean' } });
   });
 
