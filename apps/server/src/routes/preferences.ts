@@ -24,7 +24,7 @@ export const PARTS_ICON_MIN = 32;
 export const PARTS_ICON_MAX = 160;
 /** How strongly parts snap to each other's connections while dragging. */
 export const CONNECTION_SNAP = ['off', 'gentle', 'strong'] as const;
-/** How far the color reaches: just the highlights (the original look) or the whole app. */
+/** How far the color reaches: just the highlights (the original look) or the whole app (the default). */
 export const COLOR_STYLES = ['original', 'full'] as const;
 const TOUR_ID = /^[A-Za-z0-9._-]{1,64}$/;
 
@@ -37,7 +37,10 @@ export interface Preferences {
    * so the desktop knows it can save it.
    */
   legoColor: number | null;
-  /** Always returned, like legoColor. */
+  /**
+   * Always returned, like legoColor. The whole app ("full") is the default:
+   * a stored "original" means the person chose "Just the highlights".
+   */
   colorStyle: (typeof COLOR_STYLES)[number];
   largeText: boolean;
   expertMode: boolean;
@@ -66,7 +69,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   theme: 'system',
   accent: 'brick',
   legoColor: null,
-  colorStyle: 'original',
+  colorStyle: 'full',
   largeText: false,
   expertMode: false,
   helpIcons: true,

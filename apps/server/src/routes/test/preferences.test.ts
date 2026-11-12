@@ -10,6 +10,7 @@ import { attachUser } from '../../auth/cookie.js';
 import { passwordRoutes } from '../auth/password.js';
 import { deviceRoutes } from '../auth/device.js';
 import { preferencesRoutes, DEFAULT_PREFERENCES } from '../preferences.js';
+import { db, schema } from '../../db/index.js';
 
 async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify();
@@ -107,13 +108,28 @@ describe('account preferences', () => {
   it('keeps a LEGO color and how far the color reaches, and clears the LEGO color with null', async () => {
     let got = await app.inject({ method: 'GET', url: URL, headers: { cookie: user.cookie } });
     // Always returned, so the desktop knows this server can store them.
-    expect(got.json().prefs).toMatchObject({ legoColor: null, colorStyle: 'original' });
-    expect((await put({ cookie: user.cookie }, { legoColor: 24, colorStyle: 'full' })).statusCode).toBe(200);
+    // The whole app is the default for anyone who never chose.
+    expect(got.json().prefs).toMatchObject({ legoColor: null, colorStyle: 'full' });
+    expect((await put({ cookie: user.cookie }, { legoColor: 24, colorStyle: 'original' })).statusCode).toBe(200);
     got = await app.inject({ method: 'GET', url: URL, headers: { cookie: user.cookie } });
-    expect(got.json().prefs).toMatchObject({ legoColor: 24, colorStyle: 'full', accent: 'brick' });
+    expect(got.json().prefs).toMatchObject({ legoColor: 24, colorStyle: 'original', accent: 'brick' });
+    // "Just the highlights", once chosen, stays when other settings change.
     expect((await put({ cookie: user.cookie }, { legoColor: null, accent: 'ocean' })).statusCode).toBe(200);
     got = await app.inject({ method: 'GET', url: URL, headers: { cookie: user.cookie } });
-    expect(got.json().prefs).toMatchObject({ legoColor: null, colorStyle: 'full', accent: 'ocean' });
+    expect(got.json().prefs).toMatchObject({ legoColor: null, colorStyle: 'original', accent: 'ocean' });
+  });
+
+  it('gives the whole app to settings saved before there was a choice, and keeps a chosen one', async () => {
+    // Saved before colorStyle existed: no key, so the new default.
+    await db.insert(schema.userPreferences).values({ userId: user.id, prefs: JSON.stringify({ theme: 'dark', accent: 'ocean' }), updatedAt: new Date() });
+    let got = await app.inject({ method: 'GET', url: URL, headers: { cookie: user.cookie } });
+    expect(got.json().prefs).toMatchObject({ theme: 'dark', accent: 'ocean', colorStyle: 'full' });
+    // A stored "original" is someone's choice and stays.
+    await db
+      .update(schema.userPreferences)
+      .set({ prefs: JSON.stringify({ theme: 'dark', colorStyle: 'original' }) });
+    got = await app.inject({ method: 'GET', url: URL, headers: { cookie: user.cookie } });
+    expect(got.json().prefs).toMatchObject({ theme: 'dark', colorStyle: 'original' });
   });
 
   it('refuses unknown keys and wrong values without storing anything', async () => {

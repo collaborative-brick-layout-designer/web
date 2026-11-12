@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest';
 import {
   accentVars,
   applyTheme,
+  effectiveColorStyle,
   DEFAULT_PREFERENCES,
   neutralVars,
   PREFS_CACHE_KEY,
@@ -78,14 +79,14 @@ describe('applyTheme', () => {
 
   it('a LEGO color sets readable accent colors on <html>, and a preset clears them', () => {
     const root = document.createElement('html');
-    applyTheme(root, { theme: 'dark', accent: 'ocean', largeText: false, legoColor: 26 }, false);
+    applyTheme(root, { theme: 'dark', accent: 'ocean', largeText: false, legoColor: 26, colorStyle: 'original' }, false);
     expect(root.dataset.accent).toBe('lego');
     expect(root.dataset.colorStyle).toBe('original');
     // Black is lightened in dark mode so it stands out from the panel.
     expect(root.style.getPropertyValue('--accent')).toBe('#646E75');
     expect(root.style.getPropertyValue('--accent-ink')).toBe('#FFFFFF');
     expect(root.style.getPropertyValue('--chrome')).toBe('');
-    applyTheme(root, { theme: 'dark', accent: 'ocean', largeText: false, legoColor: null }, false);
+    applyTheme(root, { theme: 'dark', accent: 'ocean', largeText: false, legoColor: null, colorStyle: 'original' }, false);
     expect(root.dataset.accent).toBe('ocean');
     expect(root.style.getPropertyValue('--accent')).toBe('');
   });
@@ -103,6 +104,19 @@ describe('applyTheme', () => {
     applyTheme(root, { theme: 'light', accent: 'brick', largeText: false, colorStyle: 'original', legoColor: 24 }, false);
     expect(root.style.getPropertyValue('--chrome')).toBe('');
     expect(root.style.getPropertyValue('--bg')).toBe('');
+  });
+
+  it('the whole app is the default: no choice tints it, only a chosen "original" keeps the highlights', () => {
+    const root = document.createElement('html');
+    applyTheme(root, { theme: 'light', accent: 'brick', largeText: false }, false);
+    expect(root.dataset.colorStyle).toBe('full');
+    expect(root.style.getPropertyValue('--chrome')).toMatch(/^#[0-9A-F]{6}$/);
+    expect(effectiveColorStyle(undefined)).toBe('full');
+    expect(effectiveColorStyle('full')).toBe('full');
+    expect(effectiveColorStyle('original')).toBe('original');
+    applyTheme(root, { theme: 'light', accent: 'brick', largeText: false, colorStyle: 'original' }, false);
+    expect(root.dataset.colorStyle).toBe('original');
+    expect(root.style.getPropertyValue('--chrome')).toBe('');
   });
 
   it('keeps both modes\' worked-out colors for the pre-paint script', () => {

@@ -114,7 +114,7 @@ describe('Color: any LEGO color and how much color', () => {
     expect((search as HTMLInputElement).value).toBe('');
   });
 
-  it('offers just the highlights (the original look) or the whole app, the original until changed', () => {
+  it('offers the whole app (the default, listed first) or just the highlights (the original look)', () => {
     const { container } = render(
       <MemoryRouter>
         <SettingsContent />
@@ -122,8 +122,11 @@ describe('Color: any LEGO color and how much color', () => {
     );
     const view = within(container);
     const group = view.getByRole('radiogroup', { name: 'How much color' });
-    expect(within(group).getAllByRole('radio')).toHaveLength(2);
-    expect(view.getByTestId('color-style-original').getAttribute('aria-checked')).toBe('true');
+    const radios = within(group).getAllByRole('radio');
+    expect(radios).toHaveLength(2);
+    expect(radios[0]).toBe(view.getByTestId('color-style-full'));
+    expect(view.getByTestId('color-style-full').getAttribute('aria-checked')).toBe('true');
+    expect(view.getByTestId('color-style-original').getAttribute('aria-checked')).toBe('false');
     expect(view.getByTestId('color-style-original').textContent).toMatch(/original look/);
   });
 });

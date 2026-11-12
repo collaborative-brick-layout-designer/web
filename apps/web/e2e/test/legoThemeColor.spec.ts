@@ -1,7 +1,8 @@
 // Settings > Color: any LEGO color, found by its LEGO or BrickLink name or
 // number, themes the app at once and follows the account; "The whole app"
-// tints the header and page too; the extremes stay readable in light and
-// dark; and a preset with "Just the highlights" is the original look again.
+// (the default) tints the header and page too; the extremes stay readable
+// in light and dark; and a preset with "Just the highlights" is the
+// original look again, kept once chosen.
 
 import { test, expect, type Page } from '@playwright/test';
 import { signIn } from '../helpers';
@@ -40,8 +41,8 @@ test('any LEGO color themes the whole app, follows the account and stays readabl
   await expect(page.getByRole('radio', { name: 'Brick red', exact: true })).toHaveAttribute('aria-checked', 'false');
   await expect(page.getByTestId('lego-color-toggle')).toContainText('Earth Blue');
 
-  // The whole app: header and page tinted.
-  await page.getByTestId('color-style-full').click();
+  // The whole app, the default: header and page tinted.
+  await expect(page.getByTestId('color-style-full')).toHaveAttribute('aria-checked', 'true');
   await expect(html).toHaveAttribute('data-color-style', 'full');
   // Dark mode lightens the color so it reads on dark panels.
   await page.getByRole('radio', { name: 'Dark', exact: true }).click();
@@ -98,4 +99,42 @@ test('any LEGO color themes the whole app, follows the account and stays readabl
   expect(await cssVar(page, '--accent')).toBe('#2459C4');
   await page.goto('/');
   await expect(header).toHaveCSS('background-color', 'rgb(31, 34, 38)'); // the dark panel
+});
+
+test('a new person gets the whole app in the color; "Just the highlights" stays once chosen', async ({ page }) => {
+  // Signed out, nothing stored: the whole app already, tints worked out.
+  await page.goto('/');
+  const html = page.locator('html');
+  const header = page.locator('header.theme-chrome').first();
+  await expect(html).toHaveAttribute('data-color-style', 'full');
+  await expect.poll(() => cssVar(page, '--chrome')).toMatch(/^#[0-9A-F]{6}$/);
+
+  // Signed in, never chose: Home's header takes the default color's tint.
+  await signIn(page, `color-default-${Date.now()}@example.com`, 'Default Tester');
+  await page.goto('/');
+  await expect(html).toHaveAttribute('data-color-style', 'full');
+  await expect(header).toBeVisible();
+  await expect(header).not.toHaveCSS('background-color', 'rgb(255, 255, 255)');
+  await page.goto('/settings');
+  await page.getByRole('radio', { name: 'Light', exact: true }).click();
+  const full = page.getByTestId('color-style-full');
+  const original = page.getByTestId('color-style-original');
+  await expect(full).toHaveAttribute('aria-checked', 'true');
+  await expect(original).toHaveAttribute('aria-checked', 'false');
+  // The default comes first.
+  const group = page.getByRole('radiogroup', { name: 'How much color' });
+  await expect(group.getByRole('radio').first()).toHaveAttribute('data-testid', 'color-style-full');
+
+  await original.click();
+  await expect(html).toHaveAttribute('data-color-style', 'original');
+  await page.goto('/');
+  await expect(header).toHaveCSS('background-color', 'rgb(255, 255, 255)'); // the plain light panel
+  // Kept by the account: after another setting changes and the browser forgets.
+  await page.goto('/settings');
+  await page.getByRole('radio', { name: 'Ocean blue', exact: true }).click();
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+  await expect(html).toHaveAttribute('data-accent', 'ocean');
+  await expect(html).toHaveAttribute('data-color-style', 'original');
+  await expect(original).toHaveAttribute('aria-checked', 'true');
 });
