@@ -737,6 +737,23 @@ git push origin v1.2.0
 
 ---
 
+## Data sources
+
+The LEGO color list behind Settings › Color (any LEGO color, found by its
+LEGO or BrickLink name or number) is built by
+[`packages/model/scripts/gen-lego-colors.py`](packages/model/scripts/gen-lego-colors.py) from:
+
+- **[LDraw](https://www.ldraw.org/)**'s `LDConfig.ldr` (CC BY 2.0): LEGO's
+  color numbers and names, and the colors themselves.
+- **[Rebrickable](https://rebrickable.com/)**: BrickLink color numbers and
+  names, from its free [catalog downloads](https://rebrickable.com/downloads/).
+  Data from Rebrickable, used under its terms, which ask that Rebrickable be
+  acknowledged as the data source.
+- **BrickLink Studio**'s color table, for the BrickLink matches Rebrickable
+  doesn't have.
+
+---
+
 ## Licence
 
 [AGPL-3.0-or-later](./LICENSE).
