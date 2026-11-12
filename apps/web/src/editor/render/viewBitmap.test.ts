@@ -97,10 +97,10 @@ describe('the picture for the next pan', () => {
     while (idle.size > 0) drawn.push(idleMoment());
     expect(vb.taken).toBe(1);
     // The view copied from the canvas (no part), then the margin's strips.
-    expect(drawn.length).toBeGreaterThanOrEqual(6);
+    expect(drawn.length).toBeGreaterThanOrEqual(5);
     const all = drawn.reduce((a, b) => a + b, 0);
     expect(all).toBeGreaterThan(400);
-    expect(Math.max(...drawn)).toBeLessThan(all / 3);
+    expect(Math.max(...drawn)).toBeLessThan(all / 2);
     // And it's of this view: nothing is taken for a move that starts now.
     vb.freeze();
     expect(vb.taken).toBe(1);

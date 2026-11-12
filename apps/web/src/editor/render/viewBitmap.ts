@@ -512,15 +512,11 @@ export class ViewBitmap {
     if (current) {
       const mw = m * w;
       const mh = m * h;
-      // The strips above and below in two halves each, split on a whole
-      // device px (so nothing blends along the split): taken while idle,
-      // each half is a step of its own.
-      const half = Math.round((mw + w / 2) * ratio) / ratio - mw;
+      // Taken while idle, each strip is a step of its own. (Not split any
+      // further: a part drawn in two clips doesn't come out quite the same.)
       steps.push(
-        () => drawIn(-mw, -mh, half + mw, mh),
-        () => drawIn(half, -mh, w + mw - half, mh),
-        () => drawIn(-mw, h, half + mw, mh),
-        () => drawIn(half, h, w + mw - half, mh),
+        () => drawIn(-mw, -mh, w + 2 * mw, mh),
+        () => drawIn(-mw, h, w + 2 * mw, mh),
         () => drawIn(-mw, 0, mw, h),
         () => drawIn(w, 0, mw, h),
       );

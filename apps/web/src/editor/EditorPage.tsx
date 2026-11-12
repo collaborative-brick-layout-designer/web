@@ -2277,6 +2277,9 @@ function Canvas({
     else releaseHits(stage);
     if (moving) {
       viewBitmapRef.current?.freeze();
+      // The sheets show the picture from the next frame (the stage's
+      // `listening` switch used to have them drawn again, which did this).
+      for (const layer of stage.getLayers()) layer.batchDraw();
       // The canvas follows the view by CSS from here (followView), and the
       // map renders nothing until the move ends.
       holdStageView(true);
