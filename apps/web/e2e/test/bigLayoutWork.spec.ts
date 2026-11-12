@@ -279,11 +279,31 @@ test('a big layout: while the view moves the map is one moving picture, kept up 
   expect(moving.partsScene, 'no part draws while the view moves (it was every part, every frame)').toBeLessThan(50);
   expect(moving.hits, 'nor the hit canvas').toBeLessThan(50);
   done = await count(page);
+  // How many hit shapes are drawn in the very frame the parts are drawn sharp in.
+  await page.evaluate(() => {
+    type L = { name: () => string; drawScene: (...a: unknown[]) => unknown };
+    const w = window as unknown as { Konva: { stages: { getLayers: () => L[] }[] }; __n: Counts; __sharpFrameHits?: number };
+    const layer = w.Konva.stages[0]!.getLayers().find((l) => l.name() === 'parts-layer')!;
+    const own = layer.drawScene;
+    layer.drawScene = function (this: L, ...a: unknown[]) {
+      if (a.length > 0) return own.apply(this, a);
+      layer.drawScene = own;
+      const before = w.__n.hits;
+      const out = own.apply(this, a);
+      // After everything else that frame draws.
+      setTimeout(() => (w.__sharpFrameHits = w.__n.hits - before), 0);
+      return out;
+    };
+  });
   await page.mouse.up({ button: 'middle' });
   await page.waitForTimeout(300);
   const stopped = await done();
   // (Those the pan moved off screen aren't drawn: render/cullOffscreen.ts.)
   expect(stopped.partsScene, 'the parts are drawn sharp again when the view stops').toBeGreaterThan(700);
+  // The hit canvas comes after, once idle: in the same frame the two were
+  // one long task (about 50 ms on 7,520 parts zoomed in at 4x slowed CPU).
+  expect(await page.evaluate(() => (window as unknown as { __sharpFrameHits?: number }).__sharpFrameHits), 'no hit shape drawn in the frame of the sharp draw').toBe(0);
+  expect(stopped.hits, 'and the hit canvas once, after it').toBeGreaterThan(700);
 
   // ── A click straight after the pan picks the part under it. ──
   const part = await partNearCentre(page);

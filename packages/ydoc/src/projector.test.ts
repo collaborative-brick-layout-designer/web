@@ -103,4 +103,57 @@ describe('createDocProjector', () => {
       expect(p.project().author).toBe('inside');
     });
   });
+
+  it("reads a sheet's order again only when its list or a part's z changes", () => {
+    const doc = loadFixture();
+    const p = createDocProjector(doc);
+    p.project();
+    const { id, bricks } = firstBrickLayer(doc);
+    const order = () => (p.project().layers.find((l) => l.id === id) as LayerBrick).bricks.map((b) => b.id);
+    const want = () => (docToBbm(doc).layers.find((l) => l.id === id) as LayerBrick).bricks.map((b) => b.id);
+    // How many times the sheet's list is read in full.
+    let reads = 0;
+    const own = bricks.toArray.bind(bricks);
+    bricks.toArray = () => {
+      reads++;
+      return own();
+    };
+    // A part moved: its sheet is read again, its order isn't.
+    bricks.get(2).set('displayArea', { x: 9, y: 9, width: 1, height: 1 });
+    let got = order();
+    expect(reads).toBe(0);
+    expect(got).toEqual(want());
+    // Ordered by z: a part given the lowest z comes first.
+    bricks.forEach((b, i) => b.set('z', i));
+    reads = 0;
+    bricks.get(3).set('z', -1);
+    const third = bricks.get(3).get('id');
+    got = order();
+    expect(reads).toBe(1);
+    expect(got[0]).toBe(third);
+    expect(got).toEqual(want());
+    // A part deleted.
+    reads = 0;
+    bricks.delete(0, 1);
+    got = order();
+    expect(reads).toBe(1);
+    expect(got).toEqual(want());
+    // Moves after, with z: still no read of the order.
+    reads = 0;
+    bricks.get(4).set('displayArea', { x: 1, y: 1, width: 1, height: 1 });
+    order();
+    expect(reads).toBe(0);
+    expect(p.project()).toEqual(docToBbm(doc));
+  });
+
+  it('names the Y.Map each brick was read from', () => {
+    const doc = loadFixture();
+    const p = createDocProjector(doc);
+    const { id, bricks } = firstBrickLayer(doc);
+    const layer = p.project().layers.find((l) => l.id === id) as LayerBrick;
+    layer.bricks.forEach((b) => expect(p.brickYMap(b)?.get('id')).toBe(b.id));
+    expect(p.brickYMap(layer.bricks[0]!)).toBe(bricks.toArray().find((y) => y.get('id') === layer.bricks[0]!.id));
+    // A copy isn't from the projector.
+    expect(p.brickYMap({ ...layer.bricks[0]! })).toBeUndefined();
+  });
 });

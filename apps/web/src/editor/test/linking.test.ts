@@ -7,7 +7,8 @@ import * as Y from 'yjs';
 import { createDefaultLayoutDoc, docToBbm } from '@cld/ydoc';
 import type { PartWire } from '../../api';
 import { moveBrick, placeBrick } from '../mutations';
-import { catalogFromParts, recomputeConnectivity, useConnectivity } from '../useConnectivity';
+import { catalogFromParts, connectivityStats, CONNECTIVITY_ORIGIN, recomputeConnectivity, useConnectivity } from '../useConnectivity';
+import { rebuildConnectivity } from '@cld/parts-catalog/browser';
 import { createUndoManager } from '../useUndoManager';
 import { LOCAL_ORIGIN } from '../useLayoutDoc';
 
@@ -108,5 +109,83 @@ describe('placing a set (desktop MapView::addPartAtScenePos)', () => {
     um.undo();
     const after = docToBbm(doc).layers.find((l) => l.type === 'brick');
     expect(after?.type === 'brick' && [after.bricks.length, after.groups.length]).toEqual([0, 0]);
+  });
+});
+
+describe('links after a move on a big layout', () => {
+  afterEach(() => vi.useRealTimers());
+  const N = 600;
+  /** A row of N straights end to end, linked, with a recompute's cache warm. */
+  function row() {
+    const doc = createDefaultLayoutDoc();
+    const layerId = docToBbm(doc).layers.find((l) => l.type === 'brick')!.id;
+    const ids: string[] = [];
+    doc.transact(() => {
+      for (let i = 0; i < N; i++) ids.push(placeBrick(doc, layerId, { partNumber: 'straight.8', x: i * 16, y: (i % 50 === 49 ? 3 : 0), width: 16, height: 8 }));
+    }, LOCAL_ORIGIN);
+    const catalog = catalogFromParts([STRAIGHT]);
+    recomputeConnectivity(doc, catalog);
+    // (The links it wrote made new parts of the ones it linked: their points are worked out once more.)
+    recomputeConnectivity(doc, catalog);
+    return { doc, layerId, ids, catalog };
+  }
+
+  it('comes out as the whole recompute on a copy does, move after move', () => {
+    const { doc, layerId, ids, catalog } = row();
+    for (const [i, dx, dy] of [[10, 100, 0], [11, 3, 0], [200, -16, 0], [10, -100, 0], [599, 0, 40], [0, 16, 0]] as const) {
+      const want = docToBbm(doc);
+      const b = want.layers.flatMap((l) => (l.type === 'brick' ? l.bricks : [])).find((x) => x.id === ids[i])!;
+      moveBrick(doc, layerId, ids[i]!, b.displayArea.x + dx, b.displayArea.y + dy);
+      const copy = docToBbm(doc);
+      rebuildConnectivity(copy, catalog);
+      recomputeConnectivity(doc, catalog);
+      expect(docToBbm(doc)).toEqual(copy);
+    }
+  });
+
+  it("writes only the parts whose links changed, and works out only the moved part's points", () => {
+    const { doc, layerId, ids, catalog } = row();
+    const written = new Set<unknown>();
+    doc.on('afterTransaction', (tr: Y.Transaction) => {
+      if (tr.origin !== CONNECTIVITY_ORIGIN) return;
+      for (const t of tr.changed.keys()) written.add(t);
+    });
+    connectivityStats.pointsWorkedOut = 0;
+    // Pulled out of the row: it and its two neighbours lose their links.
+    moveBrick(doc, layerId, ids[310]!, 310 * 16, 100);
+    recomputeConnectivity(doc, catalog);
+    expect(written.size).toBe(3);
+    expect(connectivityStats.pointsWorkedOut).toBe(1);
+    // Nothing moved since: nothing written, and only the parts whose links
+    // were written are worked out again.
+    written.clear();
+    recomputeConnectivity(doc, catalog);
+    expect(written.size).toBe(0);
+    expect(connectivityStats.pointsWorkedOut).toBe(1 + 3);
+  });
+
+  it("a local move's recompute reads only the parts it changed from the doc", () => {
+    vi.useFakeTimers();
+    const { doc, layerId, ids } = row();
+    const parts = [STRAIGHT];
+    const { unmount } = renderHook(() => useConnectivity(doc, parts));
+    vi.advanceTimersByTime(1000);
+    const get = Y.Map.prototype.get;
+    let reads = 0;
+    Y.Map.prototype.get = function (this: Y.Map<unknown>, k: string) {
+      reads++;
+      return get.call(this, k);
+    };
+    try {
+      moveBrick(doc, layerId, ids[5]!, 5 * 16 + 4, 0);
+      reads = 0;
+      vi.advanceTimersByTime(1000);
+      // The stale-box look and the links: a few reads for the moved part
+      // (it read every part's box, part number and links: thousands here).
+      expect(reads).toBeLessThan(60);
+    } finally {
+      Y.Map.prototype.get = get;
+    }
+    unmount();
   });
 });

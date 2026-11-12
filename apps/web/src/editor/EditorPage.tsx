@@ -2311,19 +2311,8 @@ function Canvas({
     // Queued after the layers' draws, so it runs in the same frame, after them.
     Konva.Util.requestAnimFrame(() => {
       vb?.settled();
-      freshHitWhenIdle();
+      whenIdle(() => drawStaleHits(stageRef.current, hitStaleRef));
     });
-  }
-  const hitIdleRef = useRef<number | null>(null);
-  /** The hit canvases, drawn while the page is idle (soon in any case). */
-  function freshHitWhenIdle(): void {
-    if (!hitStaleRef.current || hitIdleRef.current !== null) return;
-    const w = window as Window & { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number };
-    const run = () => {
-      hitIdleRef.current = null;
-      freshHit();
-    };
-    hitIdleRef.current = w.requestIdleCallback ? w.requestIdleCallback(run, { timeout: 200 }) : window.setTimeout(run, 0);
   }
   /**
    * The view has stopped, and the hit canvas (what a click lands on) is
@@ -2337,11 +2326,7 @@ function Canvas({
   const hitStaleRef = useRef(false);
   /** Draws the hit canvas now if it's behind the view, so a hit test sees the map where it is. */
   function freshHit(): void {
-    const stage = stageRef.current;
-    if (!stage || !hitStaleRef.current || hitsHeld(stage)) return;
-    hitStaleRef.current = false;
-    undeferHitDraws(stage);
-    for (const layer of stage.getLayers()) if (layer.isListening()) layer.drawHit();
+    drawStaleHits(stageRef.current, hitStaleRef);
   }
   /** A catch-up of the stage to the view is waiting for its frame. */
   const catchUpRef = useRef(false);
@@ -2459,13 +2444,14 @@ function Canvas({
     el.addEventListener('mousedown', settle, true);
     el.addEventListener('touchstart', settle, { capture: true, passive: true });
     // A pointer moving over the map after the view stopped, before the
-    // hit canvas was drawn again (freshHitWhenIdle): Konva's hover looks
+    // hit canvas was drawn again (stopViewMoving): Konva's hover looks
     // at it first.
-    el.addEventListener('pointermove', freshHit, true);
-    el.addEventListener('mousemove', freshHit, true);
+    const onMove = () => freshHit();
+    el.addEventListener('pointermove', onMove, true);
+    el.addEventListener('mousemove', onMove, true);
     return () => {
-      el.removeEventListener('pointermove', freshHit, true);
-      el.removeEventListener('mousemove', freshHit, true);
+      el.removeEventListener('pointermove', onMove, true);
+      el.removeEventListener('mousemove', onMove, true);
       el.removeEventListener('pointerdown', settle, true);
       el.removeEventListener('mousedown', settle, true);
       el.removeEventListener('touchstart', settle, true);
@@ -6476,6 +6462,21 @@ function sheetsOfSelection(map: import('@cld/model').BbmMap, selection: readonly
   if (selection.length === 0) return [];
   const sel = new Set(selection);
   return map.layers.filter((l) => l.type === 'brick' && l.bricks.some((b) => sel.has(b.id))).map((l) => l.id);
+}
+
+/** Draws the stage's hit canvases if they're behind the view (`stale`), so a hit test sees the map where it is. */
+function drawStaleHits(stage: Konva.Stage | null, stale: { current: boolean }): void {
+  if (!stage || !stale.current || hitsHeld(stage)) return;
+  stale.current = false;
+  undeferHitDraws(stage);
+  for (const layer of stage.getLayers()) if (layer.isListening()) layer.drawHit();
+}
+
+/** Runs `run` once the page is idle (soon in any case). */
+function whenIdle(run: () => void): void {
+  const w = window as Window & { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number };
+  if (w.requestIdleCallback) w.requestIdleCallback(run, { timeout: 200 });
+  else window.setTimeout(run, 0);
 }
 
 /** Keyboard / View-menu zoom step (desktop MainWindowMenus.cpp:493-498). */

@@ -707,7 +707,7 @@ export class ViewBitmap {
     if (!job || this.frozen) return;
     const w = window as Window & { requestIdleCallback?: (cb: (d?: { timeRemaining: () => number }) => void, o?: { timeout: number }) => number };
     // Another step only while the idle time left fits one more like the last.
-    let took = 0;
+    let took: number;
     do {
       const t0 = performance.now();
       job.steps.shift()!();

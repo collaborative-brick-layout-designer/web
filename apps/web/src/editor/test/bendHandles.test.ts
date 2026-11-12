@@ -83,6 +83,21 @@ describe('bend handles', () => {
     expect(flexRunEnds(docToBbm(doc), [ids[0]!], straight)).toEqual([]);
   });
 
+  it("with only rigid track picked, a big sheet isn't indexed for them", () => {
+    const STRAIGHT = half('2865.8', [
+      { type: '1', x: -8, y: 0, angle: 180, electricPlug: 0 },
+      { type: '1', x: 8, y: 0, angle: 0, electricPlug: 0 },
+    ]);
+    const bricks = Array.from({ length: 3000 }, (_, i) => ({ id: `s${i}`, partNumber: '2865.8', displayArea: { x: i * 16, y: 0, width: 16, height: 8 }, orientation: 0, myGroup: '', activeConnectionPointIndex: 0, altitude: 0, connexions: [{ id: `s${i}a`, linkedTo: '' }, { id: `s${i}b`, linkedTo: '' }] }));
+    // Counts the parts gone through (a part's connections read).
+    let reads = 0;
+    const counted = bricks.map((b) => new Proxy(b, { get: (t, k) => ((k === 'connexions' && reads++), t[k as keyof typeof t]) }));
+    const map = { layers: [{ type: 'brick', id: 'L', visible: true, bricks: counted, groups: [] }] } as unknown as Parameters<typeof flexRunEnds>[0];
+    expect(flexRunEnds(map, ['s10', 's11'], new Map([[STRAIGHT.key, STRAIGHT]]))).toEqual([]);
+    // It read every part's connections to index them, after every change while anything was picked.
+    expect(reads).toBe(0);
+  });
+
   it('bend the run as the end is dragged, the far end staying put', () => {
     const { doc, layerId, ids } = twoSets();
     const end = flexRunEnds(docToBbm(doc), [ids[0]!], PARTS).find((e) => e.world.x > 5)!;

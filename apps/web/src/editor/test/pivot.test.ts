@@ -14,7 +14,7 @@ import { moveBrick, moveBrickAndOrient, placeBrick, rotateBricksAboutCentroid } 
 import { buildLabelIndex, labelAnchorStuds } from '../mixedSelection';
 import { bricksInMarquee } from '../render/marqueeMath';
 import { electricOverlay } from '../render/electricCircuits';
-import { freeConnectionsCached, nearestConnectionIndex, snapPlacement } from '../snap';
+import { freeConnectionsCached, liveDragSnap, nearestConnectionIndex, snapPlacement } from '../snap';
 import { fixStaleAreasInDoc, watchPartChanges } from '../useConnectivity';
 
 // A 4 x 2 stud sprite (32 x 16 px) whose <hull> is its left half: the
@@ -139,6 +139,36 @@ describe('snapping and picking from the pivot', () => {
     const map = mapOf([hullBrick('a', 10, 5)]);
     const conns = freeConnectionsCached(map, parts);
     expect(conns.map((c) => [Math.round(c.x * 1000) / 1000, c.y])).toEqual([[8, 5], [12, 5]]);
+  });
+
+  it("a new layout works out only its new parts' ends, and a drag's frames reuse its free ends", () => {
+    const bricks = Array.from({ length: 400 }, (_, i) => hullBrick(`p${i}`, i * 10, 5));
+    // Counts the parts looked up in the catalog (one per part whose ends are worked out).
+    let looks = 0;
+    const counted = new Map(parts);
+    const get = counted.get.bind(counted);
+    counted.get = (k: string) => {
+      looks++;
+      return get(k);
+    };
+    const first = freeConnectionsCached(mapOf(bricks), counted);
+    expect(looks).toBeGreaterThanOrEqual(400);
+    // One part moved (a new object, as useDocMap gives): its ends alone.
+    looks = 0;
+    const moved = [...bricks];
+    moved[7] = hullBrick('p7', 70, 50);
+    const next = mapOf(moved);
+    const conns = freeConnectionsCached(next, counted);
+    expect(looks).toBeLessThanOrEqual(2);
+    expect(conns).toEqual(freeConnectionsCached(mapOf(moved.map((b) => ({ ...b }))), new Map(parts)));
+    expect(conns.length).toBe(first.length);
+    // A drag's frames: the layout's free ends minus the dragged part's, once.
+    const frame = (x: number) =>
+      liveDragSnap({ part: HULL, movingId: 'p7', movingLinks: [], centreX: x, centreY: 50, orientation: 0, mouseStudX: x, mouseStudY: 50, reach: 3 } as unknown as Parameters<typeof liveDragSnap>[0], next, counted);
+    frame(70);
+    looks = 0;
+    for (let x = 71; x < 80; x++) frame(x);
+    expect(looks).toBeLessThanOrEqual(9 * 2);
   });
 
   it('on the grid, a new part is held by its box, not its pivot', () => {

@@ -128,6 +128,8 @@ interface LinkCache {
   points: (brick: Brick, meta: PartMetadata) => ArrayLike<number>;
 }
 const linkCaches = new WeakMap<Catalog, LinkCache>();
+/** How many bricks' connection points were worked out (for tests). */
+export const connectivityStats = { pointsWorkedOut: 0 };
 function linkCache(catalog: Catalog): LinkCache {
   let c = linkCaches.get(catalog);
   if (!c) {
@@ -137,6 +139,7 @@ function linkCache(catalog: Catalog): LinkCache {
       points: (brick, meta) => {
         let p = known.get(brick);
         if (!p) {
+          connectivityStats.pointsWorkedOut++;
           p = connectionPoints(brick, meta);
           known.set(brick, p);
         }
