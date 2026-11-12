@@ -78,7 +78,7 @@ import { scaleBar, studDisplay } from './scaleBar';
 import { areaForPivot, areaSize, pivotOf } from './brickGeometry';
 import { imageOffset } from '@cld/parts-catalog/browser';
 import { askForPermission } from '../orgs/clubPermissions';
-import { canAddToBudget, countUsage, overBudgetCount, withinBudget } from './budgetUsage';
+import { canAddToBudget, countUsage, overBudgetCount, sameBudgetOr, withinBudget } from './budgetUsage';
 import { BudgetReachedDialog, BUDGET_REFUSED_STATUS } from './BudgetReachedDialog';
 import { venueAfterDraw, VENUE_MIN_POINTS_MESSAGE } from './venueValidator';
 import { docToBbm } from '@cld/ydoc';
@@ -594,11 +594,15 @@ function Editor({ layoutId, docState, moduleMode }: { layoutId: string; docState
   const docMap = useDocMap(doc);
   // Budget limits live in the doc's meta (shared with collaborators,
   // undoable). A meta change yields a new docMap, so re-read on that.
-  const budgetLimits = useMemo(
+  const budgetRead = useMemo(
     () => (doc ? readBudgetLimits(doc) : new Map<string, number>()),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [doc, docMap],
   );
+  // The same Map while the limits are the same (sameBudgetOr).
+  const budgetKept = useRef(budgetRead);
+  budgetKept.current = sameBudgetOr(budgetKept.current, budgetRead);
+  const budgetLimits = budgetKept.current;
 
   saveModuleRef.current = async () => {
     if (!doc) return;

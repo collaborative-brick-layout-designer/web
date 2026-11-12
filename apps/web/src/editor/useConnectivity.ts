@@ -57,15 +57,22 @@ export function useConnectivity(doc: Y.Doc | null, parts: PartWire[] | undefined
 
     function runRecompute() {
       if (!doc) return;
+      // (A look through every part: what someone else changed is in it.)
+      changes.take();
       if (partIndex.size > 0) fixStaleAreasInDoc(doc, partIndex);
       recomputeConnectivity(doc, catalog);
     }
 
+    // Someone else's edits: only the parts they changed are looked at (it
+    // looked through every part after each one: about 34 ms on 7,520 parts
+    // at 4x slowed CPU). The first look, at the first sync, is of them all.
+    const changes = watchPartChanges(doc);
     let staleTimer: ReturnType<typeof setTimeout> | null = null;
     function scheduleStaleFix() {
       if (staleTimer) clearTimeout(staleTimer);
       staleTimer = setTimeout(() => {
-        if (doc && partIndex.size > 0) fixStaleAreasInDoc(doc, partIndex);
+        const only = changes.take();
+        if (doc && partIndex.size > 0) fixStaleAreasInDoc(doc, partIndex, only);
       }, DEBOUNCE_MS);
     }
 
@@ -97,6 +104,7 @@ export function useConnectivity(doc: Y.Doc | null, parts: PartWire[] | undefined
     schedule();
     return () => {
       doc.off('update', onUpdate);
+      changes.stop();
       if (timer) clearTimeout(timer);
       if (staleTimer) clearTimeout(staleTimer);
     };
@@ -166,27 +174,92 @@ function writeBackConnexions(doc: Y.Doc, map: import('@cld/model').BbmMap): void
   }
 }
 
+/** The parts changed since the last `take`: null when it's all of them (or not known). */
+export interface PartChanges {
+  bricks: Set<Y.Map<unknown>>;
+}
+
+/**
+ * Follows which parts the doc's transactions change: a part's own fields,
+ * or parts added to a sheet. A change to the
+ * sheets themselves, or a sheet given a new list, is a change to all.
+ * `take` gives what changed since the last one (null: all of them, as
+ * the first time) and starts again.
+ */
+export function watchPartChanges(doc: Y.Doc): { take: () => PartChanges | null; stop: () => void } {
+  let all = true;
+  let bricks = new Set<Y.Map<unknown>>();
+  const layerData: unknown = doc.getMap('layerData');
+  const layers: unknown = doc.getArray('layers');
+  const onTransaction = (tr: Y.Transaction) => {
+    if (all) return;
+    for (const [type, keys] of tr.changed) {
+      if (type === layerData || type === layers) {
+        all = true;
+        return;
+      }
+      const item = type._item;
+      if (!item) continue;
+      if (type instanceof Y.Array) {
+        // Parts added to a sheet: the entries made in this transaction.
+        if (item.parentSub !== 'bricks') continue;
+        for (let n = type._start; n; n = n.right) {
+          if (n.deleted || n.id.clock < (tr.beforeState.get(n.id.client) ?? 0)) continue;
+          for (const c of n.content.getContent()) if (c instanceof Y.Map) bricks.add(c as Y.Map<unknown>);
+        }
+        continue;
+      }
+      if (!(type instanceof Y.Map)) continue;
+      if (item.parent === layerData) {
+        if (keys.has('bricks')) {
+          all = true;
+          return;
+        }
+        continue;
+      }
+      const list = item.parent;
+      if (list instanceof Y.Array && list._item?.parentSub === 'bricks') bricks.add(type as Y.Map<unknown>);
+    }
+  };
+  doc.on('afterTransaction', onTransaction);
+  return {
+    take: () => {
+      const out = all ? null : { bricks };
+      all = false;
+      bricks = new Set();
+      return out;
+    },
+    stop: () => doc.off('afterTransaction', onTransaction),
+  };
+}
+
 /**
  * Resize every brick whose displayArea doesn't match its part's footprint
  * (desktop fixStaleAreas), writing under CONNECTIVITY_ORIGIN so it is not
- * an undo step. Returns how many bricks changed. Exported for tests.
+ * an undo step. With `only`, just the parts changed there are looked at.
+ * Returns how many bricks changed. Exported for tests.
  */
-export function fixStaleAreasInDoc(doc: Y.Doc, partIndex: ReadonlyMap<string, PartWire>): number {
+export function fixStaleAreasInDoc(doc: Y.Doc, partIndex: ReadonlyMap<string, PartWire>, only: PartChanges | null = null): number {
   const fixes: Array<[Y.Map<unknown>, RectangleF]> = [];
-  doc.getMap('layerData').forEach((layer) => {
-    if (!(layer instanceof Y.Map)) return;
-    const bricks = layer.get('bricks');
-    if (!(bricks instanceof Y.Array)) return;
-    bricks.forEach((b) => {
-      if (!(b instanceof Y.Map)) return;
-      const partNumber = b.get('partNumber');
-      const displayArea = b.get('displayArea') as RectangleF | undefined;
-      if (typeof partNumber !== 'string' || !displayArea) return;
-      const orientation = (b.get('orientation') as number) ?? 0;
-      const fixed = staleAreaFix({ displayArea, orientation }, partIndex.get(partNumber.toLowerCase()));
-      if (fixed) fixes.push([b, fixed]);
+  const look = (b: unknown) => {
+    if (!(b instanceof Y.Map)) return;
+    const partNumber = b.get('partNumber');
+    const displayArea = b.get('displayArea') as RectangleF | undefined;
+    if (typeof partNumber !== 'string' || !displayArea) return;
+    const orientation = (b.get('orientation') as number) ?? 0;
+    const fixed = staleAreaFix({ displayArea, orientation }, partIndex.get(partNumber.toLowerCase()));
+    if (fixed) fixes.push([b, fixed]);
+  };
+  if (only) {
+    for (const b of only.bricks) if (!b._item?.deleted) look(b);
+  } else {
+    doc.getMap('layerData').forEach((layer) => {
+      if (!(layer instanceof Y.Map)) return;
+      const bricks = layer.get('bricks');
+      if (!(bricks instanceof Y.Array)) return;
+      bricks.forEach(look);
     });
-  });
+  }
   if (fixes.length > 0) {
     doc.transact(() => {
       for (const [b, area] of fixes) b.set('displayArea', area);

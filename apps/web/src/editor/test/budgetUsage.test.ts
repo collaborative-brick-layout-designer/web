@@ -3,7 +3,7 @@
 import { describe, expect, it } from 'vitest';
 import type { BbmMap } from '@cld/model';
 import type { PartWire } from '../../api';
-import { budgetRows, canAddToBudget, countUsage, effectiveLimit, limitFor, overBudgetCount, setLeafParts, withinBudget } from '../budgetUsage';
+import { budgetRows, canAddToBudget, countUsage, effectiveLimit, limitFor, overBudgetCount, sameBudgetOr, setLeafParts, withinBudget } from '../budgetUsage';
 
 function mapWith(parts: string[]): BbmMap {
   return {
@@ -90,5 +90,22 @@ describe('Use Budget Limitation (desktop canAddToBudget)', () => {
     // 3001.1 is full; 3710.1 has room for 4 more.
     expect(kept.map((b) => b.i)).toEqual([0, 2, 3, 4]);
     expect(refused).toBe(2);
+  });
+});
+
+// The budget is read again on every change to the map. A new Map each time
+// re-rendered the Parts list's every picture after anyone's move.
+describe('the budget read again', () => {
+  it('is the same Map while each limit is the same', () => {
+    const kept = new Map([['3001.1', 4], ['3024.5', 0]]);
+    expect(sameBudgetOr(kept, new Map([['3024.5', 0], ['3001.1', 4]]))).toBe(kept);
+    const empty = new Map<string, number>();
+    expect(sameBudgetOr(empty, new Map())).toBe(empty);
+    const changed = new Map([['3001.1', 5], ['3024.5', 0]]);
+    expect(sameBudgetOr(kept, changed)).toBe(changed);
+    const more = new Map([...kept, ['3622.1', 2]]);
+    expect(sameBudgetOr(kept, more)).toBe(more);
+    const other = new Map([['3001.1', 4], ['3023.5', 0]]);
+    expect(sameBudgetOr(kept, other)).toBe(other);
   });
 });

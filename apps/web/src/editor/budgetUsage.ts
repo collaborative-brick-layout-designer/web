@@ -154,3 +154,14 @@ export function withinBudget<T>(
   }
   return { kept, refused };
 }
+
+/**
+ * `next`, or `kept` when it has the same limit for each part: the budget is
+ * read again on every change to the map (anyone's move), and a new Map each
+ * time re-rendered the Parts list's every picture (about a thousand).
+ */
+export function sameBudgetOr<M extends ReadonlyMap<string, number>>(kept: M, next: M): M {
+  if (kept === next || kept.size !== next.size) return next;
+  for (const [part, limit] of next) if (kept.get(part) !== limit) return next;
+  return kept;
+}
