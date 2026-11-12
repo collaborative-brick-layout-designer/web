@@ -105,11 +105,11 @@ describe('BrickLayer re-render scope', () => {
     await act(async () => root.unmount());
   });
 
-  // On a layout with modules, each read of the sidecar gives a new list of
-  // modules (they're kept one per key and put together on each read), so
-  // every part's element was made again, and compared with the one before,
-  // on each render: a pan's render or one part moved went through every
-  // part. The list is kept while the modules are the same (web #564).
+  // On a layout with modules, a read of the sidecar can give a new list of
+  // modules that are the same (they're kept one per key and put together
+  // again when the sidecar changes), so every part's element was made
+  // again, and compared with the one before: one part moved went through
+  // every part. The list is kept while the modules are the same (web #564).
   it('on a layout with modules, a re-render or one part moved makes no other part again', async () => {
     const N = 600;
     const doc = createDefaultLayoutDoc();
@@ -125,9 +125,6 @@ describe('BrickLayer re-render scope', () => {
       transform: [1, 0, 0, 0, 1, 0, 0, 0, 1],
     }));
     doc.transact(() => writeSidecarCache(doc, { schemaVersion: 1, bbmHashSha256: '', modules }));
-    // (What makes this case: two reads give equal lists that aren't the same one.)
-    expect(readSidecarFromDoc(doc)!.modules).toEqual(readSidecarFromDoc(doc)!.modules);
-    expect(readSidecarFromDoc(doc)!.modules).not.toBe(readSidecarFromDoc(doc)!.modules);
 
     const qc = new QueryClient();
     qc.setQueryData(['parts-catalog'], { parts: [] });
@@ -156,6 +153,18 @@ describe('BrickLayer re-render scope', () => {
       expect(made).toBe(1);
       expect(prims).toBeLessThan(15);
     }
+
+    // A label added: the sidecar is read again, and its modules are put
+    // together again from their keys, the same but a new list. No part is made again.
+    const before = readSidecarFromDoc(doc)!.modules;
+    doc.transact(() =>
+      writeSidecarCache(doc, { ...readSidecarFromDoc(doc)!, anchoredLabels: [{ id: 'l1', text: 'Yard' }] } as unknown as Record<string, unknown>),
+    );
+    expect(readSidecarFromDoc(doc)!.modules).toEqual(before);
+    expect(readSidecarFromDoc(doc)!.modules).not.toBe(before);
+    made = 0;
+    await act(async () => root.render(render(projectDoc(doc)!)));
+    expect(made).toBe(0);
 
     // A module changed: every part is made with the new list, once.
     doc.transact(() =>
