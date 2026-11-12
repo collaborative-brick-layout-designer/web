@@ -140,8 +140,8 @@ import { pxToStud, studToPx } from './render/coords';
 import { SNAP_MARKS } from './render/selectionStyle';
 import { ensureSprite, getSpriteSync, resetSpriteProgress, subscribeSpriteProgress, wantSprites } from './render/spriteCache';
 import { ViewBitmap, VIEW_LIVE } from './render/viewBitmap';
-import { hitsHeld, holdHits, releaseHits } from './render/viewMoving';
-import { layoutSpriteUrls } from './render/layoutSprites';
+import { deferHitDraws, hitsHeld, holdHits, releaseHits, undeferHitDraws } from './render/viewMoving';
+import { layoutSpriteUrlsKept } from './render/layoutSprites';
 import { MapLoadingCard, OpeningLayoutScreen } from './LoadingCard';
 import { PlaceGhost } from './render/PlaceGhost';
 import { ModuleGhost } from './render/ModuleGhost';
@@ -2290,7 +2290,11 @@ function Canvas({
   /**
    * The view has stopped: the stage goes to it and the sheets are drawn
    * sharp on the next frame, and in that same frame the CSS that moved
-   * the canvas comes off.
+   * the canvas comes off. What a click lands on (the hit canvases) is
+   * drawn after that, once the page is idle, or at once when the pointer
+   * moves or presses first (freshHit): in the same frame as the sheets,
+   * the two made one long task of about 50 ms on 7,520 parts zoomed in at
+   * 4x slowed CPU.
    */
   function stopViewMoving(stage: Konva.Stage): void {
     hitStaleRef.current = true;
@@ -2301,16 +2305,18 @@ function Canvas({
     stage.setAttrs({ x: stageView.panX, y: stageView.panY, scaleX: stageView.zoom, scaleY: stageView.zoom });
     const vb = viewBitmapRef.current;
     vb?.thaw();
+    // The sheets alone: their hit canvases wait (freshHit).
+    deferHitDraws(stage);
     for (const layer of stage.getLayers()) layer.batchDraw();
     // Queued after the layers' draws, so it runs in the same frame, after them.
     Konva.Util.requestAnimFrame(() => {
-      hitStaleRef.current = false;
       vb?.settled();
+      whenIdle(() => drawStaleHits(stageRef.current, hitStaleRef));
     });
   }
   /**
    * The view has stopped, and the hit canvas (what a click lands on) is
-   * drawn with the sheets on the next frame. Until then it still has the
+   * drawn after the sheets, once the page is idle. Until then it still has the
    * map where it was before the move: it isn't drawn while the view moves.
    * A press that comes first (a fast click right after a pan, a zoom or a
    * pinch; on a quick machine it lands in that same frame) would hit what
@@ -2320,10 +2326,7 @@ function Canvas({
   const hitStaleRef = useRef(false);
   /** Draws the hit canvas now if it's behind the view, so a hit test sees the map where it is. */
   function freshHit(): void {
-    const stage = stageRef.current;
-    if (!stage || !hitStaleRef.current || hitsHeld(stage)) return;
-    hitStaleRef.current = false;
-    for (const layer of stage.getLayers()) if (layer.isListening()) layer.drawHit();
+    drawStaleHits(stageRef.current, hitStaleRef);
   }
   /** A catch-up of the stage to the view is waiting for its frame. */
   const catchUpRef = useRef(false);
@@ -2440,7 +2443,15 @@ function Canvas({
     el.addEventListener('pointerdown', settle, true);
     el.addEventListener('mousedown', settle, true);
     el.addEventListener('touchstart', settle, { capture: true, passive: true });
+    // A pointer moving over the map after the view stopped, before the
+    // hit canvas was drawn again (stopViewMoving): Konva's hover looks
+    // at it first.
+    const onMove = () => freshHit();
+    el.addEventListener('pointermove', onMove, true);
+    el.addEventListener('mousemove', onMove, true);
     return () => {
+      el.removeEventListener('pointermove', onMove, true);
+      el.removeEventListener('mousemove', onMove, true);
       el.removeEventListener('pointerdown', settle, true);
       el.removeEventListener('mousedown', settle, true);
       el.removeEventListener('touchstart', settle, true);
@@ -2724,11 +2735,12 @@ function Canvas({
   const partOf = (partNumber: string) => partsByKey.get(partNumber.toLowerCase());
   // Ask for every picture the shown layout needs at once, so the loading
   // card counts against the real total ("132 of 480") from the start.
+  const [spriteUrls] = useState(layoutSpriteUrlsKept);
   useEffect(() => {
     const m = shownMap ?? map;
     if (!m || !catalog.data) return;
-    wantSprites(layoutSpriteUrls(m, partsByKey));
-  }, [shownMap, map, partsByKey, catalog.data]);
+    wantSprites(spriteUrls(m, partsByKey));
+  }, [shownMap, map, partsByKey, catalog.data, spriteUrls]);
   const linkCatalog = useMemo(() => catalogFromParts(catalog.data?.parts), [catalog.data]);
   // Placed custom sets whose set changed since (sidecar `sets`, editor/setUpdates.ts).
   const setUpdates = useMemo(
@@ -6450,6 +6462,21 @@ function sheetsOfSelection(map: import('@cld/model').BbmMap, selection: readonly
   if (selection.length === 0) return [];
   const sel = new Set(selection);
   return map.layers.filter((l) => l.type === 'brick' && l.bricks.some((b) => sel.has(b.id))).map((l) => l.id);
+}
+
+/** Draws the stage's hit canvases if they're behind the view (`stale`), so a hit test sees the map where it is. */
+function drawStaleHits(stage: Konva.Stage | null, stale: { current: boolean }): void {
+  if (!stage || !stale.current || hitsHeld(stage)) return;
+  stale.current = false;
+  undeferHitDraws(stage);
+  for (const layer of stage.getLayers()) if (layer.isListening()) layer.drawHit();
+}
+
+/** Runs `run` once the page is idle (soon in any case). */
+function whenIdle(run: () => void): void {
+  const w = window as Window & { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number };
+  if (w.requestIdleCallback) w.requestIdleCallback(run, { timeout: 200 });
+  else window.setTimeout(run, 0);
 }
 
 /** Keyboard / View-menu zoom step (desktop MainWindowMenus.cpp:493-498). */

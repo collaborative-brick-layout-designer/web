@@ -12,7 +12,7 @@ import {
   retryFailedSprites,
   wantSprites,
 } from '../render/spriteCache';
-import { layoutSpriteUrls } from '../render/layoutSprites';
+import { layoutSpriteUrls, layoutSpriteUrlsKept } from '../render/layoutSprites';
 import { LATER_BATCH_DELAY_MS, LoadingCard, MapLoadingCard } from '../LoadingCard';
 import type { PartWire } from '../../api';
 
@@ -116,6 +116,45 @@ describe('layoutSpriteUrls', () => {
       ],
     } as unknown as BbmMap;
     expect([...layoutSpriteUrls(map, parts)]).toEqual(['/parts/3001.1.gif', '/parts/3002.1.gif']);
+  });
+});
+
+describe('layoutSpriteUrlsKept', () => {
+  it('gives what layoutSpriteUrls does, looking only at the parts that changed', () => {
+    const part = (key: string) => ({ key, partNumber: key, spritePath: `${key}.gif`, source: 'bundled', customPartId: null }) as unknown as PartWire;
+    const parts = new Map<string, PartWire>(['a', 'b', 'c', 'd'].map((k) => [k, part(k)]));
+    let looks = 0;
+    const counted = new Map(parts);
+    const get = counted.get.bind(counted);
+    counted.get = (k: string) => {
+      looks++;
+      return get(k);
+    };
+    const names = ['a', 'b', 'c', 'd', 'nope'];
+    let seed = 3;
+    const rnd = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;
+    const brick = () => ({ partNumber: names[Math.floor(rnd() * names.length)]! });
+    let sheets = [
+      { type: 'brick', id: 'L1', visible: true, bricks: Array.from({ length: 500 }, brick) },
+      { type: 'brick', id: 'L2', visible: true, bricks: Array.from({ length: 30 }, brick) },
+    ];
+    const urls = layoutSpriteUrlsKept();
+    const asMap = () => ({ layers: sheets }) as unknown as BbmMap;
+    expect(urls(asMap(), counted)).toEqual(layoutSpriteUrls(asMap(), parts));
+    for (let round = 0; round < 60; round++) {
+      const r = rnd();
+      const l = sheets[r < 0.8 ? 0 : 1]!;
+      const bricks = [...l.bricks];
+      if (r < 0.6) bricks[Math.floor(rnd() * bricks.length)] = brick(); // a part changed
+      else if (r < 0.75) bricks.splice(Math.floor(rnd() * bricks.length), 1); // taken out
+      else if (r < 0.9) bricks.push(brick()); // put in
+      sheets = sheets.map((s) => (s === l ? { ...l, bricks, visible: r < 0.95 ? l.visible : !l.visible } : s));
+      looks = 0;
+      const got = urls(asMap(), counted);
+      expect(new Set(got)).toEqual(layoutSpriteUrls(asMap(), parts));
+      // A part changed in place: it alone (and the part it replaced).
+      if (r < 0.6) expect(looks).toBeLessThanOrEqual(2);
+    }
   });
 });
 

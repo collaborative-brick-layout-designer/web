@@ -33,8 +33,8 @@ vi.mock('../moduleEdit', async (importOriginal) => {
   };
 });
 
-import { moveBrick, placeBrick } from '../mutations';
-import { BrickLayer } from '../render/BrickLayer';
+import { deleteBricks, moveBrick, placeBrick } from '../mutations';
+import { BrickLayer, inRuns, partRunRenders, startsRun } from '../render/BrickLayer';
 import { useEditorStore } from '../editorStore';
 import { projectDoc } from '../useDocMap';
 
@@ -178,5 +178,68 @@ describe('BrickLayer re-render scope', () => {
     expect(made).toBe(0);
 
     await act(async () => root.unmount());
+  });
+
+  // Someone else's move on 7,520 parts: React went through every part's
+  // element (all kept, none rendered again) after each change. The parts
+  // are in runs of about 64 now, each kept as one element while its parts
+  // are the same, so a change goes through its run only.
+  it('a part moved, put in or taken out goes through its run of parts only', async () => {
+    const N = 3000;
+    const doc = createDefaultLayoutDoc();
+    const layerId = docToBbm(doc).layers.find((l) => l.type === 'brick')!.id;
+    const ids: string[] = [];
+    doc.transact(() => {
+      for (let i = 0; i < N; i++) ids.push(placeBrick(doc, layerId, { partNumber: 'track.0', x: i * 16, y: 0, width: 16, height: 8 }));
+    });
+    const qc = new QueryClient();
+    qc.setQueryData(['parts-catalog'], { parts: [] });
+    const root = createRoot(document.createElement('div'));
+    const render = () => h(QueryClientProvider, { client: qc }, h(BrickLayer, { map: projectDoc(doc)!, doc }));
+    await act(async () => useEditorStore.getState().setSelection([]));
+    await act(async () => root.render(render()));
+    const runs = ids.filter((id, i) => i > 0 && startsRun(id)).length + 1;
+    expect(runs).toBeGreaterThan(N / 64 / 2);
+    expect(runs).toBeLessThan((N / 64) * 2);
+
+    const step = async (what: string, change: () => void, most: number) => {
+      change();
+      partRunRenders.count = 0;
+      made = 0;
+      await act(async () => root.render(render()));
+      expect(partRunRenders.count, what).toBeLessThanOrEqual(most);
+      expect(made, what).toBeLessThanOrEqual(1);
+    };
+    await step('moved', () => moveBrick(doc, layerId, ids[1234]!, 3, 3), 1);
+    await step('moved, the first', () => moveBrick(doc, layerId, ids[0]!, 3, 3), 1);
+    // One that starts a run, taken out: its run joins the one before.
+    const starter = ids.findIndex((id, i) => i > 100 && startsRun(id));
+    await step('a run start taken out', () => deleteBricks(doc, layerId, [ids[starter]!]), 1);
+    await step('taken out', () => deleteBricks(doc, layerId, [ids[2000]!]), 1);
+    await step('put in, on top', () => void placeBrick(doc, layerId, { partNumber: 'track.0', x: 0, y: 40, width: 16, height: 8 }), 1);
+    // A change to what every part is drawn with goes through them all.
+    await step('none', () => undefined, 0);
+    await act(async () => root.unmount());
+  });
+
+  it('runs keep the sheet order, and start where the ids say', () => {
+    const bricks = Array.from({ length: 2000 }, (_, i) => ({ id: `p${i}` }) as unknown as import('@cld/model').Brick);
+    const kept = { runs: new Map() };
+    const el = (b: import('@cld/model').Brick) => h('i', { key: b.id });
+    const order = (els: ReturnType<typeof inRuns>) => els.flatMap((r) => (r.props as { parts: { key: string }[] }).parts.map((p) => p.key));
+    const first = inRuns(bricks, kept, el);
+    expect(order(first)).toEqual(bricks.map((b) => b.id));
+    // The same parts: the same elements.
+    const again = inRuns(bricks, kept, el);
+    expect(again).toEqual(first);
+    again.forEach((r, i) => expect(r).toBe(first[i]));
+    // One taken out and one put on top: only the runs they're in are new.
+    const next = [...bricks.slice(0, 700), ...bricks.slice(701), { id: 'new' } as unknown as import('@cld/model').Brick];
+    const after = inRuns(next, kept, el);
+    expect(order(after)).toEqual(next.map((b) => b.id));
+    expect(after.filter((r) => !first.includes(r)).length).toBeLessThanOrEqual(2);
+    // A part there twice for a moment: the runs' keys stay apart.
+    const twice = inRuns([...next, ...next.slice(0, 300)], kept, el);
+    expect(new Set(twice.map((r) => r.key)).size).toBe(twice.length);
   });
 });

@@ -62,3 +62,35 @@ export function releaseHits(stage: Konva.Stage): void {
   else delete (stage as Partial<Konva.Stage>).getIntersection;
   delete stage.container().dataset.viewMoving;
 }
+
+// When the view stops, the sheets are drawn on the next frame and the hit
+// canvases after them (EditorPage's stopViewMoving): a draw of a sheet
+// asked for meanwhile (React bringing the stage up to date asks for one)
+// leaves its hit canvas for later too.
+const deferred = new WeakMap<Konva.Stage, { layer: Konva.Layer; own: Draw | undefined }[]>();
+
+/** Until `undeferHitDraws`, a draw of the stage's layers leaves their hit canvases as they are. */
+export function deferHitDraws(stage: Konva.Stage): void {
+  if (deferred.has(stage)) return;
+  const layers: { layer: Konva.Layer; own: Draw | undefined }[] = [];
+  for (const layer of stage.getLayers()) {
+    layers.push({ layer, own: Object.prototype.hasOwnProperty.call(layer, 'drawHit') ? layer.drawHit : undefined });
+    const base = layer.drawHit;
+    layer.drawHit = function (this: Konva.Layer, can, top) {
+      if (can || top) return base.call(this, can, top);
+      return this;
+    };
+  }
+  deferred.set(stage, layers);
+}
+
+/** The layers draw their hit canvases again (the caller draws them). */
+export function undeferHitDraws(stage: Konva.Stage): void {
+  const layers = deferred.get(stage);
+  if (!layers) return;
+  deferred.delete(stage);
+  for (const { layer, own } of layers) {
+    if (own) layer.drawHit = own;
+    else delete (layer as Partial<Konva.Layer>).drawHit;
+  }
+}

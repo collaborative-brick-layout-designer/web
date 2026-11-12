@@ -12,6 +12,9 @@ import { usePosedMap } from '../liveDragPose';
  * canvas. Pure: re-renders when awareness ticks. The presence panel
  * (sidebar) lives in PresencePanel.tsx and shares the same hook.
  */
+/** Between ids in `wanted` (not in any id). */
+const SEP = '\u0000';
+
 export function RemoteCursors({
   awareness,
   map: committedMap,
@@ -22,22 +25,28 @@ export function RemoteCursors({
   /** The map's zoom: cursors and outlines keep their size on screen at any zoom, as on the desktop. */
   zoom?: number;
 }) {
-  // The parts being dragged where they are now (liveDragPose.ts), so this
-  // follows the drag every frame, not only the drop.
-  // Only with others here to draw.
-  const map = usePosedMap(committedMap, () => !!awareness && [...awareness.getStates().keys()].some((c) => c !== awareness.clientID));
   const peers = useRemotePeers(awareness);
-  // Index every brick by id once per map (not per peer cursor move) so the
-  // per-peer selection lookup is O(selection-size).
+  // Index the bricks others have picked, once per map (not per peer
+  // cursor move), so the per-peer selection lookup is O(selection-size).
+  // Only those: indexing all 7,520 parts took about 18 ms of every change
+  // at 4x slowed CPU, and nothing at all when nobody else has a pick.
+  const wanted = peers.map(({ state }) => state.selection.brickIds.join(SEP)).filter((k) => k !== '').join(SEP);
+  // The parts being dragged where they are now (liveDragPose.ts), so this
+  // follows the drag every frame, not only the drop. Only when someone
+  // else has picked one of them: nothing else here moves with a drag (it
+  // drew again on every frame of a drag whenever others were here).
+  const map = usePosedMap(committedMap, (pose) => wanted !== '' && wanted.split(SEP).some((id) => pose.ids.has(id)));
   const brickIndex = useMemo(() => {
     const index = new Map<string, Brick>();
+    if (wanted === '') return index;
+    const want = new Set(wanted.split(SEP));
     for (const layer of map.layers) {
       if (layer.type === 'brick') {
-        for (const b of layer.bricks) index.set(b.id, b);
+        for (const b of layer.bricks) if (want.has(b.id)) index.set(b.id, b);
       }
     }
     return index;
-  }, [map]);
+  }, [map, wanted]);
   if (!awareness || peers.length === 0) return null;
   // One screen pixel, in map pixels.
   const px = 1 / (zoom > 0 ? zoom : 1);

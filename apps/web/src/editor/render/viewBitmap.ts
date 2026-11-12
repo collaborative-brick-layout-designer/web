@@ -665,8 +665,13 @@ export class ViewBitmap {
     const job = this.job;
     if (!job || this.frozen) return;
     const w = window as Window & { requestIdleCallback?: (cb: (d?: { timeRemaining: () => number }) => void, o?: { timeout: number }) => number };
-    do job.steps.shift()!();
-    while (job.steps.length > 0 && (!w.requestIdleCallback || (deadline?.timeRemaining() ?? 0) > 10));
+    // Another step only while the idle time left fits one more like the last.
+    let took: number;
+    do {
+      const t0 = performance.now();
+      job.steps.shift()!();
+      took = performance.now() - t0;
+    } while (job.steps.length > 0 && (!w.requestIdleCallback || (deadline?.timeRemaining() ?? 0) > Math.max(10, 1.5 * took)));
     if (job.steps.length > 0) {
       // (Soon even when the page isn't idle: the picture is wanted for the next move.)
       this.jobHandle = w.requestIdleCallback!((d) => this.stepJob(d), { timeout: 50 });
