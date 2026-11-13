@@ -350,6 +350,200 @@ function connectionsCached(
   return entry;
 }
 
+/**
+ * Where the map's connections are, in cells of GRID_STUDS, kept from one
+ * layout to the next: a new layout (after a drop, anyone's move) updates
+ * only the parts that are new objects. A drag's start put every part's
+ * ends in one list (about 25 ms on 7,520 parts at 4x slowed CPU, and as
+ * much again collecting the garbage), and each of its frames went through
+ * that list; it now looks at the cells around the dragged ends.
+ */
+const GRID_STUDS = 16;
+/** Off: every end is gone through, as before (for tests). `looked`: how many ends were (for tests). */
+export const snapIndex = { enabled: true, looked: 0 };
+
+interface GridEntry {
+  c: OwnedWorldConnection | LinkedWorldConnection;
+  linked: boolean;
+  layerId: string;
+  /** The brick's index in its sheet, and the connection's on its part (the order the whole list had). */
+  bi: number;
+  cx: number;
+  cy: number;
+}
+
+interface GridSheet {
+  bricks: readonly Brick[];
+  entries: GridEntry[][];
+}
+
+class ConnGrid {
+  private sheets = new Map<string, GridSheet>();
+  private cells = new Map<number | string, GridEntry[]>();
+  private map: BbmMap | null = null;
+  /** The sheets' order in the map, for ordering what is found as the whole list was. */
+  order = new Map<string, number>();
+  /** Free ends in all, and per brick id. */
+  freeTotal = 0;
+  freeOf = new Map<string, number>();
+  constructor(private readonly partsByKey: Map<string, PartWire>, private readonly own: WeakMap<Brick, { conns: OwnedWorldConnection[]; linked: LinkedWorldConnection[] }>) {}
+
+  update(map: BbmMap): void {
+    if (map === this.map) return;
+    this.map = map;
+    this.order.clear();
+    const seen = new Set<string>();
+    map.layers.forEach((layer, li) => {
+      if (!isBrickLayer(layer)) return;
+      this.order.set(layer.id, li);
+      seen.add(layer.id);
+      const sheet = this.sheets.get(layer.id);
+      const bricks = layer.bricks;
+      if (!sheet || sheet.bricks.length !== bricks.length) {
+        if (sheet) this.dropSheet(sheet);
+        this.addSheet(layer.id, bricks);
+        return;
+      }
+      if (sheet.bricks === bricks) return;
+      for (let bi = 0; bi < bricks.length; bi++) {
+        const b = bricks[bi]!;
+        const was = sheet.bricks[bi]!;
+        if (b === was) continue;
+        if (b.id !== was.id) {
+          // Reordered: the sheet again from the start.
+          this.dropSheet(sheet);
+          this.addSheet(layer.id, bricks);
+          return;
+        }
+        this.dropEntries(sheet.entries[bi]!);
+        sheet.entries[bi] = this.addBrick(layer.id, b, bi);
+      }
+      sheet.bricks = bricks;
+    });
+    for (const [id, sheet] of this.sheets) {
+      if (seen.has(id)) continue;
+      this.dropSheet(sheet);
+      this.sheets.delete(id);
+    }
+  }
+
+  /** The entries in the cells within `r` of (x, y), onto `out`; false when that would be most of the cells (then go through them all). */
+  near(x: number, y: number, r: number, out: GridEntry[]): boolean {
+    const x0 = Math.floor((x - r) / GRID_STUDS);
+    const x1 = Math.floor((x + r) / GRID_STUDS);
+    const y0 = Math.floor((y - r) / GRID_STUDS);
+    const y1 = Math.floor((y + r) / GRID_STUDS);
+    if (!(Number.isFinite(x0) && Number.isFinite(x1) && Number.isFinite(y0) && Number.isFinite(y1)) || (x1 - x0 + 1) * (y1 - y0 + 1) > this.cells.size) return false;
+    for (let cx = x0; cx <= x1; cx++) {
+      for (let cy = y0; cy <= y1; cy++) {
+        const arr = this.cells.get(cellKey(cx, cy));
+        if (arr) for (const e of arr) out.push(e);
+      }
+    }
+    return true;
+  }
+
+  /** Every entry. */
+  all(out: GridEntry[]): void {
+    for (const arr of this.cells.values()) for (const e of arr) out.push(e);
+  }
+
+  private addSheet(id: string, bricks: readonly Brick[]): void {
+    const entries: GridEntry[][] = new Array(bricks.length);
+    for (let bi = 0; bi < bricks.length; bi++) entries[bi] = this.addBrick(id, bricks[bi]!, bi);
+    this.sheets.set(id, { bricks, entries });
+  }
+
+  private dropSheet(sheet: GridSheet): void {
+    for (const e of sheet.entries) this.dropEntries(e);
+  }
+
+  private addBrick(layerId: string, b: Brick, bi: number): GridEntry[] {
+    let own = this.own.get(b);
+    if (!own) this.own.set(b, (own = brickConnections(b, this.partsByKey)));
+    const out: GridEntry[] = [];
+    const put = (c: OwnedWorldConnection | LinkedWorldConnection, linked: boolean) => {
+      const e: GridEntry = { c, linked, layerId, bi, cx: Math.floor(c.x / GRID_STUDS), cy: Math.floor(c.y / GRID_STUDS) };
+      const key = cellKey(e.cx, e.cy);
+      const arr = this.cells.get(key);
+      if (arr) arr.push(e);
+      else this.cells.set(key, [e]);
+      out.push(e);
+    };
+    for (const c of own.conns) put(c, false);
+    for (const c of own.linked) put(c, true);
+    if (own.conns.length > 0) {
+      this.freeTotal += own.conns.length;
+      this.freeOf.set(b.id, (this.freeOf.get(b.id) ?? 0) + own.conns.length);
+    }
+    return out;
+  }
+
+  private dropEntries(entries: readonly GridEntry[]): void {
+    for (const e of entries) {
+      const key = cellKey(e.cx, e.cy);
+      const arr = this.cells.get(key);
+      if (!arr) continue;
+      const i = arr.indexOf(e);
+      if (i >= 0) arr.splice(i, 1);
+      if (arr.length === 0) this.cells.delete(key);
+      if (!e.linked) {
+        this.freeTotal--;
+        const n = (this.freeOf.get(e.c.brickId) ?? 1) - 1;
+        if (n > 0) this.freeOf.set(e.c.brickId, n);
+        else this.freeOf.delete(e.c.brickId);
+      }
+    }
+  }
+}
+
+/** A cell's key: a number for any cell a layout really has, a string past that. */
+function cellKey(cx: number, cy: number): number | string {
+  const span = 1 << 24;
+  if (cx > -span && cx < span && cy > -span && cy < span) return (cx + span) * 2 * span + (cy + span);
+  return `${cx},${cy}`;
+}
+
+const grids = new WeakMap<Map<string, PartWire>, ConnGrid>();
+function connGrid(map: BbmMap, partsByKey: Map<string, PartWire>): ConnGrid {
+  let g = grids.get(partsByKey);
+  if (!g) {
+    let kept = brickConnCache.get(partsByKey);
+    if (!kept) brickConnCache.set(partsByKey, (kept = new WeakMap()));
+    grids.set(partsByKey, (g = new ConnGrid(partsByKey, kept)));
+  }
+  g.update(map);
+  return g;
+}
+
+/**
+ * The free ends within `r` of (x, y) that a drag of `excludeIds` can snap
+ * to, in the order the whole list of them has (every free end, sheet by
+ * sheet and part by part, then the ends linked to the moving set): the
+ * same candidates, in the same order, as going through that list.
+ */
+function targetsNear(grid: ConnGrid, x: number, y: number, r: number, excludeIds: ReadonlySet<string>, keys: ReadonlySet<string>): OwnedWorldConnection[] {
+  const found: GridEntry[] = [];
+  if (!snapIndex.enabled || !grid.near(x, y, r, found)) {
+    found.length = 0;
+    grid.all(found);
+  }
+  snapIndex.looked += found.length;
+  const ok = found.filter((e) => !excludeIds.has(e.c.brickId) && (!e.linked || keys.has((e.c as LinkedWorldConnection).linkedTo)));
+  ok.sort((a, b) => Number(a.linked) - Number(b.linked) || grid.order.get(a.layerId)! - grid.order.get(b.layerId)! || a.bi - b.bi || a.c.index - b.c.index);
+  return ok.map((e) => e.c);
+}
+
+/** Whether a drag of `excludeIds` has any end to snap to at all (the whole list wasn't empty). */
+function anyTarget(grid: ConnGrid, excludeIds: ReadonlySet<string>, keys: ReadonlySet<string>): boolean {
+  let moving = 0;
+  for (const id of excludeIds) moving += grid.freeOf.get(id) ?? 0;
+  if (grid.freeTotal - moving > 0) return true;
+  const all: GridEntry[] = [];
+  grid.all(all);
+  return all.some((e) => e.linked && !excludeIds.has(e.c.brickId) && keys.has((e.c as LinkedWorldConnection).linkedTo));
+}
+
 interface MatchOffset {
   /** Rotation-aligned centre — where the brick should be placed with `newOrientation`. */
   newCentreX: number;
@@ -670,7 +864,9 @@ export function liveDragSnap(
     ...siblings.map((s) => ({ id: s.id, connexions: s.links })),
     ...[...movingSet].map((id) => ({ id, connexions: [] })),
   ]);
-  const targets = reach > 0 ? collectFreeConnectionsExcludingSet(map, partsByKey, movingSet, keys) : [];
+  // The map's ends by place (`ConnGrid`): each moving end looks only near itself.
+  const grid = reach > 0 ? connGrid(map, partsByKey) : null;
+  const hasTargets = grid ? anyTarget(grid, movingSet, keys) : false;
   const single = siblings.length === 0;
 
   // Free connections on every moving brick at its CURRENT pose. Skip
@@ -761,7 +957,7 @@ export function liveDragSnap(
   const pairs = (candidates: MovingConn[]): Pair[] => {
     const out: Pair[] = [];
     for (const mc of candidates) {
-      for (const tc of targets) {
+      for (const tc of targetsNear(grid!, mc.worldX, mc.worldY, limit, movingSet, keys)) {
         if (tc.type !== mc.type) continue;
         const dx = tc.x - mc.worldX;
         const dy = tc.y - mc.worldY;
@@ -789,7 +985,7 @@ export function liveDragSnap(
   };
 
   let best: Pair | null = null;
-  if (reach > 0 && movingConns.length > 0 && targets.length > 0) {
+  if (reach > 0 && movingConns.length > 0 && hasTargets) {
     // Measured from where the pointer has the parts (never the snapped
     // pose), so the hold and switch rules see a steady end.
     best = choose(pairs(hasLead ? (lead ? [lead] : []) : movingConns));
@@ -940,48 +1136,3 @@ function gridFallback(drag: DragSnapInput, movingConnCount: number): DragSnapRes
   return { ...base, centreX: drag.centreX + shift.x, centreY: drag.centreY + shift.y };
 }
 
-/**
- * Same as `collectFreeConnectionsInWorld` but skips every brick whose
- * id is in `excludeIds` so a multi-brick drag can't snap to its own
- * free connections.
- */
-function collectFreeConnectionsExcludingSet(
-  map: BbmMap,
-  partsByKey: Map<string, PartWire>,
-  excludeIds: Set<string>,
-  keys: ReadonlySet<string>,
-): OwnedWorldConnection[] {
-  // A drag asks on every frame with the same layout and moving parts: the
-  // list is kept for those (it was every free connection of the layout
-  // again on each frame, about 3 ms of each at 4x slowed CPU on 7,520 parts).
-  const last = lastExcluding;
-  if (last && last.map === map && last.partsByKey === partsByKey && sameSet(last.excludeIds, excludeIds) && sameSet(last.keys, keys)) return last.out;
-  const out = freeConnectionsExcludingSet(map, partsByKey, excludeIds, keys);
-  lastExcluding = { map, partsByKey, excludeIds: new Set(excludeIds), keys: new Set(keys), out };
-  return out;
-}
-let lastExcluding: { map: BbmMap; partsByKey: Map<string, PartWire>; excludeIds: ReadonlySet<string>; keys: ReadonlySet<string>; out: OwnedWorldConnection[] } | null = null;
-
-function sameSet(a: ReadonlySet<string>, b: ReadonlySet<string>): boolean {
-  if (a.size !== b.size) return false;
-  for (const v of a) if (!b.has(v)) return false;
-  return true;
-}
-
-function freeConnectionsExcludingSet(
-  map: BbmMap,
-  partsByKey: Map<string, PartWire>,
-  excludeIds: Set<string>,
-  keys: ReadonlySet<string>,
-): OwnedWorldConnection[] {
-  const { conns, linked } = connectionsCached(map, partsByKey);
-  const out: OwnedWorldConnection[] = [];
-  for (const c of conns) {
-    if (!excludeIds.has(c.brickId)) out.push(c);
-  }
-  // An end linked to a part being dragged away is free again.
-  for (const c of linked) {
-    if (!excludeIds.has(c.brickId) && keys.has(c.linkedTo)) out.push(c);
-  }
-  return out;
-}
