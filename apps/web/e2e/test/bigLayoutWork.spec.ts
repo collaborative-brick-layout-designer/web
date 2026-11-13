@@ -28,7 +28,7 @@ import { test, expect, type Page } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { signIn, mapMenu } from '../helpers';
+import { signIn, mapMenu, partPicturesReady } from '../helpers';
 
 const FORDYCE_BBM = readFileSync(
   join(dirname(fileURLToPath(import.meta.url)), '../../../../packages/bbm/tests/fixtures/fordyce-2026.bbm'),
@@ -76,6 +76,22 @@ async function untilSharp(page: Page): Promise<number> {
   const t0 = Date.now();
   await expect.poll(soft, { timeout: 3000, intervals: [25] }).toBe(false);
   return Date.now() - t0;
+}
+
+/**
+ * Waits until the next pan starts on the picture kept for it (viewBitmap.ts
+ * takes it while the page is idle after the map changed or the view moved).
+ * Until then a pan's start takes it, every part drawn: on a cold server the
+ * part pictures arrive late, each one puts the picture off, and the first
+ * pan came before it was ready.
+ */
+async function pictureReady(page: Page): Promise<void> {
+  const ready = () =>
+    page.evaluate(() => {
+      type St = { viewPictureReady?: () => boolean };
+      return (window as unknown as { Konva: { stages: St[] } }).Konva.stages[0]!.viewPictureReady?.() ?? false;
+    });
+  await expect.poll(ready, { timeout: 15000, intervals: [50] }).toBe(true);
 }
 
 /** Draws every listening layer's hit canvas once; how many shapes that is. */
@@ -189,12 +205,14 @@ test('a big layout: pan, zoom and box-select draw what changed, and the export i
   await page.goto(`/editor/${id}`);
   await expect(page.getByTestId('loading-card')).toBeHidden({ timeout: 60000 });
   await expect(page.getByText('940 pieces').first()).toBeVisible();
+  await partPicturesReady(page);
   await page.getByRole('button', { name: 'Fit', exact: true }).click();
   await page.waitForTimeout(800);
   const area = (await page.locator('.konvajs-content').first().boundingBox())!;
   const c = { x: area.x + area.width / 2, y: area.y + area.height / 2 };
   const once = await oneHitDraw(page);
   expect(once).toBeGreaterThan(900);
+  await pictureReady(page);
 
   // ── Pan with the middle button: the hit canvas once, at the end. ──
   let done = await count(page);
@@ -219,6 +237,7 @@ test('a big layout: pan, zoom and box-select draw what changed, and the export i
   // ── The wheel: the same, and a click straight after picks the part under it. ──
   await page.getByRole('button', { name: 'Fit', exact: true }).click();
   await page.waitForTimeout(500);
+  await pictureReady(page);
   done = await count(page);
   for (let i = 0; i < 8; i++) {
     await page.mouse.wheel(0, i < 4 ? -100 : 100);
@@ -236,6 +255,8 @@ test('a big layout: pan, zoom and box-select draw what changed, and the export i
   // ── A box-select drag: the box moves, the parts don't redraw. ──
   await page.getByRole('button', { name: 'Fit', exact: true }).click();
   await page.waitForTimeout(500);
+  // (The view's move to Fit is over: drawn sharp, the next picture taken.)
+  await pictureReady(page);
   await page.mouse.move(area.x + 3, area.y + 3);
   await page.mouse.down();
   await page.mouse.move(area.x + 10, area.y + 10);
@@ -281,6 +302,7 @@ test('a big layout: while the view moves the map is one moving picture, kept up 
   await page.goto(`/editor/${id}`);
   await expect(page.getByTestId('loading-card')).toBeHidden({ timeout: 60000 });
   await expect(page.getByText('940 pieces').first()).toBeVisible();
+  await partPicturesReady(page);
   await page.getByRole('button', { name: 'Fit', exact: true }).click();
   await page.waitForTimeout(800);
   const area = (await page.locator('.konvajs-content').first().boundingBox())!;
@@ -424,6 +446,7 @@ test('a big layout: a pan renders nothing in React and moves the canvas, not the
   await page.goto(`/editor/${id}`);
   await expect(page.getByTestId('loading-card')).toBeHidden({ timeout: 60000 });
   await expect(page.getByText('940 pieces').first()).toBeVisible();
+  await partPicturesReady(page);
   await page.getByRole('button', { name: 'Fit', exact: true }).click();
   await page.waitForTimeout(1500);
   expect(await commits(), 'the hook sees React commit').toBeGreaterThan(10);
@@ -524,6 +547,7 @@ test.describe('on a touch screen', () => {
     await page.goto(`/editor/${id}`);
     await expect(page.getByTestId('loading-card')).toBeHidden({ timeout: 60000 });
     await expect(page.getByText('940 pieces').first()).toBeVisible();
+    await partPicturesReady(page);
     await page.getByRole('button', { name: 'Fit', exact: true }).click();
     await page.waitForTimeout(1500);
     const area = (await page.locator('.konvajs-content').first().boundingBox())!;
@@ -547,6 +571,7 @@ test('a big layout: a turn of the wheel renders next to nothing in React, and th
   await page.goto(`/editor/${id}`);
   await expect(page.getByTestId('loading-card')).toBeHidden({ timeout: 60000 });
   await expect(page.getByText('940 pieces').first()).toBeVisible();
+  await partPicturesReady(page);
   await page.getByRole('button', { name: 'Fit', exact: true }).click();
   await page.waitForTimeout(1500);
   const area = (await page.locator('.konvajs-content').first().boundingBox())!;

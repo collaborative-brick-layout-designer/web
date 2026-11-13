@@ -3,7 +3,7 @@
 // progress bar, then nothing — or "3 pictures couldn't load" with Retry.
 
 import { useEffect, useState, useSyncExternalStore } from 'react';
-import { getSpriteProgress, retryFailedSprites, subscribeSpriteProgress } from './render/spriteCache';
+import { getSpriteProgress, retryFailedSprites, subscribeSpriteProgress, type SpriteProgress } from './render/spriteCache';
 import { formatBytes, getDownloadProgress, subscribeDownloadProgress } from './layoutDownload';
 
 /** A later batch (one new part, say) only shows its card if it takes this long. */
@@ -102,6 +102,19 @@ export function OpeningLayoutScreen() {
 export function MapLoadingCard({ catalogLoading }: { catalogLoading: boolean }) {
   const p = useSyncExternalStore(subscribeSpriteProgress, getSpriteProgress);
   const pending = p.wanted - p.loaded - p.failed;
+  // Whether every picture the map asked for has arrived (or failed), for
+  // tests that count draws: a picture arriving draws its part again. Not
+  // "ready" before the map has asked for any.
+  const ready = !catalogLoading && p.wanted > 0 && pending <= 0;
+  return (
+    <>
+      <MapLoadingCardBody catalogLoading={catalogLoading} p={p} pending={pending} />
+      <span hidden data-testid="part-pictures" data-state={ready ? 'ready' : 'loading'} />
+    </>
+  );
+}
+
+function MapLoadingCardBody({ catalogLoading, p, pending }: { catalogLoading: boolean; p: SpriteProgress; pending: number }) {
   // A later batch waits a moment, so a quick picture doesn't flash a card.
   const [laterShown, setLaterShown] = useState(false);
   useEffect(() => {

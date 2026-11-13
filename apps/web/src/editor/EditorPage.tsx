@@ -2466,6 +2466,8 @@ function Canvas({
     const vb = new ViewBitmap(stage, () => stage.getLayers().filter((l) => VIEW_BITMAP_LAYERS.some((n) => l.hasName(n))));
     vb.watchLayers();
     viewBitmapRef.current = vb;
+    // For tests that count a pan's draws (e2e bigLayoutWork): whether the next move starts on the kept picture.
+    (stage as unknown as { viewPictureReady?: () => boolean }).viewPictureReady = () => vb.ready();
     const changed = () => vb.invalidate();
     doc.on('update', changed);
     const offSprites = subscribeSpriteProgress(changed);
@@ -2483,6 +2485,7 @@ function Canvas({
       offSprites();
       offStore();
       vb.dispose();
+      delete (stage as unknown as { viewPictureReady?: unknown }).viewPictureReady;
       if (viewBitmapRef.current === vb) viewBitmapRef.current = null;
     };
   }, [hasMap, doc]);

@@ -277,6 +277,16 @@ export class ViewBitmap {
     }
   }
 
+  /**
+   * Whether the next move starts on the kept picture: one is of this view
+   * and this map, and none is being taken. (Tests that count a pan's draws
+   * wait for it: until then the move's start takes the picture, every part
+   * drawn, as when the map is still busy after opening.)
+   */
+  ready(): boolean {
+    return !this.frozen && !this.job && this.fits();
+  }
+
   dispose(): void {
     this.thaw();
     for (const layer of [...this.hidden]) this.show(layer);

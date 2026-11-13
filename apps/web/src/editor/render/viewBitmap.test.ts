@@ -108,6 +108,23 @@ describe('the picture for the next pan', () => {
     vb.thaw();
   });
 
+  it('says when the next move starts on the kept picture', () => {
+    vb.invalidate();
+    expect(vb.ready()).toBe(false);
+    vi.advanceTimersByTime(1100);
+    idleMoment();
+    // Half taken.
+    expect(vb.ready()).toBe(false);
+    while (idle.size > 0) idleMoment();
+    expect(vb.ready()).toBe(true);
+    vb.freeze();
+    expect(vb.ready()).toBe(false);
+    vb.thaw();
+    // The view moved: the picture is of another view.
+    stage.x(stage.x() + 10);
+    expect(vb.ready()).toBe(false);
+  });
+
   it('brings it up to date after a change while it is taken, and a move takes it at once', () => {
     vb.invalidate();
     vi.advanceTimersByTime(1100);

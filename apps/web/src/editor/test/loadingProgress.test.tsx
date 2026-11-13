@@ -196,6 +196,23 @@ describe('MapLoadingCard', () => {
     expect(screen.queryByTestId('loading-failed')).toBeNull();
   });
 
+  it('marks the pictures ready only once the map asked for some and all arrived or failed', async () => {
+    const { rerender } = render(<MapLoadingCard catalogLoading />);
+    const state = () => screen.getByTestId('part-pictures').dataset.state;
+    expect(state()).toBe('loading');
+    rerender(<MapLoadingCard catalogLoading={false} />);
+    // Nothing asked for yet (the map hasn't mounted): not ready.
+    expect(state()).toBe('loading');
+    act(() => wantSprites(['/a.png', '/b.png']));
+    expect(state()).toBe('loading');
+    finish('/a.png');
+    await settle();
+    expect(state()).toBe('loading');
+    finish('/b.png', false);
+    await settle();
+    expect(state()).toBe('ready');
+  });
+
   it('says plainly what failed and retries it', async () => {
     render(<MapLoadingCard catalogLoading={false} />);
     act(() => wantSprites(['/a.png', '/b.png']));
