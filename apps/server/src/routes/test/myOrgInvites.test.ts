@@ -4,9 +4,12 @@
 
 import Fastify, { type FastifyInstance } from 'fastify';
 import cookie from '@fastify/cookie';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
-import { db, loginAs, resetDb, schema, signupCookieOf, testVerificationToken } from '../../test/helpers.js';
+import { db, loginAs, resetDb, schema, testVerificationToken } from '../../test/helpers.js';
+
+// No real email: the confirmation is read from the database.
+vi.mock('../../email/sendVerification.js', () => ({ sendVerificationEmail: async () => true }));
 import { attachUser } from '../../auth/cookie.js';
 import { passwordRoutes } from '../auth/password.js';
 import { orgRoutes } from '../orgs.js';
@@ -72,8 +75,26 @@ describe('GET /api/me/org-invites', () => {
     await db.insert(schema.platformSettings).values({ id: 'singleton', ...row }).onConflictDoUpdate({ target: schema.platformSettings.id, set: row });
   }
 
-  it('lists nothing until the address is proven, whatever the site asks for', async () => {
+  /** Admin › Settings › SMTP server set up, or not (invite emails are sent before it's switched on). */
+  async function smtpSetUp(on: boolean): Promise<void> {
+    await db.update(schema.platformSettings).set({ smtpHost: on ? 'smtp.example.invalid' : null, smtpFrom: on ? 'site@example.com' : null }).where(eq(schema.platformSettings.id, 'singleton'));
+  }
+
+  it('with no email set up, lists invites as before: for a stored verified address, or anyone while checks are off', async () => {
     await call(admin, 'POST', '/api/orgs/arklug/invites', { email: 'bob@example.com', role: 'member' });
+    await db.update(schema.users).set({ emailProvenAt: null }).where(eq(schema.users.id, bob.id));
+    await requireVerification(true);
+    expect((await mine(bob)).invites).toHaveLength(1);
+    await db.update(schema.users).set({ emailVerified: false }).where(eq(schema.users.id, bob.id));
+    expect((await mine(bob)).invites).toEqual([]);
+    await requireVerification(false);
+    expect((await mine(bob)).invites).toHaveLength(1);
+  });
+
+  it('with email set up, lists nothing until the address is proven, whatever the site asks for', async () => {
+    await call(admin, 'POST', '/api/orgs/arklug/invites', { email: 'bob@example.com', role: 'member' });
+    await requireVerification(true);
+    await smtpSetUp(true);
     expect((await mine(bob)).invites).toHaveLength(1);
     // Stored as verified but never proven (made while email checks were off).
     await db.update(schema.users).set({ emailProvenAt: null }).where(eq(schema.users.id, bob.id));
@@ -89,10 +110,11 @@ describe('GET /api/me/org-invites', () => {
     }
   });
 
-  it('an account made while the site does not ask for confirmation sees and accepts an invite only once it confirms its email', async () => {
+  it('with email set up, an account made while the site does not ask for confirmation sees and accepts an invite only once it confirms its email', async () => {
     await requireVerification(false);
     const res = await call(admin, 'POST', '/api/orgs/arklug/invites', { email: 'newbie@example.com', role: 'admin' });
     expect(res.statusCode).toBe(200);
+    await smtpSetUp(true);
     const inviteToken = (res.json() as { token: string }).token;
     const reg = await app.inject({ method: 'POST', url: '/api/auth/password/register', payload: { email: 'newbie@example.com', password: 'correct horse battery', displayName: 'Newbie' } });
     expect(reg.json()).toEqual({ ok: true, verificationRequired: false });
@@ -107,17 +129,13 @@ describe('GET /api/me/org-invites', () => {
     expect(early.statusCode).toBe(403);
     expect(early.json()).toEqual({ error: 'email_not_verified' });
 
-    // "Confirm your email", then the link opened in the same browser.
+    // "Confirm your email", then the link opened signed in.
     const ask = await call(newbie, 'POST', '/api/auth/password/confirm-email', {});
     expect(ask.statusCode, ask.body).toBe(200);
     const row = db.select().from(schema.emailVerifications).all()[0]!;
-    const opened = await app.inject({
-      method: 'POST',
-      url: `/api/auth/password/verify-email/${await testVerificationToken(row)}`,
-      headers: { cookie: signupCookieOf(ask) },
-    });
+    const opened = await call(newbie, 'POST', `/api/auth/password/verify-email/${await testVerificationToken(row)}`);
     expect(opened.statusCode, opened.body).toBe(200);
-    expect(opened.json()).toEqual({ ok: true, needsPassword: false });
+    expect(opened.json()).toEqual({ ok: true, needsPassword: false, confirmed: true });
     // The browser that asked stays signed in, and now sees the invite and can accept it.
     expect((await mine(newbie)).invites.map((i) => i.token)).toEqual([inviteToken]);
     expect((await call(newbie, 'POST', `/api/org-invites/${inviteToken}`)).statusCode).toBe(200);

@@ -34,6 +34,12 @@ export interface Me {
    * confirmed (ConfirmEmailPrompt). Older servers leave it out.
    */
   emailProven?: boolean;
+  /**
+   * Invites and hand-overs sent to the address wait until it's confirmed:
+   * offer the confirmation email (ConfirmEmailPrompt). False when the
+   * address is proven, or the site can't send email. Older servers leave it out.
+   */
+  needsEmailConfirm?: boolean;
   /** Only on the demo account: how often it resets, and when next. */
   demo?: DemoStatus;
 }
@@ -138,6 +144,8 @@ const ERROR_MESSAGES: Record<string, string> = {
   suspended: 'This account is read-only for now. Ask the site admin why.',
   rate_limited: 'Too many requests at once. Please wait a minute and try again.',
   verify_email_first: 'Please confirm your email address first.',
+  confirm_sign_in_first: 'Sign in to the account this email belongs to, and this link confirms it.',
+  confirm_other_account: 'This link confirms the email of a different account from the one you’re signed in to.',
   confirm_email_sent_recently: 'We just sent you a confirmation email. Check your inbox (and spam), or try again in a couple of minutes.',
   demo_off: 'The demo isn’t available right now.',
   transfer_to_club_only: 'A module can only be moved to a club you’re in. Make a copy for one person instead.',
@@ -607,8 +615,25 @@ export const api = {
   resendVerification: (email: string, next?: string) =>
     post<{ ok: true }>('/api/auth/password/resend-verification', { email, ...(next && next !== '/' ? { next } : {}) }),
   /** `needsPassword`: signed in, but the account has no password yet; ask for one (setPassword). */
-  verifyEmail: (token: string) =>
-    post<{ ok: true; needsPassword?: boolean }>(`/api/auth/password/verify-email/${encodeURIComponent(token)}`),
+  /**
+   * `confirmed`: a "Confirm your email" link, opened signed in to its
+   * account. A failure carries the server's `code` (confirm_sign_in_first,
+   * confirm_other_account: the page says what to do).
+   */
+  verifyEmail: async (token: string): Promise<{ ok: true; needsPassword?: boolean; confirmed?: boolean }> => {
+    const path = `/api/auth/password/verify-email/${encodeURIComponent(token)}`;
+    const res = await reach(fetch(path, { method: 'POST', credentials: 'include' }));
+    if (!res.ok) {
+      const code = await res
+        .clone()
+        .json()
+        .then((b: { error?: unknown }) => (typeof b?.error === 'string' ? b.error : undefined))
+        .catch(() => undefined);
+      throw Object.assign(new Error(await friendlyErrorMessage(res, 'POST', path)), { code });
+    }
+    noteWrite('POST', path);
+    return res.json() as Promise<{ ok: true; needsPassword?: boolean; confirmed?: boolean }>;
+  },
   /** Change the password (needs the current one). Signs out every other browser and desktop app. */
   changePassword: (currentPassword: string, newPassword: string) =>
     post<{ ok: true; signedOutBrowsers: number; signedOutDesktops: number }>('/api/auth/password/change', { currentPassword, newPassword }),

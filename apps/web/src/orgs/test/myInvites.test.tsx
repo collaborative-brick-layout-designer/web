@@ -46,7 +46,7 @@ describe('MyInvites', () => {
       calls.push(`${init?.method ?? 'GET'} ${url}`);
       const body =
         url === '/api/auth/me'
-          ? { user: { id: 'u1', email: 'pat@example.com', displayName: 'Pat', avatarUrl: null, isDemoAccount: false, isGlobalAdmin: false, linkedProviders: [], emailProven: false } }
+          ? { user: { id: 'u1', email: 'pat@example.com', displayName: 'Pat', avatarUrl: null, isDemoAccount: false, isGlobalAdmin: false, linkedProviders: [], emailProven: false, needsEmailConfirm: true } }
           : url === '/api/auth/providers'
             ? { providers: [], passwordEnabled: true }
             : url === '/api/auth/password/confirm-email'

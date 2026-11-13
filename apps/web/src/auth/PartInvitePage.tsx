@@ -45,7 +45,7 @@ export function PartInvitePage() {
   const matches = !!preview.data && !!me.data?.user && preview.data.forYou === true;
   // An address not confirmed yet: offer the confirmation email first; once
   // it's confirmed (the live `me` hint) this accepts by itself.
-  const needsConfirm = matches && me.data?.user?.emailProven === false;
+  const needsConfirm = matches && me.data?.user?.needsEmailConfirm === true;
   useEffect(() => {
     if (matches && !needsConfirm && !accept.isPending && !accept.isSuccess && !accept.isError) accept.mutate();
   }, [matches, needsConfirm, accept]);

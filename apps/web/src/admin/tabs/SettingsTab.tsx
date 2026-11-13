@@ -120,9 +120,12 @@ export function SettingsTab() {
             <span className="block text-xs text-muted">
               Off: registration logs the user in immediately, matching pre-verification
               behavior. Existing unverified accounts aren't retroactively marked verified —
-              turning this off just stops enforcing the check. Either way, invites and
-              hand-overs sent to an address only reach an account once it has confirmed that
-              address by email (Home and Profile offer a button) or signed in with a provider.
+              turning this off just stops enforcing the check. Either way, while this site can
+              send email, invites and hand-overs sent to an address only reach an account once
+              it has confirmed that address by email (Home and Profile offer a button) or signed
+              in with a provider. Without email set up nobody could confirm, so they work as
+              before: for an account whose email is stored as verified, or for anyone while this
+              is off.
             </span>
           </span>
         </label>
@@ -130,7 +133,7 @@ export function SettingsTab() {
           <p className="rounded-lg border border-amber-900 bg-amber-950/30 p-2 text-xs text-amber-300">
             {requireVerification
               ? 'No SMTP server is configured below (or in the environment) — verification links will only be written to the server log, not emailed.'
-              : 'No SMTP server is configured below (or in the environment) — people can’t confirm their email, so invites sent to their address wait. Confirmation links are only written to the server log.'}
+              : 'No SMTP server is configured below (or in the environment) — nobody can confirm their email, so invites and hand-overs are accepted as before, by whoever signs in with the address. Set up email to have people confirm it first.'}
           </p>
         )}
       </section>

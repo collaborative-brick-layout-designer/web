@@ -4,6 +4,8 @@ import { db, schema } from '../db/index.js';
 import type { User } from '../db/schema.js';
 import type { NormalisedProfile, ProviderId } from './providers.js';
 import { normalizeEmail, sameEmail } from '../utils/validate.js';
+import { getPlatformSettings } from './platformSettings.js';
+import { emailConfigured } from '../email/transporter.js';
 
 /**
  * Look a user up by email, case-insensitively. Rows written before
@@ -30,6 +32,22 @@ export async function findUserByEmail(email: string): Promise<User | undefined> 
  */
 export function hasProvenEmail(user: Pick<User, 'emailProvenAt'>): boolean {
   return user.emailProvenAt != null;
+}
+
+/**
+ * Whether `user` counts as owning their address for anything given to
+ * "whoever owns this address": accepting an invite or a hand-over sent to
+ * it, and Home's list of club invites waiting for it. A proven address
+ * always does. While this site can send email, nothing else does: the
+ * person can confirm it (Home and Profile offer the email). While it
+ * can't, nobody could confirm, so it's as it was before the marker: a
+ * stored verified address, or anyone while verification is switched off.
+ */
+export async function ownsEmail(user: Pick<User, 'emailProvenAt' | 'emailVerified'>): Promise<boolean> {
+  if (hasProvenEmail(user)) return true;
+  if (await emailConfigured()) return false;
+  if (user.emailVerified) return true;
+  return !(await getPlatformSettings()).requireEmailVerification;
 }
 
 /** Note that `userId` just proved they own their address (keeps the first time). */

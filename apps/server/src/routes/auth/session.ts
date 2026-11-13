@@ -3,7 +3,7 @@ import { and, eq, gte } from 'drizzle-orm';
 import { demoSpaceEnd, invalidateOtherSessions, invalidateSession, publicSessionId, SESSION_COOKIE, sessionIdForToken } from '../../auth/session.js';
 import { notifyCredentialRevoked } from '../../auth/revocation.js';
 import { clearSessionCookie, requireUser } from '../../auth/cookie.js';
-import { listLinkedProviders } from '../../auth/users.js';
+import { listLinkedProviders, ownsEmail } from '../../auth/users.js';
 import { listProviders } from '../../auth/providers.js';
 import { db, schema } from '../../db/index.js';
 import type { PlatformSettings, User } from '../../db/schema.js';
@@ -43,6 +43,9 @@ export async function sessionRoutes(app: FastifyInstance) {
         // provider vouched for it): invites sent to it show up and can be
         // accepted. Otherwise the pages offer a confirmation email.
         emailProven: !!req.user.emailProvenAt,
+        // Invites and hand-overs sent to the address wait until it's
+        // confirmed (auth/users.ts ownsEmail): the pages offer the email.
+        needsEmailConfirm: !isDemoUser(req.user) && !(await ownsEmail(req.user)),
         // The demo banner: when this space ends, and how often the samples reset.
         ...(isDemoUser(req.user) ? { demo: demoForMe(req.user, await getPlatformSettings()) } : {}),
       },

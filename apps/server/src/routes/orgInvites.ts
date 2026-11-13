@@ -15,7 +15,7 @@ import { inviteRole, mayGiveRole } from './orgs.js';
 import { checkGrowth } from '../limits/limits.js';
 import { requireUser } from '../auth/cookie.js';
 import { isDemoUser } from '../demo/demoAccount.js';
-import { hasProvenEmail } from '../auth/users.js';
+import { ownsEmail } from '../auth/users.js';
 import { sameEmail } from '../utils/validate.js';
 import { maskEmail } from '../utils/maskEmail.js';
 import { publicName } from '../utils/publicName.js';
@@ -23,13 +23,13 @@ import { publicName } from '../utils/publicName.js';
 export async function orgInviteRoutes(app: FastifyInstance): Promise<void> {
   // Home's "You're invited to a club": the open invites for the signed-in
   // person's address, so someone with an account can join without the email.
-  // Only for an account that has proven it owns its address (the list
-  // carries each invite's link, which is otherwise only sent to the
-  // address), whatever the site's verification setting, and never for a
+  // Only for an account that owns its address (auth/users.ts ownsEmail:
+  // proven, when this site can send email; the list carries each invite's
+  // link, which is otherwise only sent to the address), and never for a
   // club waiting to be deleted. Home offers the rest a confirmation email.
   app.get('/api/me/org-invites', async (req) => {
     const user = requireUser(req);
-    if (isDemoUser(user) || !hasProvenEmail(user)) return { invites: [] };
+    if (isDemoUser(user) || !(await ownsEmail(user))) return { invites: [] };
     const rows = await db
       .select({
         token: schema.orgInvites.token,
@@ -134,7 +134,7 @@ export async function orgInviteRoutes(app: FastifyInstance): Promise<void> {
       }
       // The email match only proves anything if the account has proven
       // it controls that mailbox.
-      if (!hasProvenEmail(user)) {
+      if (!(await ownsEmail(user))) {
         return reply.code(403).send({ error: 'email_not_verified' });
       }
       // A club waiting to be deleted has no members, so the inviter's

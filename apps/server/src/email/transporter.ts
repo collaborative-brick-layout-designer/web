@@ -61,6 +61,16 @@ function configsEqual(a: ResolvedSmtpConfig, b: ResolvedSmtpConfig): boolean {
   return a.host === b.host && a.port === b.port && a.user === b.user && a.pass === b.pass && a.from === b.from;
 }
 
+/**
+ * Whether this site can send email now: SMTP is set up (Admin › Settings
+ * or the environment) and its saved password can be read. Says nothing
+ * about whether the server answers.
+ */
+export async function emailConfigured(): Promise<boolean> {
+  const config = mergeSmtpConfig(await getPlatformSettings());
+  return !!config && !config.passUnreadable;
+}
+
 /** Force the next getTransporter() call to rebuild, regardless of config comparison. Called after a settings PATCH in the same process. */
 export function invalidateTransporter(): void {
   cached = null;

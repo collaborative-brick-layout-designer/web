@@ -36,7 +36,7 @@ export function OrgInvitePage() {
 
   // An address not confirmed yet: offer the confirmation email first; once
   // it's confirmed (the live `me` hint) this accepts by itself.
-  const needsConfirm = !!preview.data && !!me.data?.user && preview.data.forYou === true && me.data.user.emailProven === false;
+  const needsConfirm = !!preview.data && !!me.data?.user && preview.data.forYou === true && me.data.user.needsEmailConfirm === true;
   useEffect(() => {
     if (
       preview.data &&
