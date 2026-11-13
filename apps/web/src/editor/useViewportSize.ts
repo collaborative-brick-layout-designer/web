@@ -75,13 +75,15 @@ export function isPhoneSize(width: number, height: number, coarse: boolean): boo
 }
 
 /**
- * The short side of the screen itself, or the window's height when the
- * screen size is unknown. The on-screen keyboard makes the window shorter
- * but never the screen, so a tablet stays a tablet while you type.
+ * The height to judge "a phone on its side" by. The on-screen keyboard makes
+ * the window short but never the screen, so a short window on a tall screen
+ * is a tablet (or a computer) with its keyboard open, not a phone: the window
+ * only counts as short when the screen is short too. Without a screen size,
+ * the window's height is used.
  */
 export function shortSide(screenWidth: number | undefined, screenHeight: number | undefined, windowHeight: number): number {
   if (!screenWidth || !screenHeight) return windowHeight;
-  return Math.min(screenWidth, screenHeight);
+  return Math.max(windowHeight, Math.min(screenWidth, screenHeight));
 }
 
 /** Is this window showing the phone layout right now? Shared by the editor, tours and Settings. */

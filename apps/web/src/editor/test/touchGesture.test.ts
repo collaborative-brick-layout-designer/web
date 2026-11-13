@@ -64,5 +64,7 @@ describe('shortSide', () => {
     // Without a screen size, the window's height is used.
     expect(shortSide(undefined, undefined, 380)).toBe(380);
     expect(shortSide(0, 0, 640)).toBe(640);
+    // A tall window is never a phone on its side, whatever the screen says.
+    expect(isPhoneSize(1400, shortSide(412, 915, 900), true)).toBe(false);
   });
 });
