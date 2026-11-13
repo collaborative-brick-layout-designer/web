@@ -221,3 +221,18 @@ export async function makeModule(page: Page, name: string, opts: { alsoSave?: bo
   await dialog.getByRole('button', { name: opts.alsoSave ? 'Make and save' : 'Make module' }).click();
   await expect(dialog).toHaveCount(0, { timeout: 15000 });
 }
+
+/**
+ * Waits until the open layout's map has every part picture it asked for
+ * (MapLoadingCard's `part-pictures` marker), and the parts that got one have
+ * been drawn with it. Use it before counting draws: a picture arriving draws
+ * its part again. (The loading card's being hidden isn't enough: it is also
+ * hidden before the map has mounted, as on a cold server, where the
+ * pictures then arrive mid-test.) Only for layouts with parts.
+ */
+export async function partPicturesReady(page: Page, timeout = 60000): Promise<void> {
+  await expect(page.getByTestId('part-pictures')).toHaveAttribute('data-state', 'ready', { timeout });
+  await expect(page.getByTestId('loading-card')).toBeHidden();
+  // The parts re-render with their pictures, then the layer draws on a frame.
+  await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(null)))));
+}

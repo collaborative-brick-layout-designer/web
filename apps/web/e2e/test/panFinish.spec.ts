@@ -11,7 +11,7 @@ import { test, expect, type Page } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { signIn } from '../helpers';
+import { signIn, partPicturesReady } from '../helpers';
 
 const FORDYCE = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '../../../../packages/bbm/tests/fixtures/fordyce-2026.bbm'), 'utf-8');
 
@@ -93,6 +93,7 @@ test('a pan ends with a shifted frame close to a fresh draw, then the sharp draw
   await page.goto(`/editor/${id}`);
   await expect(page.getByTestId('loading-card')).toBeHidden({ timeout: 60000 });
   await expect(page.getByText('940 pieces').first()).toBeVisible();
+  await partPicturesReady(page);
   await page.getByRole('button', { name: 'Fit', exact: true }).click();
   await page.waitForTimeout(1500);
   const area = (await page.locator('.konvajs-content').first().boundingBox())!;
@@ -140,6 +141,7 @@ test('a click straight after a pan lands on the part a fresh draw puts there, at
   await page.goto(`/editor/${id}`);
   await expect(page.getByTestId('loading-card')).toBeHidden({ timeout: 60000 });
   await expect(page.getByText('940 pieces').first()).toBeVisible();
+  await partPicturesReady(page);
   // The whole map: the pictures are drawn at about a tenth of their size.
   await page.getByRole('button', { name: 'Fit', exact: true }).click();
   await page.waitForTimeout(1500);
