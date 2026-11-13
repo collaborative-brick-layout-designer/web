@@ -431,19 +431,24 @@ export function useLayoutDoc(layoutId: string, canEdit?: boolean): LayoutDocStat
         setLoading(false);
         setDoc(fresh);
         setAwareness(provider.awareness);
+        clearOffline();
         setStatus({ kind: 'synced' });
       }
     };
 
     // Still not back this long after the connection dropped: say "Offline"
-    // (y-websocket keeps saying "connecting" while it retries).
+    // (y-websocket keeps saying "connecting" while it retries). Back means
+    // synced again: a connection that opens and drops at once (a proxy up
+    // while the server or the network behind it is not) is not back, and
+    // it said "Reconnecting…" for as long as that went on.
     let offlineTimer: ReturnType<typeof setTimeout> | null = null;
+    let longer = false;
     const clearOffline = (): void => {
       if (offlineTimer) clearTimeout(offlineTimer);
       offlineTimer = null;
+      longer = false;
     };
     const onStatus = (event: { status: 'disconnected' | 'connecting' | 'connected' }): void => {
-      if (event.status !== 'connecting') clearOffline();
       switch (event.status) {
         case 'connected':
           // 'sync' follows once the layout has arrived and been read:
@@ -451,15 +456,19 @@ export function useLayoutDoc(layoutId: string, canEdit?: boolean): LayoutDocStat
           if (syncTimer && !timedOut && lastSyncedAt === null) waitFor(SYNCING_TIMEOUT_MS);
           break;
         case 'connecting':
-          setStatus({ kind: 'reconnecting', lastSyncedAt });
-          if (lastSyncedAt !== null && !offlineTimer)
+          setStatus({ kind: 'reconnecting', lastSyncedAt, longer });
+          if (lastSyncedAt !== null && !offlineTimer && !longer)
             offlineTimer = setTimeout(() => {
               offlineTimer = null;
+              // Stopped meanwhile (signed out, the layout gone): that says why itself.
+              if (stopped || isSignedOut || !provider.shouldConnect) return;
+              longer = true;
               setStatus({ kind: 'reconnecting', lastSyncedAt, longer: true });
             }, OFFLINE_AFTER_MS);
           break;
         case 'disconnected':
-          setStatus({ kind: 'offline', lastSyncedAt });
+          // Already offline a while: it stays saying so, not flicking back each try.
+          setStatus(longer ? { kind: 'reconnecting', lastSyncedAt, longer: true } : { kind: 'offline', lastSyncedAt });
           break;
       }
     };
