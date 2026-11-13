@@ -9,6 +9,7 @@ import {
   nearestConnectionIndex,
   rotationAlignedCentre,
   snapPlacement,
+  snapIndex,
   snapToAnchorBrick,
   type PlaceCandidate,
 } from '../snap';
@@ -1022,4 +1023,73 @@ describe('liveDragSnap — big angles, a jittering pointer', () => {
       });
     }
   }
+});
+
+// ---- the map's ends by place -----------------------------------------------
+
+describe('liveDragSnap — the ends near the drag', () => {
+  const conn = (x: number, y: number, angle: number, type = '1') => ({ type, x, y, angle, electricPlug: 0 });
+  const track = makePart({ key: 'track.0', partNumber: 'TRACK', connections: [conn(-4, 0, 180), conn(4, 0, 0)] });
+  const cross = makePart({ key: 'cross.0', partNumber: 'CROSS', connections: [conn(-4, 0, 180), conn(4, 0, 0), conn(0, -4, 270, '2'), conn(0, 4, 90, '2')] });
+  const partsByKey = new Map<string, PartWire>([['track.0', track], ['cross.0', cross]]);
+  let seed = 5;
+  const rnd = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;
+
+  it('snaps as going through every end does, drag after drag, as the layout changes', () => {
+    let snapped = 0;
+    for (let round = 0; round < 12; round++) {
+      let bricks = Array.from({ length: 300 }, (_, i) => {
+        const b = makeBrick({ id: `p${i}`, partNumber: rnd() < 0.8 ? 'track.0' : 'cross.0', x: Math.round(rnd() * 60) * 8, y: Math.round(rnd() * 30) * 8, orientation: [0, 90, 180, 270][Math.floor(rnd() * 4)]! });
+        b.connexions = [{ id: `p${i}a`, linkedTo: '' }, { id: `p${i}b`, linkedTo: '' }];
+        return b;
+      });
+      // Some ends linked, some of them to the part that will move.
+      for (const b of bricks) if (rnd() < 0.2) b.connexions[0]!.linkedTo = bricks[Math.floor(rnd() * bricks.length)]!.connexions[1]!.id;
+      for (let drag = 0; drag < 6; drag++) {
+        const map = brickLayerMap(bricks);
+        const m = bricks[Math.floor(rnd() * bricks.length)]!;
+        const part = partsByKey.get(m.partNumber)!;
+        const siblings = rnd() < 0.3 ? [{ id: bricks[0]!.id, part: track, links: bricks[0]!.connexions, offsetX: 8, offsetY: 0, orientation: 0 }] : [];
+        const sessions = [new SnapSession(), new SnapSession()];
+        let x = m.displayArea.x;
+        let y = m.displayArea.y;
+        for (let frame = 0; frame < 25; frame++) {
+          x += (rnd() - 0.5) * 12;
+          y += (rnd() - 0.5) * 12;
+          const input = {
+            part, movingId: m.id, movingLinks: m.connexions, siblings, centreX: x, centreY: y, mouseStudX: x, mouseStudY: y,
+            orientation: m.orientation, snapStepStuds: rnd() < 0.5 ? 8 : 0, reach: [0.5, 2, 6, 40][Math.floor(rnd() * 4)]!,
+            ...(rnd() < 0.5 ? { leadConnIndex: Math.floor(rnd() * part.connections.length) } : {}),
+          };
+          const results = [true, false].map((on, i) => {
+            snapIndex.enabled = on;
+            try {
+              return liveDragSnap({ ...input, session: sessions[i]! }, map, partsByKey);
+            } finally {
+              snapIndex.enabled = true;
+            }
+          });
+          expect(results[0], `round ${round} drag ${drag} frame ${frame}`).toEqual(results[1]);
+          if (results[0]!.snappedToConnection) snapped++;
+        }
+        // The drop: the part where the drag left it (a new object), as the next layout.
+        bricks = [...bricks];
+        const i = bricks.indexOf(m);
+        bricks[i] = { ...m, displayArea: { ...m.displayArea, x: Math.round(x), y: Math.round(y) } };
+        if (rnd() < 0.15) bricks.push(makeBrick({ id: `n${round}-${drag}`, partNumber: 'track.0', x: Math.round(rnd() * 60) * 8, y: 0 }));
+      }
+    }
+    // (Snapped often enough to tell.)
+    expect(snapped).toBeGreaterThan(300);
+  });
+
+  it('a frame looks only at the ends near the dragged one', () => {
+    const bricks = Array.from({ length: 2000 }, (_, i) => makeBrick({ id: `p${i}`, partNumber: 'track.0', x: (i % 100) * 16, y: Math.floor(i / 100) * 16 }));
+    const map = brickLayerMap(bricks);
+    snapIndex.looked = 0;
+    const r = liveDragSnap({ part: track, movingId: 'p0', movingLinks: [], centreX: 796.4, centreY: 164, mouseStudX: 796.4, mouseStudY: 164, orientation: 0, snapStepStuds: 0, reach: 2, leadConnIndex: 0 }, map, partsByKey);
+    expect(r.snappedToConnection).toBe(true);
+    // A few cells' ends (there are 4,000 on the map).
+    expect(snapIndex.looked).toBeLessThan(100);
+  });
 });
