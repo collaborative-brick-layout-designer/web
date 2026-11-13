@@ -27,7 +27,7 @@ async function around(el: Locator) {
 async function setTheme(page: Page, theme: 'light' | 'dark') {
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
   const settings = page.getByRole('dialog', { name: 'Settings' });
-  await settings.getByRole('radio', { name: theme === 'light' ? 'Light' : 'Dark' }).click();
+  await settings.getByRole('radio', { name: theme === 'light' ? 'Light' : 'Dark', exact: true }).click();
   await settings.getByRole('button', { name: 'Close', exact: true }).click();
   await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
 }
