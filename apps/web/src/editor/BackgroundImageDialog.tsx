@@ -127,15 +127,18 @@ export function BackgroundImageDialog({ layoutId, doc, map, onClose }: Props) {
 
         <div className="mt-4 space-y-3 text-sm">
           <div>
-            <label htmlFor="bg-image-file" className="block text-xs text-muted mb-1">Picture (PNG, JPG, GIF or WebP, up to 10 MB)</label>
-            <input
-              ref={inputRef}
-              type="file"
-              accept="image/png,image/jpeg,image/gif,image/webp"
-              id="bg-image-file"
-              onChange={(e) => void pick(e.target.files?.[0] ?? null)}
-              className="w-full text-xs text-neutral-300"
-            />
+            {/* The whole label, words and box, opens the file picker: a 44 px target. */}
+            <label className="block">
+              <span className="mb-1 block text-xs text-muted">Picture (PNG, JPG, GIF or WebP, up to 10 MB)</span>
+              <input
+                ref={inputRef}
+                type="file"
+                accept="image/png,image/jpeg,image/gif,image/webp"
+                id="bg-image-file"
+                onChange={(e) => void pick(e.target.files?.[0] ?? null)}
+                className="block min-h-11 w-full text-xs text-muted file:mr-3 file:min-h-11 file:cursor-pointer file:rounded-lg file:border file:border-border file:bg-soft file:px-3 file:text-ink hover:file:bg-panel"
+              />
+            </label>
             {existing?.url && !file && (
               <p className="mt-1 text-xs text-muted">
                 Current image will be kept unless you choose a new file.
