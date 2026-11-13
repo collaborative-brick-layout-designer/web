@@ -125,7 +125,7 @@ export function ProfilePage() {
                   {linked ? (
                     <span className="text-sm text-emerald-400">linked</span>
                   ) : p.enabled ? (
-                    <a href={`/api/auth/${p.id}`} className="text-sm text-accent-text hover:underline">
+                    <a href={`/api/auth/${p.id}`} className="-my-2 inline-flex min-h-11 min-w-11 items-center justify-center text-sm text-accent-text hover:underline">
                       link
                     </a>
                   ) : (

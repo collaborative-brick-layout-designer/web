@@ -52,7 +52,7 @@ export function LoginPage() {
                 <a
                   key={p.id}
                   href={`/api/auth/${p.id}${next === '/' ? '' : `?next=${encodeURIComponent(next)}`}`}
-                  className="block rounded-lg border border-border px-4 py-2 text-center hover:bg-soft"
+                  className="flex min-h-11 items-center justify-center rounded-lg border border-border px-4 py-2 text-center hover:bg-soft"
                 >
                   Continue with {p.label}
                 </a>

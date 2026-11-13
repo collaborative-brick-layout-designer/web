@@ -137,9 +137,11 @@ export function BudgetDialog({ map, limits, onLimitsChange, resolvePart = (id) =
       }}
       role="dialog"
       aria-label="Budget"
-      // On a phone it spans the screen's width, above the touch bar.
+      // On a phone it spans the screen's width, above the touch bar. Clear
+      // of the Parts panel it is narrower where the room left is (a tablet
+      // held upright), not off the left edge.
       style={{ '--budget-right': `calc(${clearRight} + 2rem)` } as CSSProperties}
-      className="fixed inset-x-2 bottom-[calc(0.5rem+var(--touch-bar-h,0px))] z-40 flex flex-col rounded-lg border border-border bg-panel text-sm shadow-2xl sm:inset-x-auto sm:bottom-8 sm:right-(--budget-right) sm:w-[540px]"
+      className="fixed inset-x-2 bottom-[calc(0.5rem+var(--touch-bar-h,0px))] z-40 flex flex-col rounded-lg border border-border bg-panel text-sm shadow-2xl sm:inset-x-auto sm:bottom-8 sm:right-(--budget-right) sm:w-[540px] sm:max-w-[calc(100vw_-_var(--budget-right)_-_0.5rem)]"
     >
       {/* Title bar */}
       <div className="flex items-center justify-between border-b border-line px-3 py-2">
