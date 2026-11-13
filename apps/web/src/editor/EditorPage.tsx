@@ -67,7 +67,8 @@ import { TouchPickedSheet } from './TouchPickedSheet';
 import { SheetsSheet, TextEditSheet } from './TouchSheets';
 import { placeModuleAsking, SheetChoiceHost } from './SheetChoiceDialog';
 import { addSidecarModule, editAnchoredLabel, editTextCell, setExportElectricCircuit, updateSidecarModule } from './mutations';
-import { brickIdsInDoc, parseTextKey, stillPicked } from './mixedSelection';
+import { parseTextKey } from './mixedSelection';
+import { pickedChecker } from './pickedCheck';
 import { startSignedOutPoll } from './signedOutPoll';
 import { PHONE_MIN_TEXT_PX } from './textLegibility';
 import { sanitizeFilename } from '../bbmFiles';
@@ -2715,11 +2716,12 @@ function Canvas({
   partsByKeyRef.current = partsByKey;
   // A picked part deleted by someone else (live) or by an undo leaves the
   // selection. Checked against the doc itself, which is never behind a pick.
+  const pickedCheck = useMemo(() => pickedChecker(doc), [doc]);
   useEffect(() => {
     if (!map) return;
-    const kept = stillPicked(brickIdsInDoc(doc), useEditorStore.getState().selection);
+    const kept = pickedCheck(useEditorStore.getState().selection);
     if (kept) useEditorStore.setState({ selection: kept });
-  }, [map, doc]);
+  }, [map, pickedCheck]);
   // Older versions kept a placed set (flex track, a train set...) as a
   // module. Once the layout and the parts are in, a module that is still
   // exactly that set becomes a set again, one undo step, with a notice.
