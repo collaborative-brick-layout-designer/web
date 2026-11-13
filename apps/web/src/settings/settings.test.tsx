@@ -1,7 +1,7 @@
 // Settings shows what people can change, and nothing held back for later
 // (Expert mode is skipped in this first round of the redesign).
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { SettingsContent } from './SettingsPage';
@@ -114,7 +114,7 @@ describe('Color: any LEGO color and how much color', () => {
     expect((search as HTMLInputElement).value).toBe('');
   });
 
-  it('offers just the highlights (the original look) or the whole app, the original until changed', () => {
+  it('offers the whole app (the default, listed first) or just the highlights (the original look)', () => {
     const { container } = render(
       <MemoryRouter>
         <SettingsContent />
@@ -122,9 +122,40 @@ describe('Color: any LEGO color and how much color', () => {
     );
     const view = within(container);
     const group = view.getByRole('radiogroup', { name: 'How much color' });
-    expect(within(group).getAllByRole('radio')).toHaveLength(2);
-    expect(view.getByTestId('color-style-original').getAttribute('aria-checked')).toBe('true');
+    const radios = within(group).getAllByRole('radio');
+    expect(radios).toHaveLength(2);
+    expect(radios[0]).toBe(view.getByTestId('color-style-full'));
+    expect(view.getByTestId('color-style-full').getAttribute('aria-checked')).toBe('true');
+    expect(view.getByTestId('color-style-original').getAttribute('aria-checked')).toBe('false');
     expect(view.getByTestId('color-style-original').textContent).toMatch(/original look/);
+  });
+
+  it('reads an unmarked "original" as the whole app, and a pick marks it as chosen', async () => {
+    const { fireEvent } = await import('@testing-library/react');
+    const { PrefsContext } = await import('../theme/PrefsProvider');
+    const { DEFAULT_PREFERENCES } = await import('../theme/theme');
+    const setPrefs = vi.fn();
+    const show = (extra: object) =>
+      render(
+        <PrefsContext.Provider
+          value={{ prefs: { ...DEFAULT_PREFERENCES, ...extra }, mode: 'light', setPrefs, syncedToAccount: true, updatedAt: null, ready: true }}
+        >
+          <MemoryRouter>
+            <SettingsContent />
+          </MemoryRouter>
+        </PrefsContext.Provider>,
+      );
+    // Every save used to store "original", chosen or not.
+    let view = within(show({ colorStyle: 'original' }).container);
+    expect(view.getByTestId('color-style-full').getAttribute('aria-checked')).toBe('true');
+    expect(view.getByTestId('color-style-original').getAttribute('aria-checked')).toBe('false');
+    fireEvent.click(view.getByTestId('color-style-original'));
+    expect(setPrefs).toHaveBeenCalledWith({ colorStyle: 'original', colorStyleChosen: true });
+    fireEvent.click(view.getByTestId('color-style-full'));
+    expect(setPrefs).toHaveBeenCalledWith({ colorStyle: 'full', colorStyleChosen: true });
+    // Picked in Settings: kept.
+    view = within(show({ colorStyle: 'original', colorStyleChosen: true }).container);
+    expect(view.getByTestId('color-style-original').getAttribute('aria-checked')).toBe('true');
   });
 });
 
@@ -139,5 +170,23 @@ describe('matchesLegoColor', () => {
     expect(matchesLegoColor(lbg, '86')).toBe(true);
     expect(matchesLegoColor(lbg, '19')).toBe(false);
     expect(matchesLegoColor(lbg, 'red')).toBe(false);
+  });
+
+  it('finds the BrickLink matches Rebrickable filled in, by BrickLink name or number', async () => {
+    const { matchesLegoColor } = await import('./LegoColorPicker');
+    const { legoColor, LEGO_COLORS } = await import('@cld/model');
+    const lemon = legoColor(15)!; // Lemon, BrickLink Lemon (171): Studio had none
+    expect(lemon.blId).toBe(171);
+    expect(matchesLegoColor(lemon, '171')).toBe(true);
+    const lilac = legoColor(220)!; // Light Lilac, BrickLink 246
+    expect(matchesLegoColor(lilac, '246')).toBe(true);
+    // Where Studio and Rebrickable differ, Rebrickable's BrickLink match.
+    expect(legoColor(179)).toMatchObject({ blId: 239, bl: 'Bionicle Silver' });
+    expect(legoColor(196)).toMatchObject({ blId: 109, bl: 'Dark Blue-Violet' });
+    expect(matchesLegoColor(legoColor(196)!, 'dark blue-violet')).toBe(true);
+    // Only four LEGO colors are left without a BrickLink match, each with no name either.
+    const none = LEGO_COLORS.filter((c) => c.blId === 0);
+    expect(none.map((c) => c.id).sort((a, b) => a - b)).toEqual([13, 131, 296, 337]);
+    expect(none.every((c) => c.bl === '')).toBe(true);
   });
 });

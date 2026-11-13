@@ -11,7 +11,10 @@ import { chromeTheme, colorTheme } from './colorTheme';
 export type ThemeChoice = 'light' | 'dark' | 'system';
 export const THEME_CHOICES: readonly ThemeChoice[] = ['light', 'dark', 'system'];
 
-/** How far the color reaches: just the highlights (the original look) or the whole app. */
+/**
+ * How far the color reaches: the whole app (the default) or just the
+ * highlights (the original look, for people who choose it).
+ */
 export type ColorStyle = 'original' | 'full';
 export const COLOR_STYLES: readonly ColorStyle[] = ['original', 'full'];
 
@@ -21,8 +24,14 @@ export interface Preferences {
   accent: AccentId;
   /** A LEGO color (LEGO's number, see @cld/model's LEGO_COLORS) used instead of `accent`; null or absent for the preset. */
   legoColor?: number | null;
-  /** Absent means the original look (highlights only). */
+  /** Absent means the whole app (the default); 'original' counts only with `colorStyleChosen`. */
   colorStyle?: ColorStyle;
+  /**
+   * Set when the person picks a style in Settings. Before the whole app was
+   * the default, every save stored colorStyle 'original' whether or not
+   * anyone chose it, so 'original' without this is the old default, not a choice.
+   */
+  colorStyleChosen?: boolean;
   largeText: boolean;
   expertMode: boolean;
   helpIcons: boolean;
@@ -82,13 +91,19 @@ export function accentVars(accent: AccentId, mode: Mode): Record<string, string>
 /** Every variable `themeVars` may set, so a change of color can clear the old ones. */
 export const THEME_VAR_NAMES = ['--accent', '--accent-ink', '--accent-soft', '--accent-text', '--chrome', '--chrome-line', '--bg', '--page-top'] as const;
 
-type ThemePrefs = Pick<Preferences, 'accent' | 'legoColor' | 'colorStyle'>;
+/** The style in use: 'original' only when someone chose it in Settings, the whole app otherwise. */
+export function effectiveColorStyle(prefs: Pick<Preferences, 'colorStyle' | 'colorStyleChosen'>): ColorStyle {
+  return prefs.colorStyle === 'original' && prefs.colorStyleChosen === true ? 'original' : 'full';
+}
+
+type ThemePrefs = Pick<Preferences, 'accent' | 'legoColor' | 'colorStyle' | 'colorStyleChosen'>;
 
 /**
  * The variables set on <html> itself for a color and style in one mode:
  * a LEGO color's accent (worked out by colorTheme), and for the whole-app
  * style the header, toolbar and page tints. Empty for a preset with the
- * original look, whose colors are styles.css's hand-tuned ones.
+ * original look (chosen in Settings), whose colors are styles.css's
+ * hand-tuned ones.
  */
 export function themeVars(prefs: ThemePrefs, mode: Mode): Record<string, string> {
   const out: Record<string, string> = {};
@@ -99,7 +114,7 @@ export function themeVars(prefs: ThemePrefs, mode: Mode): Record<string, string>
     Object.assign(out, { '--accent': t.main, '--accent-ink': t.onMain, '--accent-soft': t.soft, '--accent-text': t.text });
     main = t.main;
   }
-  if (prefs.colorStyle === 'full') {
+  if (effectiveColorStyle(prefs) === 'full') {
     const c = chromeTheme(main, mode);
     Object.assign(out, { '--chrome': c.chrome, '--chrome-line': c.chromeLine, '--bg': c.bg, '--page-top': c.pageTop });
   }
@@ -129,7 +144,7 @@ export function rootFontSize(largeText: boolean): string {
  */
 export function applyTheme(
   root: HTMLElement,
-  prefs: Pick<Preferences, 'theme' | 'accent' | 'largeText' | 'legoColor' | 'colorStyle'>,
+  prefs: Pick<Preferences, 'theme' | 'accent' | 'largeText' | 'legoColor' | 'colorStyle' | 'colorStyleChosen'>,
   systemDark: boolean,
 ): Mode {
   const mode = resolveMode(prefs.theme, systemDark);
@@ -137,7 +152,7 @@ export function applyTheme(
   root.dataset.themeChoice = prefs.theme;
   const preset = (ACCENT_IDS as readonly string[]).includes(prefs.accent) ? prefs.accent : 'brick';
   root.dataset.accent = legoColor(prefs.legoColor) ? 'lego' : preset;
-  root.dataset.colorStyle = prefs.colorStyle === 'full' ? 'full' : 'original';
+  root.dataset.colorStyle = effectiveColorStyle(prefs);
   const vars = themeVars({ ...prefs, accent: preset as AccentId }, mode);
   for (const name of THEME_VAR_NAMES) {
     if (vars[name]) root.style.setProperty(name, vars[name]);
@@ -168,6 +183,7 @@ export function sanitizePreferences(input: unknown): Preferences {
   if (typeof o.emailJoinRequests === 'boolean') out.emailJoinRequests = o.emailJoinRequests;
   if (o.legoColor === null || isLegoColorId(o.legoColor)) out.legoColor = o.legoColor;
   if ((COLOR_STYLES as readonly unknown[]).includes(o.colorStyle)) out.colorStyle = o.colorStyle as ColorStyle;
+  if (typeof o.colorStyleChosen === 'boolean') out.colorStyleChosen = o.colorStyleChosen;
   return out;
 }
 

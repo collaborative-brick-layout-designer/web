@@ -24,7 +24,7 @@ export const PARTS_ICON_MIN = 32;
 export const PARTS_ICON_MAX = 160;
 /** How strongly parts snap to each other's connections while dragging. */
 export const CONNECTION_SNAP = ['off', 'gentle', 'strong'] as const;
-/** How far the color reaches: just the highlights (the original look) or the whole app. */
+/** How far the color reaches: just the highlights (the original look) or the whole app (the default). */
 export const COLOR_STYLES = ['original', 'full'] as const;
 const TOUR_ID = /^[A-Za-z0-9._-]{1,64}$/;
 
@@ -37,8 +37,19 @@ export interface Preferences {
    * so the desktop knows it can save it.
    */
   legoColor: number | null;
-  /** Always returned, like legoColor. */
+  /**
+   * Always returned, like legoColor. The whole app ("full") is the default;
+   * "original" ("Just the highlights") holds only with colorStyleChosen.
+   */
   colorStyle: (typeof COLOR_STYLES)[number];
+  /**
+   * True once the person picks a style in Settings (clients send it with
+   * colorStyle). Before the whole app was the default, every save stored
+   * colorStyle "original" whether anyone chose it or not (and older
+   * desktops send it with every save), so without this "original" is read
+   * as the new default. Always returned.
+   */
+  colorStyleChosen: boolean;
   largeText: boolean;
   expertMode: boolean;
   helpIcons: boolean;
@@ -66,7 +77,8 @@ export const DEFAULT_PREFERENCES: Preferences = {
   theme: 'system',
   accent: 'brick',
   legoColor: null,
-  colorStyle: 'original',
+  colorStyle: 'full',
+  colorStyleChosen: false,
   largeText: false,
   expertMode: false,
   helpIcons: true,
@@ -103,6 +115,7 @@ export function validatePreferences(input: unknown): { ok: Partial<Preferences> 
         if (!(COLOR_STYLES as readonly unknown[]).includes(value)) return { error: `colorStyle must be one of ${COLOR_STYLES.join(', ')}` };
         out.colorStyle = value as Preferences['colorStyle'];
         break;
+      case 'colorStyleChosen':
       case 'largeText':
       case 'expertMode':
       case 'helpIcons':
@@ -136,6 +149,11 @@ export function validatePreferences(input: unknown): { ok: Partial<Preferences> 
   return { ok: out };
 }
 
+/** "Just the highlights" only when chosen (colorStyleChosen); otherwise the default, the whole app. */
+function withChosenStyle(p: Preferences): Preferences {
+  return p.colorStyle === 'original' && !p.colorStyleChosen ? { ...p, colorStyle: 'full' } : p;
+}
+
 /** Stored JSON back to a full object; anything unreadable falls back to the default. */
 function fromStored(raw: string): Preferences {
   let parsed: unknown;
@@ -145,7 +163,7 @@ function fromStored(raw: string): Preferences {
     return { ...DEFAULT_PREFERENCES };
   }
   const checked = validatePreferences(parsed);
-  return { ...DEFAULT_PREFERENCES, ...('ok' in checked ? checked.ok : {}) };
+  return withChosenStyle({ ...DEFAULT_PREFERENCES, ...('ok' in checked ? checked.ok : {}) });
 }
 
 async function load(userId: string): Promise<{ prefs: Preferences; updatedAt: string | null }> {
@@ -206,7 +224,12 @@ export async function preferencesRoutes(app: FastifyInstance): Promise<void> {
       if ('error' in checked) return reply.code(400).send({ error: checked.error });
 
       const current = await load(user.id);
-      const prefs: Preferences = { ...current.prefs, ...checked.ok };
+      const changes = checked.ok;
+      // "Just the highlights" without the marker is an older desktop (2.1.3
+      // and before) sending its old default with every save, not a choice:
+      // it leaves whatever is stored alone.
+      if (changes.colorStyle === 'original' && changes.colorStyleChosen !== true) delete changes.colorStyle;
+      const prefs: Preferences = withChosenStyle({ ...current.prefs, ...changes });
       const updatedAt = new Date();
       const json = JSON.stringify(prefs);
       await db

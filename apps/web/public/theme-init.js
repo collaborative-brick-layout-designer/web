@@ -24,7 +24,9 @@
   // A LEGO color and "Color the whole app" are worked out by the app
   // (src/theme/colorTheme.ts), which keeps the results for both modes here.
   if (typeof p.legoColor === 'number') root.setAttribute('data-accent', 'lego');
-  root.setAttribute('data-color-style', p.colorStyle === 'full' ? 'full' : 'original');
+  // The whole app is the default; "Just the highlights" only for someone
+  // who picked it in Settings (colorStyleChosen; src/theme/theme.ts).
+  root.setAttribute('data-color-style', p.colorStyle === 'original' && p.colorStyleChosen === true ? 'original' : 'full');
   try {
     var vars = (JSON.parse(localStorage.getItem('bld.themeVars') || '{}') || {})[mode] || {};
     for (var k in vars) if (/^--[a-z-]+$/.test(k) && /^#[0-9A-Fa-f]{6}$/.test(vars[k])) root.style.setProperty(k, vars[k]);

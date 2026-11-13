@@ -148,13 +148,15 @@
    --chrome-line, --bg, --page-top), so these rules only say where they go.
    The header, the editor's bars and toolbars and the panel headers take the
    tint; the page fades from a stronger tint at the top. Warning and error
-   colors never change. */
+   colors never change. The whole app is the default, so the first paint
+   of a first visit (before the app has worked the tints out) falls back
+   to the plain panel colors rather than a see-through header. */
 :root[data-color-style='full'] .theme-chrome {
-  background-color: var(--chrome);
-  border-color: var(--chrome-line);
+  background-color: var(--chrome, var(--panel));
+  border-color: var(--chrome-line, var(--line));
 }
 :root[data-color-style='full'] .theme-page {
-  background-image: linear-gradient(170deg, var(--page-top), transparent 420px);
+  background-image: linear-gradient(170deg, var(--page-top, transparent), transparent 420px);
   background-repeat: no-repeat;
   background-attachment: local;
 }

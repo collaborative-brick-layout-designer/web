@@ -9,7 +9,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { SignInLink } from '../auth/signIn';
 import { usePreferences } from '../theme/PrefsProvider';
 import { ACCENTS, ACCENT_IDS, NEUTRALS } from '../theme/tokens';
-import type { ColorStyle, ThemeChoice } from '../theme/theme';
+import { effectiveColorStyle, type ColorStyle, type ThemeChoice } from '../theme/theme';
 import { legoColor } from '@cld/model';
 import { LegoColorPicker } from './LegoColorPicker';
 import { HelpButton } from '../help/HelpButton';
@@ -29,8 +29,8 @@ const SNAP_CHOICES: { id: SnapStrength; label: string; hint: string }[] = [
 ];
 
 const COLOR_STYLE_CARDS: { id: ColorStyle; label: string; hint: string }[] = [
+  { id: 'full', label: 'The whole app', hint: 'The header, toolbars, panel tops and the page behind them, as well as the buttons.' },
   { id: 'original', label: 'Just the highlights', hint: 'Buttons, the selected item and focus rings. The original look.' },
-  { id: 'full', label: 'The whole app', hint: 'Also the header, toolbars, panel tops and the page behind them.' },
 ];
 
 const THEME_CARDS: { id: ThemeChoice; label: string }[] = [
@@ -98,7 +98,7 @@ function ColorChoices() {
   const { prefs, setPrefs } = usePreferences();
   const lego = legoColor(prefs.legoColor);
   const [pickerOpen, setPickerOpen] = useState(() => !!lego);
-  const style = prefs.colorStyle ?? 'original';
+  const style = effectiveColorStyle(prefs);
   return (
     <>
       <div className="flex flex-wrap gap-5" role="radiogroup" aria-label="Color">
@@ -166,7 +166,7 @@ function ColorChoices() {
               role="radio"
               aria-checked={on}
               data-testid={`color-style-${c.id}`}
-              onClick={() => setPrefs({ colorStyle: c.id })}
+              onClick={() => setPrefs({ colorStyle: c.id, colorStyleChosen: true })}
               className={`flex min-h-11 flex-col gap-1 rounded-bubble bg-panel p-3 text-left ${on ? 'border-2 border-accent' : 'border border-border hover:border-muted'}`}
             >
               <span className="text-sm font-bold text-ink">{c.label}</span>

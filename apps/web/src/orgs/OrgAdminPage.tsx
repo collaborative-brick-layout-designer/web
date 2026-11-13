@@ -245,12 +245,13 @@ function LibrariesTab({ slug }: { slug: string }) {
                   disabled={lib.locked}
                   onChange={(e) => !lib.locked && toggle.mutate({ libraryId: lib.id, enabled: e.target.checked })}
                   className="accent-accent disabled:opacity-40"
+                  aria-label={`${lib.name} enabled`}
                   title={lib.locked ? 'This library is always enabled' : undefined}
                 />
               </td>
               <td className="px-3 py-2">
                 {lib.locked ? (
-                  <span className="text-xs text-neutral-600">always on</span>
+                  <span className="text-xs text-muted">always on</span>
                 ) : lib.explicitOverride ? (
                   <button
                     onClick={() => reset.mutate(lib.id)}
@@ -260,7 +261,7 @@ function LibrariesTab({ slug }: { slug: string }) {
                     Reset to default
                   </button>
                 ) : (
-                  <span className="text-xs text-neutral-600">
+                  <span className="text-xs text-muted">
                     default ({lib.defaultEnabled ? 'on' : 'off'})
                   </span>
                 )}
