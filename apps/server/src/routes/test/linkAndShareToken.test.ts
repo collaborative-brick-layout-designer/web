@@ -42,6 +42,18 @@ describe('POST /api/auth/link', () => {
     await app.close();
   });
 
+  it('linking proves the address of an account that had not proven it (the provider vouched for that address)', async () => {
+    const app = await buildApp();
+    const alice = await loginAs(app, 'alice@x.com');
+    // Made while email checks were off: stored verified, never proven.
+    await db.update(schema.users).set({ emailProvenAt: null }).where(eq(schema.users.id, alice.id));
+    const token = createPendingLink({ provider: 'google', providerUserId: 'g-1', userId: alice.id });
+    const res = await app.inject({ method: 'POST', url: '/api/auth/link', headers: { cookie: `${alice.cookie}; ${PENDING_LINK_COOKIE}=${token}` } });
+    expect(res.statusCode).toBe(200);
+    expect(db.select().from(schema.users).where(eq(schema.users.id, alice.id)).get()?.emailProvenAt).toBeInstanceOf(Date);
+    await app.close();
+  });
+
   it('refuses when signed in as someone else, or not signed in', async () => {
     const app = await buildApp();
     const alice = await loginAs(app, 'alice@x.com');

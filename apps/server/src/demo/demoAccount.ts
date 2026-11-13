@@ -96,6 +96,7 @@ export async function ensureDemoUser(): Promise<User> {
     isGlobalAdmin: false,
     isModerator: false,
     emailVerified: true,
+    emailProvenAt: null,
   };
   const existing = await db.select().from(schema.users).where(eq(schema.users.id, DEMO_USER_ID)).get();
   if (existing) {
@@ -172,6 +173,7 @@ export async function createDemoSpace(expiresAt: Date, now = new Date()): Promis
     isGlobalAdmin: false,
     isModerator: false,
     emailVerified: true,
+    emailProvenAt: null,
     createdAt: now,
     lastSeenAt: null,
     deletionRequestedAt: null,

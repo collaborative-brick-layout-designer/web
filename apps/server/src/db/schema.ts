@@ -35,6 +35,16 @@ export const users = sqliteTable('users', {
    * registration explicitly sets it false.
    */
   emailVerified: integer('email_verified', { mode: 'boolean' }).notNull().default(true),
+  /**
+   * When the person first proved they own the mailbox (0049): opened a
+   * link sent to it (verification, confirmation, password reset) or
+   * signed in with a provider that vouches for this same address. Null
+   * until then. `emailVerified` alone isn't proof: accounts made while
+   * verification was switched off are stored verified. Anything given to
+   * "whoever owns this address" (invites, transfers) checks this instead
+   * (auth/users.ts hasProvenEmail).
+   */
+  emailProvenAt: integer('email_proven_at', { mode: 'timestamp_ms' }),
   createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
   /**
    * Last time this account made a signed-in request, rounded to a few

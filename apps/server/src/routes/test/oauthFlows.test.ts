@@ -138,6 +138,8 @@ describe('GitHub sign-in', () => {
 
     const user = db.select().from(schema.users).where(eq(schema.users.email, 'nina@example.com')).get();
     expect(user?.displayName).toBe('Nina Rails');
+    // GitHub vouched for the address: it's proven from the first sign-in.
+    expect(user?.emailProvenAt).toBeInstanceOf(Date);
     const linked = db.select().from(schema.oauthAccounts).where(eq(schema.oauthAccounts.providerUserId, '4242')).get();
     expect(linked?.provider).toBe('github');
     expect(linked?.issuer).toBeNull();
@@ -338,6 +340,20 @@ describe('Single sign-on (OpenID Connect)', () => {
     expect(linkRow()?.issuer).toBe('https://sso.test');
   });
 
+  it('signing in with a link proves the address only when the provider vouches for that same address', async () => {
+    const proven = () => db.select().from(schema.users).where(eq(schema.users.id, 'old-user')).get()?.emailProvenAt ?? null;
+    seedLink('https://sso.test');
+    expect(proven()).toBeNull();
+    // The provider now has another address for this person: signed in, not proven.
+    db.update(schema.users).set({ email: 'moved@example.com' }).where(eq(schema.users.id, 'old-user')).run();
+    expect((await ssoSignIn('sub-1', 'https://sso.test')).headers.location).toBe('/');
+    expect(proven()).toBeNull();
+    // The same address (any case): proven.
+    db.update(schema.users).set({ email: 'Old@Example.com' }).where(eq(schema.users.id, 'old-user')).run();
+    expect((await ssoSignIn('sub-1', 'https://sso.test')).headers.location).toBe('/');
+    expect(proven()).toBeInstanceOf(Date);
+  });
+
   it('a sub from another issuer does not sign in to that account, and says the provider changed', async () => {
     seedLink('https://old-sso.test');
     const back = await ssoSignIn('sub-1', 'https://sso.test');
@@ -410,7 +426,9 @@ describe('Single sign-on (OpenID Connect)', () => {
     for (const [i, mark] of [true, 'true'].entries()) {
       const back = await signIn(`y-${i}`, `y${i}@example.com`, mark);
       expect(back.headers.location, JSON.stringify(mark)).toBe('/');
-      expect(db.select().from(schema.users).where(eq(schema.users.email, `y${i}@example.com`)).get(), JSON.stringify(mark)).toBeDefined();
+      const made = db.select().from(schema.users).where(eq(schema.users.email, `y${i}@example.com`)).get();
+      expect(made, JSON.stringify(mark)).toBeDefined();
+      expect(made?.emailProvenAt, JSON.stringify(mark)).toBeInstanceOf(Date);
     }
   });
 });

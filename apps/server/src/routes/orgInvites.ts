@@ -2,7 +2,7 @@
 //
 //   GET  /api/org-invites/:token    → preview (no side effects)
 //   POST /api/org-invites/:token    → accept (auth required, email-match)
-//   GET  /api/me/org-invites        → the open invites for my (verified) address
+//   GET  /api/me/org-invites        → the open invites for my (proven) address
 //
 // Mirrors the layout-invite endpoints in routes/invites.ts. The demo
 // account can't accept one: it never joins clubs.
@@ -15,8 +15,7 @@ import { inviteRole, mayGiveRole } from './orgs.js';
 import { checkGrowth } from '../limits/limits.js';
 import { requireUser } from '../auth/cookie.js';
 import { isDemoUser } from '../demo/demoAccount.js';
-import { hasVerifiedEmail } from '../auth/users.js';
-import { getPlatformSettings } from '../auth/platformSettings.js';
+import { hasProvenEmail } from '../auth/users.js';
 import { sameEmail } from '../utils/validate.js';
 import { maskEmail } from '../utils/maskEmail.js';
 import { publicName } from '../utils/publicName.js';
@@ -24,12 +23,13 @@ import { publicName } from '../utils/publicName.js';
 export async function orgInviteRoutes(app: FastifyInstance): Promise<void> {
   // Home's "You're invited to a club": the open invites for the signed-in
   // person's address, so someone with an account can join without the email.
-  // Only for an account whose own address is confirmed, on a server that
-  // asks for that (the list carries each invite's link, which is otherwise
-  // only sent to the address), and never for a club waiting to be deleted.
+  // Only for an account that has proven it owns its address (the list
+  // carries each invite's link, which is otherwise only sent to the
+  // address), whatever the site's verification setting, and never for a
+  // club waiting to be deleted. Home offers the rest a confirmation email.
   app.get('/api/me/org-invites', async (req) => {
     const user = requireUser(req);
-    if (isDemoUser(user) || !user.emailVerified || !(await getPlatformSettings()).requireEmailVerification) return { invites: [] };
+    if (isDemoUser(user) || !hasProvenEmail(user)) return { invites: [] };
     const rows = await db
       .select({
         token: schema.orgInvites.token,
@@ -134,7 +134,7 @@ export async function orgInviteRoutes(app: FastifyInstance): Promise<void> {
       }
       // The email match only proves anything if the account has proven
       // it controls that mailbox.
-      if (!(await hasVerifiedEmail(user))) {
+      if (!hasProvenEmail(user)) {
         return reply.code(403).send({ error: 'email_not_verified' });
       }
       // A club waiting to be deleted has no members, so the inviter's

@@ -16,9 +16,10 @@ interface SendVerificationEmailArgs {
   /**
    * 'verify' (default): confirm a new account's address. 'set-password':
    * the account has no password and no other way to sign in, so the link
-   * signs it in to choose one.
+   * signs it in to choose one. 'confirm': a signed-in person asked to
+   * confirm the address of an account they already use.
    */
-  purpose?: 'verify' | 'set-password' | 'reset-password';
+  purpose?: 'verify' | 'set-password' | 'reset-password' | 'confirm';
 }
 
 export async function sendVerificationEmail(args: SendVerificationEmailArgs): Promise<boolean> {
@@ -43,6 +44,24 @@ export async function sendVerificationEmail(args: SendVerificationEmailArgs): Pr
       `<p><a href="${safeUrl}">Choose a new password</a></p>` +
       `<p style="color:#888">Or paste this URL into your browser: ${safeUrl}</p>` +
       `<p style="color:#888">This link works once and expires in 1 hour. If you didn't ask for it, you can ignore this email; your password stays the same.</p>`;
+    await transporter.sendMail({ from: config.from, to: args.to, subject, text, html });
+    return true;
+  }
+
+  if (args.purpose === 'confirm') {
+    const subject = 'Confirm your email — Collaborative Brick Layout Designer';
+    const text =
+      `You asked to confirm this email address for your Collaborative Brick Layout Designer account.\n\n` +
+      `Open this link in the same browser you asked from:\n\n${args.verifyUrl}\n\n` +
+      `Once it's confirmed, invites sent to this address show up when you sign in.\n\n` +
+      `Opened in a different browser, the link signs you out everywhere else, and you choose a new password.\n` +
+      `This link expires in 24 hours. If you didn't ask for it, you can ignore this email.\n`;
+    const html =
+      `<p>You asked to confirm this email address for your Collaborative Brick Layout Designer account.</p>` +
+      `<p><a href="${safeUrl}">Confirm my email</a></p>` +
+      `<p>Open it in the same browser you asked from. Once it's confirmed, invites sent to this address show up when you sign in.</p>` +
+      `<p style="color:#888">Or paste this URL into your browser: ${safeUrl}</p>` +
+      `<p style="color:#888">Opened in a different browser, the link signs you out everywhere else, and you choose a new password. This link expires in 24 hours. If you didn't ask for it, you can ignore this email.</p>`;
     await transporter.sendMail({ from: config.from, to: args.to, subject, text, html });
     return true;
   }

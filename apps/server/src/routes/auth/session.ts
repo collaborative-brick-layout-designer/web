@@ -39,6 +39,10 @@ export async function sessionRoutes(app: FastifyInstance) {
         // No password yet (e.g. a verification that asked them to choose
         // one): the account page offers to set one.
         hasPassword: !!req.user.passwordHash,
+        // Has proven they own their address (opened a link sent to it, or a
+        // provider vouched for it): invites sent to it show up and can be
+        // accepted. Otherwise the pages offer a confirmation email.
+        emailProven: !!req.user.emailProvenAt,
         // The demo banner: when this space ends, and how often the samples reset.
         ...(isDemoUser(req.user) ? { demo: demoForMe(req.user, await getPlatformSettings()) } : {}),
       },

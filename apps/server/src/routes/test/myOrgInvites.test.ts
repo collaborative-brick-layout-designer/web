@@ -6,7 +6,7 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import cookie from '@fastify/cookie';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
-import { db, loginAs, resetDb, schema } from '../../test/helpers.js';
+import { db, loginAs, resetDb, schema, signupCookieOf, testVerificationToken } from '../../test/helpers.js';
 import { attachUser } from '../../auth/cookie.js';
 import { passwordRoutes } from '../auth/password.js';
 import { orgRoutes } from '../orgs.js';
@@ -72,24 +72,28 @@ describe('GET /api/me/org-invites', () => {
     await db.insert(schema.platformSettings).values({ id: 'singleton', ...row }).onConflictDoUpdate({ target: schema.platformSettings.id, set: row });
   }
 
-  it('lists nothing for an account whose address is not confirmed, whether the server asks for that or not', async () => {
+  it('lists nothing until the address is proven, whatever the site asks for', async () => {
     await call(admin, 'POST', '/api/orgs/arklug/invites', { email: 'bob@example.com', role: 'member' });
     expect((await mine(bob)).invites).toHaveLength(1);
-    await db.update(schema.users).set({ emailVerified: false }).where(eq(schema.users.id, bob.id));
-    await requireVerification(true);
-    expect((await mine(bob)).invites).toEqual([]);
-    await requireVerification(false);
-    expect((await mine(bob)).invites).toEqual([]);
-    // Confirmed again, on a server that asks for it: listed again.
-    await db.update(schema.users).set({ emailVerified: true }).where(eq(schema.users.id, bob.id));
-    await requireVerification(true);
-    expect((await mine(bob)).invites).toHaveLength(1);
+    // Stored as verified but never proven (made while email checks were off).
+    await db.update(schema.users).set({ emailProvenAt: null }).where(eq(schema.users.id, bob.id));
+    for (const on of [true, false]) {
+      await requireVerification(on);
+      expect((await mine(bob)).invites, `checks ${on ? 'on' : 'off'}`).toEqual([]);
+    }
+    // Proven: listed, whether the site asks for confirmation or not.
+    await db.update(schema.users).set({ emailProvenAt: new Date() }).where(eq(schema.users.id, bob.id));
+    for (const on of [true, false]) {
+      await requireVerification(on);
+      expect((await mine(bob)).invites, `checks ${on ? 'on' : 'off'}`).toHaveLength(1);
+    }
   });
 
-  it('lists nothing for an account made with an invited address while the server does not ask for confirmation', async () => {
+  it('an account made while the site does not ask for confirmation sees and accepts an invite only once it confirms its email', async () => {
     await requireVerification(false);
     const res = await call(admin, 'POST', '/api/orgs/arklug/invites', { email: 'newbie@example.com', role: 'admin' });
     expect(res.statusCode).toBe(200);
+    const inviteToken = (res.json() as { token: string }).token;
     const reg = await app.inject({ method: 'POST', url: '/api/auth/password/register', payload: { email: 'newbie@example.com', password: 'correct horse battery', displayName: 'Newbie' } });
     expect(reg.json()).toEqual({ ok: true, verificationRequired: false });
     const sc = reg.headers['set-cookie'];
@@ -97,9 +101,26 @@ describe('GET /api/me/org-invites', () => {
     const list = await call(newbie, 'GET', '/api/me/org-invites');
     expect(list.statusCode).toBe(200);
     expect(list.json()).toEqual({ invites: [] });
-    expect(list.body).not.toContain((res.json() as { token: string }).token);
-    // The link that was sent to the address still works, as before.
-    expect((await call(newbie, 'POST', `/api/org-invites/${(res.json() as { token: string }).token}`)).statusCode).toBe(200);
+    expect(list.body).not.toContain(inviteToken);
+    // Holding the link isn't enough: the address isn't proven yet.
+    const early = await call(newbie, 'POST', `/api/org-invites/${inviteToken}`);
+    expect(early.statusCode).toBe(403);
+    expect(early.json()).toEqual({ error: 'email_not_verified' });
+
+    // "Confirm your email", then the link opened in the same browser.
+    const ask = await call(newbie, 'POST', '/api/auth/password/confirm-email', {});
+    expect(ask.statusCode, ask.body).toBe(200);
+    const row = db.select().from(schema.emailVerifications).all()[0]!;
+    const opened = await app.inject({
+      method: 'POST',
+      url: `/api/auth/password/verify-email/${await testVerificationToken(row)}`,
+      headers: { cookie: signupCookieOf(ask) },
+    });
+    expect(opened.statusCode, opened.body).toBe(200);
+    expect(opened.json()).toEqual({ ok: true, needsPassword: false });
+    // The browser that asked stays signed in, and now sees the invite and can accept it.
+    expect((await mine(newbie)).invites.map((i) => i.token)).toEqual([inviteToken]);
+    expect((await call(newbie, 'POST', `/api/org-invites/${inviteToken}`)).statusCode).toBe(200);
   });
 
   it('needs a sign-in', async () => {

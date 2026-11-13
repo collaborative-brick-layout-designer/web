@@ -211,6 +211,30 @@ export function loseMailPasswordKey(): void {
 }
 
 /**
+ * Admin › Settings › "Require … verify their email" on or off, as saving
+ * it there would (the server reads it on every request); returns a
+ * function that puts the previous setting back.
+ */
+export function setRequireEmailVerification(on: boolean): () => void {
+  const db = new Database(dbPath());
+  try {
+    db.prepare(`INSERT OR IGNORE INTO platform_settings (id, require_email_verification, updated_at) VALUES ('singleton', 1, ?)`).run(Date.now());
+    const before = (db.prepare(`SELECT require_email_verification AS v FROM platform_settings WHERE id = 'singleton'`).get() as { v: number }).v;
+    db.prepare(`UPDATE platform_settings SET require_email_verification = ? WHERE id = 'singleton'`).run(on ? 1 : 0);
+    return () => {
+      const again = new Database(dbPath());
+      try {
+        again.prepare(`UPDATE platform_settings SET require_email_verification = ? WHERE id = 'singleton'`).run(before);
+      } finally {
+        again.close();
+      }
+    };
+  } finally {
+    db.close();
+  }
+}
+
+/**
  * Point the site's email at `to` (a local mail sink, e2e/mailSink.ts),
  * as Admin › Settings › Email would, and return a function that puts the
  * previous setting back. The server reads this row on every send.

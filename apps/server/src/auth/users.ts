@@ -3,8 +3,7 @@ import { and, eq, isNull, sql } from 'drizzle-orm';
 import { db, schema } from '../db/index.js';
 import type { User } from '../db/schema.js';
 import type { NormalisedProfile, ProviderId } from './providers.js';
-import { getPlatformSettings } from './platformSettings.js';
-import { normalizeEmail } from '../utils/validate.js';
+import { normalizeEmail, sameEmail } from '../utils/validate.js';
 
 /**
  * Look a user up by email, case-insensitively. Rows written before
@@ -22,16 +21,23 @@ export async function findUserByEmail(email: string): Promise<User | undefined> 
 }
 
 /**
- * Whether `user` has proven control of their email address, as far as
- * the current platform policy requires. Accepting an invite or transfer
- * addressed to an email must only work for someone who controls it.
- * When an admin has switched verification off, unverified accounts are
- * treated as verified (same as login does).
+ * Whether `user` has proven they own their email address's mailbox: opened
+ * a link sent to it, or signed in with a provider that vouches for that
+ * same address (users.emailProvenAt). Accepting an invite or a transfer
+ * addressed to an email, and the list of club invites waiting for it, need
+ * this. `emailVerified` isn't enough: accounts made while verification was
+ * switched off are stored verified without proving anything.
  */
-export async function hasVerifiedEmail(user: Pick<User, 'emailVerified'>): Promise<boolean> {
-  if (user.emailVerified) return true;
-  const settings = await getPlatformSettings();
-  return !settings.requireEmailVerification;
+export function hasProvenEmail(user: Pick<User, 'emailProvenAt'>): boolean {
+  return user.emailProvenAt != null;
+}
+
+/** Note that `userId` just proved they own their address (keeps the first time). */
+export async function markEmailProven(userId: string, at: Date = new Date()): Promise<void> {
+  await db
+    .update(schema.users)
+    .set({ emailProvenAt: at })
+    .where(and(eq(schema.users.id, userId), isNull(schema.users.emailProvenAt)));
 }
 
 /** A single sign-on link whose sub came from an issuer other than the configured one. */
@@ -89,7 +95,15 @@ export async function resolveOauthUser(
         throw new IssuerChangedError();
       }
     }
-    return { user: existingLink.user, linkPrompt: false };
+    // The provider vouches for the address it sent (each provider's own
+    // rule, in routes/auth/oauth.ts). That proves this account's address
+    // only when it's the same one: the provider's may have changed since.
+    let user = existingLink.user;
+    if (!user.emailProvenAt && !user.isDemoAccount && sameEmail(profile.email, user.email)) {
+      await markEmailProven(user.id);
+      user = { ...user, emailProvenAt: new Date() };
+    }
+    return { user, linkPrompt: false };
   }
 
   const emailMatch = await findUserByEmail(profile.email);
@@ -108,6 +122,7 @@ export async function resolveOauthUser(
     isModerator: false,
     // OAuth/OIDC providers have already proven control of this email.
     emailVerified: true,
+    emailProvenAt: new Date(),
     createdAt: new Date(),
     lastSeenAt: null,
     deletionRequestedAt: null,

@@ -11,6 +11,7 @@ import { HelpButton } from '../help/HelpButton';
 import { useHashScroll } from '../ui/useHashScroll';
 import { SetPasswordForm } from './SetPasswordForm';
 import { ChangePasswordForm } from './ChangePasswordForm';
+import { ConfirmEmailPrompt } from './ConfirmEmailPrompt';
 
 export function ProfilePage() {
   const qc = useQueryClient();
@@ -103,10 +104,14 @@ export function ProfilePage() {
             {user.isDemoAccount ? (
               <p className="text-xs text-amber-400">Your private demo space: it’s deleted when its time is up, and its name, password, sign-in and desktop app can’t be changed.</p>
             ) : (
-              <p className="text-sm text-muted">{user.email}</p>
+              <p className="text-sm text-muted">
+                {user.email}
+                {user.emailProven && <span className="ml-1 text-emerald-400">· confirmed</span>}
+              </p>
             )}
           </div>
         </header>
+        <ConfirmEmailPrompt toDo="get invites sent to it" compact />
 
         {!user.isDemoAccount && (
         <section id="sign-in" className="scroll-mt-6 space-y-2">

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, Navigate, useNavigate, useParams } from 'react-router-dom';
+import { ConfirmEmailPrompt } from './ConfirmEmailPrompt';
 import { DeadLinkHelp, SwitchAccountButton } from './signIn';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { api } from '../api';
@@ -38,9 +39,12 @@ export function InvitePage() {
   // Auto-accept once we know the user is signed in with the matching email.
   // The server says whether it's for this account (the address is masked otherwise).
   const matches = !!preview.data && !!me.data?.user && preview.data.forYou === true;
+  // An address not confirmed yet: offer the confirmation email first; once
+  // it's confirmed (the live `me` hint) this accepts by itself.
+  const needsConfirm = matches && me.data?.user?.emailProven === false;
   useEffect(() => {
-    if (matches && !accept.isPending && !accept.isSuccess && !accept.isError) accept.mutate();
-  }, [matches, accept]);
+    if (matches && !needsConfirm && !accept.isPending && !accept.isSuccess && !accept.isError) accept.mutate();
+  }, [matches, needsConfirm, accept]);
 
   if (!params.token) return <Navigate to="/" replace />;
 
@@ -107,6 +111,7 @@ export function InvitePage() {
           />
         )}
 
+        {needsConfirm && <ConfirmEmailPrompt toDo="accept this invite" />}
         {acceptError && (
           <Alert
             tone="error"

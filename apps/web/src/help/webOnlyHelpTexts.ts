@@ -6,6 +6,16 @@
 import type { HelpEntry } from './helpTexts';
 
 export const WEB_ONLY_HELP_TEXTS = {
+  'account.confirmEmail': {
+    title: 'Confirm your email',
+    short: 'Confirming proves the address is yours, so invites and hand-overs sent to it can reach you here.',
+    more: 'We email a link to your address. Open it in this browser and nothing else changes. Opened anywhere else, it signs you out everywhere else and you choose a new password, because whoever can open that email owns the account.',
+  },
+  'admin.emailProven': {
+    title: 'Email confirmed',
+    short: 'Whether this person has proven they own their address: opened a link sent to it, or signed in with a provider that vouches for it.',
+    more: '“Verified” alone isn’t proof: accounts made while email checks were off are stored as verified. Invites and hand-overs sent to an address only reach an account whose address is confirmed. The person can confirm it from Home or their Profile.',
+  },
   'account.password': {
     title: 'Your password',
     short: 'Changing your password signs you out of your other browsers and desktop apps, and keeps you signed in here.',

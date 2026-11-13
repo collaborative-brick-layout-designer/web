@@ -19,7 +19,7 @@ host's to keep or not.
 
 | Table | Personal data | Export | Notes |
 |---|---|---|---|
-| `users` | email, display name, avatar URL, password hash, admin/moderator flags, created and last-seen times, deletion and restriction dates | yes (no hash) | `last_seen_at` is one time, rounded, no history. |
+| `users` | email, display name, avatar URL, password hash, admin/moderator flags, created and last-seen times, when the email address was confirmed (`email_proven_at`), deletion and restriction dates | yes (no hash) | `last_seen_at` is one time, rounded, no history. `email_proven_at` is one time: when the person first opened a link sent to their address or signed in with a provider that vouches for it (accounts linked to GitHub before it existed got the upgrade's time); null until then. Invites and hand-overs sent to an address only reach an account with it set. |
 | `sessions` | which browsers are signed in, since when (`created_at`) and until when, when each was last used (`last_used_at`, to the nearest 5 minutes) and a rough browser name (`device`, e.g. "Firefox on Linux") | yes (no ids) | The id is a hash of the cookie: a secret. `created_at` is kept so a sign-in ends at its longest (Admin › Site settings › Sign-in); sessions from before it existed got the upgrade's time. The full user agent is never stored. Shown to the person under Profile › Browsers and devices, where they can sign each out. |
 | `api_tokens` | desktop sign-ins: name, prefix and last 4 characters, scopes, last used | yes (no hash) | Revoked rows are kept so the Devices list can show them. |
 | `device_codes` | desktop sign-in codes a person approved or denied | yes (no codes) | Expire after minutes. |

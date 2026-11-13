@@ -30,7 +30,7 @@ import { hasAtLeast, resolveResourceRole } from '../access/resolveResourceRole.j
 import { writeAuditEvent } from '../audit/writeAuditEvent.js';
 import { sendInviteEmailCapped } from '../email/inviteEmailCap.js';
 import { env } from '../env.js';
-import { hasVerifiedEmail } from '../auth/users.js';
+import { hasProvenEmail } from '../auth/users.js';
 import { sameEmail, trimmed } from '../utils/validate.js';
 import { maskEmail } from '../utils/maskEmail.js';
 import { can } from '../access/clubPermissions.js';
@@ -253,7 +253,7 @@ export async function transferRoutes(app: FastifyInstance): Promise<void> {
       }
       // The email match only proves anything if the account has proven
       // it controls that mailbox.
-      if (!(await hasVerifiedEmail(user))) {
+      if (!hasProvenEmail(user)) {
         return reply.code(403).send({ error: 'email_not_verified' });
       }
 

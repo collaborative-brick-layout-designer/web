@@ -14,7 +14,7 @@ import { eq } from 'drizzle-orm';
 import { db, schema } from '../db/index.js';
 import { requireUser } from '../auth/cookie.js';
 import { writeAuditEvent } from '../audit/writeAuditEvent.js';
-import { hasVerifiedEmail } from '../auth/users.js';
+import { hasProvenEmail } from '../auth/users.js';
 import { sameEmail } from '../utils/validate.js';
 import { layoutInviteStillValid } from '../access/pendingShares.js';
 import { maskEmail } from '../utils/maskEmail.js';
@@ -87,7 +87,7 @@ export async function inviteRoutes(app: FastifyInstance): Promise<void> {
       }
       // The email match only proves anything if the account has proven
       // it controls that mailbox.
-      if (!(await hasVerifiedEmail(user))) {
+      if (!hasProvenEmail(user)) {
         return reply.code(403).send({ error: 'email_not_verified' });
       }
       // An invite holds only while the person who sent it still manages

@@ -94,7 +94,7 @@ export async function collectUserData(userId: string): Promise<DataSection[]> {
     sections.push({ name, about, rows: plain(rows, extra) });
 
   // ---- the account -------------------------------------------------------
-  add('account', 'Your account: name, email, picture, and when you joined and were last seen. Your password is not included.', [
+  add('account', 'Your account: name, email, picture, when you joined and were last seen, and when you confirmed your email (emailProvenAt). Your password is not included.', [
     { ...user, hasPassword: !!user.passwordHash },
   ]);
   add('sign-in-methods', 'Google, GitHub or other sign-ins linked to your account.', await select(s.oauthAccounts, eq(s.oauthAccounts.userId, userId)));

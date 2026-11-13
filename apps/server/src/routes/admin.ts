@@ -110,6 +110,7 @@ export async function adminRoutes(app: FastifyInstance): Promise<void> {
         isGlobalAdmin: schema.users.isGlobalAdmin,
         isModerator: schema.users.isModerator,
         emailVerified: schema.users.emailVerified,
+        emailProvenAt: schema.users.emailProvenAt,
         createdAt: schema.users.createdAt,
       })
       .from(schema.users)
@@ -178,6 +179,7 @@ export async function adminRoutes(app: FastifyInstance): Promise<void> {
         isDemoAccount: user.isDemoAccount,
         isGlobalAdmin: user.isGlobalAdmin,
         emailVerified: user.emailVerified,
+        emailProvenAt: user.emailProvenAt,
         createdAt: user.createdAt,
       },
       stats: {

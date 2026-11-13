@@ -28,6 +28,12 @@ export interface Me {
   linkedProviders: ProviderId[];
   /** False when the account has no password yet (older servers leave it out). */
   hasPassword?: boolean;
+  /**
+   * Has proven it owns its address (opened a link sent to it, or a provider
+   * vouched for it). False: invites sent to the address wait until it's
+   * confirmed (ConfirmEmailPrompt). Older servers leave it out.
+   */
+  emailProven?: boolean;
   /** Only on the demo account: how often it resets, and when next. */
   demo?: DemoStatus;
 }
@@ -132,6 +138,7 @@ const ERROR_MESSAGES: Record<string, string> = {
   suspended: 'This account is read-only for now. Ask the site admin why.',
   rate_limited: 'Too many requests at once. Please wait a minute and try again.',
   verify_email_first: 'Please confirm your email address first.',
+  confirm_email_sent_recently: 'We just sent you a confirmation email. Check your inbox (and spam), or try again in a couple of minutes.',
   demo_off: 'The demo isn’t available right now.',
   transfer_to_club_only: 'A module can only be moved to a club you’re in. Make a copy for one person instead.',
   demo_account_cannot_invite: 'The demo can’t invite people. Sign up to share with others.',
@@ -611,6 +618,12 @@ export const api = {
   checkResetLink: (token: string) => get<{ ok: true }>(`/api/auth/password/reset/${encodeURIComponent(token)}`),
   /** Choose a new password from a reset link; signs this browser in. */
   resetPassword: (token: string, password: string) => post<{ ok: true }>('/api/auth/password/reset', { token, password }),
+  /**
+   * "Confirm your email" (signed in): email a link to the account's address.
+   * `sent: false`: the server couldn't send email. `next`: where the link goes on to.
+   */
+  confirmEmail: (next?: string) =>
+    post<{ ok: true; alreadyConfirmed: boolean; sent: boolean }>('/api/auth/password/confirm-email', next && next !== '/' ? { next } : {}),
   /** Choose a password for the signed-in account when it has none. */
   setPassword: (password: string) => post<{ ok: true }>('/api/auth/password/set', { password }),
 
@@ -1888,6 +1901,8 @@ export interface AdminUser {
   isGlobalAdmin: boolean;
   isModerator?: boolean;
   emailVerified: boolean;
+  /** When the person proved they own the address; null: not yet (older servers leave it out). */
+  emailProvenAt?: number | string | null;
   createdAt: number;
   layoutCount: number;
   /** Content size (doc snapshot + sidecar + unflushed updates), not raw disk usage. */
