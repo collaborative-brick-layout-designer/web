@@ -15,6 +15,7 @@ import { db, schema } from '../db/index.js';
 import type { Hint, HintOwner } from './hub.js';
 import { orgIdBySlug, ownerOfResource, publish, staffIds, type Reach } from './audience.js';
 import { clubRunners, recipientsOf } from '../routes/warnings.js';
+import { verificationFor } from '../routes/auth/password.js';
 
 type ResourceKind = 'layout' | 'module' | 'venue' | 'custom-part';
 
@@ -159,6 +160,26 @@ const clubInvite: HintSpec = {
     const invitee = c.before.invitee as string | null;
     if (invitee) out.push({ hint: { kind: 'me', owner: { kind: 'user', id: invitee }, action: 'org-invites' } });
     return out;
+  },
+};
+
+/**
+ * An emailed link opened: the account it was for has confirmed its address
+ * (Home's invites, the invite pages and Profile update in its other tabs),
+ * and Admin › Users shows it.
+ */
+const emailLinkOpened: HintSpec = {
+  before: async (ctx) => {
+    const token = str(ctx.params.token);
+    ctx.before.userId = token ? ((await verificationFor(token))?.userId ?? null) : null;
+  },
+  after: async (ctx) => {
+    const uid = ctx.before.userId as string | null;
+    if (!uid) return [];
+    return [
+      { hint: { kind: 'me', owner: { kind: 'user', id: uid }, action: 'update:email-confirmed' } },
+      { hint: { kind: 'admin', action: 'update:email-confirmed' }, reach: { ownerless: true } },
+    ];
   },
 };
 
@@ -432,6 +453,7 @@ export const ROUTE_HINTS: Record<string, HintSpec> = {
   'DELETE /api/tokens/current': me,
   // Other tabs' Browsers and devices lists (the signed-out ones are closed anyway).
   'POST /api/auth/password/change': me,
+  'POST /api/auth/password/verify-email/:token': emailLinkOpened,
   'DELETE /api/auth/sessions/:id': me,
   'POST /api/auth/sessions/sign-out-others': me,
   'PUT /api/me/preferences': preferences,
@@ -697,9 +719,9 @@ export const ROUTE_HINTS: Record<string, HintSpec> = {
 export const NO_HINT: Record<string, string> = {
   'POST /api/auth/password/register': 'a new account: nobody is looking at it yet',
   'POST /api/auth/password/resend-verification': 'sends an email only',
-  'POST /api/auth/password/verify-email/:token': 'signs in; the new page loads fresh',
   'POST /api/auth/password/login': 'signs in; the new page loads fresh',
   'POST /api/auth/password/set': 'your own password: nothing anyone else sees',
+  'POST /api/auth/password/confirm-email': 'sends an email only',
   'POST /api/auth/password/forgot': 'sends an email only',
   'POST /api/auth/password/reset': 'signs in and every other sign-in ends; the new page loads fresh',
   'POST /api/auth/demo': 'signs in as the demo account; the new page loads fresh',

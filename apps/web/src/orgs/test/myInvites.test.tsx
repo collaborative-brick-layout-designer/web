@@ -40,6 +40,45 @@ describe('MyInvites', () => {
     expect(calls).toContain('POST /api/org-invites/t1');
   });
 
+  it('an account whose address is not confirmed is offered a confirmation email instead, and can put it off', async () => {
+    const calls: string[] = [];
+    vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
+      calls.push(`${init?.method ?? 'GET'} ${url}`);
+      const body =
+        url === '/api/auth/me'
+          ? { user: { id: 'u1', email: 'pat@example.com', displayName: 'Pat', avatarUrl: null, isDemoAccount: false, isGlobalAdmin: false, linkedProviders: [], emailProven: false } }
+          : url === '/api/auth/providers'
+            ? { providers: [], passwordEnabled: true }
+            : url === '/api/auth/password/confirm-email'
+              ? { ok: true, alreadyConfirmed: false, sent: true }
+              : { invites: [] };
+      return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
+    });
+    localStorage.removeItem('cld.confirmEmail.dismissed.u1');
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const view = () => (
+      <QueryClientProvider client={qc}>
+        <MemoryRouter initialEntries={['/']}>
+          <MyInvites />
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+    const { unmount } = render(view());
+    expect(await screen.findByText('Confirm your email to see club invites sent to it')).toBeTruthy();
+    expect(screen.getByTestId('confirm-email').textContent).toContain('pat@example.com');
+    fireEvent.click(screen.getByRole('button', { name: 'Send me a confirmation email' }));
+    expect(await screen.findByText(/We sent a link to/)).toBeTruthy();
+    expect(calls).toContain('POST /api/auth/password/confirm-email');
+    fireEvent.click(screen.getByRole('button', { name: /Not now/ }));
+    expect(screen.queryByTestId('confirm-email')).toBeNull();
+    // Remembered in this browser.
+    unmount();
+    render(view());
+    await new Promise((r) => setTimeout(r, 50));
+    expect(screen.queryByTestId('confirm-email')).toBeNull();
+    localStorage.removeItem('cld.confirmEmail.dismissed.u1');
+  });
+
   it('shows nothing when there are none', async () => {
     vi.stubGlobal('fetch', async () => new Response(JSON.stringify({ invites: [] }), { status: 200, headers: { 'content-type': 'application/json' } }));
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });

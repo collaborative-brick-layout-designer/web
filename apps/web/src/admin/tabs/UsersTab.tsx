@@ -10,6 +10,8 @@ import { SubjectLimitsPanel } from '../limits/LimitsUi';
 import { SubjectWarnings } from '../SubjectWarnings';
 import { askConfirm, confirmDelete, toastDeleted } from '../../ui/ConfirmDialog';
 import { Loading, Td, Th, Toolbar } from './shared';
+import { HelpButton } from '../../help/HelpButton';
+import type { AdminUser } from '../../api';
 
 export function UsersTab({ selfId }: { selfId: string }) {
   const qc = useQueryClient();
@@ -67,7 +69,12 @@ export function UsersTab({ selfId }: { selfId: string }) {
               <tr>
                 <Th>Email</Th>
                 <Th>Name</Th>
-                <Th>Verified</Th>
+                <Th>
+                  <span className="inline-flex items-center gap-1">
+                    Email
+                    <HelpButton helpKey="admin.emailProven" />
+                  </span>
+                </Th>
                 <Th align="right">Layouts</Th>
                 <Th align="right">Size</Th>
                 <Th>Created</Th>
@@ -92,11 +99,7 @@ export function UsersTab({ selfId }: { selfId: string }) {
                       {u.isDemoAccount && <span className="ml-2 rounded bg-soft px-1.5 py-0.5 text-xs text-muted">Demo</span>}
                     </Td>
                     <Td>
-                      {u.emailVerified ? (
-                        <span className="text-emerald-400" title="Email verified">✓</span>
-                      ) : (
-                        <span className="text-amber-400" title="Not verified">✕</span>
-                      )}
+                      <EmailState user={u} />
                     </Td>
                     <Td align="right" className="tabular-nums">{u.layoutCount}</Td>
                     <Td align="right" className="tabular-nums text-muted">{formatBytes(u.layoutSizeBytes)}</Td>
@@ -186,11 +189,8 @@ export function UserDetailPanel({ id, onBack }: { id: string; onBack: () => void
             <h2 className="text-base font-semibold">{detail.data.user.displayName}</h2>
             <p className="text-sm text-muted">
               {detail.data.user.email}{' '}
-              {detail.data.user.emailVerified ? (
-                <span className="text-emerald-400">· verified</span>
-              ) : (
-                <span className="text-amber-400">· not verified</span>
-              )}
+              · <EmailState user={detail.data.user} long />
+              <HelpButton helpKey="admin.emailProven" className="ml-1 align-middle" />
             </p>
           </div>
 
@@ -258,5 +258,29 @@ export function UserDetailPanel({ id, onBack }: { id: string; onBack: () => void
         </>
       )}
     </section>
+  );
+}
+
+/**
+ * Whether the person has proven they own their address (emailProvenAt), or
+ * is only stored as verified (made while email checks were off), or neither.
+ * Older servers send no emailProvenAt: then only verified is known.
+ */
+function EmailState({ user, long = false }: { user: Pick<AdminUser, 'emailVerified' | 'emailProvenAt'>; long?: boolean }) {
+  if (user.emailProvenAt) {
+    const when = new Date(user.emailProvenAt).toLocaleDateString();
+    return (
+      <span className="text-emerald-400" title={`Confirmed ${when}`} data-testid="email-state">
+        {long ? `confirmed ${when}` : '✓ Confirmed'}
+      </span>
+    );
+  }
+  if (user.emailProvenAt === undefined) {
+    return user.emailVerified ? <span className="text-emerald-400" data-testid="email-state">{long ? 'verified' : '✓'}</span> : <span className="text-amber-400" data-testid="email-state">{long ? 'not verified' : '✕'}</span>;
+  }
+  return (
+    <span className="text-amber-400" data-testid="email-state" title={user.emailVerified ? 'Stored as verified, but the address was never proven' : 'Not verified'}>
+      {user.emailVerified ? 'not confirmed yet' : 'not verified'}
+    </span>
   );
 }

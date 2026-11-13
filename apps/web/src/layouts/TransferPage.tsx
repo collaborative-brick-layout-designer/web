@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, Navigate, useNavigate, useParams } from 'react-router-dom';
+import { ConfirmEmailPrompt } from '../auth/ConfirmEmailPrompt';
 import { DeadLinkHelp, SwitchAccountButton } from '../auth/signIn';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { api } from '../api';
@@ -31,9 +32,12 @@ export function TransferPage() {
 
   // The server says whether it's for this account (the address is masked otherwise).
   const matches = !!preview.data && !!me.data?.user && preview.data.forYou === true;
+  // An address not confirmed yet: offer the confirmation email first; once
+  // it's confirmed (the live `me` hint) this accepts by itself.
+  const needsConfirm = matches && me.data?.user?.emailProven === false;
   useEffect(() => {
-    if (matches && !accept.isPending && !accept.isSuccess && !accept.isError) accept.mutate();
-  }, [matches, accept]);
+    if (matches && !needsConfirm && !accept.isPending && !accept.isSuccess && !accept.isError) accept.mutate();
+  }, [matches, needsConfirm, accept]);
 
   if (!params.token) return <Navigate to="/" replace />;
   if (preview.isLoading || me.isLoading) return <Centered>Loading transfer…</Centered>;
@@ -79,6 +83,7 @@ export function TransferPage() {
             <SwitchAccountButton className="mt-2 block" />
           </p>
         )}
+        {needsConfirm && <ConfirmEmailPrompt toDo="take it over" />}
         {error && (
           <p className="mt-2 rounded-lg border border-red-900 bg-red-950/30 p-3 text-xs text-red-300">
             Couldn't accept: {error}

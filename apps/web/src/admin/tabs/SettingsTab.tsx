@@ -119,15 +119,18 @@ export function SettingsTab() {
             Require new email/password accounts to verify their email before signing in
             <span className="block text-xs text-muted">
               Off: registration logs the user in immediately, matching pre-verification
-              behaviour. Existing unverified accounts aren't retroactively marked verified —
-              turning this off just stops enforcing the check.
+              behavior. Existing unverified accounts aren't retroactively marked verified —
+              turning this off just stops enforcing the check. Either way, invites and
+              hand-overs sent to an address only reach an account once it has confirmed that
+              address by email (Home and Profile offer a button) or signed in with a provider.
             </span>
           </span>
         </label>
-        {requireVerification && !settings.data.smtp.active && !settings.data.smtp.passUnreadable && (
+        {!settings.data.smtp.active && !settings.data.smtp.passUnreadable && (
           <p className="rounded-lg border border-amber-900 bg-amber-950/30 p-2 text-xs text-amber-300">
-            No SMTP server is configured below (or in the environment) — verification links
-            will only be written to the server log, not emailed.
+            {requireVerification
+              ? 'No SMTP server is configured below (or in the environment) — verification links will only be written to the server log, not emailed.'
+              : 'No SMTP server is configured below (or in the environment) — people can’t confirm their email, so invites sent to their address wait. Confirmation links are only written to the server log.'}
           </p>
         )}
       </section>

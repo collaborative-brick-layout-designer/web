@@ -5,6 +5,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../api';
+import { ConfirmEmailPrompt } from '../auth/ConfirmEmailPrompt';
 
 export function MyInvites() {
   const qc = useQueryClient();
@@ -18,7 +19,12 @@ export function MyInvites() {
       if (slug) navigate(`/orgs/${slug}`);
     },
   });
+  const me = useQuery({ queryKey: ['me'], queryFn: api.me });
   const list = invites.data?.invites ?? [];
+  // Not confirmed yet: the list stays empty until the address is proven, so say how.
+  if (me.data?.user?.emailProven === false && !me.data.user.isDemoAccount) {
+    return <ConfirmEmailPrompt toDo="see club invites sent to it" compact dismissKey={`cld.confirmEmail.dismissed.${me.data.user.id}`} />;
+  }
   if (list.length === 0) return null;
   return (
     <section aria-labelledby="my-invites-title" data-testid="my-invites" className="space-y-2 rounded-section border border-accent bg-accent-soft/40 p-4">

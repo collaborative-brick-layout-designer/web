@@ -344,6 +344,13 @@
       "when": 1794427130609,
       "tag": "0048_oauth_account_issuer",
       "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "6",
+      "when": 1794609288542,
+      "tag": "0049_email_proven_at",
+      "breakpoints": true
     }
   ]
 }

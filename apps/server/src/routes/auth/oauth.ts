@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import * as client from 'openid-client';
 import { callbackUrl, google, github, oidcConfig, type NormalisedProfile, type OAuthProvider, type ProviderId } from '../../auth/providers.js';
 import { and, eq } from 'drizzle-orm';
-import { IssuerChangedError, linkProvider, resolveOauthUser } from '../../auth/users.js';
+import { IssuerChangedError, linkProvider, markEmailProven, resolveOauthUser } from '../../auth/users.js';
 import { createSession } from '../../auth/session.js';
 import { requireUser, setSessionCookie } from '../../auth/cookie.js';
 import { isDemoUser } from '../../demo/demoAccount.js';
@@ -106,6 +106,9 @@ export async function oauthRoutes(app: FastifyInstance) {
       return reply.code(409).send({ error: 'provider_account_already_linked' });
     }
     await linkProvider(user.id, link.provider, link.providerUserId, link.issuer);
+    // The link was offered because the provider vouched for this account's
+    // own address (completeLogin): that proves the mailbox too.
+    await markEmailProven(user.id);
     consumePendingLink(token);
     reply.clearCookie(PENDING_LINK_COOKIE, { path: '/' });
     return { ok: true, provider: link.provider };

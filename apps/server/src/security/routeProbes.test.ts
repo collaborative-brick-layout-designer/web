@@ -51,6 +51,7 @@ const ACCESS: Record<string, [Access, Scope, Flags?]> = {
   'GET /api/auth/password/reset/:token': ['token', null],
   'POST /api/auth/password/reset': ['public', null],
   'POST /api/auth/password/set': ['user', null, { demo: true }],
+  'POST /api/auth/password/confirm-email': ['user', null, { demo: true }],
   'GET /api/auth/me': ['public', null],
   'PATCH /api/auth/me': ['user', null, { demo: true }],
   'GET /api/auth/providers': ['public', null],

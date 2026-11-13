@@ -3,7 +3,7 @@ import type { FastifyInstance, FastifyBaseLogger, FastifyReply, FastifyRequest }
 import { hash, verify } from '@node-rs/argon2';
 import { and, eq, gt, or } from 'drizzle-orm';
 import { db, schema } from '../../db/index.js';
-import type { User } from '../../db/schema.js';
+import type { EmailVerification, User } from '../../db/schema.js';
 import { createSession, hashToken, invalidateAllSessions, invalidateOtherSessions, SESSION_COOKIE, sessionIdForToken } from '../../auth/session.js';
 import { requireUser, setSessionCookie } from '../../auth/cookie.js';
 import { revokeAllApiTokens } from '../../auth/apiTokens.js';
@@ -11,7 +11,7 @@ import { loginWaitMs, noteLoginFailure, noteLoginSuccess } from '../../auth/logi
 import { sendVerificationEmail } from '../../email/sendVerification.js';
 import { sendSignupNoticeEmail } from '../../email/sendSignupNotice.js';
 import { getPlatformSettings } from '../../auth/platformSettings.js';
-import { findUserByEmail, listLinkedProviders } from '../../auth/users.js';
+import { findUserByEmail, listLinkedProviders, markEmailProven } from '../../auth/users.js';
 import { env } from '../../env.js';
 import { normalizeEmail, safeNextPath } from '../../utils/validate.js';
 import { needsName } from '../../utils/publicName.js';
@@ -60,6 +60,7 @@ const lastResetEmail = new Map<string, number>();
 /** Forget the reset-email throttle (tests). */
 export function resetPasswordResetThrottleForTests(): void {
   lastResetEmail.clear();
+  lastConfirmEmail.clear();
 }
 
 /** The emailed "choose a new password" link. */
@@ -115,6 +116,21 @@ async function boundIdForRequest(req: FastifyRequest, userId: string): Promise<s
   return row && row.userId === userId ? wanted : null;
 }
 
+/** The verification row behind a raw link token (hashed, or a legacy raw one), if any. */
+export async function verificationFor(raw: string): Promise<EmailVerification | undefined> {
+  // Rows are found by the token's hash. Links issued before tokens
+  // were hashed (raw 48-hex values) keep working until they expire.
+  return db
+    .select()
+    .from(schema.emailVerifications)
+    .where(
+      raw.length === LEGACY_TOKEN_LENGTH
+        ? or(eq(schema.emailVerifications.token, hashToken(raw)), eq(schema.emailVerifications.token, raw))
+        : eq(schema.emailVerifications.token, hashToken(raw)),
+    )
+    .get();
+}
+
 /**
  * Delete any existing verification token for a user and issue a fresh
  * one, emailing the link if SMTP is configured. The token is stored
@@ -122,15 +138,15 @@ async function boundIdForRequest(req: FastifyRequest, userId: string): Promise<s
  * the bound id from sign-up (see BOUND_ID_PREFIX), or null for a link
  * that doesn't keep the sign-up password. When SMTP isn't configured the
  * link is logged instead: a brand-new account has nowhere else to show
- * it.
+ * it. Answers whether the email went out.
  */
 async function issueVerification(
   log: FastifyBaseLogger,
   user: Pick<User, 'id' | 'email'>,
   next: string | null,
   rowId: string | null,
-  purpose: 'verify' | 'set-password' = 'verify',
-): Promise<void> {
+  purpose: 'verify' | 'set-password' | 'confirm' = 'verify',
+): Promise<boolean> {
   await db.delete(schema.emailVerifications).where(eq(schema.emailVerifications.userId, user.id));
   const token = randomBytes(24).toString('hex');
   await db.insert(schema.emailVerifications).values({
@@ -153,6 +169,7 @@ async function issueVerification(
     // and for an operator to hand-deliver if needed.
     log.info({ email: user.email, verifyUrl }, 'email verification link (SMTP not configured or delivery failed)');
   }
+  return delivered;
 }
 
 /**
@@ -175,18 +192,26 @@ async function issuePasswordReset(log: FastifyBaseLogger, user: Pick<User, 'id' 
   if (!delivered) log.info({ email: user.email, resetUrl: url }, 'password reset link (SMTP not configured or delivery failed)');
 }
 
-/** True (and noted) when this account may get another reset email now. */
-function mayEmailReset(userId: string, now: number = Date.now()): boolean {
-  const last = lastResetEmail.get(userId);
+/** True (and noted) when `userId` may get another email of this kind now (one per RESET_EVERY_MS). */
+function mayEmailAgain(sent: Map<string, number>, userId: string, now: number = Date.now()): boolean {
+  const last = sent.get(userId);
   if (last !== undefined && now - last < RESET_EVERY_MS) return false;
-  lastResetEmail.delete(userId);
-  if (lastResetEmail.size >= SIGNUP_NOTICE_MAX_TRACKED) {
-    const oldest = lastResetEmail.keys().next().value;
-    if (oldest !== undefined) lastResetEmail.delete(oldest);
+  sent.delete(userId);
+  if (sent.size >= SIGNUP_NOTICE_MAX_TRACKED) {
+    const oldest = sent.keys().next().value;
+    if (oldest !== undefined) sent.delete(oldest);
   }
-  lastResetEmail.set(userId, now);
+  sent.set(userId, now);
   return true;
 }
+
+/** True (and noted) when this account may get another reset email now. */
+function mayEmailReset(userId: string, now: number = Date.now()): boolean {
+  return mayEmailAgain(lastResetEmail, userId, now);
+}
+
+/** "Confirm your email" (signed in): at most one email per account in the same window as resets. */
+const lastConfirmEmail = new Map<string, number>();
 
 /** The reset row behind a raw link token, while it still works. */
 async function liveReset(raw: unknown): Promise<{ row: typeof schema.passwordResets.$inferSelect | null; expired: boolean }> {
@@ -354,18 +379,7 @@ export async function passwordRoutes(app: FastifyInstance) {
   app.post<{ Params: { token: string } }>(
     '/api/auth/password/verify-email/:token',
     async (req, reply) => {
-      const raw = req.params.token;
-      // Rows are found by the token's hash. Links issued before tokens
-      // were hashed (raw 48-hex values) keep working until they expire.
-      const verification = await db
-        .select()
-        .from(schema.emailVerifications)
-        .where(
-          raw.length === LEGACY_TOKEN_LENGTH
-            ? or(eq(schema.emailVerifications.token, hashToken(raw)), eq(schema.emailVerifications.token, raw))
-            : eq(schema.emailVerifications.token, hashToken(raw)),
-        )
-        .get();
+      const verification = await verificationFor(req.params.token);
       if (!verification) return reply.code(404).send({ error: 'verification_not_found' });
       if (verification.expiresAt.getTime() < Date.now()) {
         return reply.code(410).send({ error: 'verification_expired' });
@@ -374,6 +388,8 @@ export async function passwordRoutes(app: FastifyInstance) {
       if (!user) return reply.code(404).send({ error: 'verification_not_found' });
 
       let passwordHash = user.passwordHash;
+      const secret = req.cookies[SIGNUP_COOKIE];
+      const sameBrowser = !!secret && verification.id.startsWith(BOUND_ID_PREFIX) && verification.id === boundRowId(secret);
       if (!user.emailVerified) {
         // First verification: whoever opened the link controls the
         // mailbox, so the account is theirs from here on. The password
@@ -381,14 +397,24 @@ export async function passwordRoutes(app: FastifyInstance) {
         // browser that signed up (and no other link was asked for since);
         // otherwise they choose a new one. Sessions and tokens from before
         // verification end either way.
-        const secret = req.cookies[SIGNUP_COOKIE];
-        const keepsPassword =
-          !!secret && verification.id.startsWith(BOUND_ID_PREFIX) && verification.id === boundRowId(secret);
-        if (!keepsPassword) passwordHash = null;
+        if (!sameBrowser) passwordHash = null;
         await invalidateAllSessions(user.id);
         await revokeAllApiTokens(user.id);
         await db.update(schema.users).set({ emailVerified: true, passwordHash }).where(eq(schema.users.id, user.id));
+      } else if (!user.emailProvenAt && !sameBrowser) {
+        // An account stored as verified that never proved its address
+        // (made while verification was off), its link opened somewhere
+        // other than the browser that asked for it: whoever opened it owns
+        // the mailbox, so the account is theirs, as above. Everyone else
+        // is signed out and they choose a new password. Opened in the
+        // browser that asked, nothing else changes.
+        passwordHash = null;
+        await invalidateAllSessions(user.id);
+        await revokeAllApiTokens(user.id);
+        await db.update(schema.users).set({ passwordHash }).where(eq(schema.users.id, user.id));
       }
+      // Opening a link sent to the address proves the mailbox.
+      await markEmailProven(user.id);
       await db.delete(schema.emailVerifications).where(eq(schema.emailVerifications.userId, user.id));
       clearSignupCookie(reply);
 
@@ -397,8 +423,39 @@ export async function passwordRoutes(app: FastifyInstance) {
       // password alone.
       const { token, expiresAt } = await createSession(user.id);
       setSessionCookie(reply, token, expiresAt);
-      // No password: the page asks them to choose one next.
-      return reply.send({ ok: true, needsPassword: !passwordHash });
+      // The page asks them to choose a password next when the one they had
+      // was cleared here, or they have none and no other way to sign in.
+      const needsPassword = !passwordHash && (!!user.passwordHash || (await listLinkedProviders(user.id)).length === 0);
+      return reply.send({ ok: true, needsPassword });
+    },
+  );
+
+  /**
+   * "Confirm your email" for a signed-in account that hasn't proved its
+   * address yet (made while verification was off, say): a link to it,
+   * whatever the site's verification setting. Opening it marks the
+   * address proven (verify-email above). Opened in this browser nothing
+   * else changes; opened anywhere else, whoever opened it owns the
+   * mailbox, so every other sign-in ends and a password it had is cleared (they
+   * choose a new one). `sent` is false when the server couldn't send email.
+   */
+  app.post<{ Body: { next?: string } }>(
+    '/api/auth/password/confirm-email',
+    {
+      config: { rateLimit: { max: 5, timeWindow: '1 minute' } },
+    },
+    async (req, reply) => {
+      const user = requireUser(req);
+      if (user.isDemoAccount) return reply.code(403).send({ error: 'demo_account_cannot_change_profile' });
+      if (user.emailProvenAt) return reply.send({ ok: true, alreadyConfirmed: true, sent: false });
+      if (!mayEmailAgain(lastConfirmEmail, user.id)) {
+        return reply.code(429).header('retry-after', String(RESET_EVERY_MS / 1000)).send({ error: 'confirm_email_sent_recently', retryAfter: RESET_EVERY_MS / 1000 });
+      }
+      const next = safeNextPath(req.body?.next);
+      const secret = randomBytes(24).toString('hex');
+      setSignupCookie(reply, secret);
+      const sent = await issueVerification(req.log, user, next, boundRowId(secret), 'confirm');
+      return reply.send({ ok: true, alreadyConfirmed: false, sent });
     },
   );
 
@@ -542,6 +599,8 @@ export async function passwordRoutes(app: FastifyInstance) {
       if (!user || user.isDemoAccount) return reply.code(404).send({ error: 'reset_link_not_found' });
       const passwordHash = await hash(password, ARGON_OPTS);
       await db.update(schema.users).set({ passwordHash, emailVerified: true }).where(eq(schema.users.id, user.id));
+      // The link was sent to the address: that proves the mailbox.
+      await markEmailProven(user.id);
       await db.delete(schema.passwordResets).where(eq(schema.passwordResets.userId, user.id));
       await db.delete(schema.emailVerifications).where(eq(schema.emailVerifications.userId, user.id));
       await invalidateAllSessions(user.id);
