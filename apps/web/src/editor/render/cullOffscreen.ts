@@ -20,6 +20,8 @@
 //     selection, the view moving) draws the whole view as before.
 
 import Konva from 'konva';
+import { SceneCanvas } from 'konva/lib/Canvas';
+import { installLazyTransforms } from './lazyTransforms';
 
 /** A box in the layer's own coordinates. */
 export interface Box {
@@ -28,6 +30,14 @@ export interface Box {
   x1: number;
   y1: number;
 }
+
+/**
+ * A draw in slices (`sharpInSlices`): on `canvas`, only the parts `from`
+ * to `to` - 1 in the order of the draw, and the shapes between them. `n`
+ * counts the parts met; `inside`, how deep in a part being drawn. A group
+ * drawn as one picture across parts makes it `bad`.
+ */
+let slice: { canvas: unknown; from: number; to: number; n: number; inside: number; bad: boolean } | null = null;
 
 /** The layer being drawn on a canvas, the view in its coordinates, and (a partial draw) the only places being drawn. */
 let culling: (Box & { canvas: unknown; only?: readonly Box[] }) | null = null;
@@ -70,8 +80,38 @@ function patchGroups(): void {
   };
   const scene = proto.drawScene;
   proto.drawScene = function (this: Konva.Group, canvas?: unknown, top?: unknown, bufferCanvas?: unknown) {
-    if (outside(this, canvas ?? this.getLayer()?.getCanvas())) return this;
+    const target = canvas ?? this.getLayer()?.getCanvas();
+    if (outside(this, target)) return this;
+    const s = slice;
+    if (s && target === s.canvas && !top) {
+      if (s.inside > 0) return scene.call(this, canvas, top, bufferCanvas);
+      if (this.attrs.cullR === undefined) {
+        // A group drawn as one picture (cached, or isolated) can't be drawn a slice at a time.
+        if (this.isCached() || this.isolated()) s.bad = true;
+        return scene.call(this, canvas, top, bufferCanvas);
+      }
+      // A part: drawn in its slice, with everything in it.
+      const i = s.n++;
+      if (i < s.from || i >= s.to) return this;
+      s.inside++;
+      try {
+        return scene.call(this, canvas, top, bufferCanvas);
+      } finally {
+        s.inside--;
+      }
+    }
     return scene.call(this, canvas, top, bufferCanvas);
+  };
+  // Shapes outside parts, in a draw in slices: in the slice of the part after them.
+  const shape = Konva.Shape.prototype as unknown as { drawScene: (canvas?: unknown, top?: unknown, bufferCanvas?: unknown) => unknown };
+  const shapeScene = shape.drawScene;
+  shape.drawScene = function (this: Konva.Shape, canvas?: unknown, top?: unknown, bufferCanvas?: unknown) {
+    const s = slice;
+    if (s && s.inside === 0 && !top && (canvas ?? this.getLayer()?.getCanvas()) === s.canvas) {
+      if (this.isCached()) s.bad = true;
+      if (s.n < s.from || s.n >= s.to) return this;
+    }
+    return shapeScene.call(this, canvas, top, bufferCanvas);
   };
   const hit = proto.drawHit;
   proto.drawHit = function (this: Konva.Group, canvas?: unknown, top?: unknown) {
@@ -922,11 +962,139 @@ function sharpenSoon(t: Track): void {
       if (tracks.get(t.layer) !== t) return;
       // The view is moving again (the moving picture shows instead): once it stops.
       if (t.layer.drawScene !== t.ownScene) return sharpenSoon(t);
+      if (t.soft.scene && sliced.enabled) {
+        sharpInSlices(t, () => {
+          if (t.soft.hit) idle(hit);
+        });
+        return;
+      }
       t.sharpen = true;
       if (t.soft.scene) t.layer.drawScene();
       if (t.soft.hit) idle(hit);
     });
   }, SHARPEN_AFTER_MS);
+}
+
+/** Whether the sharp draw goes a slice at a time (tests compare with one that doesn't); how many slices the last took. */
+export const sliced: { enabled: boolean; slices: number; fixed?: number } = { enabled: true, slices: 0 };
+/** A slice of the sharp draw: about this long, in ms (they run while the page is idle). */
+const SLICE_MS = 12;
+
+/**
+ * The sharp draw after a pan's end (`sharpenSoon`), a slice of parts at a
+ * time while the page is idle: in one go it was a long task of 50 to 85 ms
+ * on 7,520 parts zoomed in at 4x slowed CPU. The parts are drawn, in their
+ * order, onto a canvas of the same size off screen (each slice goes on
+ * from where the last left off, the same drawing calls in the same order,
+ * so the result is the same as one draw), then copied onto the screen
+ * canvas in one go. A change meanwhile, or the view moving, drops it: the
+ * wait for the sharp draw starts again.
+ */
+function sharpInSlices(t: Track, then: () => void): void {
+  const layer = t.layer;
+  const canvas = layer.getCanvas() as unknown as CanvasLike & { _logicalWidth: number; _logicalHeight: number; getContext: () => { _context: CanvasRenderingContext2D } };
+  const p = t.scene;
+  const at = drawnFor(layer, canvas);
+  const w = window as Window & { requestIdleCallback?: (cb: (d: { timeRemaining: () => number }) => void, o?: { timeout: number }) => number };
+  // Still the shifted pixels of this very view, with nothing changed since.
+  const still = () => tracks.get(layer) === t && t.soft.scene && p.at === at && !p.marked && !p.whole && layer.drawScene === t.ownScene && layer.isVisible() && layer.clearBeforeDraw() && drawnFor(layer, canvas) === at;
+  if (!still() || !w.requestIdleCallback) {
+    t.sharpen = true;
+    if (t.soft.scene) layer.drawScene();
+    then();
+    return;
+  }
+  const off = new SceneCanvas({ width: canvas._logicalWidth, height: canvas._logicalHeight, pixelRatio: canvas.pixelRatio });
+  if (off.width !== canvas.width || off.height !== canvas.height) {
+    t.sharpen = true;
+    layer.drawScene();
+    then();
+    return;
+  }
+  const own = canvas.getContext()._context;
+  const ctx = off.getContext()._context;
+  ctx.imageSmoothingEnabled = own.imageSmoothingEnabled;
+  ctx.imageSmoothingQuality = own.imageSmoothingQuality;
+  const view = viewOf(layer, off);
+  const stage = layer.getStage();
+  const pr = canvas.pixelRatio;
+  const scale = stage?.scaleX() || 1;
+  const sx = stage?.x() ?? 0;
+  const sy = stage?.y() ?? 0;
+  // As the sharp draw on the screen canvas: the whole canvas, as one place.
+  const only: Box = { x0: (0 / pr - sx) / scale, y0: (0 / pr - sy) / scale, x1: (canvas.width / pr - sx) / scale, y1: (canvas.height / pr - sy) / scale };
+  const container = Konva.Container.prototype as unknown as Own;
+  let from = 0;
+  let per = sliced.fixed ?? 200;
+  sliced.slices = 0;
+  const step = (d: { timeRemaining: () => number }): void => {
+    t.sharpenIdle = null;
+    if (!still() || !view) {
+      if (tracks.get(layer) === t && t.soft.scene) sharpenSoon(t);
+      return;
+    }
+    let done = false;
+    do {
+      const t0 = performance.now();
+      const before = culling;
+      slice = { canvas: off, from, to: from + per, n: 0, inside: 0, bad: false };
+      const c = ctx;
+      c.save();
+      try {
+        const m = c.getTransform();
+        c.setTransform(1, 0, 0, 1, 0, 0);
+        c.beginPath();
+        c.rect(0, 0, off.width, off.height);
+        c.clip();
+        c.setTransform(m);
+        culling = { ...view, canvas: off, only: [only] };
+        container.drawScene.call(layer, off);
+      } finally {
+        c.restore();
+        culling = before;
+      }
+      const s = slice;
+      slice = null;
+      sliced.slices++;
+      if (s.bad) {
+        // (A group drawn as one picture across parts: in one go.)
+        t.sharpen = true;
+        layer.drawScene();
+        then();
+        return;
+      }
+      // (All parts met before the slice's end: the shapes after the last one were drawn too.)
+      done = s.n < from + per;
+      from += per;
+      const took = performance.now() - t0;
+      // About SLICE_MS a slice, whatever the machine.
+      per = sliced.fixed ?? Math.max(20, Math.min(4000, Math.round((per * SLICE_MS) / Math.max(took, 0.5))));
+      if (done || d.timeRemaining() < SLICE_MS + 2) break;
+    } while (!done);
+    if (!done) {
+      t.sharpenIdle = w.requestIdleCallback!(step, { timeout: SHARPEN_IDLE_MS });
+      return;
+    }
+    // Onto the screen canvas, every pixel as drawn.
+    own.save();
+    try {
+      own.setTransform(1, 0, 0, 1, 0, 0);
+      own.globalCompositeOperation = 'copy';
+      own.drawImage(off._canvas, 0, 0);
+    } finally {
+      own.restore();
+    }
+    (off as unknown as { _trimIsolationCanvas?: () => void })._trimIsolationCanvas?.();
+    cullStats.partial++;
+    t.partial++;
+    t.soft.scene = false;
+    if (!t.soft.hit) t.sharpen = false;
+    // Nothing changed on the map: whoever follows this layer's draws hears of none.
+    t.last = [];
+    layer.fire('draw', { node: layer });
+    then();
+  };
+  t.sharpenIdle = w.requestIdleCallback(step, { timeout: SHARPEN_IDLE_MS });
 }
 
 /**
@@ -1072,6 +1240,8 @@ export function pictureTaken(layer: Konva.Layer): void {
 export function cullOffscreen(layer: Konva.Layer): () => void {
   patchGroups();
   watchChanges();
+  // (A sheet of parts keeps its parts' places when the view moves: lazyTransforms.ts.)
+  installLazyTransforms();
   const own = layer as unknown as Own;
   const track: Track = {
     layer,
