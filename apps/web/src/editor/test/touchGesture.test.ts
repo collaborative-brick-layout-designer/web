@@ -2,7 +2,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { panView, pinchView } from '../touchGesture';
-import { isPhoneSize } from '../useViewportSize';
+import { isPhoneSize, shortSide } from '../useViewportSize';
 
 const range = { min: 0.02, max: 40 };
 const start = { zoom: 0.5, panX: 10, panY: 20 };
@@ -51,5 +51,20 @@ describe('isPhoneSize', () => {
     expect(isPhoneSize(915, 412, false)).toBe(false); // a short desktop window
     expect(isPhoneSize(1024, 768, true)).toBe(false); // a tablet
     expect(isPhoneSize(767, 1000, false)).toBe(true);
+  });
+});
+
+describe('shortSide', () => {
+  it("uses the screen's short side, which the on-screen keyboard never shrinks", () => {
+    // A tablet on its side with the keyboard open: the window is 1080 x 380,
+    // the screen is still 1080 x 810, so it stays a tablet.
+    expect(isPhoneSize(1080, shortSide(1080, 810, 380), true)).toBe(false);
+    // A phone on its side is still a phone.
+    expect(isPhoneSize(915, shortSide(915, 412, 412), true)).toBe(true);
+    // Without a screen size, the window's height is used.
+    expect(shortSide(undefined, undefined, 380)).toBe(380);
+    expect(shortSide(0, 0, 640)).toBe(640);
+    // A tall window is never a phone on its side, whatever the screen says.
+    expect(isPhoneSize(1400, shortSide(412, 915, 900), true)).toBe(false);
   });
 });

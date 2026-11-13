@@ -593,6 +593,34 @@ test.describe('touch editing on a tablet', () => {
   });
 });
 
+test.describe('typing on a tablet', () => {
+  test.use(iPad);
+
+  test('the on-screen keyboard opening does not switch a tablet to the phone layout or close the search', async ({ page }) => {
+    await newLayout(page, 'tablet-keyboard');
+    // On its side, the full editor.
+    await page.setViewportSize({ width: 1080, height: 810 });
+    await expect(page.getByRole('toolbar', { name: 'Edit', exact: true })).toBeVisible();
+    const search = page.getByPlaceholder('Search parts (name or number)').first();
+    await search.click();
+    await search.fill('narrow');
+    // The keyboard opens: the window gets much shorter (the screen does not).
+    await page.setViewportSize({ width: 1080, height: 380 });
+    await page.waitForTimeout(300);
+    await expect(page.getByTestId('mode-switch')).toHaveCount(0);
+    await expect(page.getByRole('toolbar', { name: 'Edit', exact: true })).toBeVisible();
+    await expect(search).toBeFocused();
+    await expect(search).toHaveValue('narrow');
+    // Typing goes on in the same field.
+    await page.keyboard.type(' gauge');
+    await expect(search).toHaveValue('narrow gauge');
+    // The keyboard closes: still the same editor.
+    await page.setViewportSize({ width: 1080, height: 810 });
+    await expect(page.getByRole('toolbar', { name: 'Edit', exact: true })).toBeVisible();
+    await expect(search).toHaveValue('narrow gauge');
+  });
+});
+
 test.describe('sheets on a tablet', () => {
   test.use(iPad);
 
