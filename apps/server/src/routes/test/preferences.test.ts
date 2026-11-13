@@ -109,10 +109,10 @@ describe('account preferences', () => {
     let got = await app.inject({ method: 'GET', url: URL, headers: { cookie: user.cookie } });
     // Always returned, so the desktop knows this server can store them.
     // The whole app is the default for anyone who never chose.
-    expect(got.json().prefs).toMatchObject({ legoColor: null, colorStyle: 'full' });
-    expect((await put({ cookie: user.cookie }, { legoColor: 24, colorStyle: 'original' })).statusCode).toBe(200);
+    expect(got.json().prefs).toMatchObject({ legoColor: null, colorStyle: 'full', colorStyleChosen: false });
+    expect((await put({ cookie: user.cookie }, { legoColor: 24, colorStyle: 'original', colorStyleChosen: true })).statusCode).toBe(200);
     got = await app.inject({ method: 'GET', url: URL, headers: { cookie: user.cookie } });
-    expect(got.json().prefs).toMatchObject({ legoColor: 24, colorStyle: 'original', accent: 'brick' });
+    expect(got.json().prefs).toMatchObject({ legoColor: 24, colorStyle: 'original', colorStyleChosen: true, accent: 'brick' });
     // "Just the highlights", once chosen, stays when other settings change.
     expect((await put({ cookie: user.cookie }, { legoColor: null, accent: 'ocean' })).statusCode).toBe(200);
     got = await app.inject({ method: 'GET', url: URL, headers: { cookie: user.cookie } });
@@ -124,12 +124,36 @@ describe('account preferences', () => {
     await db.insert(schema.userPreferences).values({ userId: user.id, prefs: JSON.stringify({ theme: 'dark', accent: 'ocean' }), updatedAt: new Date() });
     let got = await app.inject({ method: 'GET', url: URL, headers: { cookie: user.cookie } });
     expect(got.json().prefs).toMatchObject({ theme: 'dark', accent: 'ocean', colorStyle: 'full' });
-    // A stored "original" is someone's choice and stays.
+    // Every save used to store "original" whether anyone chose it or not:
+    // without the marker it's the old default, so the whole app.
     await db
       .update(schema.userPreferences)
       .set({ prefs: JSON.stringify({ theme: 'dark', colorStyle: 'original' }) });
     got = await app.inject({ method: 'GET', url: URL, headers: { cookie: user.cookie } });
-    expect(got.json().prefs).toMatchObject({ theme: 'dark', colorStyle: 'original' });
+    expect(got.json().prefs).toMatchObject({ theme: 'dark', colorStyle: 'full', colorStyleChosen: false });
+    // With the marker, it was picked in Settings and stays.
+    await db
+      .update(schema.userPreferences)
+      .set({ prefs: JSON.stringify({ theme: 'dark', colorStyle: 'original', colorStyleChosen: true }) });
+    got = await app.inject({ method: 'GET', url: URL, headers: { cookie: user.cookie } });
+    expect(got.json().prefs).toMatchObject({ theme: 'dark', colorStyle: 'original', colorStyleChosen: true });
+  });
+
+  it('lets an older desktop\'s unmarked "original" change nothing', async () => {
+    // 2.1.3 and before send colorStyle "original" with every save.
+    expect((await put({ cookie: user.cookie }, { colorStyle: 'original', largeText: true })).statusCode).toBe(200);
+    let got = await app.inject({ method: 'GET', url: URL, headers: { cookie: user.cookie } });
+    expect(got.json().prefs).toMatchObject({ colorStyle: 'full', colorStyleChosen: false, largeText: true });
+    // Someone who picked the whole app keeps it.
+    await put({ cookie: user.cookie }, { colorStyle: 'full', colorStyleChosen: true });
+    await put({ cookie: user.cookie }, { colorStyle: 'original' });
+    got = await app.inject({ method: 'GET', url: URL, headers: { cookie: user.cookie } });
+    expect(got.json().prefs).toMatchObject({ colorStyle: 'full', colorStyleChosen: true });
+    // Someone who picked "Just the highlights" keeps that too.
+    await put({ cookie: user.cookie }, { colorStyle: 'original', colorStyleChosen: true });
+    await put({ cookie: user.cookie }, { colorStyle: 'original', accent: 'ocean' });
+    got = await app.inject({ method: 'GET', url: URL, headers: { cookie: user.cookie } });
+    expect(got.json().prefs).toMatchObject({ colorStyle: 'original', colorStyleChosen: true, accent: 'ocean' });
   });
 
   it('refuses unknown keys and wrong values without storing anything', async () => {
@@ -156,6 +180,7 @@ describe('account preferences', () => {
       { legoColor: 41 }, // Trans-Red: see-through colors aren't offered
       { colorStyle: 'bold' },
       { colorStyle: null },
+      { colorStyleChosen: 'yes' },
       ['theme'],
       null,
     ];

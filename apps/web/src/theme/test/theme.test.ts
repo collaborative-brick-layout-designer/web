@@ -79,14 +79,14 @@ describe('applyTheme', () => {
 
   it('a LEGO color sets readable accent colors on <html>, and a preset clears them', () => {
     const root = document.createElement('html');
-    applyTheme(root, { theme: 'dark', accent: 'ocean', largeText: false, legoColor: 26, colorStyle: 'original' }, false);
+    applyTheme(root, { theme: 'dark', accent: 'ocean', largeText: false, legoColor: 26, colorStyle: 'original', colorStyleChosen: true }, false);
     expect(root.dataset.accent).toBe('lego');
     expect(root.dataset.colorStyle).toBe('original');
     // Black is lightened in dark mode so it stands out from the panel.
     expect(root.style.getPropertyValue('--accent')).toBe('#646E75');
     expect(root.style.getPropertyValue('--accent-ink')).toBe('#FFFFFF');
     expect(root.style.getPropertyValue('--chrome')).toBe('');
-    applyTheme(root, { theme: 'dark', accent: 'ocean', largeText: false, legoColor: null, colorStyle: 'original' }, false);
+    applyTheme(root, { theme: 'dark', accent: 'ocean', largeText: false, legoColor: null, colorStyle: 'original', colorStyleChosen: true }, false);
     expect(root.dataset.accent).toBe('ocean');
     expect(root.style.getPropertyValue('--accent')).toBe('');
   });
@@ -101,7 +101,7 @@ describe('applyTheme', () => {
     applyTheme(root, { theme: 'light', accent: 'brick', largeText: false, colorStyle: 'full', legoColor: 24 }, false);
     expect(root.style.getPropertyValue('--accent')).toBe('#B49007');
     expect(root.style.getPropertyValue('--chrome')).toBe('#F3EDD7');
-    applyTheme(root, { theme: 'light', accent: 'brick', largeText: false, colorStyle: 'original', legoColor: 24 }, false);
+    applyTheme(root, { theme: 'light', accent: 'brick', largeText: false, colorStyle: 'original', colorStyleChosen: true, legoColor: 24 }, false);
     expect(root.style.getPropertyValue('--chrome')).toBe('');
     expect(root.style.getPropertyValue('--bg')).toBe('');
   });
@@ -111,10 +111,16 @@ describe('applyTheme', () => {
     applyTheme(root, { theme: 'light', accent: 'brick', largeText: false }, false);
     expect(root.dataset.colorStyle).toBe('full');
     expect(root.style.getPropertyValue('--chrome')).toMatch(/^#[0-9A-F]{6}$/);
-    expect(effectiveColorStyle(undefined)).toBe('full');
-    expect(effectiveColorStyle('full')).toBe('full');
-    expect(effectiveColorStyle('original')).toBe('original');
+    expect(effectiveColorStyle({})).toBe('full');
+    expect(effectiveColorStyle({ colorStyle: 'full' })).toBe('full');
+    expect(effectiveColorStyle({ colorStyle: 'original', colorStyleChosen: true })).toBe('original');
+    // Every save used to store 'original' whether anyone chose it or not:
+    // without the marker it's the old default, so the whole app.
+    expect(effectiveColorStyle({ colorStyle: 'original' })).toBe('full');
+    expect(effectiveColorStyle({ colorStyle: 'original', colorStyleChosen: false })).toBe('full');
     applyTheme(root, { theme: 'light', accent: 'brick', largeText: false, colorStyle: 'original' }, false);
+    expect(root.dataset.colorStyle).toBe('full');
+    applyTheme(root, { theme: 'light', accent: 'brick', largeText: false, colorStyle: 'original', colorStyleChosen: true }, false);
     expect(root.dataset.colorStyle).toBe('original');
     expect(root.style.getPropertyValue('--chrome')).toBe('');
   });
@@ -218,6 +224,8 @@ describe('cached preferences', () => {
     expect(sanitizePreferences({ legoColor: null }).legoColor).toBeNull();
     expect(sanitizePreferences({ legoColor: 41, colorStyle: 'loud' })).not.toHaveProperty('legoColor');
     expect(sanitizePreferences({ colorStyle: 'loud' })).not.toHaveProperty('colorStyle');
+    expect(sanitizePreferences({ colorStyleChosen: true }).colorStyleChosen).toBe(true);
+    expect(sanitizePreferences({ colorStyleChosen: 'yes' })).not.toHaveProperty('colorStyleChosen');
     expect(sanitizePreferences({ connectionSnap: 'off' }).connectionSnap).toBe('off');
     expect('connectionSnap' in sanitizePreferences({ connectionSnap: 'medium' })).toBe(false);
     expect('connectionSnap' in sanitizePreferences({})).toBe(false);

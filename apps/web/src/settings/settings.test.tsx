@@ -1,7 +1,7 @@
 // Settings shows what people can change, and nothing held back for later
 // (Expert mode is skipped in this first round of the redesign).
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { SettingsContent } from './SettingsPage';
@@ -128,6 +128,34 @@ describe('Color: any LEGO color and how much color', () => {
     expect(view.getByTestId('color-style-full').getAttribute('aria-checked')).toBe('true');
     expect(view.getByTestId('color-style-original').getAttribute('aria-checked')).toBe('false');
     expect(view.getByTestId('color-style-original').textContent).toMatch(/original look/);
+  });
+
+  it('reads an unmarked "original" as the whole app, and a pick marks it as chosen', async () => {
+    const { fireEvent } = await import('@testing-library/react');
+    const { PrefsContext } = await import('../theme/PrefsProvider');
+    const { DEFAULT_PREFERENCES } = await import('../theme/theme');
+    const setPrefs = vi.fn();
+    const show = (extra: object) =>
+      render(
+        <PrefsContext.Provider
+          value={{ prefs: { ...DEFAULT_PREFERENCES, ...extra }, mode: 'light', setPrefs, syncedToAccount: true, updatedAt: null, ready: true }}
+        >
+          <MemoryRouter>
+            <SettingsContent />
+          </MemoryRouter>
+        </PrefsContext.Provider>,
+      );
+    // Every save used to store "original", chosen or not.
+    let view = within(show({ colorStyle: 'original' }).container);
+    expect(view.getByTestId('color-style-full').getAttribute('aria-checked')).toBe('true');
+    expect(view.getByTestId('color-style-original').getAttribute('aria-checked')).toBe('false');
+    fireEvent.click(view.getByTestId('color-style-original'));
+    expect(setPrefs).toHaveBeenCalledWith({ colorStyle: 'original', colorStyleChosen: true });
+    fireEvent.click(view.getByTestId('color-style-full'));
+    expect(setPrefs).toHaveBeenCalledWith({ colorStyle: 'full', colorStyleChosen: true });
+    // Picked in Settings: kept.
+    view = within(show({ colorStyle: 'original', colorStyleChosen: true }).container);
+    expect(view.getByTestId('color-style-original').getAttribute('aria-checked')).toBe('true');
   });
 });
 

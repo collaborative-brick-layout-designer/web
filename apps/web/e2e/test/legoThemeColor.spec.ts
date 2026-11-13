@@ -2,7 +2,8 @@
 // number, themes the app at once and follows the account; "The whole app"
 // (the default) tints the header and page too; the extremes stay readable
 // in light and dark; and a preset with "Just the highlights" is the
-// original look again, kept once chosen.
+// original look again, kept once chosen (an unmarked "original", saved
+// before the whole app was the default, isn't a choice).
 
 import { test, expect, type Page } from '@playwright/test';
 import { signIn } from '../helpers';
@@ -108,9 +109,19 @@ test('a new person gets the whole app in the color; "Just the highlights" stays 
   const header = page.locator('header.theme-chrome').first();
   await expect(html).toHaveAttribute('data-color-style', 'full');
   await expect.poll(() => cssVar(page, '--chrome')).toMatch(/^#[0-9A-F]{6}$/);
+  // Settings kept from before the whole app was the default: every save
+  // stored "original" then, chosen or not, so it's the whole app too.
+  await page.evaluate(() => localStorage.setItem('bld.prefs', JSON.stringify({ theme: 'light', accent: 'brick', colorStyle: 'original' })));
+  await page.reload();
+  await expect(html).toHaveAttribute('data-color-style', 'full');
 
-  // Signed in, never chose: Home's header takes the default color's tint.
+  // Signed in, never chose: Home's header takes the default color's tint,
+  // even after an older desktop (2.1.3) saves its old default to the account.
   await signIn(page, `color-default-${Date.now()}@example.com`, 'Default Tester');
+  const oldDesktopSave = async () =>
+    expect((await page.request.put('/api/me/preferences', { data: { prefs: { colorStyle: 'original', largeText: false } } })).ok()).toBe(true);
+  await oldDesktopSave();
+  await page.evaluate(() => localStorage.clear());
   await page.goto('/');
   await expect(html).toHaveAttribute('data-color-style', 'full');
   await expect(header).toBeVisible();
@@ -132,6 +143,7 @@ test('a new person gets the whole app in the color; "Just the highlights" stays 
   // Kept by the account: after another setting changes and the browser forgets.
   await page.goto('/settings');
   await page.getByRole('radio', { name: 'Ocean blue', exact: true }).click();
+  await oldDesktopSave();
   await page.evaluate(() => localStorage.clear());
   await page.reload();
   await expect(html).toHaveAttribute('data-accent', 'ocean');

@@ -98,7 +98,7 @@ function ColorChoices() {
   const { prefs, setPrefs } = usePreferences();
   const lego = legoColor(prefs.legoColor);
   const [pickerOpen, setPickerOpen] = useState(() => !!lego);
-  const style = effectiveColorStyle(prefs.colorStyle);
+  const style = effectiveColorStyle(prefs);
   return (
     <>
       <div className="flex flex-wrap gap-5" role="radiogroup" aria-label="Color">
@@ -166,7 +166,7 @@ function ColorChoices() {
               role="radio"
               aria-checked={on}
               data-testid={`color-style-${c.id}`}
-              onClick={() => setPrefs({ colorStyle: c.id })}
+              onClick={() => setPrefs({ colorStyle: c.id, colorStyleChosen: true })}
               className={`flex min-h-11 flex-col gap-1 rounded-bubble bg-panel p-3 text-left ${on ? 'border-2 border-accent' : 'border border-border hover:border-muted'}`}
             >
               <span className="text-sm font-bold text-ink">{c.label}</span>
