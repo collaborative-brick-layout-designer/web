@@ -10,14 +10,14 @@ import { createPortal } from 'react-dom';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { api } from '../api';
+import { isPhoneWindow } from '../editor/useViewportSize';
 import { usePreferences } from '../theme/PrefsProvider';
 import { forClubless, forDevice, getTour, markSeen, stepCount, TOUR_BUTTONS, type Tour } from './tours';
 import { LAST_LAYOUT_KEY } from '../layouts/reopenLast';
 
 /** Phones get the shorter tours (same breakpoint as the editor's phone viewer). */
 export function isPhoneScreen(): boolean {
-  const coarse = window.matchMedia?.('(pointer: coarse)').matches ?? false;
-  return window.innerWidth < 768 || (coarse && window.innerHeight <= 500);
+  return isPhoneWindow();
 }
 
 interface TourApi {
