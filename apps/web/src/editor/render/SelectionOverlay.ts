@@ -87,7 +87,7 @@ export function drawSelection(ctx: Konva.Context, shape: Konva.Shape, s: Selecti
     (shape.attrs as { drawn?: SelectionDrawn }).drawn = drawn;
   };
   if (s.haloIds.length === 0 && s.dotIds.length === 0) {
-    record({ halos: 0, dots: 0, stroke: null });
+    record({ halos: 0, dots: 0, stroke: null, ids: [] });
     return 0;
   }
   const layer = shape.getLayer();
@@ -179,7 +179,7 @@ export function drawSelection(ctx: Konva.Context, shape: Konva.Shape, s: Selecti
     }
   }
   c.restore();
-  record({ halos: drawn, dots, stroke: drawn > 0 ? stroke : null });
+  record({ halos: drawn, dots, stroke: drawn > 0 ? stroke : null, ids: s.haloIds.length <= 20 ? [...s.haloIds] : [] });
   return drawn;
 }
 
@@ -218,4 +218,6 @@ export interface SelectionDrawn {
   dots: number;
   /** The halos' inner stroke, or null with none drawn. */
   stroke: string | null;
+  /** The picked parts it was given, when there are 20 or fewer (for the tests). */
+  ids: string[];
 }

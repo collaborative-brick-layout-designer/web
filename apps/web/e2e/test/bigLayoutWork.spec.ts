@@ -61,6 +61,23 @@ async function count(page: Page): Promise<() => Promise<Counts>> {
   return () => page.evaluate(() => ({ ...(window as unknown as { __n: Counts }).__n }));
 }
 
+/**
+ * Waits until the parts sheet's canvases no longer hold a pan end's shifted
+ * pixels (render/cullOffscreen.ts draws them again in full once the view is
+ * still and the page idle); how long that took, in ms.
+ */
+async function untilSharp(page: Page): Promise<number> {
+  const soft = () =>
+    page.evaluate(() => {
+      type L = { redrawStats: () => { soft: boolean } };
+      const st = (window as unknown as { Konva: { stages: { findOne: (s: string) => L }[] } }).Konva.stages[0]!;
+      return st.findOne('.parts-layer').redrawStats().soft;
+    });
+  const t0 = Date.now();
+  await expect.poll(soft, { timeout: 3000, intervals: [25] }).toBe(false);
+  return Date.now() - t0;
+}
+
 /** Draws every listening layer's hit canvas once; how many shapes that is. */
 async function oneHitDraw(page: Page): Promise<number> {
   const done = await count(page);
@@ -185,12 +202,18 @@ test('a big layout: pan, zoom and box-select draw what changed, and the export i
   await page.mouse.down({ button: 'middle' });
   for (let i = 1; i <= 20; i++) await page.mouse.move(c.x + i * 5, c.y + i * 3);
   await page.mouse.up({ button: 'middle' });
+  await page.waitForTimeout(100);
+  const ended = await done();
+  // The pan's end shifts what the parts sheet had and draws only the strip
+  // the pan brought in.
+  expect(ended.partsScene, 'the pan\'s end draws only what came in').toBeLessThan(0.5 * 940);
+  await untilSharp(page);
   await page.waitForTimeout(300);
   const pan = await done();
-  // One picture of the map when it starts moving and one sharp draw when it
-  // stops; it was every part on every one of the 20 frames.
+  // One picture of the map when it starts moving and one sharp draw once
+  // still; it was every part on every one of the 20 frames.
   expect(pan.partsScene, 'the parts draw once for the picture and once when the pan ends').toBeLessThanOrEqual(2.5 * 940);
-  expect(pan.partsScene, 'and are drawn sharp again when it ends').toBeGreaterThan(900);
+  expect(pan.partsScene, 'and are drawn sharp again once the view is still').toBeGreaterThan(900);
   expect(pan.hits, 'the hit canvas: once when the pan ends (it was every frame)').toBeLessThanOrEqual(1.5 * once);
 
   // ── The wheel: the same, and a click straight after picks the part under it. ──
@@ -297,10 +320,15 @@ test('a big layout: while the view moves the map is one moving picture, kept up 
     };
   });
   await page.mouse.up({ button: 'middle' });
+  await page.waitForTimeout(100);
+  // The pan's end: what the parts sheet had, shifted, and only the strip
+  // the pan brought in drawn.
+  expect((await done()).partsScene, 'the pan\'s end draws only what came in').toBeLessThan(0.5 * 940);
+  await untilSharp(page);
   await page.waitForTimeout(300);
   const stopped = await done();
   // (Those the pan moved off screen aren't drawn: render/cullOffscreen.ts.)
-  expect(stopped.partsScene, 'the parts are drawn sharp again when the view stops').toBeGreaterThan(700);
+  expect(stopped.partsScene, 'the parts are drawn sharp again once the view is still').toBeGreaterThan(700);
   // The hit canvas comes after, once idle: in the same frame the two were
   // one long task (about 50 ms on 7,520 parts zoomed in at 4x slowed CPU).
   expect(await page.evaluate(() => (window as unknown as { __sharpFrameHits?: number }).__sharpFrameHits), 'no hit shape drawn in the frame of the sharp draw').toBe(0);
