@@ -39,7 +39,12 @@ export function useMenuRoles(ref: RefObject<HTMLElement | null>, open: boolean, 
     box.addEventListener('keydown', onKey);
     return () => {
       box.removeEventListener('keydown', onKey);
-      if (before && document.contains(before)) before.focus({ preventScroll: true });
+      // The focus goes back where it was, unless the item chosen put it
+      // somewhere else (Rename… focuses its name box: taking the focus
+      // from it closed the box at once, so the name couldn't be changed).
+      const now = document.activeElement;
+      const moved = now && now !== document.body && !box.contains(now);
+      if (!moved && before && document.contains(before)) before.focus({ preventScroll: true });
     };
   }, [ref, open, label]);
 }

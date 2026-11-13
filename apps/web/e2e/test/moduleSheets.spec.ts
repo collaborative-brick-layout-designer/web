@@ -113,11 +113,11 @@ test('a module keeps its sheets, and adding it asks where a missing sheet goes',
   await page.getByLabel('Modules', { exact: true }).check();
   await page.mouse.click(400, 400);
   await expect.poll(() => frameDash(page)).toEqual([6, 4]);
-  await sheetsPanel(page).locator('li', { hasText: 'Buildings' }).getByTitle('Visible').uncheck();
+  await sheetsPanel(page).getByRole('checkbox', { name: 'Show Buildings' }).uncheck();
   await expect.poll(() => frameDash(page)).toEqual([2, 6]);
   await expect(page.getByTestId('module-hidden-note')).toHaveText('2 parts are on a hidden sheet');
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/partly-hidden-module.png` });
-  await sheetsPanel(page).locator('li', { hasText: 'Buildings' }).getByTitle('Visible').check();
+  await sheetsPanel(page).getByRole('checkbox', { name: 'Show Buildings' }).check();
 
   // Another layout: Cancel puts nothing down; Place with the default goes on the picked sheet, no new sheet.
   const c = await openLayout(page, 'Harbour');
