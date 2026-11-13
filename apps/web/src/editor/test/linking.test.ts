@@ -164,6 +164,22 @@ describe('links after a move on a big layout', () => {
     expect(connectivityStats.pointsWorkedOut).toBe(1 + 3);
   });
 
+  it('goes through only the connections near the moved part, not every one', () => {
+    const { doc, layerId, ids, catalog } = row();
+    const whole = connectivityStats.wholePasses;
+    connectivityStats.connectionsLooked = 0;
+    moveBrick(doc, layerId, ids[310]!, 310 * 16, 100);
+    recomputeConnectivity(doc, catalog);
+    // Its two ends where they are, and the two ends of its neighbours it
+    // was joined to (it went through all 1,200).
+    expect(connectivityStats.connectionsLooked).toBe(4);
+    // Back in: the same four, and the links written meanwhile (its neighbours' ends).
+    moveBrick(doc, layerId, ids[310]!, 310 * 16, 0);
+    recomputeConnectivity(doc, catalog);
+    expect(connectivityStats.connectionsLooked).toBeLessThan(20);
+    expect(connectivityStats.wholePasses).toBe(whole);
+  });
+
   it("a local move's recompute reads only the parts it changed from the doc", () => {
     vi.useFakeTimers();
     const { doc, layerId, ids } = row();
