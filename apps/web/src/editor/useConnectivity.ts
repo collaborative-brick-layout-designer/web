@@ -23,7 +23,7 @@
 
 import { useEffect, useMemo } from 'react';
 import * as Y from 'yjs';
-import { connectionPoints, linkBricks, makeCatalogLookup, rebuildConnectivity, type BrickLinks, type Catalog, type PartMetadata } from '@cld/parts-catalog/browser';
+import { connectionPoints, createLinker, makeCatalogLookup, rebuildConnectivity, type BrickLinks, type Catalog, type Linker, type PartMetadata } from '@cld/parts-catalog/browser';
 import { docToBbm } from '@cld/ydoc';
 import type { Brick } from '@cld/model';
 import { getDocProjector } from './useDocMap';
@@ -126,15 +126,21 @@ export function useConnectivity(doc: Y.Doc | null, parts: PartWire[] | undefined
 interface LinkCache {
   lookup: (partNumber: string) => PartMetadata | undefined;
   points: (brick: Brick, meta: PartMetadata) => ArrayLike<number>;
+  /** Each sheet's links, kept between passes (by the doc and the sheet's id). */
+  linkers: WeakMap<Y.Doc, Map<string, Linker>>;
 }
 const linkCaches = new WeakMap<Catalog, LinkCache>();
-/** How many bricks' connection points were worked out (for tests). */
-export const connectivityStats = { pointsWorkedOut: 0 };
+/**
+ * How many bricks' connection points were worked out, and how many
+ * connections the last passes went through (for tests).
+ */
+export const connectivityStats = { pointsWorkedOut: 0, connectionsLooked: 0, wholePasses: 0 };
 function linkCache(catalog: Catalog): LinkCache {
   let c = linkCaches.get(catalog);
   if (!c) {
     const known = new WeakMap<Brick, ArrayLike<number>>();
     c = {
+      linkers: new WeakMap(),
       lookup: makeCatalogLookup(catalog),
       points: (brick, meta) => {
         let p = known.get(brick);
@@ -166,21 +172,34 @@ export function recomputeConnectivity(doc: Y.Doc, catalog: Catalog): void {
   try {
     const projector = getDocProjector(doc);
     const map = projector.project();
-    const { lookup, points } = linkCache(catalog);
+    const cache = linkCache(catalog);
+    const { lookup, points } = cache;
+    let linkers = cache.linkers.get(doc);
+    if (!linkers) cache.linkers.set(doc, (linkers = new Map()));
     const changed: Array<[Y.Map<unknown>, Brick, BrickLinks]> = [];
+    const sheets = new Set<string>();
     for (const layer of map.layers) {
       if (layer.type !== 'brick') continue;
-      const { links } = linkBricks(layer.bricks, lookup, points);
-      for (let i = 0; i < layer.bricks.length; i++) {
-        const got = links[i];
+      sheets.add(layer.id);
+      // Only the parts near those changed since the last pass (linker.ts).
+      let linker = linkers.get(layer.id);
+      if (!linker) linkers.set(layer.id, (linker = createLinker(lookup, points)));
+      const { links, whole, looked } = linker.update(layer.bricks);
+      connectivityStats.connectionsLooked += looked;
+      if (whole) connectivityStats.wholePasses++;
+      for (const [i, got] of links) {
         const brick = layer.bricks[i]!;
         if (!got || sameLinks(brick, got)) continue;
         const y = projector.brickYMap(brick);
         // Not from the projection (read within a transaction): the whole pass the old way.
-        if (!y) return recomputeFromCopy(doc, catalog);
+        if (!y) {
+          linkers.clear();
+          return recomputeFromCopy(doc, catalog);
+        }
         changed.push([y, brick, got]);
       }
     }
+    for (const id of [...linkers.keys()]) if (!sheets.has(id)) linkers.delete(id);
     if (changed.length === 0) return;
     doc.transact(() => {
       for (const [y, brick, got] of changed) {
@@ -192,7 +211,9 @@ export function recomputeConnectivity(doc: Y.Doc, catalog: Catalog): void {
     }, CONNECTIVITY_ORIGIN);
   } catch {
     // Transient parse failures (e.g. mid-import) are fine — we'll
-    // try again on the next mutation.
+    // try again on the next mutation (from a whole pass: what was kept
+    // may be half updated).
+    linkCaches.get(catalog)?.linkers.delete(doc);
   }
 }
 

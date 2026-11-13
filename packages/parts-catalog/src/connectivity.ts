@@ -14,7 +14,7 @@ import type { BbmMap, Brick, Layer, LayerBrick } from '@cld/model';
 import type { Catalog, PartMetadata } from './types.js';
 
 // BlueBrick's arePositionsEqual: within half a stud on each axis.
-const TOL_STUDS = 0.5;
+export const TOL_STUDS = 0.5;
 
 export interface RebuildConnectivityResult {
   /** Number of (brick, connIndex) pairs that ended up linked. */
@@ -240,7 +240,7 @@ export function connectionPoints(brick: Brick, meta: PartMetadata): number[] {
  * that connection's <nextConnexionPreference> (default 0), or failing that
  * to the next free connection (wrapping; unchanged if none is free).
  */
-function onLinked(brick: BrickLinks, myGroup: string, connIndex: number, meta: PartMetadata): void {
+export function onLinked(brick: BrickLinks, myGroup: string, connIndex: number, meta: PartMetadata): void {
   if (brick.activeConnectionPointIndex !== connIndex) return;
   const n = brick.connexions.length;
   const preferred = meta.connections[connIndex]?.nextConnexionPreference ?? 0;
@@ -260,7 +260,7 @@ function onLinked(brick: BrickLinks, myGroup: string, connIndex: number, meta: P
 }
 
 /** Bucket cell, clamped so a corrupt position can't overflow. */
-function cell(v: number): number {
+export function cell(v: number): number {
   if (!(v > -1e9)) return -1e9;
   if (!(v < 1e9)) return 1e9;
   return Math.floor(v);
@@ -322,7 +322,7 @@ function oldNameIndex(catalog: Catalog): Map<string, PartMetadata> {
  * that part. Extras get an empty linkedTo + a fresh id derived from the
  * brick id. Excess entries are dropped — the desktop trims the same way.
  */
-function paddedConnexions(brick: Brick, meta: PartMetadata): { id: string; linkedTo: string }[] {
+export function paddedConnexions(brick: Brick, meta: PartMetadata): { id: string; linkedTo: string }[] {
   const target = meta.connections.length;
   const out: { id: string; linkedTo: string }[] = [];
   for (let i = 0; i < brick.connexions.length && i < target; i++) {
@@ -338,7 +338,7 @@ function paddedConnexions(brick: Brick, meta: PartMetadata): { id: string; linke
  * studs, about 131 km, of the origin), a string past that.
  */
 const KEY_SPAN = 1 << 24;
-function bucketKey(bx: number, by: number): number | string {
+export function bucketKey(bx: number, by: number): number | string {
   if (bx > -KEY_SPAN && bx < KEY_SPAN && by > -KEY_SPAN && by < KEY_SPAN) return (bx + KEY_SPAN) * 2 * KEY_SPAN + (by + KEY_SPAN);
   return `${bx},${by}`;
 }
