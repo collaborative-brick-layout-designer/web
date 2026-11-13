@@ -1,10 +1,11 @@
 // A pan's end on a big layout (render/cullOffscreen.ts): the parts sheet's
-// canvases are shifted with the view and only the strip the pan brought in
-// is drawn, so the frame the pan ends in is short. A shifted sprite at a
-// part-px place can come out a hair off a fresh draw, so that one frame has
-// a named, bounded exception; once the view is still and the page idle the
-// canvases are drawn again in full, and from then on they match a fresh
-// draw as everywhere else.
+// screen canvas is shifted with the view and only the strip the pan
+// brought in is drawn, so the frame the pan ends in is short. That one
+// frame has a named, bounded exception on the screen canvas (below); once
+// the view is still and the page idle it is drawn again in full, and from
+// then on it matches a fresh draw as everywhere else. The hit canvas (what
+// a click lands on) is never shifted: a click straight after a pan lands
+// on the part a fresh draw puts there.
 
 import { test, expect, type Page } from '@playwright/test';
 import { readFileSync } from 'node:fs';
@@ -17,16 +18,21 @@ const FORDYCE = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '../.
 /** Everywhere: at most 1 in 255 off a fresh draw, in any channel of any pixel. */
 const SAME_AS_FRESH = 1;
 /**
- * The one exception: the frame a pan ends in, before the sharp draw. Its
- * shifted pixels were up to 7 in 255 off a fresh draw in about 30 places
- * (accepted by Aaron, 2026-11-12); 8 passes, anything more fails.
+ * The one exception: the screen canvas, in the frame a pan ends in, before
+ * the sharp draw. Chromium resamples a heavily scaled-down picture a little
+ * differently where a clip edge cuts it, so a part the pan brings up to
+ * the canvas's edge, drawn whole inside it before, is off a fresh draw
+ * near that edge: by how much depends on the picture. Measured: 17 in 255
+ * in 94 pixels (Fordyce 2026 with the bundled library alone, the whole
+ * map, a 1524 px picture drawn at 136 px), 7 in 255 with every library.
+ * Accepted by Aaron on 2026-11-13; 32 leaves headroom, anything more fails.
  */
-const PAN_FINISH_SHIFT_MAX = 8;
+const PAN_FINISH_SHIFT_MAX = 32;
 /** And only in a few places: more than this many pixels over SAME_AS_FRESH fails too. */
 const PAN_FINISH_SHIFT_PIXELS = 400;
 
 interface Off {
-  /** The biggest difference in any channel of any pixel, screen canvas and hit canvas. */
+  /** The biggest difference in any channel of any pixel, screen canvas and hit canvas (the hit canvas only once it's been drawn, after the view stopped). */
   scene: number;
   hit: number;
   /** Pixels of the screen canvas off by more than SAME_AS_FRESH. */
@@ -123,4 +129,74 @@ test('a pan ends with a shifted frame close to a fresh draw, then the sharp draw
     expect(sharp.hit, `${where}: hit canvas after the sharp draw`).toBeLessThanOrEqual(SAME_AS_FRESH);
     await page.waitForTimeout(1500);
   }
+});
+
+test('a click straight after a pan lands on the part a fresh draw puts there, at the canvas edge too', async ({ page }) => {
+  test.setTimeout(180_000);
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await signIn(page, `pan-click-${Date.now()}@example.com`, 'Pan Click');
+  const res = await page.request.post('/api/layouts', { data: { title: 'Pan click', bbm: FORDYCE } });
+  const { id } = (await res.json()) as { id: string };
+  await page.goto(`/editor/${id}`);
+  await expect(page.getByTestId('loading-card')).toBeHidden({ timeout: 60000 });
+  await expect(page.getByText('940 pieces').first()).toBeVisible();
+  // The whole map: the pictures are drawn at about a tenth of their size.
+  await page.getByRole('button', { name: 'Fit', exact: true }).click();
+  await page.waitForTimeout(1500);
+  const area = (await page.locator('.konvajs-content').first().boundingBox())!;
+  const c = { x: area.x + area.width / 2, y: area.y + area.height / 2 };
+  // The pan brings the map up to the right edge; it's let go, and a part
+  // the edge cuts is clicked a few px in from the edge, in the same task.
+  await page.mouse.move(c.x, c.y);
+  await page.mouse.down({ button: 'middle' });
+  for (let i = 1; i <= 10; i++) await page.mouse.move(c.x + 12 * i, c.y + 6 * i);
+  const clicked = await page.evaluate(({ end }) => {
+    type N = { name: () => string; getParent: () => N | null; getClientRect: () => { x: number; y: number; width: number; height: number }; image?: () => { naturalWidth?: number } | null; width: () => number };
+    type St = { content: HTMLElement; width: () => number; findOne: (s: string) => { find: (s: string) => N[] } };
+    const st = (window as unknown as { Konva: { stages: St[] } }).Konva.stages[0]!;
+    const el = st.content;
+    const box = el.getBoundingClientRect();
+    const mouse = (type: string, p: { x: number; y: number }, button: number) => {
+      const init = { bubbles: true, cancelable: true, composed: true, clientX: p.x, clientY: p.y, button, buttons: type.endsWith('down') ? 1 << (button === 1 ? 2 : 0) : 0 };
+      el.dispatchEvent(type.startsWith('pointer') ? new PointerEvent(type, { ...init, pointerType: 'mouse', isPrimary: true }) : new MouseEvent(type, init));
+    };
+    mouse('pointerup', end, 1);
+    mouse('mouseup', end, 1);
+    // A big picture, scaled well down, that the canvas's right edge cuts.
+    const w = st.width();
+    let at: { x: number; y: number; name: string } | null = null;
+    for (const img of st.findOne('.parts-layer').find('Image')) {
+      const r = img.getClientRect();
+      const part = img.getParent();
+      if (!part || r.x >= w - 8 || r.x + r.width <= w || r.height < 20 || img.width() < 1000) continue;
+      at = { x: box.left + w - 4, y: box.top + r.y + r.height / 2, name: part.name() };
+      break;
+    }
+    if (!at) return null;
+    mouse('pointerdown', at, 0);
+    mouse('mousedown', at, 0);
+    mouse('pointerup', at, 0);
+    mouse('mouseup', at, 0);
+    return at;
+  }, { end: { x: c.x + 120, y: c.y + 60 } });
+  expect(clicked, 'a big part cut by the right edge').not.toBeNull();
+  await expect(page.locator('footer')).toContainText(/selected: 1\b/);
+  // What a fresh draw of the hit canvas says is there.
+  const fresh = await page.evaluate(({ x, y }) => {
+    type N = { name: () => string; getParent: () => N | null };
+    type St = { content: HTMLElement; getIntersection: (p: { x: number; y: number }) => N | null; findOne: (s: string) => { drawHit: () => void } };
+    const st = (window as unknown as { Konva: { stages: St[] } }).Konva.stages[0]!;
+    st.findOne('.parts-layer').drawHit();
+    const box = st.content.getBoundingClientRect();
+    for (let n = st.getIntersection({ x: x - box.left, y: y - box.top }); n; n = n.getParent()) if (/^brick-/.test(n.name())) return n.name();
+    return null;
+  }, clicked!);
+  expect(fresh).not.toBeNull();
+  const picked = () =>
+    page.evaluate(() => {
+      type Node = { attrs: { drawn?: { ids: string[] } } };
+      const K = (window as unknown as { Konva: { stages: { find: (s: string) => Node[] }[] } }).Konva;
+      return [...new Set(K.stages.flatMap((st) => st.find('.selection-overlay')).flatMap((o) => o.attrs.drawn?.ids ?? []))].map((i) => `brick-${i}`);
+    });
+  await expect.poll(picked).toEqual([fresh]);
 });

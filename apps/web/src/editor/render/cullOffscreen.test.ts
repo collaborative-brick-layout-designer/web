@@ -195,20 +195,19 @@ describe('a watched layer', () => {
     expect(draw()).toMatchObject({ whole: 2, partial: 0 });
   });
 
-  it('when the view moves by whole px, shifts what the canvases have and draws only what came in', () => {
+  it('when the view moves by whole px, shifts what the screen canvas has and draws only what came in; the hit canvas is drawn whole', () => {
     const shifted = cullStats.shifted;
     stage.position({ x: -300, y: 0 });
     const d = draw();
-    // Both canvases: the column the move brought in (300 px on the right), not the view.
-    expect(d).toMatchObject({ whole: 0, partial: 2, scene: [[700, 0, 300, 800]], hit: [[700, 0, 300, 800]] });
-    expect(cullStats.shifted - shifted).toBe(2);
-    // The parts reaching into it: three columns of eight, and the one beside them.
-    expect(d.drawn).toBeLessThanOrEqual(2 * 8 * 4);
+    // The screen canvas: the column the move brought in (300 px on the right), not the view.
+    // The hit canvas is never shifted (a click goes by a fresh draw): whole.
+    expect(d).toMatchObject({ whole: 1, partial: 1, scene: [[700, 0, 300, 800]], hit: [] });
+    expect(cullStats.shifted - shifted).toBe(1);
     // A part moved while the view moved too: where it was and is, as well.
     stage.position({ x: -300, y: -100 });
     parts[34]!.x(parts[34]!.x() + 8);
     const e = draw();
-    expect(e).toMatchObject({ whole: 0, partial: 2 });
+    expect(e).toMatchObject({ whole: 1, partial: 1 });
     expect(e.scene).toContainEqual([0, 700, 1000, 100]);
     expect(e.scene).toContainEqual([98, 198, 112, 104]);
     // A move at this view is partial again, in this view's px.
@@ -217,16 +216,16 @@ describe('a watched layer', () => {
     // Both ways at once: a column and a row, not one box around them.
     stage.position({ x: -320, y: -110 });
     const both = draw();
-    expect(both).toMatchObject({ whole: 0, partial: 2 });
+    expect(both).toMatchObject({ whole: 1, partial: 1 });
     expect(both.scene).toEqual([[980, 0, 20, 800], [0, 790, 980, 10]]);
     // From a view at a part-px place, by whole px (a hair off in floating point): shifted too.
     stage.position({ x: -0.1 - 0.2, y: -100 });
     draw();
     stage.position({ x: -0.1 - 0.2 - 37, y: -100 });
-    expect(draw()).toMatchObject({ whole: 0, partial: 2 });
+    expect(draw()).toMatchObject({ whole: 1, partial: 1 });
   });
 
-  it('draws the shifted canvases again in full once the view is still, without telling the view picture every part changed', () => {
+  it('draws the shifted screen canvas again in full once the view is still, without telling the view picture every part changed', () => {
     vi.useFakeTimers();
     try {
       stage.position({ x: -300, y: 0 });
@@ -238,18 +237,18 @@ describe('a watched layer', () => {
       draw();
       vi.advanceTimersByTime(SHARPEN_AFTER_MS - 50);
       expect(stats().soft).toBe(true);
-      // Still: drawn in full (jsdom has no requestIdleCallback, so at once), both canvases.
+      // Still: drawn in full (jsdom has no requestIdleCallback, so at once); the hit canvas was never shifted.
       const was = stats();
       reset();
       vi.advanceTimersByTime(100);
       const is = stats();
       expect(is.soft).toBe(false);
-      expect(is.partial - was.partial).toBe(2);
+      expect(is.partial - was.partial).toBe(1);
       expect(is.whole - was.whole).toBe(0);
       expect(clips.get(layer.getCanvas()._canvas)).toEqual([[0, 0, 1000, 800]]);
-      expect(clips.get(layer.hitCanvas._canvas)).toEqual([[0, 0, 1000, 800]]);
+      expect(clips.has(layer.hitCanvas._canvas)).toBe(false);
       // Every part on screen drawn, and nothing changed for the view picture.
-      expect(cullStats.drawn).toBeGreaterThanOrEqual(2 * 7 * 8);
+      expect(cullStats.drawn).toBeGreaterThanOrEqual(7 * 8);
       expect(lastDrawBoxes(layer)).toEqual([]);
       // And then back to drawing only what changes.
       parts[34]!.x(parts[34]!.x() + 8);

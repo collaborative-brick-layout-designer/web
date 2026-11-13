@@ -172,11 +172,11 @@ describe('the parts sheet while the view moves', () => {
     const was = stats();
     cullStats.drawn = 0;
     layer.draw();
-    // Shown again, drawn as the canvas it kept, shifted: the 40 px brought in.
+    // Shown again, the screen canvas drawn as the canvas it kept, shifted:
+    // the 40 px brought in. (The hit canvas is drawn whole, never shifted.)
     expect(el.style.visibility).toBe('');
-    expect(stats().whole - was.whole).toBe(0);
-    expect(stats().partial - was.partial).toBe(2);
-    expect(cullStats.drawn).toBeLessThan(2 * 60);
+    expect(stats().whole - was.whole).toBe(1);
+    expect(stats().partial - was.partial).toBe(1);
     pvb.dispose();
   });
 });

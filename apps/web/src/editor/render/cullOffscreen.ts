@@ -292,11 +292,12 @@ interface Track {
   cause: { node: Konva.Node | null; what: string };
   why: string;
   /**
-   * Canvases that hold shifted pixels (a pan's end, `shiftFor`): a hair
-   * off a fresh draw in a few places (up to 7 in 255, where a sprite at a
-   * part-px place samples differently), so each is drawn again in full
-   * once the page is idle (`sharpenSoon`): the screen canvas, then the
-   * hit canvas.
+   * Whether the screen canvas holds shifted pixels (a pan's end,
+   * `shiftFor`). Near a heavily scaled-down picture cut by the canvas's
+   * edge they are a little off a fresh draw (Chromium resamples such a
+   * picture differently at a clip edge: 17 in 255 on one layout), so it is
+   * drawn again in full once the page is idle (`sharpenSoon`). The hit
+   * canvas is never shifted (`hit` stays false).
    */
   soft: { scene: boolean; hit: boolean };
   /** The next draw of a soft canvas (with the view where it was shifted to) draws all of it. */
@@ -751,9 +752,14 @@ function drawOwn(layer: Konva.Layer, which: 'scene' | 'hit', canvas: CanvasLike,
   const drawable = which === 'scene' ? layer.isVisible() : layer.shouldDrawHit();
   const at = drawnFor(layer, canvas);
   // The view only moved since (no zoom), by whole device px: what the
-  // canvas has is shifted, and only what the move brought in is drawn,
-  // with the places that changed meanwhile.
-  const shift = drawable && p.at !== null && p.at !== at && !p.whole && layer.clearBeforeDraw() ? shiftFor(p.at, at) : null;
+  // screen canvas has is shifted, and only what the move brought in is
+  // drawn, with the places that changed meanwhile. Never the hit canvas:
+  // shifted, it could be a little off near a picture cut by an edge (as the
+  // screen canvas can, see `soft`), and a click must land on what a fresh
+  // draw says is there. It is drawn whole after the view stops, once the
+  // page is idle or at the first pointer move or press (EditorPage's
+  // freshHit), as before.
+  const shift = which === 'scene' && drawable && p.at !== null && p.at !== at && !p.whole && layer.clearBeforeDraw() ? shiftFor(p.at, at) : null;
   // The sharp draw of a canvas that holds shifted pixels (the view where
   // it was shifted to): all of it, as a partial draw of the changed places
   // would be, so the view picture, which follows this layer's draws, isn't

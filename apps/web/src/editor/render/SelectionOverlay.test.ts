@@ -78,7 +78,7 @@ describe('selection overlay', () => {
     });
     // a and b (c is on the drag layer; 'gone' has no part).
     expect(drawn).toBe(2);
-    expect(overlay.attrs.drawn).toEqual({ halos: 2, dots: 0, stroke: '#FFD700' });
+    expect(overlay.attrs.drawn).toEqual({ halos: 2, dots: 0, stroke: '#FFD700', ids: ['a', 'b', 'c', 'gone'] });
     // Device px (pixel ratio 2): a's halo starts at (10 - 4 - 1) * 2, (20 - 4 - 1) * 2.
     expect(calls).toContain('moveTo(10,30)');
     // The desktop's order for each part: dark outline, the tint's fill, the tint's outline.
