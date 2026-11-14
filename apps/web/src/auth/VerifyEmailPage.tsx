@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
-import { Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { safeNext } from './signIn';
+import { Link, Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { loginPath, safeNext, SwitchAccountButton, useHere } from './signIn';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api';
 import { SetPasswordForm } from './SetPasswordForm';
@@ -15,7 +15,10 @@ import { SetPasswordForm } from './SetPasswordForm';
  * link back to /login where the user can request a fresh one. When the
  * server says the account has no password (the link wasn't opened in the
  * browser that signed up, or it was a "choose a password" link), the page
- * asks for one before going on.
+ * asks for one before going on. A "Confirm your email" link only works
+ * signed in to its own account: signed out, the page asks to sign in (and
+ * comes back here); signed in as someone else, it says so and offers to
+ * switch.
  */
 export function VerifyEmailPage() {
   const params = useParams<{ token: string }>();
@@ -23,6 +26,7 @@ export function VerifyEmailPage() {
   const qc = useQueryClient();
   const [params2] = useSearchParams();
   const next = safeNext(params2.get('next'));
+  const here = useHere();
 
   const verify = useMutation({
     mutationFn: () => api.verifyEmail(params.token!),
@@ -49,7 +53,8 @@ export function VerifyEmailPage() {
     <div className="grid min-h-screen place-items-center px-4">
       <div className="w-full max-w-sm space-y-4 rounded-lg border border-line bg-panel p-8 text-center shadow-sm">
         <img src="/logo.png" alt="" className="mx-auto h-12 w-12 rounded-lg" />
-        {verify.isSuccess && !verify.data.needsPassword && <p className="text-neutral-300">Email verified! Taking you in…</p>}
+        {verify.isSuccess && verify.data.confirmed && <p className="text-neutral-300">Email confirmed! Taking you back…</p>}
+        {verify.isSuccess && !verify.data.confirmed && !verify.data.needsPassword && <p className="text-neutral-300">Email verified! Taking you in…</p>}
         {verify.isSuccess && verify.data.needsPassword && (
           <>
             <h1 className="text-lg font-semibold">Choose a password</h1>
@@ -59,7 +64,30 @@ export function VerifyEmailPage() {
             <SetPasswordForm submitLabel="Save and continue" onDone={() => navigate(next, { replace: true })} />
           </>
         )}
-        {verify.isError && (
+        {verify.isError && errorCode(verify.error) === 'confirm_sign_in_first' && (
+          <div data-testid="confirm-sign-in" className="space-y-3">
+            <h1 className="text-lg font-semibold">Sign in to confirm your email</h1>
+            <p className="text-sm text-muted">
+              This link confirms the email of your account. Sign in to that account first (with your password, or however you usually sign in), and it’s confirmed straight away.
+            </p>
+            <Link
+              to={loginPath(here)}
+              className="flex min-h-11 items-center justify-center rounded-lg bg-accent px-4 py-2 text-center text-accent-ink hover:bg-accent-hover"
+            >
+              Sign in
+            </Link>
+          </div>
+        )}
+        {verify.isError && errorCode(verify.error) === 'confirm_other_account' && (
+          <div data-testid="confirm-other-account" className="space-y-3">
+            <h1 className="text-lg font-semibold">This link is for another account</h1>
+            <p className="text-sm text-muted">
+              It confirms the email of a different account from the one you’re signed in to. Sign out and sign in to that account to confirm it.
+            </p>
+            <SwitchAccountButton />
+          </div>
+        )}
+        {verify.isError && !isConfirmStep(verify.error) && (
           <>
             <p className="text-danger">{(verify.error as Error).message}</p>
             <a href="/login" className="tap-target inline-flex items-center text-sm text-accent-text hover:underline">
@@ -71,4 +99,14 @@ export function VerifyEmailPage() {
       </div>
     </div>
   );
+}
+
+function errorCode(e: unknown): string | undefined {
+  return (e as { code?: string } | null)?.code;
+}
+
+/** A "Confirm your email" link that needs the right account signed in: the page says how, not an error. */
+function isConfirmStep(e: unknown): boolean {
+  const code = errorCode(e);
+  return code === 'confirm_sign_in_first' || code === 'confirm_other_account';
 }

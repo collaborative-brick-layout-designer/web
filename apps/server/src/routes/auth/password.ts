@@ -36,6 +36,12 @@ const SIGNUP_COOKIE_PATH = '/api/auth/password';
  * rows have a plain uuid id.
  */
 const BOUND_ID_PREFIX = 'signup:';
+/**
+ * "Confirm your email" rows (the signed-in confirm-email route) have this
+ * id prefix plus a uuid. Their link only works in a browser signed in to
+ * that same account: it never signs anyone in or out.
+ */
+const CONFIRM_ID_PREFIX = 'confirm:';
 /** Rows from before tokens were hashed hold the raw 24-byte hex token (48 chars); hashes are 64. */
 const LEGACY_TOKEN_LENGTH = 48;
 
@@ -387,6 +393,19 @@ export async function passwordRoutes(app: FastifyInstance) {
       const user = await db.select().from(schema.users).where(eq(schema.users.id, verification.userId)).get();
       if (!user) return reply.code(404).send({ error: 'verification_not_found' });
 
+      // A "Confirm your email" link: the mailbox is proven, but only the
+      // account's own signed-in browser may take it. Signed out, or signed
+      // in as someone else, the link stays as it is and the page says what
+      // to do. Nothing else about the account changes.
+      if (verification.id.startsWith(CONFIRM_ID_PREFIX)) {
+        if (!req.user) return reply.code(401).send({ error: 'confirm_sign_in_first' });
+        if (req.user.id !== user.id) return reply.code(403).send({ error: 'confirm_other_account' });
+        if (!user.emailVerified) await db.update(schema.users).set({ emailVerified: true }).where(eq(schema.users.id, user.id));
+        await markEmailProven(user.id);
+        await db.delete(schema.emailVerifications).where(eq(schema.emailVerifications.userId, user.id));
+        return reply.send({ ok: true, needsPassword: false, confirmed: true });
+      }
+
       let passwordHash = user.passwordHash;
       const secret = req.cookies[SIGNUP_COOKIE];
       const sameBrowser = !!secret && verification.id.startsWith(BOUND_ID_PREFIX) && verification.id === boundRowId(secret);
@@ -401,17 +420,6 @@ export async function passwordRoutes(app: FastifyInstance) {
         await invalidateAllSessions(user.id);
         await revokeAllApiTokens(user.id);
         await db.update(schema.users).set({ emailVerified: true, passwordHash }).where(eq(schema.users.id, user.id));
-      } else if (!user.emailProvenAt && !sameBrowser) {
-        // An account stored as verified that never proved its address
-        // (made while verification was off), its link opened somewhere
-        // other than the browser that asked for it: whoever opened it owns
-        // the mailbox, so the account is theirs, as above. Everyone else
-        // is signed out and they choose a new password. Opened in the
-        // browser that asked, nothing else changes.
-        passwordHash = null;
-        await invalidateAllSessions(user.id);
-        await revokeAllApiTokens(user.id);
-        await db.update(schema.users).set({ passwordHash }).where(eq(schema.users.id, user.id));
       }
       // Opening a link sent to the address proves the mailbox.
       await markEmailProven(user.id);
@@ -433,11 +441,10 @@ export async function passwordRoutes(app: FastifyInstance) {
   /**
    * "Confirm your email" for a signed-in account that hasn't proved its
    * address yet (made while verification was off, say): a link to it,
-   * whatever the site's verification setting. Opening it marks the
-   * address proven (verify-email above). Opened in this browser nothing
-   * else changes; opened anywhere else, whoever opened it owns the
-   * mailbox, so every other sign-in ends and a password it had is cleared (they
-   * choose a new one). `sent` is false when the server couldn't send email.
+   * whatever the site's verification setting. Opening it while signed in
+   * to this account marks the address proven (verify-email above); it
+   * never signs anyone in or out, or touches the password. `sent` is
+   * false when the server couldn't send email.
    */
   app.post<{ Body: { next?: string } }>(
     '/api/auth/password/confirm-email',
@@ -452,9 +459,7 @@ export async function passwordRoutes(app: FastifyInstance) {
         return reply.code(429).header('retry-after', String(RESET_EVERY_MS / 1000)).send({ error: 'confirm_email_sent_recently', retryAfter: RESET_EVERY_MS / 1000 });
       }
       const next = safeNextPath(req.body?.next);
-      const secret = randomBytes(24).toString('hex');
-      setSignupCookie(reply, secret);
-      const sent = await issueVerification(req.log, user, next, boundRowId(secret), 'confirm');
+      const sent = await issueVerification(req.log, user, next, `${CONFIRM_ID_PREFIX}${randomUUID()}`, 'confirm');
       return reply.send({ ok: true, alreadyConfirmed: false, sent });
     },
   );

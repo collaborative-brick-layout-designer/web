@@ -9,12 +9,12 @@ export const WEB_ONLY_HELP_TEXTS = {
   'account.confirmEmail': {
     title: 'Confirm your email',
     short: 'Confirming proves the address is yours, so invites and hand-overs sent to it can reach you here.',
-    more: 'We email a link to your address. Open it in this browser and nothing else changes. Opened anywhere else, it signs you out everywhere else and you choose a new password, because whoever can open that email owns the account.',
+    more: 'We email a link to your address. Open it while signed in to this account; anywhere else, the page asks you to sign in first. Confirming changes nothing else: you stay signed in everywhere, with the same password.',
   },
   'admin.emailProven': {
     title: 'Email confirmed',
     short: 'Whether this person has proven they own their address: opened a link sent to it, or signed in with a provider that vouches for it.',
-    more: '“Verified” alone isn’t proof: accounts made while email checks were off are stored as verified. Invites and hand-overs sent to an address only reach an account whose address is confirmed. The person can confirm it from Home or their Profile.',
+    more: '“Verified” alone isn’t proof: accounts made while email checks were off are stored as verified. While this site can send email, invites and hand-overs sent to an address only reach an account whose address is confirmed; the person can confirm it from Home or their Profile. Without email set up, they work as before.',
   },
   'account.password': {
     title: 'Your password',

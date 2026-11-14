@@ -21,7 +21,7 @@ vi.mock('../../email/sendVerification.js', () => ({
   },
 }));
 
-const { db, loginAs, resetDb, schema, signupCookieOf } = await import('../../test/helpers.js');
+const { db, loginAs, resetDb, schema } = await import('../../test/helpers.js');
 const { attachUser } = await import('../../auth/cookie.js');
 const { passwordRoutes, resetPasswordResetThrottleForTests } = await import('../auth/password.js');
 const { sessionRoutes } = await import('../auth/session.js');
@@ -103,7 +103,7 @@ describe('the proven-email marker', () => {
 });
 
 describe('POST /api/auth/password/confirm-email', () => {
-  it('sends a confirmation link even while the site does not ask for one; opened in the same browser, only the marker changes', async () => {
+  it('sends a confirmation link even while the site does not ask for one; opened signed in to the account, only the marker changes', async () => {
     const u = await signUpWithChecksOff('sam@example.com');
     const ask = await app.inject({ method: 'POST', url: '/api/auth/password/confirm-email', headers: { cookie: u.cookie }, payload: { next: '/org-invite/abc' } });
     expect(ask.statusCode, ask.body).toBe(200);
@@ -113,31 +113,52 @@ describe('POST /api/auth/password/confirm-email', () => {
     expect(new URL(sent[0]!.url).searchParams.get('next')).toBe('/org-invite/abc');
     expect(provenAt(u.id)).toBeNull();
 
-    const opened = await app.inject({
-      method: 'POST',
-      url: `/api/auth/password/verify-email/${linkToken(sent[0]!.url)}`,
-      headers: { cookie: signupCookieOf(ask) },
-    });
+    const opened = await app.inject({ method: 'POST', url: `/api/auth/password/verify-email/${linkToken(sent[0]!.url)}`, headers: { cookie: u.cookie } });
     expect(opened.statusCode, opened.body).toBe(200);
-    expect(opened.json()).toEqual({ ok: true, needsPassword: false });
+    expect(opened.json()).toEqual({ ok: true, needsPassword: false, confirmed: true });
+    // No new sign-in: it was already signed in.
+    expect(opened.headers['set-cookie']).toBeUndefined();
     expect(provenAt(u.id)).toBeInstanceOf(Date);
-    // Still signed in where it asked, with the same password.
     expect((await me(u.cookie)).user?.emailProven).toBe(true);
     const login = await app.inject({ method: 'POST', url: '/api/auth/password/login', payload: { email: 'sam@example.com', password: PASS } });
     expect(login.statusCode).toBe(200);
   });
 
-  it('opened in another browser, the account goes to whoever opened it: everyone else is signed out and they choose a password', async () => {
+  it('opened in a browser that is not signed in, it asks to sign in first and changes nothing; signed in there, it confirms', async () => {
     const u = await signUpWithChecksOff('tia@example.com');
     await app.inject({ method: 'POST', url: '/api/auth/password/confirm-email', headers: { cookie: u.cookie }, payload: {} });
-    const opened = await app.inject({ method: 'POST', url: `/api/auth/password/verify-email/${linkToken(sent[0]!.url)}` });
+    const token = linkToken(sent[0]!.url);
+    const signedOut = await app.inject({ method: 'POST', url: `/api/auth/password/verify-email/${token}` });
+    expect(signedOut.statusCode).toBe(401);
+    expect(signedOut.json()).toEqual({ error: 'confirm_sign_in_first' });
+    expect(signedOut.headers['set-cookie']).toBeUndefined();
+    expect(provenAt(u.id)).toBeNull();
+    // The first browser is still signed in, and the password is the same.
+    expect((await me(u.cookie)).user).not.toBeNull();
+    const login = await app.inject({ method: 'POST', url: '/api/auth/password/login', payload: { email: 'tia@example.com', password: PASS } });
+    expect(login.statusCode).toBe(200);
+    // Signed in in that second browser, the same link confirms.
+    const opened = await app.inject({ method: 'POST', url: `/api/auth/password/verify-email/${token}`, headers: { cookie: cookieOf(login) } });
     expect(opened.statusCode, opened.body).toBe(200);
-    expect(opened.json()).toEqual({ ok: true, needsPassword: true });
+    expect(opened.json()).toEqual({ ok: true, needsPassword: false, confirmed: true });
     expect(provenAt(u.id)).toBeInstanceOf(Date);
-    expect((await me(u.cookie)).user).toBeNull();
-    expect((await me(cookieOf(opened))).user?.emailProven).toBe(true);
-    const oldPassword = await app.inject({ method: 'POST', url: '/api/auth/password/login', payload: { email: 'tia@example.com', password: PASS } });
-    expect(oldPassword.statusCode).toBe(401);
+    expect((await me(u.cookie)).user?.emailProven).toBe(true);
+    expect(db.select().from(schema.sessions).where(eq(schema.sessions.userId, u.id)).all()).toHaveLength(2);
+  });
+
+  it('opened signed in as a different account, it says so and changes nothing', async () => {
+    const u = await signUpWithChecksOff('ula@example.com');
+    await app.inject({ method: 'POST', url: '/api/auth/password/confirm-email', headers: { cookie: u.cookie }, payload: {} });
+    const other = await signUpWithChecksOff('oz@example.com');
+    const wrong = await app.inject({ method: 'POST', url: `/api/auth/password/verify-email/${linkToken(sent[0]!.url)}`, headers: { cookie: other.cookie } });
+    expect(wrong.statusCode).toBe(403);
+    expect(wrong.json()).toEqual({ error: 'confirm_other_account' });
+    expect(provenAt(u.id)).toBeNull();
+    expect(provenAt(other.id)).toBeNull();
+    expect((await me(u.cookie)).user).not.toBeNull();
+    expect((await me(other.cookie)).user).not.toBeNull();
+    // The link still works for its own account.
+    expect((await app.inject({ method: 'POST', url: `/api/auth/password/verify-email/${linkToken(sent[0]!.url)}`, headers: { cookie: u.cookie } })).statusCode).toBe(200);
   });
 
   it('says when the site could not send the email, when it is already confirmed, and asks to wait between emails', async () => {
@@ -162,18 +183,36 @@ describe('POST /api/auth/password/confirm-email', () => {
   });
 });
 
-describe('accepting by email needs a proven address', () => {
-  it('a layout invite waits until the invited account confirms its email, whatever the site asks for', async () => {
+/** Email set up (Admin › Settings › SMTP server), or not. Nothing is sent: the sends are stubbed or come before. */
+async function smtpSetUp(on: boolean): Promise<void> {
+  await db.update(schema.platformSettings).set({ smtpHost: on ? 'smtp.example.invalid' : null, smtpFrom: on ? 'site@example.com' : null }).where(eq(schema.platformSettings.id, 'singleton'));
+}
+
+describe('accepting by email needs a proven address while the site can send email', () => {
+  it('with email set up, a layout invite waits until the invited account confirms its email', async () => {
     const owner = await loginAs(app, 'own@example.com');
     const id = (await app.inject({ method: 'POST', url: '/api/layouts', headers: { cookie: owner.cookie }, payload: {} })).json().id as string;
     const invite = await app.inject({ method: 'POST', url: `/api/layouts/${id}/invites`, headers: { cookie: owner.cookie }, payload: { email: 'wes@example.com', role: 'viewer' } });
     expect(invite.statusCode, invite.body).toBe(200);
     const token = (invite.json() as { token: string }).token;
     const wes = await signUpWithChecksOff('wes@example.com');
+    await smtpSetUp(true);
+    expect((await me(wes.cookie)).user).toMatchObject({ emailProven: false, needsEmailConfirm: true });
     const early = await app.inject({ method: 'POST', url: `/api/invites/${token}`, headers: { cookie: wes.cookie } });
     expect(early.statusCode).toBe(403);
     expect(early.json()).toEqual({ error: 'email_not_verified' });
     await db.update(schema.users).set({ emailProvenAt: new Date() }).where(eq(schema.users.id, wes.id));
     expect((await app.inject({ method: 'POST', url: `/api/invites/${token}`, headers: { cookie: wes.cookie } })).statusCode).toBe(200);
+  });
+
+  it('with no email set up, an account that has not confirmed accepts as before', async () => {
+    const owner = await loginAs(app, 'own2@example.com');
+    const id = (await app.inject({ method: 'POST', url: '/api/layouts', headers: { cookie: owner.cookie }, payload: {} })).json().id as string;
+    const invite = await app.inject({ method: 'POST', url: `/api/layouts/${id}/invites`, headers: { cookie: owner.cookie }, payload: { email: 'xan@example.com', role: 'viewer' } });
+    const token = (invite.json() as { token: string }).token;
+    const xan = await signUpWithChecksOff('xan@example.com');
+    await smtpSetUp(false);
+    expect((await me(xan.cookie)).user).toMatchObject({ emailProven: false, needsEmailConfirm: false });
+    expect((await app.inject({ method: 'POST', url: `/api/invites/${token}`, headers: { cookie: xan.cookie } })).statusCode).toBe(200);
   });
 });

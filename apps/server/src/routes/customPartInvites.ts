@@ -22,7 +22,7 @@ import { hasAtLeast, resolveResourceRole } from '../access/resolveResourceRole.j
 import { sendInviteEmailCapped } from '../email/inviteEmailCap.js';
 import { writeAuditEvent } from '../audit/writeAuditEvent.js';
 import { env } from '../env.js';
-import { hasProvenEmail } from '../auth/users.js';
+import { ownsEmail } from '../auth/users.js';
 import { isValidEmail, normalizeEmail, sameEmail } from '../utils/validate.js';
 import { publicName } from '../utils/publicName.js';
 import { maskEmail } from '../utils/maskEmail.js';
@@ -171,7 +171,7 @@ export async function customPartInviteRoutes(app: FastifyInstance): Promise<void
     if (bad) return reply.code(bad.code).send({ error: bad.error });
     const inv = invite!;
     if (!sameEmail(inv.invitedEmail, user.email)) return reply.code(403).send({ error: 'email_mismatch' });
-    if (!hasProvenEmail(user)) return reply.code(403).send({ error: 'email_not_verified' });
+    if (!(await ownsEmail(user))) return reply.code(403).send({ error: 'email_not_verified' });
 
     const now = new Date();
     // Single use: only the request that marks it accepted adds anyone.

@@ -47,7 +47,7 @@ export function ConfirmEmailPrompt({ toDo, compact = false, next, dismissKey }: 
   });
   const [dismissed, setDismissed] = useState(() => readDismissed(dismissKey));
   const user = me.data?.user;
-  if (!user || user.isDemoAccount || user.emailProven !== false || dismissed) return null;
+  if (!user || user.isDemoAccount || user.needsEmailConfirm !== true || dismissed) return null;
   const dismiss = () => {
     try {
       if (dismissKey) localStorage.setItem(dismissKey, '1');
@@ -83,7 +83,7 @@ export function ConfirmEmailPrompt({ toDo, compact = false, next, dismissKey }: 
       )}
       {send.data?.sent && (
         <p role="status" className="mt-2">
-          We sent a link to <strong>{user.email}</strong>. Open it in this browser and this page updates by itself.
+          We sent a link to <strong>{user.email}</strong>. Open it while signed in to this account and this page updates by itself.
         </p>
       )}
       {send.data && !send.data.sent && !send.data.alreadyConfirmed && (

@@ -22,7 +22,7 @@ export function MyInvites() {
   const me = useQuery({ queryKey: ['me'], queryFn: api.me });
   const list = invites.data?.invites ?? [];
   // Not confirmed yet: the list stays empty until the address is proven, so say how.
-  if (me.data?.user?.emailProven === false && !me.data.user.isDemoAccount) {
+  if (me.data?.user?.needsEmailConfirm === true && !me.data.user.isDemoAccount) {
     return <ConfirmEmailPrompt toDo="see club invites sent to it" compact dismissKey={`cld.confirmEmail.dismissed.${me.data.user.id}`} />;
   }
   if (list.length === 0) return null;

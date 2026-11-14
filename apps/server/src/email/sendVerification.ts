@@ -52,16 +52,16 @@ export async function sendVerificationEmail(args: SendVerificationEmailArgs): Pr
     const subject = 'Confirm your email — Collaborative Brick Layout Designer';
     const text =
       `You asked to confirm this email address for your Collaborative Brick Layout Designer account.\n\n` +
-      `Open this link in the same browser you asked from:\n\n${args.verifyUrl}\n\n` +
+      `Open this link while signed in to your account:\n\n${args.verifyUrl}\n\n` +
       `Once it's confirmed, invites sent to this address show up when you sign in.\n\n` +
-      `Opened in a different browser, the link signs you out everywhere else, and you choose a new password.\n` +
+      `If you aren't signed in where you open it, the page asks you to sign in first.\n` +
       `This link expires in 24 hours. If you didn't ask for it, you can ignore this email.\n`;
     const html =
       `<p>You asked to confirm this email address for your Collaborative Brick Layout Designer account.</p>` +
       `<p><a href="${safeUrl}">Confirm my email</a></p>` +
-      `<p>Open it in the same browser you asked from. Once it's confirmed, invites sent to this address show up when you sign in.</p>` +
+      `<p>Open it while signed in to your account. Once it's confirmed, invites sent to this address show up when you sign in.</p>` +
       `<p style="color:#888">Or paste this URL into your browser: ${safeUrl}</p>` +
-      `<p style="color:#888">Opened in a different browser, the link signs you out everywhere else, and you choose a new password. This link expires in 24 hours. If you didn't ask for it, you can ignore this email.</p>`;
+      `<p style="color:#888">If you aren't signed in where you open it, the page asks you to sign in first. This link expires in 24 hours. If you didn't ask for it, you can ignore this email.</p>`;
     await transporter.sendMail({ from: config.from, to: args.to, subject, text, html });
     return true;
   }

@@ -5,13 +5,14 @@
 //   doesn't ask for email confirmation, so Pat is signed in at once, but
 //   hasn't shown the address is theirs: Home doesn't list the invite and
 //   offers "Confirm your email" instead (with its ⓘ), and the invite's own
-//   page waits too. Pat sends the confirmation email (a local mail sink),
-//   opens its link in the same browser, and Home, still open in the first
-//   tab, shows the invite by itself. Pat joins. In Admin › Users, Ada sees
+//   page waits too. Pat sends the confirmation email (a local mail sink)
+//   and opens its link on another device: it asks Pat to sign in first,
+//   then confirms. Home, still open (and signed in) in the first browser,
+//   shows the invite by itself. Pat joins. In Admin › Users, Ada sees
 //   Pat's email as confirmed.
 
 import { test, expect } from '@playwright/test';
-import { PASS, adminSection, signIn } from '../../helpers';
+import { PASS, adminSection, signIn, submitAuthForm } from '../../helpers';
 import { makeGlobalAdmin, setRequireEmailVerification, siteSettingsAtDefaults, useSmtp } from '../../dbHelpers';
 import { startMailSink } from '../../mailSink';
 
@@ -51,7 +52,7 @@ test('an account made with checks off sees an invite to its address only once it
     await expect(card).toContainText(PAT);
     await expect(home.getByTestId('my-invites')).toHaveCount(0);
     await card.getByRole('button', { name: 'Help: Confirm your email' }).click();
-    await expect(home.getByText(/whoever can open that email owns the account/)).toBeVisible();
+    await expect(home.getByText(/you stay signed in everywhere, with the same password/)).toBeVisible();
     await home.keyboard.press('Escape');
 
     // The invite's own page waits for it too, rather than failing.
@@ -67,14 +68,25 @@ test('an account made with checks off sees an invite to its address only once it
     await expect.poll(() => confirms().length, { timeout: 15_000 }).toBe(1);
     expect(confirms()[0]!.body).toContain('You asked to confirm this email address');
     const link = new URL(/https?:\/\/\S+\/verify-email\/[0-9a-f]+(\?\S*)?/.exec(confirms()[0]!.body)![0]);
-    const opened = await pat.newPage();
+    // Opened on another device (a browser not signed in): it asks to sign in first.
+    const phone = await browser.newContext();
+    const opened = await phone.newPage();
     await opened.goto(link.pathname + link.search);
-    await expect(opened.getByText('Email verified! Taking you in…')).toBeVisible();
-    await opened.close();
+    const step = opened.getByTestId('confirm-sign-in');
+    await expect(step.getByRole('heading', { name: 'Sign in to confirm your email' })).toBeVisible();
+    await step.getByRole('link', { name: 'Sign in' }).click();
+    await opened.getByLabel('Email').fill(PAT);
+    await opened.getByLabel('Password').fill(PASS);
+    await submitAuthForm(opened, '/api/auth/password/login', () => opened.getByRole('button', { name: 'Sign in', exact: true }).click());
+    // Back on the link, signed in: confirmed straight away.
+    await expect(opened.getByText('Email confirmed! Taking you back…')).toBeVisible();
+    await phone.close();
 
     // ── Home, open all along, shows the invite by itself; Pat joins. ──
     const invites = home.getByTestId('my-invites');
     await expect(invites.getByText('You’re invited to a club')).toBeVisible({ timeout: 15_000 });
+    // Still signed in here, with the same password.
+    expect(((await (await home.request.get('/api/auth/me')).json()) as { user: unknown }).user).not.toBeNull();
     await expect(home.getByTestId('confirm-email')).toHaveCount(0);
     await invites.getByRole('button', { name: `Join ${CLUB}` }).click();
     await expect(home).toHaveURL(new RegExp(`/orgs/${slug}$`));
