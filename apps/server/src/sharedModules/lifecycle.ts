@@ -46,7 +46,7 @@ export async function unlockPlacedCopies(copies: readonly { layoutId: string; pl
       const r = await detachModule(c.layoutId, c.placedId, { by: fallbackName(erasedUserId), forget: true });
       if (r.ok && r.changed) n += 1;
     } catch (err) {
-      console.error(`[sharedModules] couldn't unlock ${c.placedId} in layout ${c.layoutId}`, err);
+      console.error("[sharedModules] couldn't unlock a placed module: %s in layout %s", c.placedId, c.layoutId, err);
     }
   }
   return n;
@@ -60,6 +60,6 @@ export function followLayoutOwners(): void {
   listening = true;
   onAccessChanged((c) => {
     if (!('layoutId' in c)) return;
-    void refreshStatesForLayout(c.layoutId).catch((err: unknown) => console.error(`[sharedModules] couldn't refresh layout ${c.layoutId}`, err));
+    void refreshStatesForLayout(c.layoutId).catch((err: unknown) => console.error("[sharedModules] couldn't refresh a layout: %s", c.layoutId, err));
   });
 }

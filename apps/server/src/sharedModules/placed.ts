@@ -135,7 +135,7 @@ export async function syncStoredLayout(layoutId: string): Promise<void> {
     knownEmpty.delete(layoutId);
     await syncLayoutSharedModules(layoutId, doc);
   } catch (err) {
-    console.error(`[sharedModules] couldn't read which shared modules layout ${layoutId} places`, err);
+    console.error("[sharedModules] couldn't read which shared modules a layout places: %s", layoutId, err);
   } finally {
     doc?.destroy();
   }

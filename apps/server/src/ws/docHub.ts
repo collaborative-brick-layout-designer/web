@@ -424,7 +424,7 @@ export class DocSession {
     if (bytes === 0) return;
     const over = bytes > MAX_PENDING_BYTES || pendingDsBytes(this.doc) > MAX_PENDING_DS_BYTES;
     if (!over && checkUpdate(Y.encodeStateAsUpdate(this.doc)) === null) return;
-    console.warn(`[docHub] layout ${this.layoutId}: dropped ${bytes} bytes waiting for changes the layout doesn't have`);
+    console.warn("[docHub] layout %s: dropped %d bytes waiting for changes the layout doesn't have", this.layoutId, bytes);
     dropPending(this.doc);
   }
 
@@ -503,7 +503,7 @@ class DocHub {
         await session.flushSnapshot();
         n += 1;
       } catch (err) {
-        console.error(`[docHub] couldn't save layout ${session.layoutId} while stopping`, err);
+        console.error("[docHub] couldn't save a layout while stopping: %s", session.layoutId, err);
       }
     }
     return n;
@@ -657,7 +657,7 @@ class DocHub {
    * ON DELETE CASCADE from its owner), shut the session down.
    */
   private onPersistError(session: DocSession, err: unknown): void {
-    console.error(`[docHub] failed to persist update for layout ${session.layoutId}:`, err);
+    console.error('[docHub] failed to persist update for layout %s:', session.layoutId, err);
     void (async () => {
       try {
         const row = await db
