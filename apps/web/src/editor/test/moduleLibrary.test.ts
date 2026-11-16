@@ -73,23 +73,23 @@ describe('where a library version goes', () => {
 
   it('finds the turn and the shift of the placed copy, and the copy matches', () => {
     const lib = v1();
-    const placed = placeVersion(lib, { degrees: 90, toX: 100.0123, toY: 50.0371, matched: 0 }, null)[0]!.bricks as Brick[];
+    const placed = placeVersion(lib, { degrees: 90, x: 100.0123, y: 50.0371 }, null)[0]!.bricks as Brick[];
     const p = alignToPlaced(lib, placed, null);
     expect(p.degrees).toBe(90);
-    expect(p.toX).toBeCloseTo(100.0123, 6);
-    expect(p.toY).toBeCloseTo(50.0371, 6);
+    expect(p.x).toBeCloseTo(100.0123, 6);
+    expect(p.y).toBeCloseTo(50.0371, 6);
     expect(p.matched).toBe(3);
     expect(matchesVersion(lib, placed, null)).toBe(true);
   });
 
   it('still finds it when a part was changed, and then says the copy was changed', () => {
     const lib = v1();
-    const placed = placeVersion(lib, { degrees: 180, toX: -20, toY: 7, matched: 0 }, null)[0]!.bricks.map((b) => ({ ...b })) as Brick[];
+    const placed = placeVersion(lib, { degrees: 180, x: -20, y: 7 }, null)[0]!.bricks.map((b) => ({ ...b })) as Brick[];
     placed[2] = { ...placed[2]!, displayArea: { ...placed[2]!.displayArea, x: placed[2]!.displayArea.x + 3 } };
     const p = alignToPlaced(lib, placed, null);
     expect(p).toMatchObject({ degrees: 180, matched: 2 });
-    expect(p.toX).toBeCloseTo(-20);
-    expect(p.toY).toBeCloseTo(7);
+    expect(p.x).toBeCloseTo(-20);
+    expect(p.y).toBeCloseTo(7);
     expect(matchesVersion(lib, placed, null)).toBe(false);
     expect(matchesVersion(lib, placed.slice(0, 2), null)).toBe(false);
   });
@@ -100,8 +100,8 @@ describe('where a library version goes', () => {
     expect(alignToPlaced(lib, other, null)).toMatchObject({ degrees: 0, matched: 0 });
     const p = alignToPlaced(lib, other, null);
     const mid = lib[0]!.bricks.map(centre).reduce((a, c) => ({ x: a.x + c.x / 3, y: a.y + c.y / 3 }), { x: 0, y: 0 });
-    expect(p.toX + mid.x).toBeCloseTo(50);
-    expect(p.toY + mid.y).toBeCloseTo(50);
+    expect(p.x + mid.x).toBeCloseTo(50);
+    expect(p.y + mid.y).toBeCloseTo(50);
   });
 });
 
@@ -149,7 +149,7 @@ describe('Update from Module library', () => {
     renameLayer(doc, scenery, 'Scenery');
     const track = addLayer(doc, 'brick');
     renameLayer(doc, track, 'Track');
-    const placed = placeVersion(batchesFromBytes(v1), { degrees: 90, toX: 100, toY: 50, matched: 0 }, null);
+    const placed = placeVersion(batchesFromBytes(v1), { degrees: 90, x: 100, y: 50 }, null);
     const res = importBricksAsModule(doc, placed as ModuleBatch[], { name: 'Yard', library: { id: ID, version: 1 } })!;
     const mod = () => readSidecarFromDoc(doc)!.modules!.find((m) => m.id === res.moduleId)!;
     return { doc, track, scenery, moduleId: res.moduleId, mod };

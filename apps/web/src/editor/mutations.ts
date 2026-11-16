@@ -33,6 +33,7 @@ import { connectedTurn, type TurnBrick } from './rotateTurn';
 import { cloneGroups, topGroupId, type ExpandedSet, type SetModule } from './sets';
 import { findPartsSheet, type SheetChoices } from './moduleSheets';
 import { textBoxStuds, type LineWidthAt } from './render/mapText';
+import { replaceModuleParts as replacePlacedModuleParts, type ModuleBatch } from '@cld/modules';
 
 export interface BrickInsertSpec {
   partNumber: string;
@@ -2537,19 +2538,8 @@ export function makeSetsOfModules(doc: Y.Doc, sets: readonly SetModule[]): void 
   }, LOCAL_ORIGIN);
 }
 
-/** One source brick layer of a module file — desktop `LayerBatch`. */
-export interface ModuleBatch {
-  layerName: string;
-  bricks: Array<{
-    partNumber: string;
-    displayArea: RectangleF;
-    orientation?: number;
-    altitude?: number;
-    myGroup?: string;
-  }>;
-  /** The source layer's groups: the sets in the module stay sets. */
-  groups?: Group[];
-}
+/** One source brick layer of a module file — desktop `LayerBatch` (shared with the server: @cld/modules). */
+export type { ModuleBatch };
 
 /**
  * Insert a module's bricks and register them as a sidecar module in ONE
@@ -2873,34 +2863,8 @@ export function replaceModuleParts(
   sheetFor: (sheetName: string) => string,
   patch: Partial<SidecarModule> = {},
 ): string[] | null {
-  const mod = getSidecarModules(readSidecarCache(doc)).find((m) => m.id === moduleId);
-  if (!mod) return null;
-  const old = new Set(mod.members);
-  const ids: string[] = [];
-  doc.transact(() => {
-    const layerData = doc.getMap('layerData');
-    for (const layerId of doc.getArray<string>('layers').toArray()) {
-      const l = layerData.get(layerId);
-      if (!(l instanceof Y.Map)) continue;
-      const bricks = l.get('bricks');
-      if (!(bricks instanceof Y.Array)) continue;
-      for (let i = bricks.length - 1; i >= 0; i--) {
-        const b = bricks.get(i);
-        if (b instanceof Y.Map && old.has(b.get('id') as string)) bricks.delete(i, 1);
-      }
-    }
-    for (const batch of batches) {
-      if (batch.bricks.length === 0) continue;
-      const copied = cloneGroups(batch.groups ?? [], batch.bricks, makeId);
-      ids.push(...insertBricks(doc, sheetFor(batch.layerName || 'Module'), copied.bricks, undefined, copied.groups));
-    }
-    const cache = readSidecarCache(doc);
-    writeSidecarCache(doc, {
-      ...cache,
-      modules: getSidecarModules(cache).map((m) => (m.id === moduleId ? { ...m, ...patch, members: ids } : m)),
-    });
-  }, LOCAL_ORIGIN);
-  return ids;
+  // The step itself is shared with the server (@cld/modules replace.ts).
+  return replacePlacedModuleParts(doc, moduleId, batches, sheetFor, patch, LOCAL_ORIGIN);
 }
 
 // Sidecar — venue

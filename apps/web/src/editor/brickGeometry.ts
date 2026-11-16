@@ -6,7 +6,8 @@
 // attachments and rotation are all relative to the pivot. The footprint
 // maths lives in @cld/parts-catalog (footprint.ts).
 
-import { footprint, imageOffset } from '@cld/parts-catalog/browser';
+import { footprint } from '@cld/parts-catalog/browser';
+import { areaCentre, areaForPivot, areaSize, pivotOf, rotated, type Pt } from '@cld/modules';
 import type { Brick, RectangleF } from '@cld/model';
 import type { PartWire } from '../api';
 
@@ -15,55 +16,8 @@ export type PartGeom = Pick<PartWire, 'pxPerStud' | 'hullPts' | 'spriteSize'> & 
   connections?: PartWire['connections'];
 };
 
-export type Pt = { x: number; y: number };
-
-export function rotated(v: Pt, degrees: number): Pt {
-  const r = (degrees * Math.PI) / 180;
-  const c = Math.cos(r);
-  const s = Math.sin(r);
-  return { x: v.x * c - v.y * s, y: v.x * s + v.y * c };
-}
-
-export function areaCentre(a: RectangleF): Pt {
-  return { x: a.x + a.width / 2, y: a.y + a.height / 2 };
-}
-
-/** The brick's pivot: its sprite centre, in studs. */
-export function pivotOf(brick: Pick<Brick, 'displayArea' | 'orientation'>, part: PartGeom | undefined): Pt {
-  const c = areaCentre(brick.displayArea);
-  if (!part) return c;
-  const off = imageOffset(part, brick.orientation);
-  return { x: c.x + off.x, y: c.y + off.y };
-}
-
-/**
- * displayArea size for a part at `orientation`: its footprint, else the
- * brick's current size (BlueBrick draws unknown parts at their stored
- * size), else 2 x 2 studs.
- */
-export function areaSize(part: PartGeom | undefined, orientation: number, current?: { width: number; height: number }): { width: number; height: number } {
-  const fp = part ? footprint(part, orientation) : null;
-  if (fp) return { width: fp.size.w, height: fp.size.h };
-  if (current && current.width > 0 && current.height > 0) return { width: current.width, height: current.height };
-  return { width: 2, height: 2 };
-}
-
-/** The displayArea that puts the brick's pivot at `pivot` for `orientation`. */
-export function areaForPivot(
-  part: PartGeom | undefined,
-  orientation: number,
-  pivot: Pt,
-  current?: { width: number; height: number },
-): RectangleF {
-  const size = areaSize(part, orientation, current);
-  const off = part ? imageOffset(part, orientation) : { x: 0, y: 0 };
-  return {
-    x: pivot.x - off.x - size.width / 2,
-    y: pivot.y - off.y - size.height / 2,
-    width: size.width,
-    height: size.height,
-  };
-}
+// The pivot and box maths is shared with the server (@cld/modules geometry.ts).
+export { areaCentre, areaForPivot, areaSize, pivotOf, rotated, type Pt };
 
 /** World position (studs) of connection `index`, from the pivot. */
 export function connectionWorld(brick: Pick<Brick, 'displayArea' | 'orientation'>, part: PartGeom | undefined, index: number): Pt {
