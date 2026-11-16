@@ -536,6 +536,12 @@ export const layouts = sqliteTable(
      */
     copiedFromId: text('copied_from_id'),
     deletedAuthorId: text('deleted_author_id'),
+    /**
+     * Updates from shared modules (0050, docs/shared-modules.md): 'ask' shows
+     * a notice and someone presses Update; 'auto' is for a later release and
+     * nothing sets it yet.
+     */
+    sharedModuleUpdates: text('shared_module_updates', { enum: ['ask', 'auto'] }).notNull().default('ask'),
   },
   (t) => ({
     // The admin "layouts created / edited" graphs.
@@ -932,6 +938,76 @@ export const moduleInvites = sqliteTable(
   },
   (t) => ({
     moduleIdx: index('module_invites_module_id_idx').on(t.moduleId),
+  }),
+);
+
+// A module shared, read-only, with a club (0050, docs/shared-modules.md):
+// its members can place it in the club's layouts and get its owner's
+// updates; they can't change it. The module stays its owner's. Sharing
+// with a person is a module_collaborators row with role 'viewer'.
+export const moduleClubShares = sqliteTable(
+  'module_club_shares',
+  {
+    moduleId: text('module_id')
+      .notNull()
+      .references(() => modules.id, { onDelete: 'cascade' }),
+    orgId: text('org_id')
+      .notNull()
+      .references(() => orgs.id, { onDelete: 'cascade' }),
+    sharedBy: text('shared_by').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.moduleId, t.orgId] }),
+    orgIdx: index('module_club_shares_org_idx').on(t.orgId),
+    sharedByIdx: index('module_club_shares_shared_by_idx').on(t.sharedBy),
+  }),
+);
+
+// Where each shared module is placed (0050). Kept by the server from the
+// docs it stores, and can be rebuilt from them. `moduleId` has no foreign
+// key: a placed copy outlives its module.
+export const layoutSharedModules = sqliteTable(
+  'layout_shared_modules',
+  {
+    layoutId: text('layout_id')
+      .notNull()
+      .references(() => layouts.id, { onDelete: 'cascade' }),
+    /** The module's id in the layout (sidecar `m:<id>`). */
+    placedId: text('placed_id').notNull(),
+    moduleId: text('module_id').notNull(),
+    version: integer('version').notNull(),
+    state: text('state', { enum: ['shared', 'unshared', 'gone'] }).notNull(),
+    updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.layoutId, t.placedId] }),
+    moduleIdx: index('layout_shared_modules_module_idx').on(t.moduleId),
+  }),
+);
+
+// The owner's custom parts a shared module uses, shared along with it
+// (0050), as custom_part_set_shares does for sets: one row per part and
+// person (`userId`) or club (`orgId`) the module is shared with. Rewritten
+// whenever the module's parts or its shares change (access/moduleShares.ts).
+export const moduleShareParts = sqliteTable(
+  'module_share_parts',
+  {
+    moduleId: text('module_id')
+      .notNull()
+      .references(() => modules.id, { onDelete: 'cascade' }),
+    partId: text('part_id')
+      .notNull()
+      .references(() => customParts.id, { onDelete: 'cascade' }),
+    userId: text('user_id').references(() => users.id, { onDelete: 'cascade' }),
+    orgId: text('org_id').references(() => orgs.id, { onDelete: 'cascade' }),
+    addedAt: integer('added_at', { mode: 'timestamp_ms' }).notNull(),
+  },
+  (t) => ({
+    moduleIdx: index('module_share_parts_module_idx').on(t.moduleId),
+    partIdx: index('module_share_parts_part_idx').on(t.partId),
+    userIdx: index('module_share_parts_user_idx').on(t.userId),
+    orgIdx: index('module_share_parts_org_idx').on(t.orgId),
   }),
 );
 

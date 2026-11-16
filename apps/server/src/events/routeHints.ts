@@ -16,6 +16,7 @@ import type { Hint, HintOwner } from './hub.js';
 import { orgIdBySlug, ownerOfResource, publish, staffIds, type Reach } from './audience.js';
 import { clubRunners, recipientsOf } from '../routes/warnings.js';
 import { verificationFor } from '../routes/auth/password.js';
+import { clubShareMemberIds } from '../access/moduleShares.js';
 
 type ResourceKind = 'layout' | 'module' | 'venue' | 'custom-part';
 
@@ -94,7 +95,8 @@ async function collaboratorsOf(kind: ResourceKind, id: string): Promise<string[]
     return (await db.select({ u: schema.layoutCollaborators.userId }).from(schema.layoutCollaborators).where(eq(schema.layoutCollaborators.layoutId, id)).all()).map((r) => r.u);
   }
   if (kind === 'module') {
-    return (await db.select({ u: schema.moduleCollaborators.userId }).from(schema.moduleCollaborators).where(eq(schema.moduleCollaborators.moduleId, id)).all()).map((r) => r.u);
+    const people = (await db.select({ u: schema.moduleCollaborators.userId }).from(schema.moduleCollaborators).where(eq(schema.moduleCollaborators.moduleId, id)).all()).map((r) => r.u);
+    return [...people, ...(await clubShareMemberIds(id))];
   }
   if (kind === 'custom-part') {
     return (await db.select({ u: schema.customPartCollaborators.userId }).from(schema.customPartCollaborators).where(eq(schema.customPartCollaborators.customPartId, id)).all()).map((r) => r.u);
@@ -497,6 +499,9 @@ export const ROUTE_HINTS: Record<string, HintSpec> = {
   'DELETE /api/modules/:id/invites/:inviteId': resource('module'),
   'POST /api/module-invites/:token': resource('module', { reply: 'moduleId' }),
   'DELETE /api/modules/:id/collaborators/:userId': resource('module', { param: 'id' }, (c) => [c.params.userId ?? null]),
+  // A club share made or stopped: the club's members see it come or go (read before, so a stopped one still reaches them).
+  'POST /api/modules/:id/club-shares': resource('module'),
+  'DELETE /api/modules/:id/club-shares/:orgId': resource('module'),
   'POST /api/modules/:id/transfer': resource('module'),
   'POST /api/modules/:id/take-back': returned('module'),
   'POST /api/modules/:id/give-back': returned('module'),

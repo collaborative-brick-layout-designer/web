@@ -27,6 +27,7 @@ import { gunzipSync, gzipSync } from 'node:zlib';
 import { and, eq, inArray, isNull, lt, or } from 'drizzle-orm';
 import { db, schema } from '../db/index.js';
 import { clubAccessMap } from '../access/clubPermissions.js';
+import { syncModuleShareParts } from '../access/moduleShares.js';
 import { checkGrowth } from '../limits/limits.js';
 import type { User } from '../db/schema.js';
 import { imagesDirFor } from '../workers/backup.js';
@@ -87,6 +88,7 @@ const TABLES = {
   modules: schema.modules,
   moduleVersions: schema.moduleVersions,
   moduleCollaborators: schema.moduleCollaborators,
+  moduleClubShares: schema.moduleClubShares,
   venueLibrary: schema.venueLibrary,
 } as const;
 type TableName = keyof typeof TABLES;
@@ -167,6 +169,8 @@ export async function trashModule(moduleId: string, actorId: string, now = new D
   if (!row) return null;
   const versions = await db.select().from(schema.moduleVersions).where(eq(schema.moduleVersions.moduleId, moduleId)).all();
   const collaborators = await db.select().from(schema.moduleCollaborators).where(eq(schema.moduleCollaborators.moduleId, moduleId)).all();
+  // The clubs it's shared with: a restore brings their updates back.
+  const clubShares = await db.select().from(schema.moduleClubShares).where(eq(schema.moduleClubShares.moduleId, moduleId)).all();
   const collections = (
     await db
       .select({ id: schema.catalogCollectionModules.collectionId, position: schema.catalogCollectionModules.position, cover: schema.catalogCollections.coverModuleId })
@@ -182,7 +186,7 @@ export async function trashModule(moduleId: string, actorId: string, now = new D
       title: row.title,
       ownerUserId: row.ownerUserId,
       ownerOrgId: row.ownerOrgId,
-      rows: { modules: [row], moduleVersions: versions, moduleCollaborators: collaborators },
+      rows: { modules: [row], moduleVersions: versions, moduleCollaborators: collaborators, moduleClubShares: clubShares },
       collections,
     },
     actorId,
@@ -380,7 +384,7 @@ export async function restoreFromTrash(user: User, trashId: string): Promise<Res
   const table = row.kind === 'layout' ? schema.layouts : row.kind === 'module' ? schema.modules : schema.venueLibrary;
   // Its id was taken meanwhile (a copy restored twice can't be).
   if (await db.select({ id: table.id }).from(table).where(eq(table.id, row.itemId)).get()) return { ok: false, code: 409, error: 'already_restored' };
-  const order: TableName[] = ['layouts', 'modules', 'venueLibrary', 'layoutCollaborators', 'moduleVersions', 'moduleCollaborators'];
+  const order: TableName[] = ['layouts', 'modules', 'venueLibrary', 'layoutCollaborators', 'moduleVersions', 'moduleCollaborators', 'moduleClubShares'];
   // Coming back is growth: the owner's limits apply, as for anything new.
   const main = payload.rows[row.kind === 'layout' ? 'layouts' : row.kind === 'module' ? 'modules' : 'venueLibrary'] ?? [];
   const bytes =
@@ -394,18 +398,27 @@ export async function restoreFromTrash(user: User, trashId: string): Promise<Res
   const named = new Set<string>();
   for (const name of order) {
     for (const r of payload.rows[name] ?? []) {
-      for (const col of ['userId', 'authorId', 'createdBy'] as const) if (typeof r[col] === 'string') named.add(r[col]);
+      for (const col of ['userId', 'authorId', 'createdBy', 'sharedBy'] as const) if (typeof r[col] === 'string') named.add(r[col]);
     }
   }
   const users = new Set(
     named.size ? (await db.select({ id: schema.users.id }).from(schema.users).where(inArray(schema.users.id, [...named])).all()).map((u) => u.id) : [],
+  );
+  const sharedClubs = (payload.rows.moduleClubShares ?? []).map((r) => String(r.orgId));
+  const clubs = new Set(
+    sharedClubs.length ? (await db.select({ id: schema.orgs.id }).from(schema.orgs).where(inArray(schema.orgs.id, sharedClubs)).all()).map((o) => o.id) : [],
   );
   let collections: CollectionsBack | undefined;
   db.transaction((tx) => {
     for (const name of order) {
       const rows = payload.rows[name];
       if (!rows || rows.length === 0) continue;
-      const kept = name.endsWith('Collaborators') ? rows.filter((r) => users.has(String(r.userId))) : rows;
+      let kept = name.endsWith('Collaborators') ? rows.filter((r) => users.has(String(r.userId))) : rows;
+      if (name === 'moduleClubShares') {
+        // A club that's gone since isn't shared with any more; whoever shared it may have left the site.
+        kept = rows.filter((r) => clubs.has(String(r.orgId)));
+        for (const r of kept) if (r.sharedBy && !users.has(String(r.sharedBy))) r.sharedBy = null;
+      }
       if (name === 'moduleVersions') for (const r of kept) if (r.authorId && !users.has(String(r.authorId))) r.authorId = null;
       if (name === 'layouts' || name === 'modules') {
         for (const r of kept) {
@@ -431,6 +444,8 @@ export async function restoreFromTrash(user: User, trashId: string): Promise<Res
     const path = join(dir, payload.picture.name);
     if (!existsSync(path)) writeFileSync(path, Buffer.from(payload.picture.data, 'base64'));
   }
+  // A restored module is shared again: the parts that come along with it are worked out anew.
+  if (row.kind === 'module') await syncModuleShareParts(row.itemId);
   return { ok: true, kind: row.kind, itemId: row.itemId, ...(collections ? { collections } : {}) };
 }
 

@@ -17,7 +17,7 @@
 // algorithm itself is identical (per PLAN.md §3.3 / §6.5).
 
 import { and, eq } from 'drizzle-orm';
-import { db, schema } from '../db/index.js';
+import { db, schema, sqlite } from '../db/index.js';
 import { atLeast, type ClubRole } from './clubRoles.js';
 import { clubAccess, clubThingAccess } from './clubPermissions.js';
 
@@ -105,11 +105,40 @@ async function loadCustomPart(userId: string, id: string): Promise<ResourceTable
   // collaborator rows still decide who can edit or delete. (Returning the
   // caller as `ownerUserId` here once made every user "owner" of every
   // global part.)
+  // A part a module shared with the caller (or a club of theirs) uses comes
+  // along with it, to look at (module_share_parts, access/moduleShares.ts).
+  const floor: Role | null = row.isGlobal || (!collab && (await partComesWithModule(userId, id))) ? 'viewer' : null;
   return {
     ownerUserId: row.ownerUserId,
     ownerOrgId: row.ownerOrgId,
-    collaboratorRole: strongerOf((collab?.role as Role) ?? null, row.isGlobal ? 'viewer' : null),
+    collaboratorRole: strongerOf((collab?.role as Role) ?? null, floor),
   };
+}
+
+/** Whether a module shared with `userId`, or with a club they're in, brings the custom part `partId`. */
+async function partComesWithModule(userId: string, partId: string): Promise<boolean> {
+  const row = sqlite
+    .prepare(
+      `SELECT 1 FROM module_share_parts s
+        WHERE s.part_id = ?
+          AND (s.user_id = ? OR s.org_id IN (SELECT org_id FROM org_members WHERE user_id = ?))
+        LIMIT 1`,
+    )
+    .get(partId, userId, userId);
+  return !!row;
+}
+
+/** Whether the module is shared, read-only, with a club `userId` is in (module_club_shares). */
+async function moduleSharedWithClubOf(userId: string, moduleId: string): Promise<boolean> {
+  const row = sqlite
+    .prepare(
+      `SELECT 1 FROM module_club_shares s
+         JOIN org_members m ON m.org_id = s.org_id
+        WHERE s.module_id = ? AND m.user_id = ?
+        LIMIT 1`,
+    )
+    .get(moduleId, userId);
+  return !!row;
 }
 
 async function loadModule(userId: string, id: string): Promise<ResourceTables | null> {
@@ -132,10 +161,12 @@ async function loadModule(userId: string, id: string): Promise<ResourceTables | 
       ),
     )
     .get();
+  // Shared with a club the caller is in: they may look at it and place it.
+  const viaClub: Role | null = !collab && (await moduleSharedWithClubOf(userId, id)) ? 'viewer' : null;
   return {
     ownerUserId: row.ownerUserId,
     ownerOrgId: row.ownerOrgId,
-    collaboratorRole: (collab?.role as Role) ?? null,
+    collaboratorRole: (collab?.role as Role) ?? viaClub,
   };
 }
 

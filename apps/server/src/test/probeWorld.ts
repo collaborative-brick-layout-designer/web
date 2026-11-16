@@ -146,6 +146,8 @@ export function concreteUrl(pattern: string, w: ProbeWorld, override?: string): 
         return '1';
       case 'versionId':
         return i.version!;
+      case 'orgId':
+        return i.club!;
       case 'roleId':
         return `${i.club}:member`;
       case 'libraryId':

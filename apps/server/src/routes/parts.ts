@@ -15,6 +15,7 @@ import { Buffer } from 'node:buffer';
 import { createHash } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { eq, inArray } from 'drizzle-orm';
+import { partIdsThroughModules } from '../access/moduleShares.js';
 import { imageSize, parsePartXml, scanCatalog } from '@cld/parts-catalog';
 import type { FourDBrixRemap, LDrawRemap, PartMetadata, TrackDesignerRemap } from '@cld/parts-catalog';
 import { db, schema } from '../db/index.js';
@@ -376,6 +377,12 @@ export async function visibleCustomParts(userId: string | null): Promise<CustomC
         eq(schema.customParts.id, schema.customPartCollaborators.customPartId),
       )
       .where(eq(schema.customPartCollaborators.userId, userId));
+    // 4. parts that came along with a module shared with them or a club of theirs
+    const alongIds = await partIdsThroughModules(userId);
+    const along: CustomCatalogRow[] = [];
+    for (let i = 0; i < alongIds.length; i += 400) {
+      along.push(...(await db.select(customCatalogColumns).from(schema.customParts).where(inArray(schema.customParts.id, alongIds.slice(i, i + 400)))));
+    }
     const seen = new Set<string>();
     rows = [];
     for (const part of [
@@ -383,6 +390,7 @@ export async function visibleCustomParts(userId: string | null): Promise<CustomC
       ...personal,
       ...orgOwned.map((o) => o.part),
       ...shared.map((s) => s.part),
+      ...along,
     ]) {
       if (seen.has(part.id)) continue;
       seen.add(part.id);
