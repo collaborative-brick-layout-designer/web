@@ -27,6 +27,7 @@ import { isValidEmail, normalizeEmail, sameEmail } from '../utils/validate.js';
 import { publicName } from '../utils/publicName.js';
 import { maskEmail } from '../utils/maskEmail.js';
 import { perPerson } from '../utils/rateLimits.js';
+import { onlyThroughClubShare, syncModuleShareParts } from '../access/moduleShares.js';
 
 const INVITE_TTL_MS = 14 * 24 * 60 * 60 * 1000;
 
@@ -70,7 +71,12 @@ export async function moduleInviteRoutes(app: FastifyInstance): Promise<void> {
         .from(schema.users)
         .where(sql`lower(${schema.users.email}) = ${email}`)
         .get();
-      if (existingUser && (await resolveResourceRole(existingUser.id, 'module', req.params.id)).role !== null) {
+      // (Someone who has it only through a club it's shared with can still be invited in person.)
+      if (
+        existingUser &&
+        (await resolveResourceRole(existingUser.id, 'module', req.params.id)).role !== null &&
+        !(await onlyThroughClubShare(existingUser.id, req.params.id))
+      ) {
         return reply.code(409).send({ error: 'already_has_access' });
       }
 
@@ -165,6 +171,8 @@ export async function moduleInviteRoutes(app: FastifyInstance): Promise<void> {
       .insert(schema.moduleCollaborators)
       .values({ moduleId: inv.moduleId, userId: user.id, role: inv.role, addedAt: now })
       .onConflictDoNothing();
+    // The owner's custom parts the module uses come along (access/moduleShares.ts).
+    await syncModuleShareParts(inv.moduleId);
     await writeAuditEvent({
       resourceKind: 'module',
       resourceId: inv.moduleId,

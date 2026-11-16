@@ -16,6 +16,7 @@
 import { eq, or } from 'drizzle-orm';
 import { db, schema } from '../db/index.js';
 import { connectedUserIds, deliver, type Hint } from './hub.js';
+import { clubShareMemberIds } from '../access/moduleShares.js';
 
 export interface Reach {
   /** Send to every open stream (site-wide, public data only). */
@@ -50,7 +51,8 @@ async function collaboratorIds(kind: Hint['kind'], id: string): Promise<string[]
       .from(schema.moduleCollaborators)
       .where(eq(schema.moduleCollaborators.moduleId, id))
       .all();
-    return rows.map((r) => r.userId);
+    // And the members of the clubs it's shared with (module_club_shares).
+    return [...rows.map((r) => r.userId), ...(await clubShareMemberIds(id))];
   }
   if (kind === 'custom-part') {
     const rows = await db

@@ -14,7 +14,7 @@ import { stripImportSource, withNotListed } from '../utils/partXml.js';
 import { randomUUID } from 'node:crypto';
 import { Buffer } from 'node:buffer';
 import type { FastifyInstance } from 'fastify';
-import { and, eq, isNull, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { parsePartXml, xmlForGifSprite } from '@cld/parts-catalog';
 import { db, schema } from '../db/index.js';
 import { checkGrowth, type Subject } from '../limits/limits.js';
@@ -31,6 +31,7 @@ import { emailsVisible, nameFor } from '../utils/publicName.js';
 import { creditLookup, withCredits } from './credits.js';
 import { isImageOfType, MAX_SPRITE_SIDE, pngSize } from '../images/sniff.js';
 import { forgetSetShares, revokeSetParts, setPartsFor, setsBringing } from '../access/setShares.js';
+import { partIdsThroughModules } from '../access/moduleShares.js';
 
 interface CreatePartBody {
   partNumber: string;
@@ -102,6 +103,15 @@ export async function customPartRoutes(app: FastifyInstance): Promise<void> {
       if (seen.has(part.id)) continue;
       seen.add(part.id);
       all.push({ ...toListItem(part), role });
+    }
+    // Parts that came along with a module shared with the caller or a club of theirs.
+    const along = (await partIdsThroughModules(user.id)).filter((id) => !seen.has(id));
+    for (let i = 0; i < along.length; i += 400) {
+      const rows = await db.select(partListColumns).from(schema.customParts).where(inArray(schema.customParts.id, along.slice(i, i + 400)));
+      for (const part of rows) {
+        seen.add(part.id);
+        all.push({ ...toListItem(part), role: 'viewer' });
+      }
     }
     const shown = all.filter((p) => matchesOwner(p, filter, user.id));
     const ownerOf = await ownerLookup(shown);

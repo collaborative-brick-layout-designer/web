@@ -15,6 +15,7 @@ import { can } from '../access/clubPermissions.js';
 import { dropModuleFromCollections } from './collections.js';
 import { trimmed } from '../utils/validate.js';
 import { clearPendingModuleShares } from '../access/pendingShares.js';
+import { syncModuleShareParts } from '../access/moduleShares.js';
 
 interface InitiateTransferBody {
   recipientOrgSlug?: string;
@@ -83,6 +84,11 @@ export async function moduleTransferRoutes(app: FastifyInstance): Promise<void> 
         // Ownership changed: pending user->user transfers issued by the
         // previous owner must not be redeemable any more.
         await clearPendingModuleShares(req.params.id);
+        // It's the club's own now: a read-only share with that club says nothing more.
+        await db
+          .delete(schema.moduleClubShares)
+          .where(and(eq(schema.moduleClubShares.moduleId, req.params.id), eq(schema.moduleClubShares.orgId, dest.id)));
+        await syncModuleShareParts(req.params.id);
         // Moved out of a club: that club's collections lose it.
         if (module.ownerOrgId && module.ownerOrgId !== dest.id) {
           await dropModuleFromCollections(module, 'moved to another club', dest.id, user.id);

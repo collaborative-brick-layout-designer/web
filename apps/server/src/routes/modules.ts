@@ -37,6 +37,7 @@ import { snapshotMemberKeyProblem } from '../ws/memberGuard.js';
 import { snapshotBackgroundProblem } from '../ws/backgroundGuard.js';
 import { snapshotWork } from '../ws/yjsWork.js';
 import { trashModule } from '../trash/trash.js';
+import { sharedModuleIds, syncModuleShareParts } from '../access/moduleShares.js';
 
 type ModuleRow = typeof schema.modules.$inferSelect;
 
@@ -117,6 +118,10 @@ export async function moduleRoutes(app: FastifyInstance): Promise<void> {
   // ---- list modules the user can see -------------------------------------
   app.get<{ Querystring: { owner?: string } }>('/api/modules', { config: TOKEN_READ }, async (req, reply) => {
     const user = requireUser(req);
+    // ?owner=shared: other people's modules shared with the caller, or with a club they're in.
+    if (typeof req.query?.owner === 'string' && req.query.owner.trim().toLowerCase() === 'shared') {
+      return { modules: await sharedWithMe(user) };
+    }
     // ?owner=all|me|<club slug>: a club the caller isn't in is not found.
     const filter = await resolveOwnerFilter(user.id, req.query?.owner);
     if (!filter) return reply.code(404).send({ error: 'org_not_found' });
@@ -395,6 +400,8 @@ export async function moduleRoutes(app: FastifyInstance): Promise<void> {
       .run();
     if (written.changes === 0) return reply.code(409).send({ error: 'module_changed' });
     const version = await recordVersion(req.params.id, bytes, user.id, note);
+    // The parts that come along with its shares follow its contents.
+    await syncModuleShareParts(req.params.id);
     reply.header('ETag', `"${next}"`);
     return { ok: true, updatedAt: updatedAt.getTime(), version, docVersion: next };
   });
@@ -567,6 +574,7 @@ export async function moduleRoutes(app: FastifyInstance): Promise<void> {
       })
       .where(eq(schema.modules.id, req.params.id));
     const version = await recordVersion(req.params.id, bytes, user.id, `Restored version ${found.row.version}`, thumb, found.row.thumbnailMime);
+    await syncModuleShareParts(req.params.id);
     await writeAuditEvent({
       resourceKind: 'module',
       resourceId: req.params.id,
@@ -639,6 +647,7 @@ export async function moduleRoutes(app: FastifyInstance): Promise<void> {
             eq(schema.moduleCollaborators.userId, req.params.userId),
           ),
         );
+      await syncModuleShareParts(req.params.id);
       await writeAuditEvent({
         resourceKind: 'module',
         resourceId: req.params.id,
@@ -649,6 +658,41 @@ export async function moduleRoutes(app: FastifyInstance): Promise<void> {
       return { ok: true };
     },
   );
+}
+
+/**
+ * Shared with me: modules that aren't the caller's or their clubs' own,
+ * shared with them in person (`sharedVia.direct`) or with a club they're
+ * in (`sharedVia.clubs`), each with its owner.
+ */
+async function sharedWithMe(user: User) {
+  const { direct, clubs } = await sharedModuleIds(user.id);
+  const ids = [...new Set([...direct, ...clubs.keys()])];
+  if (ids.length === 0) return [];
+  const rows: Parameters<typeof toListItem>[0][] = [];
+  for (let i = 0; i < ids.length; i += 400) {
+    rows.push(...(await db.select(moduleListColumns).from(schema.modules).where(inArray(schema.modules.id, ids.slice(i, i + 400)))));
+  }
+  const access = await clubAccessMap(user.id);
+  const roles = new Map(
+    (
+      await db
+        .select({ id: schema.moduleCollaborators.moduleId, role: schema.moduleCollaborators.role })
+        .from(schema.moduleCollaborators)
+        .where(eq(schema.moduleCollaborators.userId, user.id))
+    ).map((r) => [r.id, r.role as Role]),
+  );
+  const shown = rows
+    // Their own, and their clubs' own, are under Mine and Clubs.
+    .filter((m) => m.ownerUserId !== user.id && !(m.ownerOrgId && access.has(m.ownerOrgId)))
+    .map((m) => ({
+      ...toListItem(m),
+      role: roles.get(m.id) ?? ('viewer' as Role),
+      sharedVia: { direct: direct.has(m.id), clubs: (clubs.get(m.id) ?? []).map((c) => ({ id: c.orgId, name: c.name, slug: c.slug })) },
+    }))
+    .sort((a, b) => a.title.localeCompare(b.title));
+  const ownerOf = await ownerLookup(shown);
+  return withCredits('module', shown.map((m) => ({ ...m, owner: ownerOf(m) })), user.id);
 }
 
 /** How many versions of each module are kept (the oldest go first). */
