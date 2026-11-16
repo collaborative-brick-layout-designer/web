@@ -20,6 +20,7 @@ import { moduleSharesChanged } from '../sharedModules/lifecycle.js';
 import { writeAuditEvent } from '../audit/writeAuditEvent.js';
 import { nameFor } from '../utils/publicName.js';
 import { perPerson } from '../utils/rateLimits.js';
+import { postPersonalNote } from './warnings.js';
 
 /** A module can be shared with this many clubs. */
 export const MAX_CLUB_SHARES = 50;
@@ -179,7 +180,18 @@ export async function moduleShareRoutes(app: FastifyInstance): Promise<void> {
       const user = requireUser(req);
       const { role } = await resolveResourceRole(user.id, 'module', req.params.id);
       if (role === null) return reply.code(404).send({ error: 'not_found' });
-      if (!hasAtLeast(role, 'owner')) return reply.code(403).send({ error: 'forbidden' });
+      // The module's owner stops it; so can the club it's shared with: its admins and
+      // managers (whoever may delete the club's items) take it off the club's list.
+      const isOwner = hasAtLeast(role, 'owner');
+      const access = isOwner ? null : await clubAccess(user.id, req.params.orgId);
+      const forClub = !!access && (access.isAdmin || access.permissions.has('delete_items'));
+      if (!isOwner && !forClub) return reply.code(403).send({ error: 'forbidden' });
+      const mod = await db
+        .select({ title: schema.modules.title, ownerUserId: schema.modules.ownerUserId })
+        .from(schema.modules)
+        .where(eq(schema.modules.id, req.params.id))
+        .get();
+      const club = await db.select({ name: schema.orgs.name, slug: schema.orgs.slug }).from(schema.orgs).where(eq(schema.orgs.id, req.params.orgId)).get();
       const gone = await db
         .delete(schema.moduleClubShares)
         .where(and(eq(schema.moduleClubShares.moduleId, req.params.id), eq(schema.moduleClubShares.orgId, req.params.orgId)))
@@ -191,8 +203,17 @@ export async function moduleShareRoutes(app: FastifyInstance): Promise<void> {
         resourceId: req.params.id,
         userId: user.id,
         eventType: 'unshare',
-        payload: { club: req.params.orgId },
+        payload: { club: req.params.orgId, ...(isOwner ? {} : { byClub: true }) },
       });
+      // Taken off by the club: its owner is told (a note in the app). Copies already placed stay, at their version.
+      if (!isOwner && mod?.ownerUserId && mod.ownerUserId !== user.id && club) {
+        await postPersonalNote(
+          mod.ownerUserId,
+          `${club.name} took your module “${mod.title}” off the club’s shared modules. Copies already placed in its layouts stay as they are and get no more updates. You can share it with the club again.`,
+          `/orgs/${club.slug}`,
+          { clubOrgId: req.params.orgId, issuedBy: user.id },
+        );
+      }
       return { ok: true };
     },
   );

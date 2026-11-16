@@ -171,11 +171,12 @@ describe('a layout’s shared modules', () => {
     expect(back.json()).toMatchObject({ changed: true, version: 2, from: 3, parts: 3 });
     expect(partsOf(await docOf(plan)).map((p) => [p.pn, p.x, p.y])).toEqual([['a.1', 100, 50], ['b.1', 104, 50], ['c.1', 108, 52]]);
     expect(moduleOf(await docOf(plan), 'placed-1')!.shared).toMatchObject({ review: { from: 3, to: 2 } });
-    expect((await call(carol, 'POST', `/api/layouts/${plan}/shared-modules/placed-1/apply`, { version: 9 })).statusCode).toBe(404);
+    const noSuch = await call(carol, 'POST', `/api/layouts/${plan}/shared-modules/placed-1/apply`, { version: 9 });
+    expect([noSuch.statusCode, noSuch.json()]).toEqual([409, { error: 'version_not_found' }]);
     for (const bad of [0, -1, 1.5, 'two', true]) {
       expect((await call(carol, 'POST', `/api/layouts/${plan}/shared-modules/placed-1/apply`, { version: bad })).statusCode).toBe(400);
     }
-    expect((await call(carol, 'POST', `/api/layouts/${plan}/shared-modules/no-such/apply`, {})).statusCode).toBe(404);
+    expect((await call(carol, 'POST', `/api/layouts/${plan}/shared-modules/no-such/apply`, {})).statusCode).toBe(409);
   });
 
   it('the update lands where the module was moved and turned to, also when an older app moved it', async () => {
@@ -269,7 +270,7 @@ describe('a layout’s shared modules', () => {
     // Again: nothing left to do. It no longer follows anything.
     expect((await call(bob, 'POST', `/api/layouts/${plan}/shared-modules/placed-1/detach`)).json()).toEqual({ ok: true, changed: false });
     expect((await call(bob, 'POST', `/api/layouts/${plan}/shared-modules/placed-1/apply`, {})).statusCode).toBe(409);
-    expect((await call(bob, 'POST', `/api/layouts/${plan}/shared-modules/nope/detach`)).statusCode).toBe(404);
+    expect((await call(bob, 'POST', `/api/layouts/${plan}/shared-modules/nope/detach`)).statusCode).toBe(409);
   });
 
   it('a co-editor sees the module’s versions through the layout, without a share of their own', async () => {
@@ -359,7 +360,9 @@ describe('a layout’s shared modules', () => {
     expect(partsOf(await docOf(plan)).map((p) => p.pn)).toEqual(['a.1', 'b.1']);
     expect((await call(carol, 'GET', `/api/layouts/${plan}/shared-modules/placed-1/versions/1/snapshot`)).statusCode).toBe(200);
     expect((await call(carol, 'GET', `/api/layouts/${plan}/shared-modules/placed-1/versions/2/snapshot`)).statusCode).toBe(404);
-    expect((await call(carol, 'GET', `/api/layouts/${plan}/shared-modules/placed-1/versions`)).statusCode).toBe(404);
+    // (An empty list, not a 404: asking about a copy that no longer follows its module is normal use.)
+    expect((await call(carol, 'GET', `/api/layouts/${plan}/shared-modules/placed-1/versions`)).json()).toEqual({ placed: 1, versions: [] });
+    expect((await call(carol, 'GET', `/api/layouts/${plan}/shared-modules/never-placed/versions`)).json()).toEqual({ placed: 0, versions: [] });
 
     await call(alice, 'POST', `/api/modules/${crane}/club-shares`, { orgSlug: lug.slug });
     expect((await list(carol, plan)).modules[0]).toMatchObject({ state: 'shared', latest: 2 });
@@ -426,7 +429,7 @@ describe('a layout’s shared modules', () => {
     await save(alice, crane, V2);
     // Not a shared module: it isn't listed, and Bob, who can't see Alice's module, can't pull it in.
     expect((await list(alice, yard)).modules).toEqual([]);
-    expect((await call(bob, 'POST', `/api/layouts/${yard}/shared-modules/p/apply`, {})).statusCode).toBe(404);
+    expect((await call(bob, 'POST', `/api/layouts/${yard}/shared-modules/p/apply`, {})).json()).toEqual({ error: 'module_not_found' });
     const both = await Promise.all([
       call(alice, 'POST', `/api/layouts/${yard}/shared-modules/p/apply`, {}),
       call(alice, 'POST', `/api/layouts/${yard}/shared-modules/p/apply`, {}),

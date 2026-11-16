@@ -173,7 +173,7 @@ const ACCESS: Record<string, [Access, Scope, Flags?]> = {
   'GET /api/modules/:id/collaborators': ['shared', null],
   'GET /api/modules/:id/shares': ['owner', 'layouts:read'],
   'POST /api/modules/:id/club-shares': ['owner', 'layouts:write', { demo: true }],
-  'DELETE /api/modules/:id/club-shares/:orgId': ['owner', 'layouts:write'],
+  'DELETE /api/modules/:id/club-shares/:orgId': ['club', 'layouts:write'],
   'POST /api/modules/:id/invites': ['owner', null, { demo: true }],
   'DELETE /api/modules/:id/invites/:inviteId': ['owner', null],
   'GET /api/module-invites/:token': ['token', null],

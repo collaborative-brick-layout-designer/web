@@ -188,7 +188,8 @@ export async function layoutSharedModuleRoutes(app: FastifyInstance): Promise<vo
     const { role } = await resolveResourceRole(user.id, 'layout', req.params.id);
     if (role === null) return reply.code(404).send({ error: 'not_found' });
     const row = await placedRow(req.params.id, req.params.placedId);
-    if (!row || row.state !== 'shared') return reply.code(404).send({ error: 'not_found' });
+    // Nothing to list for a copy that no longer follows its module (or isn't placed): an empty list, not an error.
+    if (!row || row.state !== 'shared') return { placed: row?.version ?? 0, versions: [] };
     const versions = await db
       .select({
         version: schema.moduleVersions.version,
@@ -259,7 +260,7 @@ export async function layoutSharedModuleRoutes(app: FastifyInstance): Promise<vo
       if (state !== 'shared') return { status: 409, body: { error: state === 'gone' ? 'module_gone' : 'no_longer_shared', state } };
     } else if ((await resolveResourceRole(user.id, 'module', moduleId)).role === null) {
       // An ordinary linked module: only someone who can see its library copy.
-      return { status: 404, body: { error: 'module_not_found' } };
+      return { status: 409, body: { error: 'module_not_found' } };
     }
     const lib = await db
       .select({ latestVersion: schema.modules.latestVersion, ownerUserId: schema.modules.ownerUserId, ownerOrgId: schema.modules.ownerOrgId })
@@ -274,7 +275,7 @@ export async function layoutSharedModuleRoutes(app: FastifyInstance): Promise<vo
       orgIds: [lib.ownerOrgId, layout.ownerOrgId],
     });
     const r = await applyVersion(layoutId, mod.id, moduleId, want, partOf, { again });
-    if (!r.ok) return { status: r.error === 'version_not_found' ? 404 : 409, body: { error: r.error } };
+    if (!r.ok) return { status: 409, body: { error: r.error } };
     if (r.changed) {
       await writeAuditEvent({
         layoutId,
@@ -300,8 +301,9 @@ export async function layoutSharedModuleRoutes(app: FastifyInstance): Promise<vo
       if (body.version !== undefined && body.version !== null && version === null) return reply.code(400).send({ error: 'invalid_version' });
       const layout = await layoutOwner(req.params.id);
       if (!layout) return reply.code(404).send({ error: 'not_found' });
+      // (409, not 404, for everything about the module: the layout itself was found.)
       const mod = await placedInDoc(req.params.id, req.params.placedId);
-      if (!mod) return reply.code(404).send({ error: 'not_placed' });
+      if (!mod) return reply.code(409).send({ error: 'not_placed' });
       const r = await apply(user, req.params.id, layout, mod, version, body.again === true);
       return reply.code(r.status).send(r.body);
     },
@@ -345,7 +347,7 @@ export async function layoutSharedModuleRoutes(app: FastifyInstance): Promise<vo
       // The layout's owner; a club's admins and managers for a club's layout.
       if (!hasAtLeast(role, 'owner')) return reply.code(403).send({ error: 'only_the_layouts_owner' });
       const r = await detachModule(req.params.id, req.params.placedId);
-      if (!r.ok) return reply.code(404).send({ error: r.error });
+      if (!r.ok) return reply.code(409).send({ error: r.error });
       if (r.changed) {
         await writeAuditEvent({ layoutId: req.params.id, userId: user.id, eventType: 'edit', payload: { sharedModuleDetached: req.params.placedId } });
       }
