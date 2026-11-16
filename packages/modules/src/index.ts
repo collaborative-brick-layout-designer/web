@@ -6,3 +6,4 @@ export * from './geometry.js';
 export * from './batches.js';
 export * from './placement.js';
 export * from './replace.js';
+export * from './shared.js';

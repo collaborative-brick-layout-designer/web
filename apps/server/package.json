@@ -19,6 +19,7 @@
   "dependencies": {
     "@cld/bbm": "workspace:*",
     "@cld/model": "workspace:*",
+    "@cld/modules": "workspace:*",
     "@cld/parts-catalog": "workspace:*",
     "@cld/ydoc": "workspace:*",
     "@fastify/cookie": "11.1.5",

@@ -37,7 +37,9 @@ import { snapshotMemberKeyProblem } from '../ws/memberGuard.js';
 import { snapshotBackgroundProblem } from '../ws/backgroundGuard.js';
 import { snapshotWork } from '../ws/yjsWork.js';
 import { trashModule } from '../trash/trash.js';
-import { sharedModuleIds, syncModuleShareParts } from '../access/moduleShares.js';
+import { sharedModuleIds } from '../access/moduleShares.js';
+import { moduleSharesChanged } from '../sharedModules/lifecycle.js';
+import { refreshStatesForModule } from '../sharedModules/placed.js';
 
 type ModuleRow = typeof schema.modules.$inferSelect;
 
@@ -308,6 +310,8 @@ export async function moduleRoutes(app: FastifyInstance): Promise<void> {
     const gone = await db.select({ id: schema.modules.id, title: schema.modules.title }).from(schema.modules).where(eq(schema.modules.id, req.params.id)).get();
     if (gone) await dropModuleFromCollections(gone, 'deleted', null, user.id);
     await db.delete(schema.modules).where(eq(schema.modules.id, req.params.id));
+    // Its placed copies stay where they are, marked "Deleted by its owner" (sharedModules/placed.ts).
+    await refreshStatesForModule(req.params.id);
     await writeAuditEvent({
       resourceKind: 'module',
       resourceId: req.params.id,
@@ -401,7 +405,7 @@ export async function moduleRoutes(app: FastifyInstance): Promise<void> {
     if (written.changes === 0) return reply.code(409).send({ error: 'module_changed' });
     const version = await recordVersion(req.params.id, bytes, user.id, note);
     // The parts that come along with its shares follow its contents.
-    await syncModuleShareParts(req.params.id);
+    await moduleSharesChanged(req.params.id);
     reply.header('ETag', `"${next}"`);
     return { ok: true, updatedAt: updatedAt.getTime(), version, docVersion: next };
   });
@@ -574,7 +578,7 @@ export async function moduleRoutes(app: FastifyInstance): Promise<void> {
       })
       .where(eq(schema.modules.id, req.params.id));
     const version = await recordVersion(req.params.id, bytes, user.id, `Restored version ${found.row.version}`, thumb, found.row.thumbnailMime);
-    await syncModuleShareParts(req.params.id);
+    await moduleSharesChanged(req.params.id);
     await writeAuditEvent({
       resourceKind: 'module',
       resourceId: req.params.id,
@@ -647,7 +651,7 @@ export async function moduleRoutes(app: FastifyInstance): Promise<void> {
             eq(schema.moduleCollaborators.userId, req.params.userId),
           ),
         );
-      await syncModuleShareParts(req.params.id);
+      await moduleSharesChanged(req.params.id);
       await writeAuditEvent({
         resourceKind: 'module',
         resourceId: req.params.id,

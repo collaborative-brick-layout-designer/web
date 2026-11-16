@@ -15,7 +15,8 @@ import { requireUser } from '../auth/cookie.js';
 import { isDemoUser } from '../demo/demoAccount.js';
 import { hasAtLeast, resolveResourceRole } from '../access/resolveResourceRole.js';
 import { clubAccess } from '../access/clubPermissions.js';
-import { clubSharesOf, syncModuleShareParts } from '../access/moduleShares.js';
+import { clubSharesOf } from '../access/moduleShares.js';
+import { moduleSharesChanged } from '../sharedModules/lifecycle.js';
 import { writeAuditEvent } from '../audit/writeAuditEvent.js';
 import { nameFor } from '../utils/publicName.js';
 import { perPerson } from '../utils/rateLimits.js';
@@ -158,7 +159,7 @@ export async function moduleShareRoutes(app: FastifyInstance): Promise<void> {
         .insert(schema.moduleClubShares)
         .values({ moduleId: req.params.id, orgId: org.id, sharedBy: user.id, createdAt: new Date() })
         .onConflictDoNothing();
-      await syncModuleShareParts(req.params.id);
+      await moduleSharesChanged(req.params.id);
       await writeAuditEvent({
         resourceKind: 'module',
         resourceId: req.params.id,
@@ -184,7 +185,7 @@ export async function moduleShareRoutes(app: FastifyInstance): Promise<void> {
         .where(and(eq(schema.moduleClubShares.moduleId, req.params.id), eq(schema.moduleClubShares.orgId, req.params.orgId)))
         .run();
       if (gone.changes === 0) return reply.code(404).send({ error: 'not_shared' });
-      await syncModuleShareParts(req.params.id);
+      await moduleSharesChanged(req.params.id);
       await writeAuditEvent({
         resourceKind: 'module',
         resourceId: req.params.id,

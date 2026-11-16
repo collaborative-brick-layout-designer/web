@@ -34,6 +34,7 @@ import { clampTitle, titleTooLong, trimmed } from '../utils/validate.js';
 import { allowedBackgroundUrl, backgroundImageUrl, dropForeignBackgroundUrl } from '../ws/backgroundGuard.js';
 import { applyStoredUpdate } from '../ws/yjsWork.js';
 import { trashLayout } from '../trash/trash.js';
+import { syncStoredLayout } from '../sharedModules/placed.js';
 
 interface CreateLayoutBody {
   title?: string;
@@ -296,6 +297,7 @@ export async function layoutRoutes(app: FastifyInstance) {
       docVersion: 0,
       sidecarSnapshot: sidecarSnapshot ? Buffer.from(sidecarSnapshot) : null,
     });
+    await syncStoredLayout(id);
     if (background) {
       const bgDir = join(dirname(env.dbPath), 'bgimages');
       await mkdir(bgDir, { recursive: true });
@@ -398,6 +400,7 @@ export async function layoutRoutes(app: FastifyInstance) {
       await db.insert(schema.layouts).values(prepared.values);
       await prepared.copyBackground();
       const id = prepared.values.id;
+      await syncStoredLayout(id);
       return reply.code(201).send({ id, title });
     },
   );

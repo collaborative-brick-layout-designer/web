@@ -125,7 +125,21 @@ async function partComesWithModule(userId: string, partId: string): Promise<bool
         LIMIT 1`,
     )
     .get(partId, userId, userId);
-  return !!row;
+  if (row) return true;
+  // Or the module is placed, still shared, in a layout they can open: they see its parts there.
+  const viaLayout = sqlite
+    .prepare(
+      `SELECT 1 FROM module_share_parts s
+         JOIN layout_shared_modules p ON p.module_id = s.module_id AND p.state = 'shared'
+         JOIN layouts l ON l.id = p.layout_id
+        WHERE s.part_id = ?
+          AND (l.owner_user_id = ?
+               OR l.owner_org_id IN (SELECT org_id FROM org_members WHERE user_id = ?)
+               OR l.id IN (SELECT layout_id FROM layout_collaborators WHERE user_id = ?))
+        LIMIT 1`,
+    )
+    .get(partId, userId, userId, userId);
+  return !!viaLayout;
 }
 
 /** Whether the module is shared, read-only, with a club `userId` is in (module_club_shares). */

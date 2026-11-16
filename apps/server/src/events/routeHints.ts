@@ -17,6 +17,7 @@ import { orgIdBySlug, ownerOfResource, publish, staffIds, type Reach } from './a
 import { clubRunners, recipientsOf } from '../routes/warnings.js';
 import { verificationFor } from '../routes/auth/password.js';
 import { clubShareMemberIds } from '../access/moduleShares.js';
+import { peopleWithPlacedCopies } from '../sharedModules/placed.js';
 
 type ResourceKind = 'layout' | 'module' | 'venue' | 'custom-part';
 
@@ -96,7 +97,7 @@ async function collaboratorsOf(kind: ResourceKind, id: string): Promise<string[]
   }
   if (kind === 'module') {
     const people = (await db.select({ u: schema.moduleCollaborators.userId }).from(schema.moduleCollaborators).where(eq(schema.moduleCollaborators.moduleId, id)).all()).map((r) => r.u);
-    return [...people, ...(await clubShareMemberIds(id))];
+    return [...people, ...(await clubShareMemberIds(id)), ...(await peopleWithPlacedCopies(id))];
   }
   if (kind === 'custom-part') {
     return (await db.select({ u: schema.customPartCollaborators.userId }).from(schema.customPartCollaborators).where(eq(schema.customPartCollaborators.customPartId, id)).all()).map((r) => r.u);
@@ -182,6 +183,16 @@ const emailLinkOpened: HintSpec = {
       { hint: { kind: 'me', owner: { kind: 'user', id: uid }, action: 'update:email-confirmed' } },
       { hint: { kind: 'admin', action: 'update:email-confirmed' }, reach: { ownerless: true } },
     ];
+  },
+};
+
+/** A shared module updated, put back or made the layout's own: everyone who can open the layout. */
+const sharedModuleStep: HintSpec = {
+  after: async (ctx) => {
+    const id = ctx.params.id;
+    if (!id) return [];
+    const now = await ownerOfResource('layout', id);
+    return [{ hint: { kind: 'layout', ...(now?.owner ? { owner: now.owner } : {}), id, action: 'shared-module-updated' } }];
   },
 };
 
@@ -472,6 +483,10 @@ export const ROUTE_HINTS: Record<string, HintSpec> = {
   'PATCH /api/layouts/:id': resource('layout'),
   'DELETE /api/layouts/:id': resource('layout'),
   'POST /api/layouts/:id/copy': resource('layout', { reply: 'id' }),
+  // The server changed a placed module in the layout's room (the room sends the change itself): the lists follow.
+  'POST /api/layouts/:id/shared-modules/:placedId/apply': sharedModuleStep,
+  'POST /api/layouts/:id/shared-modules/apply-all': sharedModuleStep,
+  'POST /api/layouts/:id/shared-modules/:placedId/detach': sharedModuleStep,
   'POST /api/layouts/:id/public-share': resource('layout'),
   'DELETE /api/layouts/:id/public-share': resource('layout'),
   'POST /api/layouts/:id/background-image': resource('layout'),

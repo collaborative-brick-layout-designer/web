@@ -23,6 +23,7 @@ import { MAX_PENDING_BYTES, MAX_PENDING_DS_BYTES, dropPending, noteWaitingOnOpen
 import { checkUpdate } from './updateGuard.js';
 import { HeldUpdates } from './held.js';
 import type { Sender } from './handler.js';
+import { syncLayoutSharedModules } from '../sharedModules/placed.js';
 
 /**
  * Largest awareness (presence) message taken from a client. A presence
@@ -396,6 +397,8 @@ export class DocSession {
           ),
         );
       this.pendingUpdates = 0;
+      // Which shared modules it places, and at which version (sharedModules/placed.ts).
+      await syncLayoutSharedModules(this.layoutId, this.doc).catch((err: unknown) => this.persistError(err));
     } finally {
       this.flushing = false;
       if (covered.length > 0 && !this.closed) {
@@ -565,6 +568,22 @@ class DocHub {
     // A client may have (re)attached while the flush was in flight.
     if (session.closed || session.clients.size > 0) return;
     if (session.idleTimer) clearTimeout(session.idleTimer);
+    session.idleTimer = setTimeout(() => {
+      session.idleTimer = null;
+      if (session.clients.size > 0) return;
+      this.evict(session);
+    }, IDLE_MS);
+  }
+
+  /**
+   * After the server changed a room's document itself (a shared module's
+   * update): a room nobody is in is saved and let go like one its last
+   * person just left. A room with people in it is left as it is.
+   */
+  async settle(session: DocSession): Promise<void> {
+    if (session.closed || session.clients.size > 0) return;
+    await session.flushSnapshot();
+    if (session.closed || session.clients.size > 0 || session.idleTimer) return;
     session.idleTimer = setTimeout(() => {
       session.idleTimer = null;
       if (session.clients.size > 0) return;

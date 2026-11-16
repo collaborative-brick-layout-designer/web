@@ -27,11 +27,12 @@ import { gunzipSync, gzipSync } from 'node:zlib';
 import { and, eq, inArray, isNull, lt, or } from 'drizzle-orm';
 import { db, schema } from '../db/index.js';
 import { clubAccessMap } from '../access/clubPermissions.js';
-import { syncModuleShareParts } from '../access/moduleShares.js';
+import { moduleSharesChanged } from '../sharedModules/lifecycle.js';
 import { checkGrowth } from '../limits/limits.js';
 import type { User } from '../db/schema.js';
 import { imagesDirFor } from '../workers/backup.js';
 import { env } from '../env.js';
+import { syncStoredLayout } from '../sharedModules/placed.js';
 
 export const TRASH_DAYS = 30;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -445,7 +446,9 @@ export async function restoreFromTrash(user: User, trashId: string): Promise<Res
     if (!existsSync(path)) writeFileSync(path, Buffer.from(payload.picture.data, 'base64'));
   }
   // A restored module is shared again: the parts that come along with it are worked out anew.
-  if (row.kind === 'module') await syncModuleShareParts(row.itemId);
+  if (row.kind === 'module') await moduleSharesChanged(row.itemId);
+  // A restored layout places what it placed (its rows went with it).
+  if (row.kind === 'layout') await syncStoredLayout(row.itemId);
   return { ok: true, kind: row.kind, itemId: row.itemId, ...(collections ? { collections } : {}) };
 }
 

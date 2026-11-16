@@ -33,6 +33,7 @@ import { addBuiltinRole, clubSuccessor } from '../access/clubPermissions.js';
 import { invalidateAllSessions } from '../auth/session.js';
 import { notifyCredentialRevoked } from '../auth/revocation.js';
 import { docHub } from '../ws/docHub.js';
+import { placedCopiesOfModulesOf, unlockPlacedCopies } from '../sharedModules/lifecycle.js';
 import { publish } from '../events/audience.js';
 import { sendNoticeEmail } from '../email/sendNotice.js';
 import { postPersonalNote } from '../routes/warnings.js';
@@ -340,6 +341,9 @@ export async function eraseUser(userId: string, how: 'self' | 'admin' | 'request
   const collectionHeirs = new Map<string, string | null>();
   for (const c of clubCollections) collectionHeirs.set(c.id, clubsGone.includes(c.orgId!) ? null : await standIn(c.orgId, userId));
 
+  // Placed copies of their modules in other people's layouts lose the lock (sharedModules/lifecycle.ts).
+  const placedCopies = await placedCopiesOfModulesOf(userId);
+
   const email = user.email;
   const name = user.displayName.trim();
   db.transaction((tx) => {
@@ -393,6 +397,7 @@ export async function eraseUser(userId: string, how: 'self' | 'admin' | 'request
   await sweepFiles([...ownedLayouts, ...clubLayouts]);
   notifyCredentialRevoked({ userId });
   await docHub.closeMany([...ownedLayouts, ...clubLayouts]);
+  await unlockPlacedCopies(placedCopies, userId);
   await writeAuditEvent({ resourceKind: 'user', resourceId: userId, userId: actorId, eventType: 'account_erased', payload: { ref, how, counts } });
   void publish({ kind: 'admin', action: 'delete:user' }, { ownerless: true });
   return { ref, counts };
