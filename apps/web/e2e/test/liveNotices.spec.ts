@@ -1,7 +1,8 @@
 // What the editor says when live editing goes sideways (full review area 4):
 //   - Bug 7: Undo after someone else moved the same part did nothing, said
 //     nothing and stayed lit;
-//   - Unclear UI 1: lowered to view only, the tools went with no word why;
+//   - Unclear UI 1: lowered to view only, the tools went with no word why
+//     (and raised again at once, the page stayed on view only);
 //   - Unclear UI 3: an offline change someone else's replaced vanished;
 //   - Unclear UI 4: offline, the pill said "Reconnecting…" forever.
 
@@ -129,13 +130,47 @@ test('Undo after someone else moved the same part says so, and goes out', async 
   await bob.ctx.close();
 });
 
+/** Bob can edit: his nudge reaches Alice. */
+async function bobEditsReachAlice(alice: Page, bob: Page): Promise<void> {
+  await expect.poll(() => shown(bob).then((x) => x.length), { timeout: 15000 }).toBe(2);
+  const [b] = await shown(bob);
+  const at = async (page: Page) => (await shown(page)).find((p) => p.id === b!.id)!.sx;
+  const aliceBefore = await at(alice);
+  await nudge(bob, b!.id);
+  await expect.poll(() => at(alice), { timeout: 10000 }).not.toBe(aliceBefore);
+}
+
+const setRole = async (alice: Page, id: string, userId: string, role: 'viewer' | 'editor') =>
+  expect((await alice.request.patch(`/api/layouts/${id}/collaborators/${userId}`, { data: { role } })).ok()).toBe(true);
+const userIdOf = async (page: Page) => ((await (await page.request.get('/api/auth/me')).json()) as { user: { id: string } }).user.id;
+
 test('lowered to view only and raised again, it says so both times', async ({ browser }) => {
   const { alice, bob, id } = await setup(browser, 'role');
-  const bobId = ((await (await bob.page.request.get('/api/auth/me')).json()) as { user: { id: string } }).user.id;
-  expect((await alice.page.request.patch(`/api/layouts/${id}/collaborators/${bobId}`, { data: { role: 'viewer' } })).ok()).toBe(true);
+  const bobId = await userIdOf(bob.page);
+  await setRole(alice.page, id, bobId, 'viewer');
   await expect(notice(bob.page)).toHaveText(/You can only view this layout now\. Your access to “Notices role” changed to view only/, { timeout: 15000 });
-  expect((await alice.page.request.patch(`/api/layouts/${id}/collaborators/${bobId}`, { data: { role: 'editor' } })).ok()).toBe(true);
+  await setRole(alice.page, id, bobId, 'editor');
   await expect(notice(bob.page)).toHaveText(/You can edit this layout now/, { timeout: 15000 });
+  await bobEditsReachAlice(alice.page, bob.page);
+  await alice.ctx.close();
+  await bob.ctx.close();
+});
+
+test('raised again straight after being lowered, the page ends up editable', async ({ browser }) => {
+  // The raise lands inside the live hints' half-second squash window of the
+  // lowering (same hint, same stream): the server must still send it once
+  // the window ends, or Bob's page stays on view only (events/hub.test.ts).
+  const { alice, bob, id } = await setup(browser, 'quick');
+  const bobId = await userIdOf(bob.page);
+  const sawViewer = bob.page.waitForResponse(
+    async (r) => r.request().method() === 'GET' && new URL(r.url()).pathname === `/api/layouts/${id}` && ((await r.json()) as { role?: string }).role === 'viewer',
+    { timeout: 15000 },
+  );
+  await setRole(alice.page, id, bobId, 'viewer');
+  await sawViewer;
+  await setRole(alice.page, id, bobId, 'editor');
+  await expect(notice(bob.page)).toHaveText(/You can edit this layout now/, { timeout: 15000 });
+  await bobEditsReachAlice(alice.page, bob.page);
   await alice.ctx.close();
   await bob.ctx.close();
 });

@@ -50,14 +50,21 @@ export interface EventConnection {
   openedAt: number;
   /** Last few hints sent, for squashing repeats that arrive together. */
   recent: Map<string, number>;
+  /** Hints squashed in the window that are sent once more when it ends. */
+  trailing?: Set<string>;
 }
 
 /** Open streams one person may hold (tabs, windows, desktop apps). The oldest goes first. */
 export const MAX_CONNECTIONS_PER_USER = 8;
 /** Comment line sent this often so proxies and browsers keep the stream open. */
 export const HEARTBEAT_MS = 25_000;
-/** The same hint to the same stream within this window is sent once. */
-const SQUASH_MS = 500;
+/**
+ * The same hint to the same stream within this window is sent once, then
+ * once more when the window ends if it came again meanwhile: the stream's
+ * last word is always about the latest change (a role lowered and raised
+ * again within half a second must not leave a tab on the first).
+ */
+export const SQUASH_MS = 500;
 
 const byUser = new Map<string, Set<EventConnection>>();
 
@@ -106,7 +113,22 @@ export function formatHint(hint: Hint): string {
 
 function send(conn: EventConnection, chunk: string, now: number): void {
   const last = conn.recent.get(chunk);
-  if (last !== undefined && now - last < SQUASH_MS) return;
+  if (last !== undefined && now - last < SQUASH_MS) {
+    // Squashed, but the change it was about may not be the one already
+    // sent: say it again when the window ends (once, however many came).
+    const trailing = (conn.trailing ??= new Set());
+    if (!trailing.has(chunk)) {
+      trailing.add(chunk);
+      const due = last + SQUASH_MS;
+      const timer = setTimeout(() => {
+        trailing.delete(chunk);
+        // Not if the stream has gone meanwhile.
+        if (byUser.get(conn.userId)?.has(conn)) send(conn, chunk, Math.max(Date.now(), due));
+      }, due - now);
+      timer.unref?.();
+    }
+    return;
+  }
   conn.recent.set(chunk, now);
   if (conn.recent.size > 32) {
     for (const [k, t] of conn.recent) if (now - t >= SQUASH_MS) conn.recent.delete(k);
