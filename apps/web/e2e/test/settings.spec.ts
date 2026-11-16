@@ -32,8 +32,11 @@ test('dark theme and ocean color persist across a reload and on the account', as
   await expect(page.getByRole('radio', { name: 'Ocean blue' })).toHaveAttribute('aria-checked', 'true');
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
   await expect(page.locator('html')).toHaveAttribute('data-accent', 'ocean');
-  const body = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
-  expect(body).toBe('rgb(22, 24, 27)'); // --bg, dark
+  // The whole app takes the color by default, so the dark page is the dark
+  // --bg tinted toward ocean blue (theme/colorTheme.ts chromeTheme), not the
+  // plain grey rgb(22, 24, 27) it was before the whole-app style was the default.
+  await expect(page.locator('html')).toHaveAttribute('data-color-style', 'full');
+  await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(23, 29, 41)'); // #171D29
 });
 
 test('a color picked just before leaving the page is kept', async ({ page }) => {
