@@ -23,6 +23,7 @@ import { MAX_PENDING_BYTES, MAX_PENDING_DS_BYTES, dropPending, noteWaitingOnOpen
 import { checkUpdate } from './updateGuard.js';
 import { HeldUpdates } from './held.js';
 import type { Sender } from './handler.js';
+import { syncLayoutSharedModules } from '../sharedModules/placed.js';
 
 /**
  * Largest awareness (presence) message taken from a client. A presence
@@ -396,6 +397,8 @@ export class DocSession {
           ),
         );
       this.pendingUpdates = 0;
+      // Which shared modules it places, and at which version (sharedModules/placed.ts).
+      await syncLayoutSharedModules(this.layoutId, this.doc).catch((err: unknown) => this.persistError(err));
     } finally {
       this.flushing = false;
       if (covered.length > 0 && !this.closed) {
@@ -421,7 +424,7 @@ export class DocSession {
     if (bytes === 0) return;
     const over = bytes > MAX_PENDING_BYTES || pendingDsBytes(this.doc) > MAX_PENDING_DS_BYTES;
     if (!over && checkUpdate(Y.encodeStateAsUpdate(this.doc)) === null) return;
-    console.warn(`[docHub] layout ${this.layoutId}: dropped ${bytes} bytes waiting for changes the layout doesn't have`);
+    console.warn("[docHub] layout %s: dropped %d bytes waiting for changes the layout doesn't have", this.layoutId, bytes);
     dropPending(this.doc);
   }
 
@@ -500,7 +503,7 @@ class DocHub {
         await session.flushSnapshot();
         n += 1;
       } catch (err) {
-        console.error(`[docHub] couldn't save layout ${session.layoutId} while stopping`, err);
+        console.error("[docHub] couldn't save a layout while stopping: %s", session.layoutId, err);
       }
     }
     return n;
@@ -565,6 +568,22 @@ class DocHub {
     // A client may have (re)attached while the flush was in flight.
     if (session.closed || session.clients.size > 0) return;
     if (session.idleTimer) clearTimeout(session.idleTimer);
+    session.idleTimer = setTimeout(() => {
+      session.idleTimer = null;
+      if (session.clients.size > 0) return;
+      this.evict(session);
+    }, IDLE_MS);
+  }
+
+  /**
+   * After the server changed a room's document itself (a shared module's
+   * update): a room nobody is in is saved and let go like one its last
+   * person just left. A room with people in it is left as it is.
+   */
+  async settle(session: DocSession): Promise<void> {
+    if (session.closed || session.clients.size > 0) return;
+    await session.flushSnapshot();
+    if (session.closed || session.clients.size > 0 || session.idleTimer) return;
     session.idleTimer = setTimeout(() => {
       session.idleTimer = null;
       if (session.clients.size > 0) return;
@@ -638,7 +657,7 @@ class DocHub {
    * ON DELETE CASCADE from its owner), shut the session down.
    */
   private onPersistError(session: DocSession, err: unknown): void {
-    console.error(`[docHub] failed to persist update for layout ${session.layoutId}:`, err);
+    console.error('[docHub] failed to persist update for layout %s:', session.layoutId, err);
     void (async () => {
       try {
         const row = await db

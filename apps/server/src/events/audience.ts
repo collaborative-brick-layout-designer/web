@@ -17,6 +17,7 @@ import { eq, or } from 'drizzle-orm';
 import { db, schema } from '../db/index.js';
 import { connectedUserIds, deliver, type Hint } from './hub.js';
 import { clubShareMemberIds } from '../access/moduleShares.js';
+import { peopleWithPlacedCopies } from '../sharedModules/placed.js';
 
 export interface Reach {
   /** Send to every open stream (site-wide, public data only). */
@@ -52,7 +53,8 @@ async function collaboratorIds(kind: Hint['kind'], id: string): Promise<string[]
       .where(eq(schema.moduleCollaborators.moduleId, id))
       .all();
     // And the members of the clubs it's shared with (module_club_shares).
-    return [...rows.map((r) => r.userId), ...(await clubShareMemberIds(id))];
+    // ...and everyone who can open a layout that places it and follows it: its next version is theirs to put in.
+    return [...rows.map((r) => r.userId), ...(await clubShareMemberIds(id)), ...(await peopleWithPlacedCopies(id))];
   }
   if (kind === 'custom-part') {
     const rows = await db

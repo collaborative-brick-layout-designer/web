@@ -15,7 +15,7 @@
 import { and, eq, inArray, isNotNull, sql } from 'drizzle-orm';
 import * as Y from 'yjs';
 import { decodeDoc } from '@cld/ydoc';
-import { db, schema } from '../db/index.js';
+import { db, schema, sqlite } from '../db/index.js';
 import { setPartsFor } from './setShares.js';
 
 /** A club a module is shared with. */
@@ -190,7 +190,18 @@ export async function partIdsThroughModules(userId: string): Promise<string[]> {
     .innerJoin(schema.orgMembers, eq(schema.orgMembers.orgId, schema.moduleShareParts.orgId))
     .where(and(isNotNull(schema.moduleShareParts.orgId), eq(schema.orgMembers.userId, userId)))
     .all();
-  return [...new Set([...direct, ...viaClub].map((r) => r.id))];
+  // And through a layout they can open that places the module, still shared (sharedModules/placed.ts).
+  const viaLayout = sqlite
+    .prepare(
+      `SELECT DISTINCT s.part_id AS id FROM module_share_parts s
+         JOIN layout_shared_modules p ON p.module_id = s.module_id AND p.state = 'shared'
+         JOIN layouts l ON l.id = p.layout_id
+        WHERE l.owner_user_id = ?
+           OR l.owner_org_id IN (SELECT org_id FROM org_members WHERE user_id = ?)
+           OR l.id IN (SELECT layout_id FROM layout_collaborators WHERE user_id = ?)`,
+    )
+    .all(userId, userId, userId) as { id: string }[];
+  return [...new Set([...direct, ...viaClub, ...viaLayout].map((r) => r.id))];
 }
 
 /** The modules shared with `userId`: with them in person, or with a club they're in. */

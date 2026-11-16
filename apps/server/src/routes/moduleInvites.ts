@@ -27,7 +27,8 @@ import { isValidEmail, normalizeEmail, sameEmail } from '../utils/validate.js';
 import { publicName } from '../utils/publicName.js';
 import { maskEmail } from '../utils/maskEmail.js';
 import { perPerson } from '../utils/rateLimits.js';
-import { onlyThroughClubShare, syncModuleShareParts } from '../access/moduleShares.js';
+import { onlyThroughClubShare } from '../access/moduleShares.js';
+import { moduleSharesChanged } from '../sharedModules/lifecycle.js';
 
 const INVITE_TTL_MS = 14 * 24 * 60 * 60 * 1000;
 
@@ -172,7 +173,7 @@ export async function moduleInviteRoutes(app: FastifyInstance): Promise<void> {
       .values({ moduleId: inv.moduleId, userId: user.id, role: inv.role, addedAt: now })
       .onConflictDoNothing();
     // The owner's custom parts the module uses come along (access/moduleShares.ts).
-    await syncModuleShareParts(inv.moduleId);
+    await moduleSharesChanged(inv.moduleId);
     await writeAuditEvent({
       resourceKind: 'module',
       resourceId: inv.moduleId,

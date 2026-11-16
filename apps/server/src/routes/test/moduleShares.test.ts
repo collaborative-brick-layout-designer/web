@@ -131,7 +131,6 @@ describe('sharing a module read-only', () => {
     expect((await app.inject({ method: 'PUT', url: `/api/modules/${crane}/snapshot`, headers: { cookie: bob.cookie, 'content-type': 'application/octet-stream' }, payload: contents('3001.1') })).statusCode).toBe(403);
     expect((await call(bob, 'POST', `/api/modules/${crane}/invites`, { email: 'eve@example.com', role: 'viewer' })).statusCode).toBe(403);
     expect((await call(bob, 'POST', `/api/modules/${crane}/club-shares`, { orgSlug: lug.slug })).statusCode).toBe(403);
-    expect((await call(bob, 'DELETE', `/api/modules/${crane}/club-shares/${lug.id}`)).statusCode).toBe(403);
     expect((await call(bob, 'GET', `/api/modules/${crane}/shares`)).statusCode).toBe(403);
     // Someone outside the club sees nothing.
     expect((await call(eve, 'GET', `/api/modules/${crane}`)).statusCode).toBe(404);
@@ -142,6 +141,36 @@ describe('sharing a module read-only', () => {
     expect(await sharedWith(bob)).toEqual([]);
     expect((await call(bob, 'GET', `/api/modules/${crane}`)).statusCode).toBe(404);
     expect((await call(alice, 'DELETE', `/api/modules/${crane}/club-shares/${lug.id}`)).statusCode).toBe(404);
+  });
+
+  it('the club’s admins and managers can take a module off the club; its owner is told', async () => {
+    const alice = await loginAs(app, 'alice@example.com');
+    const bob = await loginAs(app, 'bob@example.com');
+    const carol = await loginAs(app, 'carol@example.com');
+    const mia = await loginAs(app, 'mia@example.com');
+    const lug = await club(bob, 'Riverside LUG', alice, carol);
+    await db.insert(schema.orgMembers).values({ orgId: lug.id, userId: mia.id, role: 'manager', joinedAt: new Date() });
+    const other = await club(carol, 'Train Club North');
+    const crane = await module(alice, 'Harbor crane');
+    const share = () => call(alice, 'POST', `/api/modules/${crane}/club-shares`, { orgSlug: lug.slug });
+    await share();
+    // A plain member can't; nor can an admin of some other club.
+    expect((await call(carol, 'DELETE', `/api/modules/${crane}/club-shares/${lug.id}`)).statusCode).toBe(403);
+    expect((await call(carol, 'DELETE', `/api/modules/${crane}/club-shares/${other.id}`)).statusCode).toBe(404);
+    expect(await sharedWith(carol)).toHaveLength(1);
+    // The club's admin can, and Alice gets a note saying so.
+    expect((await call(bob, 'DELETE', `/api/modules/${crane}/club-shares/${lug.id}`)).statusCode).toBe(200);
+    expect(await sharedWith(carol)).toEqual([]);
+    const notes = await db.select().from(schema.warnings).where(eq(schema.warnings.subjectUserId, alice.id)).all();
+    expect(notes).toHaveLength(1);
+    expect(notes[0]!.reason).toContain('Riverside LUG took your module “Harbor crane” off the club’s shared modules');
+    expect(notes[0]!.reason).toContain('Copies already placed in its layouts stay as they are');
+    // So can a manager. The owner stopping it herself gets no note.
+    await share();
+    expect((await call(mia, 'DELETE', `/api/modules/${crane}/club-shares/${lug.id}`)).statusCode).toBe(200);
+    await share();
+    expect((await call(alice, 'DELETE', `/api/modules/${crane}/club-shares/${lug.id}`)).statusCode).toBe(200);
+    expect(await db.select().from(schema.warnings).where(eq(schema.warnings.subjectUserId, alice.id)).all()).toHaveLength(2);
   });
 
   it('only with a club you are in, and not a club’s own module', async () => {

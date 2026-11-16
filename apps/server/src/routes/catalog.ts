@@ -41,6 +41,7 @@ import { sniffCover } from '../images/covers.js';
 import type { Venue } from '@cld/bbm';
 import { perPerson } from '../utils/rateLimits.js';
 import { stripImportSource } from '../utils/partXml.js';
+import { syncStoredLayout } from '../sharedModules/placed.js';
 
 /** What the catalog holds: modules and custom parts, and (when on) layouts and venues. */
 export type Kind = 'module' | 'part' | 'layout' | 'venue';
@@ -383,6 +384,7 @@ export async function copyItemTo(user: User, item: typeof schema.catalogItems.$i
       sidecarSnapshot: null,
       copiedFromId: item.sourceId,
     });
+    await syncStoredLayout(id);
   } else if (item.kind === 'venue') {
     const data = Buffer.from(v.docSnapshot as Uint8Array).toString('utf8');
     const refusal = await checkGrowth({ actor: user, owner, add: { bytes: data.length } });

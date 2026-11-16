@@ -46,6 +46,7 @@ import { concerns, onAccessChanged, suspendedIn } from './liveAccess.js';
 import { COPY_BUDGET_SPENT, checkGridSizesDecoded, heldValueProblem } from './gridGuard.js';
 import { backgroundUrlProblem } from './backgroundGuard.js';
 import { memberKeyProblem } from './memberGuard.js';
+import { LOCK_COPY_BUDGET_SPENT, sharedLockProblem } from './sharedGuard.js';
 import { decodeIncoming, guardWork, type DecodedUpdate } from './decoded.js';
 import { MAX_HELD_UPDATES, deletesPresent, waitsOn } from './held.js';
 import { MAX_UPDATE_WORK, yjsWork } from './yjsWork.js';
@@ -421,6 +422,18 @@ function takeUpdate(ws: WebSocket, session: DocSession, sender: Sender, update: 
     refuseUpdate(ws, session, sender, update.length, 'unreadable', badMember);
     return false;
   }
+  // A shared module's parts stay its owner's (sharedGuard.ts).
+  const copiedForLock = guardWork.copyBytes;
+  const badLock = decoded ? sharedLockProblem(session.doc, update, decoded, payer.available) : null;
+  payer.charge(guardWork.copyBytes - copiedForLock);
+  if (badLock === LOCK_COPY_BUDGET_SPENT) {
+    slowDown(ws, session, sender, update.length);
+    return false;
+  }
+  if (badLock !== null) {
+    refuseUpdate(ws, session, sender, update.length, 'locked', badLock);
+    return false;
+  }
   const check = checkIncomingDecoded(session.doc, update, decoded);
   if (check.refuse) {
     refuseMerge(ws, session, sender, check);
@@ -595,7 +608,7 @@ function refuseUpdate(
   session: DocSession,
   sender: Sender,
   updateBytes: number,
-  kind: 'unreadable' | 'incomplete',
+  kind: 'unreadable' | 'incomplete' | 'locked',
   why: string,
 ): void {
   session.held.drop(ws);

@@ -14,7 +14,7 @@ import { existsSync } from 'node:fs';
 import { Buffer } from 'node:buffer';
 import { createHash } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
-import { eq, inArray } from 'drizzle-orm';
+import { eq, inArray, or } from 'drizzle-orm';
 import { partIdsThroughModules } from '../access/moduleShares.js';
 import { imageSize, parsePartXml, scanCatalog } from '@cld/parts-catalog';
 import type { FourDBrixRemap, LDrawRemap, PartMetadata, TrackDesignerRemap } from '@cld/parts-catalog';
@@ -398,6 +398,56 @@ export async function visibleCustomParts(userId: string | null): Promise<CustomC
     }
   }
   return rows;
+}
+
+/** What placing a part takes: its scale, its picture's size and its hull (@cld/modules geometry.ts). */
+export interface PartGeometry {
+  pxPerStud: number;
+  spriteSize?: { w: number; h: number };
+  hullPts?: { x: number; y: number }[];
+  connections: ConnectionPointWire[];
+}
+
+/**
+ * The geometry of every part a layout's parts may name, by the number a
+ * brick names it by (its key, its bare part number, an old name; lower
+ * case, in that order, as the editor indexes them): the installed
+ * libraries, the site's own custom parts, and the custom parts of
+ * `owners` (people and clubs: a module's owner, the layout's owner, the
+ * person asking). Undefined for a part none of them has.
+ */
+export async function partGeometry(
+  app: ScanLogger,
+  owners: { userIds?: readonly (string | null | undefined)[]; orgIds?: readonly (string | null | undefined)[] },
+): Promise<(partNumber: string) => PartGeometry | undefined> {
+  const bundled = await loadBundled(app);
+  const userIds = [...new Set((owners.userIds ?? []).filter((x): x is string => !!x))];
+  const orgIds = [...new Set((owners.orgIds ?? []).filter((x): x is string => !!x))];
+  const conds = [eq(schema.customParts.isGlobal, true)];
+  if (userIds.length) conds.push(inArray(schema.customParts.ownerUserId, userIds));
+  if (orgIds.length) conds.push(inArray(schema.customParts.ownerOrgId, orgIds));
+  const rows = await db.select(customCatalogColumns).from(schema.customParts).where(or(...conds));
+  const parsed = await parsedCustomXml(rows);
+  const all = uniqueByKey([...bundled.wire, ...rows.map((r) => customRowToWire(r, parsed.get(r.id)))]);
+  const index = new Map<string, PartGeometry>();
+  const geom = (p: PartWire): PartGeometry => ({
+    pxPerStud: p.pxPerStud,
+    ...(p.spriteSize ? { spriteSize: p.spriteSize } : {}),
+    ...(p.hullPts.length ? { hullPts: p.hullPts } : {}),
+    connections: p.connections,
+  });
+  for (const p of all) index.set(p.key.toLowerCase(), geom(p));
+  for (const p of all) {
+    const bare = p.partNumber.toLowerCase();
+    if (!index.has(bare)) index.set(bare, geom(p));
+  }
+  for (const p of all) {
+    for (const old of p.oldNames ?? []) {
+      const k = old.toLowerCase();
+      if (!index.has(k)) index.set(k, geom(p));
+    }
+  }
+  return (partNumber) => index.get(partNumber.toLowerCase());
 }
 
 async function loadCustom(userId: string | null): Promise<{ wire: PartWire[] }> {
