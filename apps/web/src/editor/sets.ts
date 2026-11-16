@@ -8,6 +8,7 @@ import type { SidecarModule } from '@cld/bbm';
 import { connectionHingeAngle } from '@cld/parts-catalog/browser';
 import type { PartWire } from '../api';
 import { areaSize, connectionWorld, pivotOf, rotated, type Pt } from './brickGeometry';
+import { cloneGroups, groupChain } from '@cld/modules';
 
 type Parts = ReadonlyMap<string, PartWire>;
 const partOf = (parts: Parts, key: string) => parts.get(key.toLowerCase());
@@ -33,22 +34,8 @@ export function subpartOf(parts: Parts, subKey: string, outer: readonly PartWire
   return undefined;
 }
 
-/** `id` and its parents, innermost first (cycles and dangling ids stop it). */
-export function groupChain(groups: readonly Group[] | undefined, id: string | undefined): Group[] {
-  if (!groups || groups.length === 0 || !id) return [];
-  const byId = new Map(groups.map((g) => [g.id, g]));
-  const chain: Group[] = [];
-  const seen = new Set<string>();
-  let cur: string | undefined = id;
-  while (cur && !seen.has(cur) && chain.length < 64) {
-    const g = byId.get(cur);
-    if (!g) break;
-    seen.add(cur);
-    chain.push(g);
-    cur = g.myGroup;
-  }
-  return chain;
-}
+// (groupChain and cloneGroups are shared with the server: @cld/modules replace.ts.)
+export { cloneGroups, groupChain };
 
 /** The outermost group above an item whose parent is `id`, or ''. */
 export function topGroupId(groups: readonly Group[] | undefined, id: string | undefined): string {
@@ -119,30 +106,6 @@ export function libraryItems(layer: Pick<LayerBrick, 'bricks' | 'groups'>): stri
     }
   }
   return out;
-}
-
-/**
- * Copies of `source`'s groups above `bricks` (copies still naming the old
- * groups) under fresh ids; returns the bricks moved to the new ids.
- */
-export function cloneGroups<T extends { myGroup?: string }>(
-  source: readonly Group[],
-  bricks: readonly T[],
-  newId: () => string,
-): { bricks: T[]; groups: Group[] } {
-  const renamed = new Map<string, string>();
-  const groups: Group[] = [];
-  const out = bricks.map((b) => {
-    const chain = groupChain(source, b.myGroup);
-    for (const g of chain) {
-      if (renamed.has(g.id)) continue;
-      renamed.set(g.id, newId());
-      groups.push({ ...g, id: renamed.get(g.id)! });
-    }
-    return { ...b, myGroup: chain.length > 0 ? renamed.get(chain[0]!.id)! : '' };
-  });
-  for (const g of groups) g.myGroup = (g.myGroup && renamed.get(g.myGroup)) || '';
-  return { bricks: out, groups };
 }
 
 export interface SetBrick {

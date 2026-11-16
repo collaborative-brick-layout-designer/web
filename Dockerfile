@@ -34,6 +34,7 @@ COPY packages/model/package.json packages/model/tsconfig.json ./packages/model/
 COPY packages/bbm/package.json packages/bbm/tsconfig.json ./packages/bbm/
 COPY packages/ydoc/package.json packages/ydoc/tsconfig.json ./packages/ydoc/
 COPY packages/parts-catalog/package.json packages/parts-catalog/tsconfig.json ./packages/parts-catalog/
+COPY packages/modules/package.json packages/modules/tsconfig.json ./packages/modules/
 
 RUN git init && pnpm install --frozen-lockfile
 
@@ -51,6 +52,7 @@ RUN pnpm --filter @cld/model        build \
  && pnpm --filter @cld/bbm          build \
  && pnpm --filter @cld/ydoc         build \
  && pnpm --filter @cld/parts-catalog build \
+ && pnpm --filter @cld/modules      build \
  && pnpm --filter @cld/web          build \
  && pnpm --filter @cld/server       build
 
@@ -88,6 +90,7 @@ COPY --from=builder /app/packages/model/dist        ./packages/model/dist
 COPY --from=builder /app/packages/bbm/dist          ./packages/bbm/dist
 COPY --from=builder /app/packages/ydoc/dist         ./packages/ydoc/dist
 COPY --from=builder /app/packages/parts-catalog/dist ./packages/parts-catalog/dist
+COPY --from=builder /app/packages/modules/dist      ./packages/modules/dist
 # The demo account's samples (Admin › Settings › Demo account; apps/server/src/demo/reset.ts).
 COPY --from=builder /app/packages/bbm/tests/fixtures/tight-corner.bbm \
                     /app/packages/bbm/tests/fixtures/grand-lobby.bld-venue ./packages/bbm/tests/fixtures/

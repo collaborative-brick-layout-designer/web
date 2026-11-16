@@ -17,6 +17,7 @@
   "dependencies": {
     "@cld/bbm": "workspace:*",
     "@cld/model": "workspace:*",
+    "@cld/modules": "workspace:*",
     "@cld/parts-catalog": "workspace:*",
     "@cld/ydoc": "workspace:*",
     "@fontsource/bricolage-grotesque": "5.3.0",

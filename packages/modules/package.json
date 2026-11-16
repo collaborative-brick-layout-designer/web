@@ -1,0 +1,33 @@
+{
+  "name": "@cld/modules",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --passWithNoTests",
+    "lint": "eslint src"
+  },
+  "dependencies": {
+    "@cld/bbm": "workspace:*",
+    "@cld/model": "workspace:*",
+    "@cld/parts-catalog": "workspace:*",
+    "@cld/ydoc": "workspace:*",
+    "yjs": "13.6.33"
+  },
+  "devDependencies": {
+    "@types/node": "26.6.6",
+    "typescript": "7.0.2",
+    "vite": "^8.3.6",
+    "vitest": "5.1.0"
+  }
+}

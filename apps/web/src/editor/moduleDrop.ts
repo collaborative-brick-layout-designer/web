@@ -3,6 +3,7 @@
 // and `batchesFromModuleMap` (MainWindow.cpp:1291-1308).
 
 import type { BbmMap } from '@cld/model';
+import { moduleBatchesFromMap } from '@cld/modules';
 import type { PartWire } from '../api';
 import type { ModuleBatch } from './mutations';
 import { connKey, freeConnectionsCached, lookupPart } from './snap';
@@ -10,29 +11,8 @@ import { applyGroupTurn, facingTurn, holdReach, pickSnap, type GroupTurn, type S
 import { areaForPivot, pivotOf } from './brickGeometry';
 import { dragShift, snapCorner } from './gridSnap';
 
-/**
- * One batch per non-empty brick layer of a module file, named after the
- * source layer ("Module" when unnamed), in file order.
- */
-export function moduleBatchesFromMap(map: BbmMap): ModuleBatch[] {
-  const out: ModuleBatch[] = [];
-  for (const l of map.layers) {
-    if (l.type !== 'brick' || l.bricks.length === 0) continue;
-    out.push({
-      layerName: l.name || 'Module',
-      bricks: l.bricks.map((b) => ({
-        partNumber: b.partNumber,
-        displayArea: { ...b.displayArea },
-        orientation: b.orientation,
-        altitude: b.altitude,
-        myGroup: b.myGroup,
-      })),
-      // Its sets stay sets (importBricksAsModule copies them under new ids).
-      groups: l.groups,
-    });
-  }
-  return out;
-}
+// (Shared with the server: @cld/modules batches.ts.)
+export { moduleBatchesFromMap };
 
 /** The part a dropped module snaps to the grid by, as BlueBrick drops a group: the first that has a connection, else the first. */
 function moduleSnapLead(batches: ModuleBatch[], partsByKey: Map<string, PartWire> | null): ModuleBatch['bricks'][number] | undefined {

@@ -12,14 +12,21 @@
 //     the module was changed in this layout.
 // The desktop does the same (edit/ModuleLibraryLink.cpp).
 
-import * as Y from 'yjs';
+import type * as Y from 'yjs';
 import type { BbmMap, Brick } from '@cld/model';
 import type { SidecarModule } from '@cld/bbm';
-import { docToBbm, encodeDoc, readSidecarFromDoc, seedFromBbm } from '@cld/ydoc';
+import { encodeDoc, readSidecarFromDoc, seedFromBbm } from '@cld/ydoc';
+import {
+  alignToPlaced as alignPlacement,
+  matchesVersion as sameAsVersion,
+  moduleBatchesFromBytes,
+  placeVersion as placeAt,
+  type AlignedPlacement,
+  type PartLookup,
+  type Placement,
+} from '@cld/modules';
 import { api, type ModuleSummary, type PartWire } from '../api';
 import { askConfirm } from '../ui/ConfirmDialog';
-import { pivotOf } from './brickGeometry';
-import { moduleBatchesFromMap, placedModuleBatches } from './moduleDrop';
 import { findPartsSheet, moduleMapFromSelection, moduleSheetsUsed, pickedPartsSheet } from './moduleSheets';
 import { patchSidecarModule, replaceModuleParts, type ModuleBatch } from './mutations';
 import { lookupPart } from './snap';
@@ -211,14 +218,10 @@ export async function publishModuleVersion(
 
 /** A library module's contents as insert batches (one per sheet). */
 export function batchesFromBytes(bytes: Uint8Array): ModuleBatch[] {
-  const d = new Y.Doc();
   try {
-    Y.applyUpdate(d, bytes);
-    return moduleBatchesFromMap(docToBbm(d));
+    return moduleBatchesFromBytes(bytes);
   } catch (e) {
     throw new Error('The module from the Module library couldn’t be read.', { cause: e });
-  } finally {
-    d.destroy();
   }
 }
 
@@ -232,62 +235,15 @@ export async function fetchLibraryVersion(id: string, version?: number): Promise
 }
 
 // ---- Where a library version goes on the map --------------------------------
+//
+// The math is shared with the server (@cld/modules placement.ts, with the
+// desktop's copy held to the same vectors); these give it the editor's parts.
 
-type Pt = { x: number; y: number };
+export type { AlignedPlacement, Placement };
 
-/** How a library version sits in the layout: turned by `degrees` about its origin, then moved to (`toX`, `toY`). */
-export interface Placement {
-  degrees: number;
-  toX: number;
-  toY: number;
-  /** How many parts agree with it (0: a guess from the module's middle). */
-  matched: number;
-}
-
-const norm360 = (d: number) => ((d % 360) + 360) % 360;
-const bucket = (v: number, step: number) => Math.round(v / step) * step;
-/** At most this many part pairs are compared per part number (big modules stay quick). */
-const MAX_PAIRS = 40000;
-
-function pivot(b: { partNumber: string; displayArea: Brick['displayArea']; orientation?: number }, parts: Map<string, PartWire> | null): Pt {
-  const meta = parts ? lookupPart(parts, b.partNumber) : undefined;
-  return pivotOf({ displayArea: b.displayArea, orientation: b.orientation ?? 0 }, meta);
-}
-
-type Item = { key: string; p: Pt; o: number };
-
-function items(bricks: readonly { partNumber: string; displayArea: Brick['displayArea']; orientation?: number }[], parts: Map<string, PartWire> | null): Item[] {
-  return bricks.map((b) => ({ key: b.partNumber.toLowerCase(), p: pivot(b, parts), o: norm360(b.orientation ?? 0) }));
-}
-
-/** Each part number's pairs (library part, placed part), thinned evenly past MAX_PAIRS. */
-function* pairs(lib: readonly Item[], placed: readonly Item[]): Generator<[Item, Item]> {
-  const byKey = new Map<string, Item[]>();
-  for (const it of placed) {
-    const list = byKey.get(it.key);
-    if (list) list.push(it);
-    else byKey.set(it.key, [it]);
-  }
-  const libByKey = new Map<string, Item[]>();
-  for (const it of lib) {
-    const list = libByKey.get(it.key);
-    if (list) list.push(it);
-    else libByKey.set(it.key, [it]);
-  }
-  for (const [key, a] of libByKey) {
-    const b = byKey.get(key);
-    if (!b) continue;
-    const stride = Math.max(1, Math.ceil((a.length * b.length) / MAX_PAIRS));
-    let n = 0;
-    for (const x of a) for (const y of b) if (n++ % stride === 0) yield [x, y];
-  }
-}
-
-/** The most common value (the smallest on a tie, so the answer never depends on order). */
-function mode<T>(counts: Map<string, { n: number; v: T }>, smaller: (a: T, b: T) => boolean): { v: T; n: number } | null {
-  let best: { v: T; n: number } | null = null;
-  for (const { n, v } of counts.values()) if (!best || n > best.n || (n === best.n && smaller(v, best.v))) best = { v, n };
-  return best;
+/** The geometry of the editor's parts, by the number a brick names them by. */
+export function partLookup(parts: Map<string, PartWire> | null): PartLookup {
+  return (partNumber) => (parts ? lookupPart(parts, partNumber) : undefined);
 }
 
 /**
@@ -296,63 +252,13 @@ function mode<T>(counts: Map<string, { n: number; v: T }>, smaller: (a: T, b: T)
  * Robust to some parts having changed on either side. Falls back to the
  * placed module's middle, unturned, when no parts are alike.
  */
-export function alignToPlaced(
-  batches: readonly ModuleBatch[],
-  placed: readonly Brick[],
-  parts: Map<string, PartWire> | null,
-): Placement {
-  const lib = items(batches.flatMap((b) => b.bricks), parts);
-  const here = items(placed, parts);
-  const turns = new Map<string, { n: number; v: number }>();
-  for (const [a, b] of pairs(lib, here)) {
-    const d = bucket(norm360(b.o - a.o), 0.1) % 360;
-    const k = d.toFixed(1);
-    const e = turns.get(k);
-    if (e) e.n++;
-    else turns.set(k, { n: 1, v: d });
-  }
-  const turn = mode(turns, (x, y) => x < y);
-  if (turn) {
-    const r = (turn.v * Math.PI) / 180;
-    const c = Math.cos(r);
-    const s = Math.sin(r);
-    // The shift most pairs agree on, in 0.05-stud steps; then exactly: the
-    // mean of the pairs in that step.
-    const shifts = new Map<string, { n: number; v: Pt; sum: Pt }>();
-    for (const [a, b] of pairs(lib, here)) {
-      const d = norm360(b.o - a.o);
-      if (Math.min(Math.abs(d - turn.v), 360 - Math.abs(d - turn.v)) > 0.1) continue;
-      const exact = { x: b.p.x - (a.p.x * c - a.p.y * s), y: b.p.y - (a.p.x * s + a.p.y * c) };
-      const v = { x: bucket(exact.x, 0.05), y: bucket(exact.y, 0.05) };
-      const k = `${v.x.toFixed(2)},${v.y.toFixed(2)}`;
-      const e = shifts.get(k);
-      if (e) {
-        e.n++;
-        e.sum.x += exact.x;
-        e.sum.y += exact.y;
-      } else shifts.set(k, { n: 1, v, sum: { ...exact } });
-    }
-    const shift = mode(shifts, (x, y) => x.x < y.x || (x.x === y.x && x.y < y.y));
-    if (shift) {
-      const e = shifts.get(`${shift.v.x.toFixed(2)},${shift.v.y.toFixed(2)}`)!;
-      return { degrees: turn.v, toX: e.sum.x / e.n, toY: e.sum.y / e.n, matched: shift.n };
-    }
-  }
-  // Nothing alike: the Module library version's middle on the module's middle.
-  const mid = (xs: readonly Item[]) =>
-    xs.length === 0 ? { x: 0, y: 0 } : { x: xs.reduce((n, i) => n + i.p.x, 0) / xs.length, y: xs.reduce((n, i) => n + i.p.y, 0) / xs.length };
-  const a = mid(lib);
-  const b = mid(here);
-  return { degrees: 0, toX: b.x - a.x, toY: b.y - a.y, matched: 0 };
+export function alignToPlaced(batches: readonly ModuleBatch[], placed: readonly Brick[], parts: Map<string, PartWire> | null): AlignedPlacement {
+  return alignPlacement(batches, placed, partLookup(parts));
 }
 
 /** The library version's parts where `placement` puts them. */
 export function placeVersion(batches: readonly ModuleBatch[], placement: Placement, parts: Map<string, PartWire> | null): ModuleBatch[] {
-  return placedModuleBatches([...batches], {
-    dx: 0,
-    dy: 0,
-    turn: { degrees: placement.degrees, pivotX: 0, pivotY: 0, toX: placement.toX, toY: placement.toY },
-  }, parts);
+  return placeAt(batches, placement, partLookup(parts));
 }
 
 /**
@@ -361,22 +267,7 @@ export function placeVersion(batches: readonly ModuleBatch[], placement: Placeme
  * changed in this layout.
  */
 export function matchesVersion(batches: readonly ModuleBatch[], placed: readonly Brick[], parts: Map<string, PartWire> | null): boolean {
-  const lib = items(placeVersion(batches, alignToPlaced(batches, placed, parts), parts).flatMap((b) => b.bricks), parts);
-  const here = items(placed, parts);
-  if (lib.length !== here.length) return false;
-  const used = new Set<number>();
-  for (const h of here) {
-    const i = lib.findIndex(
-      (l, k) =>
-        !used.has(k) &&
-        l.key === h.key &&
-        Math.hypot(l.p.x - h.p.x, l.p.y - h.p.y) < 0.1 &&
-        Math.min(Math.abs(l.o - h.o), 360 - Math.abs(l.o - h.o)) < 0.5,
-    );
-    if (i < 0) return false;
-    used.add(i);
-  }
-  return true;
+  return sameAsVersion(batches, placed, partLookup(parts));
 }
 
 /** The module's parts, on every sheet. */
