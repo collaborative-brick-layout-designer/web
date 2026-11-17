@@ -10,7 +10,7 @@ import { isOwnSignOut } from './auth/cookie.js';
 /** The oldest desktop that works with this server (see compat.json "why"). */
 export const DESKTOP_MINIMUM = '1.2.0';
 /** The desktop this server suggests; older ones are asked to update. */
-export const DESKTOP_RECOMMENDED = '2.1.3';
+export const DESKTOP_RECOMMENDED = '2.1.5';
 /** Where a desktop that must update is sent: the desktop's GitHub releases. */
 export const DESKTOP_DOWNLOAD_URL = 'https://github.com/collaborative-brick-layout-designer/desktop/releases/latest';
 /**
@@ -49,6 +49,10 @@ export const FEATURES = [
   // a desktop writes them only on a server that says so, so an older web app
   // is never shut out of a layout by a newer desktop.
   'moduleMemberKeys',
+  // Read-only module sharing (doc shape 4, docs/shared-modules.md): the web app here knows a
+  // shared module is locked, and the server applies its updates. A desktop offers "Shared with
+  // me", and makes a shape 4 layout, only on a server that says so.
+  'sharedModules',
 ] as const;
 
 interface Parsed {

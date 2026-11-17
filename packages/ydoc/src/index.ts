@@ -16,6 +16,7 @@ import { keepDrawnSettingsInRange } from './drawnLimits.js';
 
 import { DOC_BASE_SCHEMA } from './shape.js';
 import { MEMBER_PREFIX, memberKey, memberKeysByModule, memberWrites, moduleMembers, parseMemberKey, stampMemberKeysAfter } from './moduleMembers.js';
+import { hasSharedMark, stampSharedAfter } from './sharedShape.js';
 
 export { bbmToDoc, docToBbm, createDocProjector, type DocProjector } from './projection.js';
 export * from './shape.js';
@@ -32,6 +33,7 @@ export {
   type MemberWrites,
 } from './moduleMembers.js';
 export { DOC_MIN_READABLE, DOC_SCHEMA_VERSION, canReadDoc, makeId, upgradeDoc } from './ids.js';
+export { DOC_SHAPE_SHARED, hasSharedMark, holdsSharedModule, stampShared, stampSharedAfter } from './sharedShape.js';
 
 export function createLayoutDoc(): Y.Doc {
   const doc = new Y.Doc();
@@ -619,6 +621,8 @@ export function writeSidecarCache(doc: Y.Doc, written: Record<string, unknown>):
   items.set('__blob', blobHash(out));
   // Builds that read only the starting lists must refuse the doc from here.
   if (wroteMemberKey) stampMemberKeysAfter(doc);
+  // And builds that don't know a shared module is locked (sharedShape.ts).
+  if (Array.isArray(out.modules) && (out.modules as unknown[]).some(hasSharedMark)) stampSharedAfter(doc);
 }
 
 /**
