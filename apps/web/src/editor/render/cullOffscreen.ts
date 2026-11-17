@@ -20,7 +20,7 @@
 //     selection, the view moving) draws the whole view as before.
 
 import Konva from 'konva';
-import { SceneCanvas } from 'konva/lib/Canvas';
+import { HitCanvas, SceneCanvas } from 'konva/lib/Canvas';
 import { installLazyTransforms } from './lazyTransforms';
 
 /** A box in the layer's own coordinates. */
@@ -78,45 +78,58 @@ function patchGroups(): void {
     else cullStats.drawn++;
     return out;
   };
+  // In a draw in slices (`sharpInSlices`, `hitInSlices`), on its canvas:
+  // a part is drawn in its slice, with everything in it.
+  const sliced = (node: Konva.Group, target: unknown, top: unknown, draw: () => unknown): unknown => {
+    const s = slice;
+    if (!s || target !== s.canvas || top) return draw();
+    if (s.inside > 0) return draw();
+    if (node.attrs.cullR === undefined) {
+      // A group drawn as one picture (cached, or isolated) can't be drawn a slice at a time.
+      if (node.isCached() || node.isolated()) s.bad = true;
+      return draw();
+    }
+    const i = s.n++;
+    if (i < s.from || i >= s.to) return node;
+    s.inside++;
+    try {
+      return draw();
+    } finally {
+      s.inside--;
+    }
+  };
   const scene = proto.drawScene;
   proto.drawScene = function (this: Konva.Group, canvas?: unknown, top?: unknown, bufferCanvas?: unknown) {
     const target = canvas ?? this.getLayer()?.getCanvas();
     if (outside(this, target)) return this;
-    const s = slice;
-    if (s && target === s.canvas && !top) {
-      if (s.inside > 0) return scene.call(this, canvas, top, bufferCanvas);
-      if (this.attrs.cullR === undefined) {
-        // A group drawn as one picture (cached, or isolated) can't be drawn a slice at a time.
-        if (this.isCached() || this.isolated()) s.bad = true;
-        return scene.call(this, canvas, top, bufferCanvas);
-      }
-      // A part: drawn in its slice, with everything in it.
-      const i = s.n++;
-      if (i < s.from || i >= s.to) return this;
-      s.inside++;
-      try {
-        return scene.call(this, canvas, top, bufferCanvas);
-      } finally {
-        s.inside--;
-      }
-    }
-    return scene.call(this, canvas, top, bufferCanvas);
+    return sliced(this, target, top, () => scene.call(this, canvas, top, bufferCanvas));
   };
   // Shapes outside parts, in a draw in slices: in the slice of the part after them.
-  const shape = Konva.Shape.prototype as unknown as { drawScene: (canvas?: unknown, top?: unknown, bufferCanvas?: unknown) => unknown };
+  const shape = Konva.Shape.prototype as unknown as {
+    drawScene: (canvas?: unknown, top?: unknown, bufferCanvas?: unknown) => unknown;
+    drawHit: (canvas?: unknown, top?: unknown) => unknown;
+  };
+  const loose = (node: Konva.Shape, target: unknown, top: unknown): boolean => {
+    const s = slice;
+    if (!s || s.inside !== 0 || top || target !== s.canvas) return false;
+    if (node.isCached()) s.bad = true;
+    return s.n < s.from || s.n >= s.to;
+  };
   const shapeScene = shape.drawScene;
   shape.drawScene = function (this: Konva.Shape, canvas?: unknown, top?: unknown, bufferCanvas?: unknown) {
-    const s = slice;
-    if (s && s.inside === 0 && !top && (canvas ?? this.getLayer()?.getCanvas()) === s.canvas) {
-      if (this.isCached()) s.bad = true;
-      if (s.n < s.from || s.n >= s.to) return this;
-    }
+    if (loose(this, canvas ?? this.getLayer()?.getCanvas(), top)) return this;
     return shapeScene.call(this, canvas, top, bufferCanvas);
+  };
+  const shapeHit = shape.drawHit;
+  shape.drawHit = function (this: Konva.Shape, canvas?: unknown, top?: unknown) {
+    if (loose(this, canvas ?? this.getLayer()?.hitCanvas, top)) return this;
+    return shapeHit.call(this, canvas, top);
   };
   const hit = proto.drawHit;
   proto.drawHit = function (this: Konva.Group, canvas?: unknown, top?: unknown) {
-    if (outside(this, canvas ?? this.getLayer()?.hitCanvas)) return this;
-    return hit.call(this, canvas, top);
+    const target = canvas ?? this.getLayer()?.hitCanvas;
+    if (outside(this, target)) return this;
+    return sliced(this, target, top, () => hit.call(this, canvas, top));
   };
   // A sheet of parts (`partsIndexed`) asks its grid which parts reach into
   // the places being drawn, instead of asking each of its parts.
@@ -346,6 +359,8 @@ interface Track {
   sharpenIdle: number | null;
   /** Its own screen-canvas draw (cullOffscreen's), to tell when another has taken its place (viewBitmap's, while the view moves). */
   ownScene: Draw | null;
+  /** How many changes were marked so far (a draw in slices is dropped when one comes in between). */
+  marks: number;
 }
 
 /** What `redrawStats` on a layer given to `cullOffscreen` answers. */
@@ -399,6 +414,7 @@ function boxOf(part: Konva.Node): Box {
 
 /** The layer's canvases must be drawn whole; the view picture too, unless `picture` is false. */
 function markWhole(t: Track, node: Konva.Node | null, what: string, picture = true): void {
+  t.marks++;
   t.cause.node = node;
   t.cause.what = what;
   for (const p of picture ? [t.scene, t.hit, t.pic] : [t.scene, t.hit]) {
@@ -410,6 +426,7 @@ function markWhole(t: Track, node: Konva.Node | null, what: string, picture = tr
 }
 
 function markPart(t: Track, part: Konva.Node): void {
+  t.marks++;
   for (const p of [t.scene, t.hit, t.pic]) {
     p.marked = true;
     if (p.whole || p.parts.has(part)) continue;
@@ -422,6 +439,7 @@ function markPart(t: Track, part: Konva.Node): void {
 }
 
 function markGone(t: Track, part: Konva.Node): void {
+  t.marks++;
   for (const p of [t.scene, t.hit, t.pic]) {
     p.marked = true;
     if (p.whole) continue;
@@ -1097,6 +1115,119 @@ function sharpInSlices(t: Track, then: () => void): void {
   t.sharpenIdle = w.requestIdleCallback(step, { timeout: SHARPEN_IDLE_MS });
 }
 
+/** Whether the hit canvas after a view's move is drawn a slice at a time (tests compare with one that isn't); how many slices the last took. */
+export const slicedHits: { enabled: boolean; slices: number; fixed?: number } = { enabled: true, slices: 0 };
+
+/**
+ * The hit canvas (what a click lands on) of a layer given to
+ * `cullOffscreen`, drawn whole after the view moved, a slice of parts at a
+ * time while the page is idle: in one go it was a long task of about 100
+ * ms on 7,520 parts at the whole-map view at 4x slowed CPU. The parts are
+ * drawn, in their order, onto a hit canvas of the same size off screen
+ * (the same drawing calls in the same order as one draw), then copied onto
+ * the layer's hit canvas, every pixel as drawn. Until then the layer's hit
+ * canvas is as it was; whoever needs it at once (a pointer press) drops
+ * this with the returned function and draws it whole. `done(true)` once
+ * it's copied in; `done(false)` when it couldn't be, or a change or the
+ * view's move came in between (nothing copied: the caller draws it).
+ */
+export function hitInSlices(layer: Konva.Layer, done: (ok: boolean) => void): () => void {
+  const t = tracks.get(layer);
+  const w = window as Window & {
+    requestIdleCallback?: (cb: (d: { timeRemaining: () => number }) => void, o?: { timeout: number }) => number;
+    cancelIdleCallback?: (h: number) => void;
+  };
+  const no = (): (() => void) => {
+    done(false);
+    return () => undefined;
+  };
+  if (!t || !w.requestIdleCallback || !slicedHits.enabled || !layer.isVisible() || !layer.shouldDrawHit() || !layer.clearBeforeDraw()) return no();
+  (layer as unknown as { _syncHitCanvasSize?: () => void })._syncHitCanvasSize?.();
+  const canvas = layer.hitCanvas as unknown as CanvasLike & { _logicalWidth?: number; _logicalHeight?: number };
+  const at = drawnFor(layer, canvas);
+  const view = viewOf(layer, canvas);
+  if (!view) return no();
+  const off = new HitCanvas({ width: canvas._logicalWidth ?? canvas.width / canvas.pixelRatio, height: canvas._logicalHeight ?? canvas.height / canvas.pixelRatio, pixelRatio: canvas.pixelRatio });
+  if (off.width !== canvas.width || off.height !== canvas.height) return no();
+  const marks = t.marks;
+  // Nothing marked since, the view and canvas the same.
+  const still = () => tracks.get(layer) === t && t.marks === marks && drawnFor(layer, canvas) === at && layer.isVisible() && layer.shouldDrawHit();
+  const container = Konva.Container.prototype as unknown as Own;
+  let from = 0;
+  let per = slicedHits.fixed ?? 400;
+  let handle: number | null = null;
+  let over = false;
+  slicedHits.slices = 0;
+  const finish = (ok: boolean): void => {
+    over = true;
+    handle = null;
+    done(ok);
+  };
+  const step = (d: { timeRemaining: () => number }): void => {
+    handle = null;
+    if (over) return;
+    if (!still()) return finish(false);
+    let ended: boolean;
+    do {
+      const t0 = performance.now();
+      const before = culling;
+      slice = { canvas: off, from, to: from + per, n: 0, inside: 0, bad: false };
+      try {
+        culling = { ...view, canvas: off };
+        container.drawHit.call(layer, off);
+      } finally {
+        culling = before;
+      }
+      const s = slice;
+      slice = null;
+      slicedHits.slices++;
+      // (A group drawn as one picture across parts: the caller draws it whole.)
+      if (s.bad) return finish(false);
+      // (All parts met before the slice's end: the shapes after the last one were drawn too.)
+      ended = s.n < from + per;
+      from += per;
+      const took = performance.now() - t0;
+      per = slicedHits.fixed ?? Math.max(20, Math.min(8000, Math.round((per * SLICE_MS) / Math.max(took, 0.5))));
+      if (ended || d.timeRemaining() < SLICE_MS + 2) break;
+    } while (!ended);
+    if (!ended) {
+      handle = w.requestIdleCallback!(step, { timeout: SHARPEN_IDLE_MS });
+      return;
+    }
+    // Onto the layer's hit canvas, every pixel as drawn.
+    const own = canvas.getContext()._context;
+    own.save();
+    try {
+      own.setTransform(1, 0, 0, 1, 0, 0);
+      own.globalCompositeOperation = 'copy';
+      own.drawImage((off as unknown as CanvasLike)._canvas, 0, 0);
+    } finally {
+      own.restore();
+    }
+    // As a whole draw of it leaves things.
+    const p = t.hit;
+    p.whole = false;
+    p.marked = false;
+    p.parts.clear();
+    p.boxes.length = 0;
+    p.at = at;
+    cullStats.whole++;
+    t.whole++;
+    t.why = 'hit: the view moved (in slices)';
+    t.cause = { node: null, what: '' };
+    t.soft.hit = false;
+    if (!t.soft.scene) t.sharpen = false;
+    finish(true);
+  };
+  handle = w.requestIdleCallback(step, { timeout: SHARPEN_IDLE_MS });
+  return () => {
+    if (over) return;
+    over = true;
+    if (handle !== null) w.cancelIdleCallback?.(handle);
+    handle = null;
+  };
+}
+
 /**
  * Whether the layer is one given to `cullOffscreen`: its next draw after
  * the view moved (no zoom) shifts what its canvases hold, so they're best
@@ -1258,6 +1389,7 @@ export function cullOffscreen(layer: Konva.Layer): () => void {
     sharpenTimer: null,
     sharpenIdle: null,
     ownScene: null,
+    marks: 0,
   };
   tracks.set(layer, track);
   (layer as unknown as { redrawStats?: () => RedrawStats }).redrawStats = () => ({ whole: track.whole, partial: track.partial, why: track.why, soft: track.soft.scene || track.soft.hit });

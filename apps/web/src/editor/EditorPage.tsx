@@ -1,5 +1,5 @@
 import { Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { cullOffscreen } from './render/cullOffscreen';
+import { cullOffscreen, hitInSlices, shiftsItsDrawing } from './render/cullOffscreen';
 import { EditorErrorBoundary } from './EditorErrorBoundary';
 import { lazyRetry, preloadLazy } from '../ui/lazyRetry';
 import { RenameDialog } from '../ui/RenameDialog';
@@ -2318,7 +2318,7 @@ function Canvas({
     // Queued after the layers' draws, so it runs in the same frame, after them.
     Konva.Util.requestAnimFrame(() => {
       vb?.settled();
-      whenIdle(() => drawStaleHits(stageRef.current, hitStaleRef));
+      whenIdle(() => drawStaleHitsInSlices(stageRef.current, hitStaleRef));
     });
   }
   /**
@@ -6512,10 +6512,61 @@ function sheetsOfSelection(map: import('@cld/model').BbmMap, selection: readonly
 
 /** Draws the stage's hit canvases if they're behind the view (`stale`), so a hit test sees the map where it is. */
 function drawStaleHits(stage: Konva.Stage | null, stale: { current: boolean }): void {
-  if (!stage || !stale.current || hitsHeld(stage)) return;
+  if (!stage) return;
+  // (A draw in slices going on: dropped, this one is whole and at once.)
+  slicingHits.get(stage)?.();
+  slicingHits.delete(stage);
+  if (!stale.current || hitsHeld(stage)) return;
   stale.current = false;
   undeferHitDraws(stage);
   for (const layer of stage.getLayers()) if (layer.isListening()) layer.drawHit();
+}
+
+/** A draw of a stage's hit canvases in slices going on (drawStaleHitsInSlices): what drops it. */
+const slicingHits = new WeakMap<Konva.Stage, () => void>();
+
+/**
+ * Draws the stage's hit canvases if they're behind the view (`stale`), the
+ * sheets of parts a slice of parts at a time while the page is idle
+ * (hitInSlices: on 7,520 parts at the whole-map view it was one long task
+ * of about 100 ms at 4x slowed CPU), the other layers' once those are in.
+ * Until then they all stay as they were; a pointer move or press
+ * (freshHit) drops the slices and draws them all at once. A change or a
+ * move of the view in between drops them too, and they're drawn whole
+ * once the page is idle again.
+ */
+function drawStaleHitsInSlices(stage: Konva.Stage | null, stale: { current: boolean }): void {
+  if (!stage || !stale.current || hitsHeld(stage) || slicingHits.has(stage)) return;
+  const sheets = stage.getLayers().filter((l) => l.isListening() && shiftsItsDrawing(l));
+  if (sheets.length === 0) return drawStaleHits(stage, stale);
+  const cancels: (() => void)[] = [];
+  const cancel = () => {
+    for (const c of cancels) c();
+  };
+  slicingHits.set(stage, cancel);
+  const drawn = new Set<Konva.Layer>();
+  let left = sheets.length;
+  for (const layer of sheets) {
+    if (slicingHits.get(stage) !== cancel) break;
+    cancels.push(
+      hitInSlices(layer, (ok) => {
+        if (slicingHits.get(stage) !== cancel) return;
+        if (!ok) {
+          slicingHits.delete(stage);
+          cancel();
+          whenIdle(() => drawStaleHits(stage, stale));
+          return;
+        }
+        drawn.add(layer);
+        if (--left > 0) return;
+        slicingHits.delete(stage);
+        if (!stale.current || hitsHeld(stage)) return;
+        stale.current = false;
+        undeferHitDraws(stage);
+        for (const l of stage.getLayers()) if (l.isListening() && !drawn.has(l)) l.drawHit();
+      }),
+    );
+  }
 }
 
 /** Runs `run` once the page is idle (soon in any case). */

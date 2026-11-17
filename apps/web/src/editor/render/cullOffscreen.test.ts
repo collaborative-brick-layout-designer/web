@@ -7,7 +7,7 @@
 
 import Konva from 'konva';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { SHARPEN_AFTER_MS, apart, cullOffscreen, cullStats, sliced, followForPicture, lastDrawBoxes, partIndex, pictureChanges, pictureTaken, redrawWhole, type RedrawStats } from './cullOffscreen';
+import { SHARPEN_AFTER_MS, apart, cullOffscreen, cullStats, hitInSlices, sliced, slicedHits, followForPicture, lastDrawBoxes, partIndex, pictureChanges, pictureTaken, redrawWhole, type RedrawStats } from './cullOffscreen';
 
 /** The rectangles clipped to, per canvas, since the last `reset`. */
 const clips = new Map<HTMLCanvasElement, number[][]>();
@@ -412,6 +412,99 @@ describe('the sharp draw after a pan, a slice at a time', () => {
     vi.advanceTimersByTime(SHARPEN_AFTER_MS + 10);
     while (idle.length > 0) idle.shift()!({ timeRemaining: () => 50 });
     expect(stats().soft).toBe(false);
+  });
+});
+
+describe('the hit canvas after the view moved, a slice at a time', () => {
+  let idle: ((d: { timeRemaining: () => number }) => void)[] = [];
+  beforeEach(() => {
+    idle = [];
+    (window as unknown as { requestIdleCallback?: unknown }).requestIdleCallback = (cb: (d: { timeRemaining: () => number }) => void) => idle.push(cb);
+    (window as unknown as { cancelIdleCallback?: unknown }).cancelIdleCallback = () => {};
+    // Shapes outside parts: one between two parts of the sheet, one after the sheet.
+    new Konva.Rect({ x: 3, y: 3, width: 5, height: 7, fill: 'blue' }).moveTo(sheet).setZIndex(31);
+    layer.add(new Konva.Rect({ x: 1, y: 1, width: 9, height: 9, fill: 'green' }));
+    layer.draw();
+    slicedHits.fixed = 7;
+  });
+  afterEach(() => {
+    delete (window as unknown as { requestIdleCallback?: unknown }).requestIdleCallback;
+    delete (window as unknown as { cancelIdleCallback?: unknown }).cancelIdleCallback;
+    delete slicedHits.fixed;
+  });
+  const drawing = (calls: string[]) => calls.filter((c) => !/^(save|restore|clip|beginPath|clearRect|setTransform|drawImage|scale)\(/.test(c));
+  const hitEl = () => layer.hitCanvas._canvas;
+  /** The view moved: the screen canvas drawn, the hit canvas left behind (as while EditorPage defers it). */
+  function moved(x: number): void {
+    stage.position({ x, y: 0 });
+    layer.drawScene();
+  }
+
+  it('draws what one draw of it would, in the same order, then copies it in', () => {
+    moved(-200);
+    ops.length = 0;
+    const done = vi.fn();
+    hitInSlices(layer, done);
+    let n = 0;
+    while (idle.length > 0) {
+      expect(done).not.toHaveBeenCalled();
+      idle.shift()!({ timeRemaining: () => 0 });
+      n++;
+    }
+    expect(done).toHaveBeenCalledWith(true);
+    expect(n).toBeGreaterThanOrEqual(8);
+    expect(slicedHits.slices).toBe(n);
+    // The same calls as a whole draw at this view.
+    const sliced = ops.filter(([el]) => el !== hitEl() && el !== layer.getCanvas()._canvas).map(([, c]) => c);
+    ops.length = 0;
+    layer.drawHit();
+    const once = drawing(ops.filter(([el]) => el === hitEl()).map(([, c]) => c));
+    expect(once.length).toBeGreaterThan(50);
+    expect(drawing(sliced)).toEqual(once);
+  });
+
+  it('copies once onto the hit canvas, drawing nothing else on it, and leaves it drawn for the view', () => {
+    moved(-300);
+    ops.length = 0;
+    const done = vi.fn();
+    hitInSlices(layer, done);
+    while (idle.length > 0) idle.shift()!({ timeRemaining: () => 0 });
+    const on = ops.filter(([el]) => el === hitEl()).map(([, c]) => c);
+    expect(on.filter((c) => c.startsWith('drawImage('))).toHaveLength(1);
+    expect(drawing(on)).toEqual([]);
+    // Drawn for this view: a part's change next draws only around it.
+    const was = stats();
+    parts[34]!.x(parts[34]!.x() + 8);
+    layer.drawHit();
+    expect(stats().partial).toBe(was.partial + 1);
+    expect(stats().whole).toBe(was.whole);
+  });
+
+  it('a change, or the view moving, between slices drops it with nothing copied', () => {
+    for (const between of [() => parts[34]!.x(parts[34]!.x() + 8), () => moved(-500)]) {
+      moved(-300);
+      const done = vi.fn();
+      hitInSlices(layer, done);
+      idle.shift()!({ timeRemaining: () => 0 });
+      between();
+      ops.length = 0;
+      while (idle.length > 0) idle.shift()!({ timeRemaining: () => 0 });
+      expect(done).toHaveBeenCalledWith(false);
+      expect(ops.some(([el, c]) => el === hitEl() && c.startsWith('drawImage('))).toBe(false);
+      layer.drawHit();
+    }
+  });
+
+  it('dropped by its caller: nothing more is drawn, and it never says it is done', () => {
+    moved(-300);
+    const done = vi.fn();
+    const drop = hitInSlices(layer, done);
+    idle.shift()!({ timeRemaining: () => 0 });
+    drop();
+    ops.length = 0;
+    while (idle.length > 0) idle.shift()!({ timeRemaining: () => 0 });
+    expect(ops).toEqual([]);
+    expect(done).not.toHaveBeenCalled();
   });
 });
 
