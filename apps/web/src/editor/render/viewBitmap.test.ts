@@ -125,6 +125,35 @@ describe('the picture for the next pan', () => {
     expect(vb.ready()).toBe(false);
   });
 
+  it('a draw that drew nothing again (the sharp draw after a pan) leaves it ready', () => {
+    vb.invalidate();
+    vi.advanceTimersByTime(1100);
+    while (idle.size > 0) idleMoment();
+    expect(vb.ready()).toBe(true);
+    const taken = vb.taken;
+    // The view moves by whole px and stops: the parts sheet's draw shifts what it has.
+    vb.freeze();
+    stage.position({ x: -40, y: 0 });
+    vb.thaw();
+    layer.draw();
+    vb.settled();
+    // The picture for the next pan, then the sharp draw (a slice at a time) once still and idle.
+    const soft = () => (layer as unknown as { redrawStats: () => { soft: boolean } }).redrawStats().soft;
+    expect(soft()).toBe(true);
+    for (let i = 0; i < 100 && soft(); i++) {
+      vi.advanceTimersByTime(20);
+      while (idle.size > 0 && soft()) idleMoment();
+    }
+    expect(soft()).toBe(false);
+    // Ready as soon as it's sharp: not put off for another take.
+    expect(vb.ready()).toBe(true);
+    vi.advanceTimersByTime(2000);
+    while (idle.size > 0) idleMoment();
+    expect(vb.ready()).toBe(true);
+    // Taken once for the new view, not again after the sharp draw.
+    expect(vb.taken - taken).toBe(1);
+  });
+
   it('brings it up to date after a change while it is taken, and a move takes it at once', () => {
     vb.invalidate();
     vi.advanceTimersByTime(1100);

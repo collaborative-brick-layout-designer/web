@@ -5,6 +5,7 @@
 
 export type { Catalog, ConnectionPoint, PartKind, PartMetadata, SnapMargin, SubPart } from './types.js';
 export { parsePartXml, type ParseInput } from './parse.js';
+export { createLinker, type Linker, type LinkerResult } from './linker.js';
 export { connectionPoints, linkBricks, makeCatalogLookup, rebuildConnectivity, type BrickLinks, type ConnectionPointsOf, type RebuildConnectivityResult } from './connectivity.js';
 export { footprint, imageOffset, type Footprint, type FootprintPart } from './footprint.js';
 export { imageSize, type ImageSize } from './imageSize.js';

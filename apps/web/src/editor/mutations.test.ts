@@ -4,6 +4,7 @@ import { docToBbm } from '@cld/ydoc';
 import {
   deleteBricks,
   ensureBrickLayer,
+  findBrickStats,
   insertBricks,
   moveBrick,
   placeBrick,
@@ -280,5 +281,34 @@ describe('insertBricks', () => {
     ]);
     doc.off('afterTransaction', onTx);
     expect(txnCount).toBe(1);
+  });
+});
+
+describe('finding a part by its id', () => {
+  const pivot = (doc: Y.Doc, id: string) => {
+    const b = docToBbm(doc).layers.flatMap((l) => (l.type === 'brick' ? l.bricks : [])).find((x) => x.id === id)!;
+    return { x: b.displayArea.x + b.displayArea.width / 2, y: b.displayArea.y + b.displayArea.height / 2 };
+  };
+
+  it('looks through the sheet once, then goes straight to the part, and again only when the list changed under it', () => {
+    const doc = new Y.Doc();
+    const layerId = ensureBrickLayer(doc);
+    const ids: string[] = [];
+    doc.transact(() => {
+      for (let i = 0; i < 400; i++) ids.push(placeBrick(doc, layerId, { partNumber: '3001.8', x: i * 10, y: 0, width: 4, height: 2 }));
+    });
+    findBrickStats.wholeLooks = 0;
+    moveBrick(doc, layerId, ids[200]!, 5, 5);
+    expect(findBrickStats.wholeLooks).toBe(1);
+    for (const i of [10, 399, 200, 0]) moveBrick(doc, layerId, ids[i]!, i, 7);
+    expect(findBrickStats.wholeLooks).toBe(1);
+    expect(pivot(doc, ids[399]!)).toEqual({ x: 399, y: 7 });
+    // Deleted: not found, and not moved by a stale index.
+    deleteBricks(doc, layerId, [ids[10]!]);
+    moveBrick(doc, layerId, ids[10]!, 1, 1);
+    expect(docToBbm(doc).layers.flatMap((l) => (l.type === 'brick' ? l.bricks : [])).some((b) => b.id === ids[10])).toBe(false);
+    // The others are still found after it.
+    moveBrick(doc, layerId, ids[300]!, 3, 4);
+    expect(pivot(doc, ids[300]!)).toEqual({ x: 3, y: 4 });
   });
 });

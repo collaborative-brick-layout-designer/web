@@ -2238,11 +2238,36 @@ function findBrick(doc: Y.Doc, layerId: string, brickId: string): Y.Map<unknown>
   if (!(layerData instanceof Y.Map)) return null;
   const bricks = layerData.get('bricks');
   if (!(bricks instanceof Y.Array)) return null;
-  for (let i = 0; i < bricks.length; i++) {
-    const b = bricks.get(i);
-    if (b instanceof Y.Map && b.get('id') === brickId) return b;
+  // Each sheet's parts by id, kept while the list is: a press and a drop
+  // each looked through the whole sheet (about 5 ms on 7,520 parts at 4x
+  // slowed CPU). A part found there is checked still to be in that list
+  // with that id; one that isn't, or isn't found, means a look through
+  // the list, and the index made again.
+  const kept = brickIndex.get(bricks);
+  const hit = kept?.get(brickId);
+  if (hit && hit.parent === bricks && !isDeleted(hit) && hit.get('id') === brickId) return hit;
+  findBrickStats.wholeLooks++;
+  const index = new Map<string, Y.Map<unknown>>();
+  let found: Y.Map<unknown> | null = null;
+  for (const b of bricks.toArray()) {
+    if (!(b instanceof Y.Map)) continue;
+    const id = b.get('id');
+    if (typeof id !== 'string') continue;
+    // (The first of a part there twice, as the look through the list gave.)
+    if (!index.has(id)) index.set(id, b);
+    if (found === null && id === brickId) found = b;
   }
-  return null;
+  brickIndex.set(bricks, index);
+  return found;
+}
+
+/** Each sheet's list of parts: its parts by id (findBrick). */
+const brickIndex = new WeakMap<Y.Array<unknown>, Map<string, Y.Map<unknown>>>();
+/** How many times `findBrick` looked through a whole sheet (for tests). */
+export const findBrickStats = { wholeLooks: 0 };
+
+function isDeleted(y: Y.Map<unknown>): boolean {
+  return (y as unknown as { _item: { deleted: boolean } | null })._item?.deleted ?? false;
 }
 
 // ---------------------------------------------------------------------------

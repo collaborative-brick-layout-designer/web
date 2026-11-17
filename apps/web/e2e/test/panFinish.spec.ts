@@ -202,3 +202,54 @@ test('a click straight after a pan lands on the part a fresh draw puts there, at
     });
   await expect.poll(picked).toEqual([fresh]);
 });
+
+test('after a pan the hit canvas is drawn a slice at a time while idle, the same as a fresh draw', async ({ page }) => {
+  test.setTimeout(180_000);
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await signIn(page, `pan-hits-${Date.now()}@example.com`, 'Pan Hits');
+  const res = await page.request.post('/api/layouts', { data: { title: 'Pan hits', bbm: FORDYCE } });
+  const { id } = (await res.json()) as { id: string };
+  await page.goto(`/editor/${id}`);
+  await expect(page.getByTestId('loading-card')).toBeHidden({ timeout: 60000 });
+  await expect(page.getByText('940 pieces').first()).toBeVisible();
+  await partPicturesReady(page);
+  await page.getByRole('button', { name: 'Fit', exact: true }).click();
+  await page.waitForTimeout(1500);
+  const area = (await page.locator('.konvajs-content').first().boundingBox())!;
+  const c = { x: area.x + area.width / 2, y: area.y + area.height / 2 };
+  const behind = () => page.evaluate(() => (window as unknown as { Konva: { stages: { hitsBehind?: () => boolean }[] } }).Konva.stages[0]!.hitsBehind?.() ?? null);
+
+  for (const where of ['the whole map', 'zoomed in'] as const) {
+    if (where === 'zoomed in') {
+      for (let i = 0; i < 6; i++) await page.getByRole('button', { name: 'Zoom in', exact: true }).first().click();
+      await page.waitForTimeout(1500);
+    }
+    // The mouse stays off the map once the pan is let go: nothing asks for the hit canvas at once.
+    await pan(page, c, { x: 120, y: 60 });
+    await page.mouse.move(area.x + area.width / 2, area.y - 40);
+    await expect.poll(behind, { timeout: 5000, intervals: [25] }).toBe(false);
+    const got = await page.evaluate(() => {
+      type C = { _canvas: HTMLCanvasElement };
+      type L = { hitCanvas: C; drawHit: () => void; redrawStats: () => { why: string } };
+      const st = (window as unknown as { Konva: { stages: { findOne: (s: string) => L }[] } }).Konva.stages[0]!;
+      const layer = st.findOne('.parts-layer');
+      const why = layer.redrawStats().why;
+      const pixels = () => layer.hitCanvas._canvas.getContext('2d')!.getImageData(0, 0, layer.hitCanvas._canvas.width, layer.hitCanvas._canvas.height).data.slice();
+      const sliced = pixels();
+      // Nothing marked the layer, so this draws all of it.
+      layer.drawHit();
+      const fresh = pixels();
+      let most = 0;
+      let painted = 0;
+      for (let i = 0; i < fresh.length; i++) {
+        most = Math.max(most, Math.abs(sliced[i]! - fresh[i]!));
+        if (i % 4 === 3 && fresh[i]! > 0) painted++;
+      }
+      return { why, most, painted };
+    });
+    expect(got.why, `${where}: drawn in slices`).toContain('in slices');
+    expect(got.painted, `${where}: parts on the hit canvas`).toBeGreaterThan(1000);
+    expect(got.most, `${where}: the same as a fresh draw`).toBeLessThanOrEqual(0);
+    await page.waitForTimeout(1000);
+  }
+});

@@ -270,6 +270,11 @@ export class ViewBitmap {
         if (boxes && this.patch) this.patch.push(...boxes);
         else this.patch = null;
         if (this.sharpDrawPending.delete(layer)) return;
+        // It drew nothing again (the sharp draw after a pan, all of it or a
+        // slice at a time): nothing changed, and the picture stays ready.
+        // Counted as a change, it put off the next pan's picture by a second
+        // after each pan's sharp draw (taken again, for nothing).
+        if (boxes && boxes.length === 0) return;
         this.invalidate();
       };
       layer.on('draw.view-bitmap', onDraw);
