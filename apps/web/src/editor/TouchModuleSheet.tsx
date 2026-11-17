@@ -41,7 +41,7 @@ export function TouchModuleSheet({ doc, moduleId, onClose }: { doc: Y.Doc; modul
   }
   const hidden = mod.showName === false;
   const entries: (ModuleMenuEntry & { keepOpen?: boolean })[] = [
-    { id: 'edit', label: 'Edit module', onSelect: () => enterModuleEdit(mod.id) },
+    { id: 'edit', label: 'Edit module', onSelect: () => enterModuleEdit(doc, mod.id) },
     { id: 'pin', label: mod.pinned ? 'Unpin' : 'Pin in place', onSelect: () => setModulePinned(doc, mod.id, !mod.pinned) },
     { id: 'name', label: hidden ? 'Show name' : 'Hide name', onSelect: () => updateSidecarModule(doc, mod.id, (m) => withShowName(m, hidden)) },
     { id: 'look', label: 'Colors…', keepOpen: true, onSelect: () => setLook(true) },

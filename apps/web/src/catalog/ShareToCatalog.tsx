@@ -7,6 +7,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, type CatalogKind, type MyCatalogItem } from '../api';
 import { ItemCoverDialog } from './ItemCover';
 import { useEscape } from '../editor/useEscape';
+import { HelpButton } from '../help/HelpButton';
 
 /** What the catalogs know about your things: shared items by source, and copies by id. */
 /**
@@ -117,6 +118,13 @@ export function ShareToCatalogDialog({
   useEscape(onClose);
   const qc = useQueryClient();
   const settings = useQuery({ queryKey: ['catalog-settings'], queryFn: api.catalog.settings });
+  // A layout that places shared modules: their parts go out with the published copy (said below).
+  const sharedPlaced = useQuery({
+    queryKey: ['layout-shared-modules', sourceId],
+    queryFn: () => api.sharedModules.list(sourceId),
+    enabled: kind === 'layout',
+  });
+  const sharedCount = sharedPlaced.data?.modules.length ?? 0;
   // An update waiting for review: start from the text it sent.
   const [title, setTitle] = useState(existing?.pendingText?.title ?? existing?.title ?? initialTitle);
   const [description, setDescription] = useState('');
@@ -190,6 +198,14 @@ export function ShareToCatalogDialog({
               {kind === 'venue' ? ' Notes on the plan stay private.' : ''}
               {review ? ' A moderator reviews it first.' : ''}
             </p>
+            {sharedCount > 0 && (
+              <p className="flex items-start gap-1 text-muted" data-testid="publish-shared-modules">
+                <span>
+                  {sharedCount === 1 ? 'The shared module in this layout goes' : `The ${sharedCount} shared modules in this layout go`} out with it: people who take a copy get {sharedCount === 1 ? 'its' : 'their'} parts.
+                </span>
+                <HelpButton helpKey="catalog.sharedModules" />
+              </p>
+            )}
             <label className="block">
               <span className="mb-1 block text-muted">Name</span>
               <input value={title} maxLength={80} onChange={(e) => setTitle(e.target.value)} className="w-full rounded-lg border border-border bg-soft px-3 py-2" />

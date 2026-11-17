@@ -289,7 +289,7 @@ export function sheetForUpdate(map: BbmMap, members: readonly string[], activeLa
   return (name) => findPartsSheet(map.layers, name) ?? fallback;
 }
 
-export type PullResult = 'updated' | 'up-to-date' | 'cancelled';
+export type PullResult = 'updated' | 'up-to-date' | 'cancelled' | { updated: 'by-server'; from: number | null; version: number };
 
 /**
  * Update from Module library: the Module library's newest version replaces the module's
@@ -304,6 +304,13 @@ export async function pullFromLibrary(
     parts: Map<string, PartWire> | null;
     activeLayerId: string | null;
     confirm?: (opts: Parameters<typeof askConfirm>[0]) => Promise<boolean>;
+    /**
+     * The layout on the server, when it is open live: the server then puts
+     * the version in (api.sharedModules.apply), so two people pressing
+     * Update at once get the parts once. It isn't an undo step; the answer
+     * says which version to go back to.
+     */
+    layoutId?: string | null;
   },
 ): Promise<PullResult> {
   const mod = findModule(doc, moduleId);
@@ -327,11 +334,15 @@ export async function pullFromLibrary(
     const ok = await (o.confirm ?? askConfirm)({
       title: `Replace “${mod.name || 'this module'}” with version ${latest.version}?`,
       removes: 'This module was changed in this layout. Those changes are replaced by the Module library’s version.',
-      keeps: 'Its name, colors and place on the map stay. You can undo this.',
+      keeps: o.layoutId ? 'Its name, colors and place on the map stay. You can go back to the version it has now.' : 'Its name, colors and place on the map stay. You can undo this.',
       confirmLabel: 'Update',
       danger: false,
     });
     if (!ok) return 'cancelled';
+  }
+  if (o.layoutId) {
+    const r = await api.sharedModules.apply(o.layoutId, moduleId, { version: latest.version });
+    return r.changed ? { updated: 'by-server', from: r.from, version: r.version } : 'up-to-date';
   }
   const placement = alignToPlaced(latest.batches, placed, o.parts);
   const batches = placeVersion(latest.batches, placement, o.parts);

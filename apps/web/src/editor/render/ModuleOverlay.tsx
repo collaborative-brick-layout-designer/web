@@ -18,6 +18,7 @@ import { useEditorStore } from '../editorStore';
 import { EXPORT_HIDE } from '../exportRender';
 import { dragsAny, usePosedMap } from '../liveDragPose';
 import { SELECTION } from './selectionStyle';
+import { sharedPlaced } from '@cld/modules';
 import { selectionHalo } from './BrickLayer';
 import { studToPx } from './coords';
 import { MAP_FONT_STACK } from './mapText';
@@ -38,6 +39,17 @@ export { fitModuleName, moduleLabelFontPx, moduleLabelLayouts, moduleLabelBounds
 interface Props {
   map: BbmMap;
   modules: SidecarModule[];
+}
+
+/** A shared module's frame: longer dashes than an ordinary module's. */
+export const SHARED_FRAME_DASH = [14, 6, 2, 6];
+
+/** The badge over a shared module's frame: "🔗 Alice", and "● v8 is ready" when a version waits; null for an ordinary module. */
+export function sharedBadge(m: SidecarModule | undefined, updates: Record<string, number>): string | null {
+  const s = sharedPlaced(m);
+  if (!s) return null;
+  const newer = updates[s.placedId];
+  return `🔗 ${s.by ?? 'Shared'}${newer ? ` ● v${newer} is ready` : ''}`;
 }
 
 const widthCache = new Map<string, number>();
@@ -70,6 +82,9 @@ export function ModuleOverlay({ map: committed, modules }: Props) {
   const editingId = useEditorStore((s) => s.editingModuleId);
   const tint = useEditorStore((s) => s.selectionTint);
   const snapActive = useEditorStore((s) => s.liveSnap !== null);
+  // Shared (read-only) modules carry a link badge (docs/shared-modules.md): the badge says it, not a color.
+  const zoom = useEditorStore((s) => s.zoom);
+  const sharedUpdates = useEditorStore((s) => s.sharedModuleUpdates);
   // The parts being dragged where they are now (liveDragPose.ts): outlines
   // and names move and turn with them, every frame.
   const map = usePosedMap(committed, (pose) => modules.some((m) => dragsAny(pose, m.members)));
@@ -127,10 +142,26 @@ export function ModuleOverlay({ map: committed, modules }: Props) {
             stroke={l.frameStroke}
             strokeWidth={frameThickness}
             strokeScaleEnabled={false}
-            dash={l.partlyHidden ? MODULE_FRAME_PARTLY_HIDDEN_DASH : MODULE_FRAME_DASH}
+            dash={l.partlyHidden ? MODULE_FRAME_PARTLY_HIDDEN_DASH : sharedBadge(byId.get(l.id), sharedUpdates) ? SHARED_FRAME_DASH : MODULE_FRAME_DASH}
             fillEnabled={false}
             perfectDrawEnabled={false}
           />}
+          {showModuleNames && sharedBadge(byId.get(l.id), sharedUpdates) && (
+            <Text
+              name="module-shared-badge"
+              x={l.frame.x}
+              y={l.frame.y - 16 / Math.max(zoom, 0.01)}
+              text={sharedBadge(byId.get(l.id), sharedUpdates)!}
+              fontSize={12 / Math.max(zoom, 0.01)}
+              fontStyle="bold"
+              fontFamily={MAP_FONT_STACK}
+              fill={l.nameFill}
+              stroke={MODULE_NAME_STROKE}
+              strokeWidth={moduleNameStrokePx(12 / Math.max(zoom, 0.01))}
+              fillAfterStrokeEnabled
+              perfectDrawEnabled={false}
+            />
+          )}
           {showModuleNames && l.text && (
             <Group x={l.text.x} y={l.text.y} rotation={l.text.rotation} name="module-name">
               {l.text.lines.map((line, i) => (

@@ -33,13 +33,22 @@ import { hiddenSheetsNote, moduleSheetsUsed } from './moduleSheets';
 import { indexParts } from './partIndex';
 import type { PartGeom } from './brickGeometry';
 import { useMenuRoles } from '../ui/menu/useMenuRoles';
+import type { SharedPlaced } from '@cld/modules';
+import type { LayoutSharedModule } from '../api';
+import { useSharedPlaced, useSharedRows } from './SharedModulesHost';
+import { SharedModuleMenu, SharedNote, SharedVersionsDialog } from './SharedModuleRow';
 
 interface Props {
   doc: Y.Doc;
   isViewer: boolean;
+  /** The layout on the server (null in a module's own editor): where shared modules are looked up. */
+  layoutId?: string | null;
 }
 
-export function ModulesPanel({ doc, isViewer }: Props) {
+export function ModulesPanel({ doc, isViewer, layoutId = null }: Props) {
+  // Shared (read-only) modules: what the server says about each (SharedModuleRow.tsx).
+  const sharedPlacedList = useSharedPlaced(doc);
+  const sharedRows = useSharedRows(layoutId, sharedPlacedList);
   const sidecar = readSidecarFromDoc(doc);
   const modules = sidecar?.modules ?? [];
   const map = useDocMap(doc);
@@ -90,6 +99,17 @@ export function ModulesPanel({ doc, isViewer }: Props) {
             libraryLine={libraryNote(libraryState(mod, library.data?.modules))}
             libraryEntries={libraryEntries(mod)}
             partOf={partOf}
+            shared={(() => {
+              const placed = sharedPlacedList.find((s) => s.placedId === mod.id);
+              if (!placed) return undefined;
+              return {
+                layoutId,
+                placed,
+                row: sharedRows.data?.modules.find((r) => r.placedId === mod.id),
+                canUpdate: !isViewer && !!sharedRows.data?.canUpdate,
+                canDetach: !isViewer && !!sharedRows.data?.canDetach,
+              };
+            })()}
           />
         ))}
       </ul>
@@ -105,6 +125,7 @@ function ModuleRow({
   libraryLine,
   libraryEntries,
   partOf,
+  shared,
 }: {
   partOf: (partNumber: string) => PartGeom | undefined;
   module: SidecarModule;
@@ -116,7 +137,10 @@ function ModuleRow({
   libraryLine: string | null;
   /** Save to Module library…, Update Module library version…, Update from Module library. */
   libraryEntries: ModuleMenuEntry[];
+  /** A shared (read-only) module: its link, what the server says, and what you may do. */
+  shared?: { layoutId: string | null; placed: SharedPlaced; row: LayoutSharedModule | undefined; canUpdate: boolean; canDetach: boolean } | undefined;
 }) {
+  const [versionsOpen, setVersionsOpen] = useState(false);
   const selection = useEditorStore((s) => s.selection);
   const setSelection = useEditorStore((s) => s.setSelection);
   const editingId = useEditorStore((s) => s.editingModuleId);
@@ -213,10 +237,14 @@ function ModuleRow({
               {module.members.length} part{module.members.length !== 1 ? 's' : ''}
               {module.sourceFile && !libraryLine && !/^[0-9a-f-]{36}$/.test(module.sourceFile) ? ` — ${module.sourceFile.split(/[\\/]/).pop()}` : ''}
             </span>
-            {libraryLine && (
-              <span data-testid="module-library-note" className="ml-2 text-xs text-muted">
-                {libraryLine}
-              </span>
+            {shared ? (
+              <SharedNote placed={shared.placed} row={shared.row} />
+            ) : (
+              libraryLine && (
+                <span data-testid="module-library-note" className="ml-2 text-xs text-muted">
+                  {libraryLine}
+                </span>
+              )
             )}
             {hiddenNote && (
               <span data-testid="module-hidden-note" className="ml-2 text-xs italic text-muted">
@@ -247,6 +275,9 @@ function ModuleRow({
       )}
 
       {lookOpen && <ModuleLookDialog doc={doc} moduleId={module.id} onClose={() => setLookOpen(false)} />}
+      {versionsOpen && shared?.layoutId && (
+        <SharedVersionsDialog layoutId={shared.layoutId} placed={shared.placed} canUpdate={shared.canUpdate} onClose={() => setVersionsOpen(false)} />
+      )}
       {showMove && (
         <ModuleMoveDialog
           moduleName={module.name}
@@ -274,7 +305,7 @@ function ModuleRow({
             onClick={() => {
               setCtxMenu(null);
               if (editingId === module.id) leaveModuleEdit();
-              else enterModuleEdit(module.id);
+              else enterModuleEdit(doc, module.id);
             }}
           >
             {editingId === module.id ? 'Done editing' : 'Edit module'}
@@ -354,7 +385,18 @@ function ModuleRow({
             Duplicate
           </button>
           <hr className="my-1 border-border" />
-          {libraryEntries.map((e) => (
+          {shared?.layoutId && (
+            <SharedModuleMenu
+              layoutId={shared.layoutId}
+              placed={shared.placed}
+              row={shared.row}
+              canUpdate={shared.canUpdate}
+              canDetach={shared.canDetach}
+              close={() => setCtxMenu(null)}
+              onVersions={() => setVersionsOpen(true)}
+            />
+          )}
+          {!shared && libraryEntries.map((e) => (
             <button
               key={e.id}
               data-testid={`module-menu-${e.id}`}

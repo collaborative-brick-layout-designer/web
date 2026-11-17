@@ -116,6 +116,15 @@ export interface EditorState {
    * then every module acts as one piece.
    */
   editingModuleId: string | null;
+  /** Shared modules with a newer version waiting: placed id → that version (the map's badge says so). */
+  sharedModuleUpdates: Record<string, number>;
+  setSharedModuleUpdates: (v: Record<string, number>) => void;
+  /** What an update left a shared module overlapping (placed id → marks; only modules still under review). */
+  sharedModuleMarks: Record<string, { overlaps: number; looseEnds: number }>;
+  setSharedModuleMarks: (v: Record<string, { overlaps: number; looseEnds: number }>) => void;
+  /** Shared modules whose parts aren't their version's ("Changed outside the app"): placed ids. */
+  sharedChangedOutside: string[];
+  setSharedChangedOutside: (v: string[]) => void;
   /** Enter (an id) or leave (null) Edit module. Leaving clears the selection. */
   setEditingModule: (id: string | null) => void;
   /**
@@ -371,6 +380,13 @@ export const useEditorStore = create<EditorState>((set) => ({
   useAsModel: (partNumber) => set((s) => ({ modelPart: { key: partNumber, seq: (s.modelPart?.seq ?? 0) + 1 } })),
   selection: [],
   editingModuleId: null,
+  sharedModuleUpdates: {},
+  setSharedModuleUpdates: (v) =>
+    set((s) => (JSON.stringify(s.sharedModuleUpdates) === JSON.stringify(v) ? s : { sharedModuleUpdates: v })),
+  sharedModuleMarks: {},
+  setSharedModuleMarks: (v) => set((s) => (JSON.stringify(s.sharedModuleMarks) === JSON.stringify(v) ? s : { sharedModuleMarks: v })),
+  sharedChangedOutside: [],
+  setSharedChangedOutside: (v) => set((s) => (s.sharedChangedOutside.join(',') === v.join(',') ? s : { sharedChangedOutside: v })),
   moduleDialog: null,
   setModuleDialog: (moduleDialog) => set({ moduleDialog }),
   annoSelection: EMPTY_ANNO,

@@ -19,6 +19,7 @@ import { snapTraceEnabled, traceFrame, traceStart } from './snapTrace';
 import { isTouchEvent } from './touchGesture';
 import { holdReach, SnapSession, snapBypassed } from './snapFeel';
 import { pinnedAmong } from './moduleEdit';
+import { partsLocked } from './sharedLock';
 
 const PX = 8;
 
@@ -89,6 +90,8 @@ export function startFlexSession(opts: {
 
   const chainIds = flex.initialState().map((s) => s.id);
   if (pinnedAmong(chainIds, modules, st.editingModuleId)) return false;
+  // A shared module's track isn't bent here (sharedLock.ts): it says why.
+  if (partsLocked(doc, chainIds, 'bend')) return false;
   st.setSelection(chainIds);
   let moved = false;
 

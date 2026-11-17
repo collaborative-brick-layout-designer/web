@@ -6,6 +6,11 @@
 import type { HelpEntry } from './helpTexts';
 
 export const WEB_ONLY_HELP_TEXTS = {
+  'catalog.sharedModules': {
+    title: 'Shared modules in a published layout',
+    short: 'A published layout carries the parts of the shared modules placed in it.',
+    more: 'The copy in the catalog, and every copy people take from it, has those modules’ parts as they are now. In those copies the modules are marked “No longer shared” and get no updates from their owner. If the owner would rather not have the parts published, remove the module from the layout first.',
+  },
   'account.confirmEmail': {
     title: 'Confirm your email',
     short: 'Confirming proves the address is yours, so invites and hand-overs sent to it can reach you here.',

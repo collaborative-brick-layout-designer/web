@@ -76,7 +76,7 @@ describe('Edit module', () => {
   it('entering clears the selection (or picks the double-clicked part) and leaving clears it again', () => {
     setSelectionShaper((ids) => shapeSelection(ids, modules, useEditorStore.getState().editingModuleId));
     useEditorStore.getState().setSelection(['a1']);
-    enterModuleEdit('a', 'a2');
+    enterModuleEdit(new Y.Doc(), 'a', 'a2');
     expect(useEditorStore.getState().editingModuleId).toBe('a');
     expect(useEditorStore.getState().selection).toEqual(['a2']);
     // Box-select inside it picks only its parts.

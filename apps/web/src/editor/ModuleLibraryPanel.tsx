@@ -6,11 +6,12 @@
 import { useRef, useState } from 'react';
 import * as Y from 'yjs';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import type { ModuleSummary } from '../api';
+import type { ModuleSummary, SharedModuleSummary } from '../api';
 import { api } from '../api';
 import { useEditorStore } from './editorStore';
 import { placeModuleAsking } from './SheetChoiceDialog';
 import { fetchModuleBatches } from './moduleSnapshot';
+import { libraryPlacement } from './sharedModules';
 
 import { MODULE_MIME, MODULE_NAME_MIME, activeModuleDrag } from './mime';
 import { ModuleThumb } from '../modules/ModuleThumb';
@@ -19,10 +20,23 @@ import { CreditLine, ReturnMenuItems } from '../owners/OwnerControls';
 import { AddToCollectionDialog } from '../catalog/AddToCollection';
 import { useIsDemo } from '../catalog/ShareToCatalog';
 import { IconSizeSlider, useListIconSize, useResizeGestures } from './listIconSize';
-import { confirmDelete, toastDeleted } from '../ui/ConfirmDialog';
+import { askConfirm, confirmDelete, toastDeleted } from '../ui/ConfirmDialog';
+import { clubCan } from '../orgs/clubPermissions';
+import { errorText } from '../api';
+
+/** What the server says when the module was already off the club's list. */
+const NOT_SHARED = errorText('not_shared');
 import { MODULE_DELETE_WORDING } from '../ui/deleteWording';
 import { restoreDeleted } from '../trash/RecentlyDeleted';
+import { HelpButton } from '../help/HelpButton';
 export { MODULE_MIME };
+
+type LibraryTab = 'mine' | 'clubs' | 'shared';
+const LIBRARY_TABS: { id: LibraryTab; label: string }[] = [
+  { id: 'mine', label: 'Mine' },
+  { id: 'clubs', label: 'Clubs' },
+  { id: 'shared', label: 'Shared with me' },
+];
 
 interface Props {
   doc: Y.Doc;
@@ -48,9 +62,59 @@ export function ModuleLibraryPanel({ doc, isViewer, editingModuleId = null }: Pr
   const listRef = useRef<HTMLDivElement>(null);
   useResizeGestures(listRef, iconSize, setIconSize);
 
-  const modules = (list.data?.modules ?? []).filter((m) =>
+  // Mine / Clubs / Shared with me (docs/shared-modules.md): other people's modules shared
+  // with you, in person or through a club, are on their own tab, each with its owner.
+  const sharedList = useQuery({ queryKey: ['modules-shared'], queryFn: api.modules.sharedWithMe, staleTime: 30_000 });
+  const [tab, setTab] = useState<LibraryTab>('mine');
+  const sharedIds = new Set((sharedList.data?.modules ?? []).map((m) => m.id));
+  const own = (list.data?.modules ?? []).filter((m) => !sharedIds.has(m.id));
+  const byTab: Record<LibraryTab, ModuleSummary[]> = {
+    mine: own.filter((m) => !m.ownerOrgId),
+    clubs: own.filter((m) => !!m.ownerOrgId),
+    shared: sharedList.data?.modules ?? [],
+  };
+  const modules = byTab[tab].filter((m) =>
     !filter.trim() || m.title.toLowerCase().includes(filter.trim().toLowerCase()),
   );
+  // A club's admins and managers (whoever may delete the club's things) can take a
+  // module shared with the club off its list; copies already placed stay.
+  const orgs = useQuery({ queryKey: ['orgs'], queryFn: api.orgs.list, staleTime: 60_000 });
+  const removableFrom = (m: ModuleSummary): { id: string; name: string }[] => {
+    const s = sharedList.data?.modules.find((x) => x.id === m.id);
+    if (!s || isViewer) return [];
+    return s.sharedVia.clubs.filter((c) => {
+      const org = orgs.data?.orgs.find((o) => o.id === c.id || o.slug === c.slug);
+      return !!org && (org.isAdmin === true || clubCan(org, 'delete_items'));
+    });
+  };
+  async function removeFromClub(m: SharedModuleSummary | ModuleSummary, club: { id: string; name: string }) {
+    const owner = (m as SharedModuleSummary).owner?.name;
+    const ok = await askConfirm({
+      title: `Take “${m.title}” off ${club.name}?`,
+      keeps: 'The club’s layouts keep it as it is now.',
+      removes: owner
+        ? `The club gets no more updates of it, and its members can’t place it again. ${owner} is told.`
+        : 'The club gets no more updates of it, and its members can’t place it again. Its owner is told.',
+      confirmLabel: 'Remove',
+      danger: false,
+    });
+    if (!ok) return;
+    try {
+      await api.modules.stopClubShare(m.id, club.id);
+      useEditorStore.getState().showNotice(`“${m.title}” is off ${club.name}’s list.`, 'done', 6000);
+    } catch (e) {
+      // (Someone else took it off meanwhile: the list just catches up.)
+      const said = e instanceof Error ? e.message : String(e);
+      if (said !== NOT_SHARED) setError(`Couldn’t remove “${m.title}”: ${said}`);
+    }
+    void qc.invalidateQueries({ queryKey: ['modules-shared'] });
+  }
+  const sharedVia = (m: ModuleSummary): string | null => {
+    const s = sharedList.data?.modules.find((x) => x.id === m.id);
+    if (!s) return null;
+    const who = s.owner?.name ? `${s.owner.name} · ` : '';
+    return `${who}${s.sharedVia.clubs.length > 0 ? `via ${s.sharedVia.clubs.map((c) => c.name).join(', ')}` : 'shared with you'}`;
+  };
 
   async function insertModule(moduleId: string) {
     if (inserting) return;
@@ -61,11 +125,13 @@ export function ModuleLibraryPanel({ doc, isViewer, editingModuleId = null }: Pr
       // Bricks land on host layers matching the module's layer names and
       // are registered as a sidecar module in the same undo step
       // (desktop ImportBbmAsModuleCommand).
-      const found = list.data?.modules.find((m) => m.id === moduleId);
+      const found = [...(list.data?.modules ?? []), ...(sharedList.data?.modules ?? [])].find((m) => m.id === moduleId);
       const title = found?.title ?? 'Module';
       // Linked to the Module library module: Update from Module library follows it.
       const version = found?.latestVersion;
-      const res = await placeModuleAsking(doc, batches, { name: title, library: { id: moduleId, ...(version ? { version } : {}) } });
+      const library = await libraryPlacement(moduleId, version, { degrees: 0, x: 0, y: 0 });
+      if (!library) return;
+      const res = await placeModuleAsking(doc, batches, { name: title, library });
       if (res) useEditorStore.getState().setSelection(res.ids);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -85,11 +151,35 @@ export function ModuleLibraryPanel({ doc, isViewer, editingModuleId = null }: Pr
         />
         <IconSizeSlider value={iconSize} onChange={setIconSize} label="Module picture size" className="w-28 shrink-0" />
       </div>
+      <div role="tablist" aria-label="Whose modules" className="flex items-center gap-1 border-b border-line px-2 py-1.5 text-xs">
+        {LIBRARY_TABS.map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            role="tab"
+            aria-selected={tab === t.id}
+            data-testid={`module-library-tab-${t.id}`}
+            {...(t.id === 'shared' ? { 'data-tour': 'module.shared' } : {})}
+            onClick={() => setTab(t.id)}
+            className={`min-h-7 rounded-control px-2 pointer-coarse:min-h-11 ${tab === t.id ? 'bg-accent-soft font-semibold text-accent-text' : 'text-muted hover:bg-soft hover:text-ink'}`}
+          >
+            {t.label}
+            {byTab[t.id].length > 0 ? ` (${byTab[t.id].length})` : ''}
+          </button>
+        ))}
+        <HelpButton helpKey="module.shared" />
+      </div>
       <div ref={listRef} className="flex-1 min-h-0 overflow-y-auto touch-pan-y">
         {list.isLoading && <p className="p-3 text-xs text-muted">Loading…</p>}
         {!list.isLoading && modules.length === 0 && (
           <p className="p-3 text-xs text-muted">
-            {filter ? 'No modules match.' : 'No saved modules yet. Make a module in this layout, then choose Save to Module library… from its ⋯ menu.'}
+            {filter
+              ? 'No modules match.'
+              : tab === 'shared'
+                ? 'Nothing is shared with you yet. When someone shares a module with you or one of your clubs, it shows here, ready to place.'
+                : tab === 'clubs'
+                  ? 'Your clubs have no modules yet.'
+                  : 'No saved modules yet. Make a module in this layout, then choose Save to Module library… from its ⋯ menu.'}
           </p>
         )}
         {error && (
@@ -104,6 +194,8 @@ export function ModuleLibraryPanel({ doc, isViewer, editingModuleId = null }: Pr
               module={m}
               thumbPx={iconSize}
               isViewer={isViewer}
+              sharedVia={sharedVia(m)}
+              removeFrom={removableFrom(m).map((c) => ({ name: c.name, onRemove: () => void removeFromClub(m, c) }))}
               isInserting={inserting === m.id}
               isEditingThis={m.id === editingModuleId}
               insertLabel={editingModuleId ? 'Add to this module' : 'Add to layout'}
@@ -141,7 +233,13 @@ function ModuleLibraryRow({
   onRename,
   onDelete,
   onAddToCollection,
+  sharedVia,
+  removeFrom = [],
 }: {
+  /** Shared with a club you run: "Remove from ‹club›…", one per club. */
+  removeFrom?: { name: string; onRemove: () => void }[];
+  /** Someone else's module shared with you: "Alice · via Riverside LUG" (it has no menu: it isn't yours to change). */
+  sharedVia?: string | null;
   module: ModuleSummary;
   thumbPx: number;
   isViewer: boolean;
@@ -219,8 +317,26 @@ function ModuleLibraryRow({
             </p>
           )}
           <p className="text-[11px] text-muted">
-            v{module.docVersion} · {new Date(module.updatedAt).toLocaleDateString()}
+            v{sharedVia ? (module.latestVersion ?? module.docVersion) : module.docVersion} · {new Date(module.updatedAt).toLocaleDateString()}
           </p>
+          {sharedVia && (
+            <p className="text-[11px] text-muted" data-testid="module-shared-via">
+              <span aria-hidden>🔗 </span>
+              {sharedVia}
+            </p>
+          )}
+          {removeFrom.map((r) => (
+            <button
+              key={r.name}
+              type="button"
+              data-testid="module-remove-club-share"
+              onClick={r.onRemove}
+              title="Take this module off the club’s list. Copies already placed stay as they are."
+              className="block text-left text-[11px] text-muted underline decoration-dotted underline-offset-2 hover:text-ink pointer-coarse:min-h-11"
+            >
+              Remove from {r.name}…
+            </button>
+          ))}
           {module.empty && (
             <p className="text-[11px] font-semibold text-muted" data-testid="module-empty" title="Open it to add some parts, then it can go in a layout.">
               No parts yet
@@ -245,7 +361,7 @@ function ModuleLibraryRow({
               >
                 {isInserting ? 'Adding…' : insertLabel}
               </button>
-              <MoreMenu label={`More for ${module.title}`}>
+              {!sharedVia && <MoreMenu label={`More for ${module.title}`}>
                 <a role="menuitem" href={`/modules/${module.id}`} target="_blank" rel="noreferrer" className={MORE_ITEM}>
                   Open to change it (new tab)
                 </a>
@@ -261,7 +377,7 @@ function ModuleLibraryRow({
                 <button role="menuitem" type="button" onClick={onDelete} className={`${MORE_ITEM} text-danger`}>
                   Delete…
                 </button>
-              </MoreMenu>
+              </MoreMenu>}
             </div>
           )
         )}

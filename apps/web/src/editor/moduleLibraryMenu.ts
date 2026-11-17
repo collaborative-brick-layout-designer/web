@@ -10,6 +10,7 @@ import { api } from '../api';
 import { useEditorStore } from './editorStore';
 import { libraryState, pullFromLibrary } from './moduleLibrary';
 import { indexParts } from './partIndex';
+import { sharedModulesLayout } from './sharedModules';
 
 export interface ModuleMenuEntry {
   id: string;
@@ -24,8 +25,23 @@ export interface ModuleMenuEntry {
 export async function pullWithNotice(doc: Y.Doc, m: SidecarModule, parts: Map<string, import('../api').PartWire> | null): Promise<void> {
   const st = useEditorStore.getState();
   try {
-    const r = await pullFromLibrary(doc, m.id, { parts, activeLayerId: st.activeLayerId });
-    if (r === 'updated') st.showStatusMessage(`Updated “${m.name || 'module'}” from the Module library`, 5000);
+    const layoutId = sharedModulesLayout();
+    const r = await pullFromLibrary(doc, m.id, { parts, activeLayerId: st.activeLayerId, layoutId });
+    if (typeof r === 'object') {
+      // The server put it in for everyone: Undo doesn't take it back, Go back does.
+      const from = r.from;
+      st.showNotice(
+        `“${m.name || 'The module'}” is now version ${r.version}.`,
+        'done',
+        15000,
+        from && layoutId
+          ? {
+              label: `Go back to version ${from}`,
+              run: () => void api.sharedModules.apply(layoutId, m.id, { version: from }).catch((e: unknown) => st.showNotice(e instanceof Error ? e.message : String(e), 'error', 8000)),
+            }
+          : undefined,
+      );
+    } else if (r === 'updated') st.showStatusMessage(`Updated “${m.name || 'module'}” from the Module library`, 5000);
     else if (r === 'up-to-date') st.showNotice(`“${m.name || 'This module'}” already matches the Module library.`);
   } catch (e) {
     st.showNotice(`Couldn’t update from the Module library: ${(e as Error).message}`, 'error', 10000);

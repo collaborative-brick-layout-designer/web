@@ -11,6 +11,7 @@ import { useEditorStore } from './editorStore';
 import { bricksByLayer, deleteSidecarModule, updateSidecarModule } from './mutations';
 import { pinnedAmong, withMembersAdded, withMembersRemoved, withPinned } from './moduleEdit';
 import { projectDoc } from './useDocMap';
+import { moduleLocked } from './sharedLock';
 
 /** Opens Make a module for the picked parts (says so when none are picked). */
 export function openMakeModule(doc: Y.Doc): void {
@@ -30,8 +31,10 @@ export function openMakeModule(doc: Y.Doc): void {
 // ---------------------------------------------------------------------------
 
 /** Opens a module to change it part by part; `partId` (the part double-clicked) is picked. */
-export function enterModuleEdit(id: string, partId?: string): void {
+export function enterModuleEdit(doc: Y.Doc, id: string, partId?: string): void {
   const st = useEditorStore.getState();
+  // A shared module's parts are its owner's (sharedLock.ts): it says why instead.
+  if (moduleLocked(doc, id, 'edit')) return;
   st.setEditingModule(id);
   if (partId) st.setSelection([partId]);
 }

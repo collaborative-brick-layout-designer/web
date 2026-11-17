@@ -82,6 +82,11 @@ export interface ProviderInfo {
  * inline error text. Everything else falls through to the generic
  * snake_case → sentence conversion.
  */
+/** The words shown for a server error code. */
+export function errorText(code: string): string {
+  return ERROR_MESSAGES[code] ?? humanizeErrorCode(code);
+}
+
 const ERROR_MESSAGES: Record<string, string> = {
   invalid_credentials: 'Incorrect email or password.',
   invalid_input: 'Please fill in all required fields.',
@@ -121,6 +126,19 @@ const ERROR_MESSAGES: Record<string, string> = {
   part_invite_no_longer_valid: 'This invite no longer works: the part changed hands, or the person who sent it no longer manages it. Ask its owner for a new one.',
   module_invite_no_longer_valid: 'This invite no longer works: the module changed hands, or the person who sent it no longer manages it. Ask its owner for a new one.',
   already_has_access: 'That person already has access.',
+  // Shared (read-only) modules (docs/shared-modules.md).
+  club_module_not_shareable: 'This module belongs to a club, so its members already have it. A club’s module can’t be shared with another club.',
+  too_many_club_shares: 'This module is shared with as many clubs as it can be. Stop sharing with one first.',
+  not_shared: 'It isn’t shared with that club any more.',
+  no_longer_shared: 'This module is no longer shared with this layout, so it stays at the version it has. You can remove it, or its owner can share it again.',
+  module_gone: 'Its owner deleted this module, so it stays at the version it has.',
+  module_not_found: 'You can’t see this module in the Module library, so you can’t update it. Ask whoever added it.',
+  not_placed: 'That module is no longer in this layout.',
+  not_linked: 'This module doesn’t follow a Module library module any more.',
+  version_not_found: 'That version isn’t kept any more (the newest 20 are).',
+  invalid_version: 'That isn’t a version number.',
+  no_sheet: 'This layout has no parts sheet to put the module on. Add a parts sheet first.',
+  only_the_layouts_owner: 'Only the layout’s owner can make a shared module theirs. In a club’s layout, ask a club admin or manager.',
   club_being_deleted: 'This club is being deleted, so it can’t take new members now. If one of its admins restores it, this invite works again.',
   invalid_venue: 'That venue couldn’t be read. Open it in the venue designer and save it again.',
   venue_too_large: 'That venue is too big to save (more than 1 MB).',
@@ -1120,6 +1138,50 @@ export const api = {
     revokeInvite: (id: string, inviteId: string) => del(`/api/modules/${encodeURIComponent(id)}/invites/${encodeURIComponent(inviteId)}`),
     /** Take someone off it (or leave it yourself). */
     removeCollaborator: (id: string, userId: string) => del(`/api/modules/${encodeURIComponent(id)}/collaborators/${encodeURIComponent(userId)}`),
+    /** Other people's modules shared with you, in person or through a club ("Shared with me"). */
+    sharedWithMe: () => get<{ modules: SharedModuleSummary[] }>('/api/modules?owner=shared'),
+    /** For its owner: who it's shared with, the clubs it could be shared with, and where it's used. */
+    shares: (id: string) => get<ModuleShares>(`/api/modules/${encodeURIComponent(id)}/shares`),
+    /** Share it, read-only, with a club you're in. */
+    shareWithClub: (id: string, orgSlug: string) =>
+      post<{ ok: true; orgId: string; name: string; slug: string; already?: boolean }>(`/api/modules/${encodeURIComponent(id)}/club-shares`, { orgSlug }),
+    stopClubShare: (id: string, orgId: string) => del(`/api/modules/${encodeURIComponent(id)}/club-shares/${encodeURIComponent(orgId)}`),
+  },
+
+  /** A layout's shared (read-only) modules: what it places, and the server's steps on them. */
+  sharedModules: {
+    list: (layoutId: string) => get<LayoutSharedModules>(`/api/layouts/${encodeURIComponent(layoutId)}/shared-modules`),
+    /** Before placing: would this module (one you can see) follow its owner in this layout? */
+    check: async (layoutId: string, moduleId: string) =>
+      (await get<LayoutSharedModules>(`/api/layouts/${encodeURIComponent(layoutId)}/shared-modules?check=${encodeURIComponent(moduleId)}`)).check ?? null,
+    /** The module's kept versions, seen through the layout (no share of your own needed). */
+    versions: (layoutId: string, placedId: string) =>
+      get<{ placed: number; versions: Pick<ModuleVersion, 'version' | 'note' | 'createdAt' | 'author'>[] }>(
+        `/api/layouts/${encodeURIComponent(layoutId)}/shared-modules/${encodeURIComponent(placedId)}/versions`,
+      ),
+    /** One version's Y.Doc bytes, seen through the layout. */
+    versionSnapshot: async (layoutId: string, placedId: string, version: number): Promise<Uint8Array> => {
+      const path = `/api/layouts/${encodeURIComponent(layoutId)}/shared-modules/${encodeURIComponent(placedId)}/versions/${version}/snapshot`;
+      const res = await reach(fetch(path, { credentials: 'include' }));
+      if (!res.ok) throw new Error(await friendlyErrorMessage(res, 'GET', path));
+      return new Uint8Array(await res.arrayBuffer());
+    },
+    /**
+     * The server puts a version in (the newest when none is named): Update
+     * for a newer one, Go back for an older one; `again` puts the same
+     * version back over a copy that was changed outside the app. Everyone in
+     * the layout gets the change; pressing it twice changes nothing more.
+     */
+    apply: (layoutId: string, placedId: string, opts: { version?: number; again?: boolean } = {}) =>
+      post<SharedModuleApplied>(`/api/layouts/${encodeURIComponent(layoutId)}/shared-modules/${encodeURIComponent(placedId)}/apply`, opts),
+    applyAll: (layoutId: string) =>
+      post<{ ok: true; updated: { placedId: string; version: number; from: number | null }[]; skipped: { placedId: string; error: string }[] }>(
+        `/api/layouts/${encodeURIComponent(layoutId)}/shared-modules/apply-all`,
+        {},
+      ),
+    /** "Make it mine": the copy becomes an ordinary module of the layout. */
+    detach: (layoutId: string, placedId: string) =>
+      post<{ ok: true; changed: boolean }>(`/api/layouts/${encodeURIComponent(layoutId)}/shared-modules/${encodeURIComponent(placedId)}/detach`, {}),
   },
 
   moduleInvites: {
@@ -2058,6 +2120,74 @@ export interface ModuleSummary {
   createdAt: number;
   updatedAt: number;
   credit?: Credit | null;
+}
+
+/** A module someone else shared with you: with you in person (`direct`), or with clubs you're in. */
+export interface SharedModuleSummary extends ModuleSummary {
+  sharedVia: { direct: boolean; clubs: { id: string; name: string; slug: string }[] };
+}
+
+/** What a module's owner sees about its sharing (the Share dialog). */
+export interface ModuleShares {
+  latestVersion: number;
+  /** False for a club's own module: its members already see it. */
+  canShareWithClubs: boolean;
+  people: { userId: string; role: 'viewer' | 'editor' | 'owner'; addedAt: number; email: string; displayName: string }[];
+  invites: InviteSummary[];
+  clubs: { orgId: string; name: string; slug: string; createdAt: number }[];
+  /** The clubs you're in (it can be shared with those). */
+  myClubs: { orgId: string; name: string; slug: string }[];
+  /** Where it's placed: counts by club and by the people it's shared with, never a layout's name. */
+  usedIn: { layouts: number; clubs: { orgId: string; name: string; layouts: number }[]; people: { userId: string; name: string; layouts: number }[]; others: number };
+}
+
+/** Whether a placed copy still follows its module. */
+export type SharedModuleState = 'shared' | 'unshared' | 'gone';
+
+/** One shared module a layout places. */
+export interface LayoutSharedModule {
+  /** The module's id in the layout. */
+  placedId: string;
+  moduleId: string;
+  state: SharedModuleState;
+  /** The version placed; 0 when the layout doesn't say. */
+  version: number;
+  /** Its name and owner now; null once it's no longer shared with this layout. */
+  title: string | null;
+  owner: { kind: 'user' | 'org'; name: string } | null;
+  /** The module's newest version, and its "What changed?" note. */
+  latest: number | null;
+  latestNote: string | null;
+  hasPicture: boolean;
+}
+
+export interface LayoutSharedModules {
+  /** You may press Update and Go back (you can edit the layout). */
+  canUpdate: boolean;
+  /** You may "Make it mine" (the layout's owner; a club's admins and managers). */
+  canDetach: boolean;
+  modules: LayoutSharedModule[];
+  /** With `?check=`: whether that module would follow its owner if placed in this layout. */
+  check?: SharedPlaceCheck;
+}
+
+/** Before placing a shared module: is it shared with this layout's owner too? */
+export interface SharedPlaceCheck {
+  moduleId: string;
+  state: SharedModuleState;
+  title: string;
+  moduleOwner: { kind: 'user' | 'org'; name: string; mine: boolean };
+  layoutOwner: { kind: 'user' | 'org'; name: string; mine: boolean };
+}
+
+export interface SharedModuleApplied {
+  ok: true;
+  placedId: string;
+  /** False when it already had that version. */
+  changed: boolean;
+  version: number;
+  from: number | null;
+  parts: number;
 }
 
 /** One saved version of a module. */
