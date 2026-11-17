@@ -993,6 +993,51 @@ function sharpenSoon(t: Track): void {
   }, SHARPEN_AFTER_MS);
 }
 
+/** The canvases off screen that draws in slices go onto, per layer, kept a while for the next one. */
+const offs = new WeakMap<Konva.Layer, { scene?: SceneCanvas; hit?: HitCanvas; timer: ReturnType<typeof setTimeout> | null }>();
+/** How long a canvas off screen is kept after its last use, in ms. */
+const OFF_KEPT_MS = 5000;
+/** How many canvases off screen were made, of each kind (for tests). */
+export const offStats = { scene: 0, hit: 0 };
+
+/**
+ * A canvas off screen of this size, cleared: the one kept from the last
+ * draw in slices when there is one. Making one at each pan's end took
+ * about 20 ms at 4x slowed CPU on a full-screen canvas, and as much again
+ * in garbage collection later. It's let go a few seconds after its last
+ * use, so the memory doesn't stay taken.
+ */
+function offCanvas<K extends 'scene' | 'hit'>(layer: Konva.Layer, kind: K, width: number, height: number, pixelRatio: number): K extends 'scene' ? SceneCanvas : HitCanvas {
+  let kept = offs.get(layer);
+  if (!kept) offs.set(layer, (kept = { timer: null }));
+  let c = kept[kind] as (SceneCanvas | HitCanvas) | undefined;
+  if (c && (c.pixelRatio !== pixelRatio || c.width !== Math.round(width * pixelRatio) || c.height !== Math.round(height * pixelRatio))) {
+    c.setPixelRatio(pixelRatio);
+    c.setSize(width, height);
+  }
+  if (!c) {
+    offStats[kind]++;
+    c = kind === 'scene' ? new SceneCanvas({ width, height, pixelRatio }) : new HitCanvas({ width, height, pixelRatio });
+    (kept as Record<string, unknown>)[kind] = c;
+  } else {
+    const ctx = (c as unknown as CanvasLike).getContext()._context;
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, c.width, c.height);
+    ctx.restore();
+  }
+  if (kept.timer !== null) clearTimeout(kept.timer);
+  const k = kept;
+  k.timer = setTimeout(() => {
+    k.timer = null;
+    const gone = [k.scene, k.hit].filter((x): x is SceneCanvas | HitCanvas => !!x).map((x) => (x as unknown as CanvasLike)._canvas);
+    delete k.scene;
+    delete k.hit;
+    Konva.Util.releaseCanvas(...gone);
+  }, OFF_KEPT_MS);
+  return c as K extends 'scene' ? SceneCanvas : HitCanvas;
+}
+
 /** Whether the sharp draw goes a slice at a time (tests compare with one that doesn't); how many slices the last took. */
 export const sliced: { enabled: boolean; slices: number; fixed?: number } = { enabled: true, slices: 0 };
 /** A slice of the sharp draw: about this long, in ms (they run while the page is idle). */
@@ -1027,7 +1072,7 @@ function sharpInSlices(t: Track, then: () => void): void {
     then();
     return;
   }
-  const off = new SceneCanvas({ width: canvas._logicalWidth, height: canvas._logicalHeight, pixelRatio: canvas.pixelRatio });
+  const off = offCanvas(layer, 'scene', canvas._logicalWidth, canvas._logicalHeight, canvas.pixelRatio);
   if (off.width !== canvas.width || off.height !== canvas.height) {
     t.sharpen = true;
     layer.drawScene();
@@ -1053,7 +1098,8 @@ function sharpInSlices(t: Track, then: () => void): void {
   const step = (d: { timeRemaining: () => number }): void => {
     const begun = performance.now();
     t.sharpenIdle = null;
-    if (!still() || !view) {
+    // (Its canvas off screen let go meanwhile: dropped too.)
+    if (!still() || !view || offs.get(layer)?.scene !== off) {
       if (tracks.get(layer) === t && t.soft.scene) sharpenSoon(t);
       return;
     }
@@ -1153,7 +1199,7 @@ export function hitInSlices(layer: Konva.Layer, done: (ok: boolean) => void): ()
   const at = drawnFor(layer, canvas);
   const view = viewOf(layer, canvas);
   if (!view) return no();
-  const off = new HitCanvas({ width: canvas._logicalWidth ?? canvas.width / canvas.pixelRatio, height: canvas._logicalHeight ?? canvas.height / canvas.pixelRatio, pixelRatio: canvas.pixelRatio });
+  const off = offCanvas(layer, 'hit', canvas._logicalWidth ?? canvas.width / canvas.pixelRatio, canvas._logicalHeight ?? canvas.height / canvas.pixelRatio, canvas.pixelRatio);
   if (off.width !== canvas.width || off.height !== canvas.height) return no();
   const marks = t.marks;
   // Nothing marked since, the view and canvas the same.
@@ -1173,7 +1219,7 @@ export function hitInSlices(layer: Konva.Layer, done: (ok: boolean) => void): ()
     const begun = performance.now();
     handle = null;
     if (over) return;
-    if (!still()) return finish(false);
+    if (!still() || offs.get(layer)?.hit !== off) return finish(false);
     let ended: boolean;
     do {
       const t0 = performance.now();

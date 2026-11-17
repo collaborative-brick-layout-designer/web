@@ -7,7 +7,7 @@
 
 import Konva from 'konva';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { SHARPEN_AFTER_MS, apart, cullOffscreen, cullStats, hitInSlices, sliced, slicedHits, followForPicture, lastDrawBoxes, partIndex, pictureChanges, pictureTaken, redrawWhole, type RedrawStats } from './cullOffscreen';
+import { SHARPEN_AFTER_MS, apart, cullOffscreen, cullStats, hitInSlices, offStats, sliced, slicedHits, followForPicture, lastDrawBoxes, partIndex, pictureChanges, pictureTaken, redrawWhole, type RedrawStats } from './cullOffscreen';
 
 /** The rectangles clipped to, per canvas, since the last `reset`. */
 const clips = new Map<HTMLCanvasElement, number[][]>();
@@ -492,6 +492,37 @@ describe('the hit canvas after the view moved, a slice at a time', () => {
       expect(done).toHaveBeenCalledWith(false);
       expect(ops.some(([el, c]) => el === hitEl() && c.startsWith('drawImage('))).toBe(false);
       layer.drawHit();
+    }
+  });
+
+  it('keeps its canvas off screen for the next one, and lets it go a few seconds after', () => {
+    vi.useFakeTimers();
+    try {
+      const made = offStats.hit;
+      for (const x of [-300, -200]) {
+        moved(x);
+        const done = vi.fn();
+        hitInSlices(layer, done);
+        while (idle.length > 0) idle.shift()!({ timeRemaining: () => 0 });
+        expect(done).toHaveBeenCalledWith(true);
+      }
+      expect(offStats.hit - made).toBe(1);
+      // Let go while one is under way: it's dropped, nothing copied.
+      moved(-100);
+      const done = vi.fn();
+      hitInSlices(layer, done);
+      idle.shift()!({ timeRemaining: () => 0 });
+      vi.advanceTimersByTime(6000);
+      ops.length = 0;
+      while (idle.length > 0) idle.shift()!({ timeRemaining: () => 0 });
+      expect(done).toHaveBeenCalledWith(false);
+      expect(ops.some(([el, c]) => el === hitEl() && c.startsWith('drawImage('))).toBe(false);
+      // The next one makes a new canvas.
+      moved(-50);
+      hitInSlices(layer, () => undefined);
+      expect(offStats.hit - made).toBe(2);
+    } finally {
+      vi.useRealTimers();
     }
   });
 
