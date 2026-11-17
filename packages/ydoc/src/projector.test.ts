@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import * as Y from 'yjs';
 import { readBbm } from '@cld/bbm';
 import type { LayerBrick } from '@cld/model';
-import { bbmToDoc, createDocProjector, docToBbm } from './projection.js';
+import { bbmToDoc, createDocProjector, docToBbm, projectorStats } from './projection.js';
 
 const BBM_FIXTURES = resolve(dirname(fileURLToPath(import.meta.url)), '../../bbm/tests/fixtures');
 
@@ -155,5 +155,44 @@ describe('createDocProjector', () => {
     expect(p.brickYMap(layer.bricks[0]!)).toBe(bricks.toArray().find((y) => y.get('id') === layer.bricks[0]!.id));
     // A copy isn't from the projector.
     expect(p.brickYMap({ ...layer.bricks[0]! })).toBeUndefined();
+  });
+
+  it('a change re-reads only the changed parts while the order stays, and stays equal to a whole read', () => {
+    const doc = loadFixture();
+    const p = createDocProjector(doc);
+    p.project();
+    const { id, bricks } = firstBrickLayer(doc);
+    const n = bricks.length;
+    const rnd = (() => {
+      let x = 7;
+      return () => ((x = (x * 1103515245 + 12345) % 2147483648) / 2147483648);
+    })();
+    for (let step = 0; step < 40; step++) {
+      const read = projectorStats.partsRead;
+      const whole = projectorStats.wholeSheets;
+      const before = p.project().layers.find((l) => l.id === id) as LayerBrick;
+      const picks = [Math.floor(rnd() * n), Math.floor(rnd() * n)];
+      doc.transact(() => {
+        for (const i of picks) bricks.get(i).set('displayArea', { x: step, y: i, width: 3, height: 4 });
+      });
+      const after = p.project();
+      expect(after).toEqual(docToBbm(doc));
+      expect(projectorStats.wholeSheets).toBe(whole);
+      expect(projectorStats.partsRead - read).toBe(new Set(picks).size);
+      const la = after.layers.find((l) => l.id === id) as LayerBrick;
+      la.bricks.forEach((b, i) => (picks.includes(i) ? expect(b).not.toBe(before.bricks[i]) : expect(b).toBe(before.bricks[i])));
+    }
+    // A part taken out: the whole sheet again, still equal.
+    bricks.delete(5, 1);
+    const whole = projectorStats.wholeSheets;
+    expect(p.project()).toEqual(docToBbm(doc));
+    expect(projectorStats.wholeSheets).toBe(whole + 1);
+    // A change to the sheet itself (not its parts): the same list of parts.
+    const list = (p.project().layers.find((l) => l.id === id) as LayerBrick).bricks;
+    doc.getMap<Y.Map<unknown>>('layerData').get(id)!.set('name', 'renamed');
+    const again = p.project().layers.find((l) => l.id === id) as LayerBrick;
+    expect(again.name).toBe('renamed');
+    expect(again.bricks).toBe(list);
+    expect(p.project()).toEqual(docToBbm(doc));
   });
 });

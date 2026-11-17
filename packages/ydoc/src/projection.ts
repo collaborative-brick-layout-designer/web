@@ -159,6 +159,9 @@ export interface DocProjector {
  * node and every ancestor, so only the changed bricks (and their layer)
  * are re-read on the next `project()`.
  */
+/** How many parts the projectors read, and how many whole sheets (for tests). */
+export const projectorStats = { partsRead: 0, wholeSheets: 0 };
+
 export function createDocProjector(doc: Y.Doc): DocProjector {
   const meta = doc.getMap('meta');
   const layerOrder = doc.getArray<string>('layers');
@@ -182,6 +185,57 @@ export function createDocProjector(doc: Y.Doc): DocProjector {
   };
   let current: BbmMap | null = null;
 
+  // Each sheet's parts as last read, with the order they were read in, and
+  // the parts changed since (by their Y.Map): while the order stays, a
+  // change re-reads only the changed parts into a copy of the list (it
+  // looked up all 7,520 parts again after each move, three times per drag
+  // in the mover's tab). The groups are kept until their list changes.
+  const listCache = new WeakMap<object, { order: Y.Map<unknown>[]; bricks: Brick[]; at: Map<Y.Map<unknown>, number> | null }>();
+  const changedParts = new WeakMap<object, Set<Y.Map<unknown>>>();
+  const groupsCache = new WeakMap<object, Group[]>();
+  const readBricksCached: BricksReader = (arr) => {
+    const order = brickOrderCached(arr);
+    const was = listCache.get(arr);
+    const changed = changedParts.get(arr);
+    changedParts.delete(arr);
+    if (was && was.order === order && (!changed || changed.size <= order.length / 4)) {
+      if (!changed || changed.size === 0) return was.bricks;
+      let at = was.at;
+      if (!at) {
+        at = new Map();
+        for (let i = 0; i < order.length; i++) at.set(order[i]!, i);
+      }
+      const bricks = was.bricks.slice();
+      let ok = true;
+      for (const y of changed) {
+        const i = at.get(y);
+        if (i === undefined) {
+          ok = false;
+          break;
+        }
+        bricks[i] = readBrickCached(y);
+      }
+      if (ok) {
+        projectorStats.partsRead += changed.size;
+        listCache.set(arr, { order, bricks, at });
+        return bricks;
+      }
+    }
+    projectorStats.wholeSheets++;
+    projectorStats.partsRead += order.length;
+    const bricks = order.map(readBrickCached);
+    listCache.set(arr, { order, bricks, at: null });
+    return bricks;
+  };
+  const readGroupsCached: GroupsReader = (arr) => {
+    let g = groupsCache.get(arr);
+    if (!g) {
+      g = arr.toArray().map(yMapToGroup);
+      groupsCache.set(arr, g);
+    }
+    return g;
+  };
+
   const readBrickCached: BrickReader = (y) => {
     let b = brickCache.get(y);
     if (!b) {
@@ -201,7 +255,16 @@ export function createDocProjector(doc: Y.Doc): DocProjector {
       while (t && t !== layerData) {
         brickCache.delete(t);
         layerCache.delete(t);
-        t = t.parent as Y.AbstractType<unknown> | null;
+        groupsCache.delete(t);
+        const up = t.parent as Y.AbstractType<unknown> | null;
+        // A part (a Y.Map in a sheet's list) changed: re-read it only.
+        const list: unknown = up;
+        if (list instanceof Y.Array && t instanceof Y.Map) {
+          let set = changedParts.get(list);
+          if (!set) changedParts.set(list, (set = new Set()));
+          set.add(t);
+        }
+        t = up;
       }
     }
   };
@@ -224,7 +287,7 @@ export function createDocProjector(doc: Y.Doc): DocProjector {
         if (!yLayer) continue;
         let layer = layerCache.get(yLayer);
         if (!layer || layer.id !== id) {
-          layer = readLayer(id, yLayer, readBrickCached, brickOrderCached);
+          layer = readLayer(id, yLayer, readBricksCached, readGroupsCached);
           layerCache.set(yLayer, layer);
         }
         layers.push(layer);
@@ -396,8 +459,17 @@ function writeLayerRuler(layer: LayerRuler, y: Y.Map<unknown>): void {
 type BrickReader = (y: Y.Map<unknown>) => Brick;
 /** A sheet's parts in their order (itemsInOrder). */
 type BrickOrder = (bricks: Y.Array<Y.Map<unknown>>) => Y.Map<unknown>[];
+/** A sheet's parts, read in their order (the projector keeps them between reads). */
+type BricksReader = (bricks: Y.Array<Y.Map<unknown>>) => Brick[];
+/** A sheet's groups, read (the projector keeps them between reads). */
+type GroupsReader = (groups: Y.Array<Y.Map<unknown>>) => Group[];
 
-function readLayer(id: string, y: Y.Map<unknown>, readBrick: BrickReader = yMapToBrick, brickOrder: BrickOrder = itemsInOrder): Layer {
+function readLayer(
+  id: string,
+  y: Y.Map<unknown>,
+  readBricks: BricksReader = (arr) => itemsInOrder(arr).map(yMapToBrick),
+  readGroups: GroupsReader = (arr) => arr.toArray().map(yMapToGroup),
+): Layer {
   const type = requireScalar(y, 'type') as Layer['type'];
   const common = {
     id,
@@ -411,7 +483,7 @@ function readLayer(id: string, y: Y.Map<unknown>, readBrick: BrickReader = yMapT
     case 'grid':
       return readLayerGrid(y, common);
     case 'brick':
-      return readLayerBrick(y, common, readBrick, brickOrder);
+      return readLayerBrick(y, common, readBricks, readGroups);
     case 'text':
       return readLayerText(y, common);
     case 'area':
@@ -462,15 +534,15 @@ function readCellIndexCorner(v: unknown): PointF {
   return { x: 0, y: 0 };
 }
 
-function readLayerBrick(y: Y.Map<unknown>, c: CommonFields, readBrick: BrickReader, brickOrder: BrickOrder = itemsInOrder): LayerBrick {
+function readLayerBrick(y: Y.Map<unknown>, c: CommonFields, readBricks: BricksReader, readGroups: GroupsReader): LayerBrick {
   const bricksY = y.get('bricks') as Y.Array<Y.Map<unknown>> | undefined;
   const groupsY = y.get('groups') as Y.Array<Y.Map<unknown>> | undefined;
   return {
     ...c,
     type: 'brick',
     displayBrickElevation: requireScalar(y, 'displayBrickElevation') as boolean,
-    bricks: bricksY ? brickOrder(bricksY).map(readBrick) : [],
-    groups: groupsY ? groupsY.toArray().map(yMapToGroup) : [],
+    bricks: bricksY ? readBricks(bricksY) : [],
+    groups: groupsY ? readGroups(groupsY) : [],
   };
 }
 
