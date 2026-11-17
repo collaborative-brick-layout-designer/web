@@ -12,6 +12,7 @@ import { useIsDemo } from '../catalog/ShareToCatalog';
 import { askConfirm, confirmDelete } from '../ui/ConfirmDialog';
 import { CopyLinkButton } from '../layouts/ShareDialog';
 import { useEscape } from '../editor/useEscape';
+import { ModuleClubShares } from './ModuleClubShares';
 
 type Role = 'owner' | 'editor' | 'viewer';
 
@@ -116,7 +117,9 @@ function ShareWithPeopleDialog({
               {demo
                 ? `The demo account can’t invite people. Make your own account to share ${noun}s.`
                 : isOwner
-                  ? `Invite people by email. They get a link, and have the ${noun} once they accept.`
+                  ? noun === 'module'
+                    ? 'People and clubs you share with can place this module in their layouts and get your updates. They can’t change its parts.'
+                    : `Invite people by email. They get a link, and have the ${noun} once they accept.`
                   : `You can ${role === 'editor' ? 'edit' : 'look at'} this ${noun}. Only its owners change who has it.`}
             </p>
           </div>
@@ -136,6 +139,8 @@ function ShareWithPeopleDialog({
             {invites.length > 0 && <PendingInvites what={what} id={id} invites={invites} isOwner={isOwner} onChange={refresh} />}
           </div>
         )}
+        {/* A module can also be shared, read-only, with a club (docs/shared-modules.md). */}
+        {noun === 'module' && canShare && <ModuleClubShares moduleId={id} title={title} />}
       </div>
     </div>
   );
@@ -208,8 +213,8 @@ function InviteForm({ what, id, onInvited }: { what: Shareable; id: string; onIn
             onChange={(e) => setRole(e.target.value as 'viewer' | 'editor')}
             className="rounded-lg border border-border bg-soft px-2 py-1.5"
           >
-            <option value="viewer">Viewer (can use it)</option>
-            <option value="editor">Editor (can change it)</option>
+            <option value="viewer">{what.noun === 'module' ? 'Can place it' : 'Viewer (can use it)'}</option>
+            <option value="editor">{what.noun === 'module' ? 'Can change it' : 'Editor (can change it)'}</option>
           </select>
         </label>
         <button

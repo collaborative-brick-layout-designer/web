@@ -112,6 +112,8 @@ test('what one club member adds shows for the others, and for nobody outside the
     await bEditor.goto(`/editor/${own.id}`);
     await expect(bEditor.locator('canvas').first()).toBeVisible({ timeout: 15000 });
     await openModuleLibrary(bEditor);
+    // A club's modules are on the library's Clubs tab.
+    await bEditor.getByTestId('module-library-tab-clubs').click();
     await streamOpen(bEditor);
     // C: Home.
     await c.page.goto('/');

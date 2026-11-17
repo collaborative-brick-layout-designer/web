@@ -33,7 +33,43 @@ import { connectedTurn, type TurnBrick } from './rotateTurn';
 import { cloneGroups, topGroupId, type ExpandedSet, type SetModule } from './sets';
 import { findPartsSheet, type SheetChoices } from './moduleSheets';
 import { textBoxStuds, type LineWidthAt } from './render/mapText';
-import { replaceModuleParts as replacePlacedModuleParts, type ModuleBatch } from '@cld/modules';
+import { movedPlacement, replaceModuleParts as replacePlacedModuleParts, sharedPlaced, withShared, type ModuleBatch, type Placement } from '@cld/modules';
+import { keepsLock, moduleLocked, partsLocked } from './sharedLock';
+import { followedPlacement, partPoses, sharedShapes } from './sharedPlacement';
+
+/** Set while a mutation that already checked the lock on all its parts runs its per-sheet steps. */
+let lockChecked = false;
+
+/** Set while a step that keeps shared modules' placements runs (the steps inside it leave that to it). */
+let keepingShared = false;
+
+/**
+ * Run `step` (a move, a turn, another sheet) so that every shared module it
+ * moves as a whole keeps its `shared.placement` (sharedPlacement.ts), in
+ * the same transaction, so one undo takes back both. `partOf` gives the
+ * parts' pivots for a turn by other than a quarter. Steps inside it don't
+ * look again.
+ */
+export function keepingPlacements<T>(doc: Y.Doc, step: () => T, partOf?: (partNumber: string) => PartGeom | undefined): T {
+  if (keepingShared) return step();
+  const before = sharedShapes(doc, partOf);
+  if (before.length === 0) return step();
+  keepingShared = true;
+  try {
+    let out!: T;
+    doc.transact(() => {
+      out = step();
+      const after = partPoses(doc, new Set(before.flatMap((s) => [...s.poses.keys()])), partOf);
+      for (const s of before) {
+        const next = followedPlacement(s.placement, s.poses, after);
+        if (next) updateSidecarModule(doc, s.placedId, (m) => withShared(m, { placement: next }));
+      }
+    }, LOCAL_ORIGIN);
+    return out;
+  } finally {
+    keepingShared = false;
+  }
+}
 
 export interface BrickInsertSpec {
   partNumber: string;
@@ -84,6 +120,8 @@ export function placeBrick(
 
 export function deleteBricks(doc: Y.Doc, layerId: string, brickIds: string[]): void {
   if (brickIds.length === 0) return;
+  // A shared module goes as a whole or not at all (sharedLock.ts).
+  if (!lockChecked && partsLocked(doc, brickIds, 'parts', true)) return;
   doc.transact(() => {
     const layerData = doc.getMap('layerData').get(layerId);
     if (!(layerData instanceof Y.Map)) return;
@@ -138,7 +176,7 @@ export function moveBrick(
   pivotY: number,
   part?: PartGeom,
 ): void {
-  doc.transact(() => {
+  keepingPlacements(doc, () => doc.transact(() => {
     const yBrick = findBrick(doc, layerId, brickId);
     if (!yBrick) return;
     const area = yBrick.get('displayArea') as RectangleF;
@@ -148,7 +186,7 @@ export function moveBrick(
       x: pivotX - off.x - area.width / 2,
       y: pivotY - off.y - area.height / 2,
     });
-  }, LOCAL_ORIGIN);
+  }, LOCAL_ORIGIN));
 }
 
 /**
@@ -164,7 +202,7 @@ export function moveBrickAndOrient(
   newOrientation: number,
   part?: PartGeom,
 ): void {
-  doc.transact(() => {
+  keepingPlacements(doc, () => doc.transact(() => {
     const yBrick = findBrick(doc, layerId, brickId);
     if (!yBrick) return;
     const area = yBrick.get('displayArea') as RectangleF;
@@ -172,7 +210,7 @@ export function moveBrickAndOrient(
     // The box follows the turned footprint (BrickPlacement placeByImageCentre).
     yBrick.set('displayArea', areaForPivot(part, orientation, { x: pivotX, y: pivotY }, area));
     yBrick.set('orientation', orientation);
-  }, LOCAL_ORIGIN);
+  }, LOCAL_ORIGIN), part ? () => part : undefined); // (one part: its own geometry)
 }
 
 /**
@@ -188,7 +226,7 @@ export function translateBricksAcrossLayers(
   dyStuds: number,
 ): void {
   if (byLayer.size === 0 || (dxStuds === 0 && dyStuds === 0)) return;
-  doc.transact(() => {
+  keepingPlacements(doc, () => doc.transact(() => {
     for (const [layerId, brickIds] of byLayer) {
       if (brickIds.length === 0) continue;
       const layerData = doc.getMap('layerData').get(layerId);
@@ -203,7 +241,7 @@ export function translateBricksAcrossLayers(
         b.set('displayArea', { ...area, x: area.x + dxStuds, y: area.y + dyStuds });
       }
     }
-  }, LOCAL_ORIGIN);
+  }, LOCAL_ORIGIN));
 }
 
 /**
@@ -220,7 +258,7 @@ export function translateBricks(
   dyStuds: number,
 ): void {
   if (brickIds.length === 0 || (dxStuds === 0 && dyStuds === 0)) return;
-  doc.transact(() => {
+  keepingPlacements(doc, () => doc.transact(() => {
     for (const brickId of brickIds) {
       const yBrick = findBrick(doc, layerId, brickId);
       if (!yBrick) continue;
@@ -231,7 +269,7 @@ export function translateBricks(
         y: area.y + dyStuds,
       });
     }
-  }, LOCAL_ORIGIN);
+  }, LOCAL_ORIGIN));
 }
 
 /**
@@ -307,7 +345,7 @@ export function rotateBricks(
   deltaDegrees: number,
 ): void {
   if (brickIds.length === 0 || deltaDegrees === 0) return;
-  doc.transact(() => {
+  keepingPlacements(doc, () => doc.transact(() => {
     for (const brickId of brickIds) {
       const yBrick = findBrick(doc, layerId, brickId);
       if (!yBrick) continue;
@@ -319,7 +357,7 @@ export function rotateBricks(
       // save — and the .bbm writer at G7 already handles drift fine.
       yBrick.set('orientation', mod360(current + deltaDegrees));
     }
-  }, LOCAL_ORIGIN);
+  }, LOCAL_ORIGIN));
 }
 
 /**
@@ -380,8 +418,15 @@ export function insertBricksAcrossLayers(
 /** Delete bricks spanning several layers in ONE transaction (one undo step). */
 export function deleteBricksAcrossLayers(doc: Y.Doc, byLayer: Map<string, string[]>): void {
   if (byLayer.size === 0) return;
+  // A shared module goes as a whole (its parts on every sheet) or not at all.
+  if (partsLocked(doc, [...byLayer.values()].flat(), 'parts', true)) return;
   doc.transact(() => {
-    for (const [layerId, ids] of byLayer) deleteBricks(doc, layerId, ids);
+    lockChecked = true;
+    try {
+      for (const [layerId, ids] of byLayer) deleteBricks(doc, layerId, ids);
+    } finally {
+      lockChecked = false;
+    }
   }, LOCAL_ORIGIN);
 }
 
@@ -424,7 +469,7 @@ export function rotateBricksAboutCentroid(
     found.map(({ area, orientation, part }) => ({ brick: { displayArea: area, orientation }, part })),
     degrees,
   );
-  doc.transact(() => {
+  keepingPlacements(doc, () => doc.transact(() => {
     found.forEach(({ yBrick, area }, i) => {
       const n = next[i]!;
       const a = n.displayArea;
@@ -436,7 +481,7 @@ export function rotateBricksAboutCentroid(
       }
       yBrick.set('orientation', mod360(n.orientation));
     });
-  }, LOCAL_ORIGIN);
+  }, LOCAL_ORIGIN), partOf);
 }
 
 type Pt = { x: number; y: number };
@@ -562,7 +607,7 @@ export function rotateSelection(
   // connected (RotateBrick).
   const joined = texts.length === 0 && rulers.length === 0 ? connectedTurn(pickedBricks, allBricks, degrees > 0 ? 1 : -1) : null;
   if (joined) degrees = joined.degrees;
-  doc.transact(() => {
+  keepingPlacements(doc, () => doc.transact(() => {
     const next = rotateAroundPivots(
       bricks.map(({ area, orientation, part }) => ({ brick: { displayArea: area, orientation }, part })),
       degrees,
@@ -595,7 +640,7 @@ export function rotateSelection(
       }
       writeRuler(yItems, idx, turned);
     }
-  }, LOCAL_ORIGIN);
+  }, LOCAL_ORIGIN), partOf);
 }
 
 /** A layer's groups and bricks as they are in the doc. */
@@ -620,6 +665,7 @@ function readGrouping(layerData: Y.Map<unknown>): { yBricks: Y.Array<unknown>; y
  */
 export function groupBricksAcrossLayers(doc: Y.Doc, byLayer: Map<string, string[]>): string[] {
   const groupIds: string[] = [];
+  if (partsLocked(doc, [...byLayer.values()].flat())) return groupIds;
   doc.transact(() => {
     const layers: { g: NonNullable<ReturnType<typeof readGrouping>>; topGroups: Set<string>; loose: Y.Map<unknown>[] }[] = [];
     let items = 0;
@@ -670,6 +716,7 @@ export function ungroupBricksAcrossLayers(
 ): { refused: number } {
   let refused = 0;
   if (byLayer.size === 0) return { refused };
+  if (partsLocked(doc, [...byLayer.values()].flat())) return { refused };
   doc.transact(() => {
     for (const [layerId, ids] of byLayer) {
       const layerData = doc.getMap('layerData').get(layerId);
@@ -1756,6 +1803,7 @@ export function editBrick(
   brickId: string,
   patch: EditBrickPatch,
 ): void {
+  if (partsLocked(doc, [brickId])) return;
   // A new altitude may reorder the sheet, by z (doc shape 2).
   const before = findBrick(doc, layerId, brickId);
   if (before && patch.altitude !== undefined && patch.altitude !== before.get('altitude')) markShapeInPlace(doc);
@@ -1991,8 +2039,10 @@ export function moveBricksToLayer(doc: Y.Doc, byLayer: Map<string, string[]>, ta
   const layerData = doc.getMap('layerData');
   const target = layerData.get(targetLayerId);
   if (!(target instanceof Y.Map) || target.get('type') !== 'brick') return 0;
+  // A shared module changes sheet as a whole.
+  if (partsLocked(doc, [...byLayer.values()].flat(), 'parts', true)) return 0;
   let moved = 0;
-  doc.transact(() => {
+  keepingPlacements(doc, () => doc.transact(() => {
     let tBricks = target.get('bricks');
     if (!(tBricks instanceof Y.Array)) {
       tBricks = new Y.Array<Y.Map<unknown>>();
@@ -2070,7 +2120,7 @@ export function moveBricksToLayer(doc: Y.Doc, byLayer: Map<string, string[]>, ta
         }
       }
     }
-  }, LOCAL_ORIGIN);
+  }, LOCAL_ORIGIN));
   return moved;
 }
 
@@ -2083,6 +2133,7 @@ export function moveBricksToLayer(doc: Y.Doc, byLayer: Map<string, string[]>, ta
  */
 export function groupBricks(doc: Y.Doc, layerId: string, brickIds: string[]): string | null {
   if (brickIds.length < 2) return null;
+  if (partsLocked(doc, brickIds)) return null;
   const groupId = makeId();
   doc.transact(() => {
     const layerData = doc.getMap('layerData').get(layerId);
@@ -2114,6 +2165,7 @@ export function groupBricks(doc: Y.Doc, layerId: string, brickIds: string[]): st
  */
 export function ungroupBricks(doc: Y.Doc, layerId: string, brickIds: string[]): void {
   if (brickIds.length === 0) return;
+  if (partsLocked(doc, brickIds)) return;
   doc.transact(() => {
     const layerData = doc.getMap('layerData').get(layerId);
     if (!(layerData instanceof Y.Map)) return;
@@ -2465,6 +2517,8 @@ function getSidecarModules(cache: Record<string, unknown>): SidecarModule[] {
 }
 
 export function addSidecarModule(doc: Y.Doc, module: SidecarModule): void {
+  // A part of a shared module can't be put in another module.
+  if (partsLocked(doc, module.members, 'members')) return;
   doc.transact(() => {
     const cache = readSidecarCache(doc);
     writeSidecarCache(doc, { ...cache, modules: [...getSidecarModules(cache), module] });
@@ -2512,6 +2566,7 @@ export function insertSet(doc: Y.Doc, layerId: string, set: ExpandedSet): string
  */
 export function makeSetsOfModules(doc: Y.Doc, sets: readonly SetModule[]): void {
   if (sets.length === 0) return;
+  for (const set of sets) if (moduleLocked(doc, set.moduleId, 'dissolve')) return;
   doc.transact(() => {
     const gone = new Set(sets.map((s) => s.moduleId));
     const cache = readSidecarCache(doc);
@@ -2560,8 +2615,13 @@ export function importBricksAsModule(
     offset?: { dx: number; dy: number };
     sourceFile?: string;
     sheets?: SheetChoices;
-    /** From the library: the module is linked to it (Update from library, Update library version). */
-    library?: { id: string; version?: number };
+    /**
+     * From the library: the module is linked to it (Update from library, Update library version).
+     * `shared`: it is someone else's, shared read-only (docs/shared-modules.md): the placed
+     * module is locked and follows its owner's updates. `placement` is how the library
+     * version's own coordinates map onto `batches` as given (before `offset`).
+     */
+    library?: { id: string; version?: number; shared?: { by: string; server?: string; placement: Placement } };
   },
 ): { moduleId: string; ids: string[] } | null {
   const nonEmpty = batches.filter((b) => b.bricks.length > 0);
@@ -2584,6 +2644,7 @@ export function importBricksAsModule(
       renameLayer(doc, id, name);
       return id;
     };
+    const sheetOf: Record<string, string> = {};
     for (const batch of nonEmpty) {
       const name = batch.layerName || 'Module';
       let layerId = findPartsSheet(sheets(), name);
@@ -2592,10 +2653,12 @@ export function importBricksAsModule(
         if (choice && 'layerId' in choice && layerData.get(choice.layerId) instanceof Y.Map) layerId = choice.layerId;
         else layerId = findOrMake(choice && 'newName' in choice ? choice.newName : name);
       }
+      sheetOf[name] = layerId;
       const copied = cloneGroups(batch.groups ?? [], batch.bricks, makeId);
       ids.push(...insertBricks(doc, layerId, copied.bricks, opts.offset, copied.groups));
     }
     const cache = readSidecarCache(doc);
+    const shared = opts.library?.shared;
     const mod: SidecarModule = {
       id: moduleId,
       name: opts.name || 'Module',
@@ -2605,6 +2668,15 @@ export function importBricksAsModule(
       ...(opts.sourceFile ? { sourceFile: opts.sourceFile } : {}),
       ...(opts.library ? { libraryModuleId: opts.library.id } : {}),
       ...(opts.library?.version ? { libraryVersion: opts.library.version } : {}),
+      ...(shared
+        ? {
+            shared: {
+              by: shared.by,
+              ...(shared.server ? { server: shared.server } : {}),
+              placement: { ...movedPlacement(shared.placement, opts.offset?.dx ?? 0, opts.offset?.dy ?? 0), sheets: sheetOf },
+            },
+          }
+        : {}),
     };
     writeSidecarCache(doc, { ...cache, modules: [...getSidecarModules(cache), mod] });
   }, LOCAL_ORIGIN);
@@ -2612,6 +2684,7 @@ export function importBricksAsModule(
 }
 
 export function renameSidecarModule(doc: Y.Doc, id: string, name: string): void {
+  if (moduleLocked(doc, id, 'rename')) return;
   doc.transact(() => {
     const cache = readSidecarCache(doc);
     writeSidecarCache(doc, {
@@ -2622,6 +2695,8 @@ export function renameSidecarModule(doc: Y.Doc, id: string, name: string): void 
 }
 
 export function deleteSidecarModule(doc: Y.Doc, id: string): void {
+  // (deleteModuleWithParts removes a shared module, parts and all.)
+  if (moduleLocked(doc, id, 'dissolve')) return;
   doc.transact(() => {
     const cache = readSidecarCache(doc);
     writeSidecarCache(doc, {
@@ -2660,6 +2735,7 @@ export function deleteModuleWithParts(doc: Y.Doc, id: string): void {
  * removes bricks or Rescan re-discovers them.
  */
 export function setSidecarModuleMembers(doc: Y.Doc, id: string, members: string[]): void {
+  if (moduleLocked(doc, id, 'members')) return;
   doc.transact(() => {
     const cache = readSidecarCache(doc);
     writeSidecarCache(doc, {
@@ -2690,7 +2766,7 @@ export function moveModuleBricks(
   if (memberIds.length === 0 || (dxStuds === 0 && dyStuds === 0)) return;
   const idSet = new Set(memberIds);
   const layerOrder = doc.getArray<string>('layers');
-  doc.transact(() => {
+  keepingPlacements(doc, () => doc.transact(() => {
     for (const layerId of layerOrder.toArray()) {
       const layerData = doc.getMap('layerData').get(layerId);
       if (!(layerData instanceof Y.Map)) continue;
@@ -2703,7 +2779,7 @@ export function moveModuleBricks(
         b.set('displayArea', { ...area, x: area.x + dxStuds, y: area.y + dyStuds });
       }
     }
-  }, LOCAL_ORIGIN);
+  }, LOCAL_ORIGIN));
 }
 
 /**
@@ -2745,6 +2821,12 @@ export function patchSidecarModule(
   id: string,
   patch: Partial<SidecarModule>,
 ): void {
+  const had = getSidecarModules(readSidecarCache(doc)).find((m) => m.id === id);
+  const broken = had ? keepsLock(had, { ...had, ...patch }) : null;
+  if (had && broken) {
+    moduleLocked(doc, id, broken);
+    return;
+  }
   doc.transact(() => {
     const cache = readSidecarCache(doc);
     writeSidecarCache(doc, {
@@ -2762,8 +2844,18 @@ export function updateSidecarModule(doc: Y.Doc, id: string, change: (m: SidecarM
   doc.transact(() => {
     const cache = readSidecarCache(doc);
     const modules = getSidecarModules(cache);
-    if (!modules.some((m) => m.id === id)) return;
-    writeSidecarCache(doc, { ...cache, modules: modules.map((m) => (m.id === id ? change(m) : m)) });
+    const was = modules.find((m) => m.id === id);
+    if (!was) return;
+    const next = change(was);
+    // A shared module keeps its parts, its link and its name (sharedLock.ts).
+    const broken = keepsLock(was, next);
+    if (broken) {
+      moduleLocked(doc, id, broken);
+      return;
+    }
+    // Another module can't take a shared module's parts either.
+    if (!sharedPlaced(was) && next.members.some((m) => !was.members.includes(m)) && partsLocked(doc, next.members.filter((m) => !was.members.includes(m)), 'members')) return;
+    writeSidecarCache(doc, { ...cache, modules: modules.map((m) => (m.id === id ? next : m)) });
   }, LOCAL_ORIGIN);
 }
 
@@ -2843,7 +2935,19 @@ export function cloneModuleBricks(doc: Y.Doc, module: SidecarModule): void {
     }
 
     const cache = readSidecarCache(doc);
-    const cloned = moduleCopy(module, newMemberIds);
+    let cloned = moduleCopy(module, newMemberIds);
+    // A shared module's copy is another shared placement: the owner's name, the same link and lock, moved along.
+    const shared = sharedPlaced(module);
+    if (shared) {
+      const { review: _review, ...link } = module.shared as Record<string, unknown>;
+      cloned = {
+        ...cloned,
+        name: module.name,
+        libraryModuleId: shared.moduleId,
+        ...(shared.version ? { libraryVersion: shared.version } : {}),
+        shared: { ...link, ...(shared.placement ? { placement: movedPlacement(shared.placement, offsetX, 0) } : {}) },
+      };
+    }
     writeSidecarCache(doc, { ...cache, modules: [...getSidecarModules(cache), cloned] });
   }, LOCAL_ORIGIN);
 }

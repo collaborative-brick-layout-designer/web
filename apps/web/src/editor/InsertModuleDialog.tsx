@@ -16,6 +16,7 @@ import { ModuleThumb } from '../modules/ModuleThumb';
 import { useEditorStore } from './editorStore';
 import { placeModuleAsking } from './SheetChoiceDialog';
 import { fetchModuleBatches, libraryVersionOf } from './moduleSnapshot';
+import { libraryPlacement } from './sharedModules';
 import { useEscape } from './useEscape';
 
 interface Props {
@@ -64,7 +65,9 @@ export function InsertModuleDialog({ doc, onClose }: Props) {
       // Bricks keep their source layer names and become a sidecar module
       // in the same undo step (desktop ImportBbmAsModuleCommand).
       const title = list.data?.modules.find((m) => m.id === moduleId)?.title ?? 'Module';
-      const res = await placeModuleAsking(doc, batches, { name: title, library: { id: moduleId, ...(version ? { version } : {}) } });
+      const library = await libraryPlacement(moduleId, version, { degrees: 0, x: 0, y: 0 });
+      if (!library) return;
+      const res = await placeModuleAsking(doc, batches, { name: title, library });
       if (res) useEditorStore.getState().setSelection(res.ids);
       return !!res;
     },

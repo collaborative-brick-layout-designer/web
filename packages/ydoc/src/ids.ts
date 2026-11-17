@@ -4,6 +4,7 @@
 import * as Y from 'yjs';
 import { DOC_BASE_SCHEMA } from './shape.js';
 import { stampMemberKeys } from './moduleMembers.js';
+import { stampShared } from './sharedShape.js';
 
 /**
  * Version of the Y.Doc layout shape, stored as `meta.schemaVersion`.
@@ -16,8 +17,10 @@ import { stampMemberKeys } from './moduleMembers.js';
  *       when made and moves to 2 only when an edit needs it.
  *   3 — a module's part changes are `p:` keys of `sidecarItems`
  *       (moduleMembers.ts). A doc moves to 3 with its first such key.
+ *   4 — a module may be shared, read-only (`shared` in its sidecar value;
+ *       sharedShape.ts). A doc moves to 4 with its first shared module.
  */
-export const DOC_SCHEMA_VERSION = 3;
+export const DOC_SCHEMA_VERSION = 4;
 
 /**
  * The oldest `meta.schemaVersion` this code still reads. Raise it only
@@ -64,7 +67,8 @@ export function makeId(): string {
  * give every Y.Map text cell that lacks one a stable `id`, and stamp
  * `meta.schemaVersion`. Legacy plain-object cells are left alone (the
  * web editor converts them to Y.Maps, with an id, on first edit).
- * A doc holding module part keys under a lower stamp is stamped shape 3.
+ * A doc holding module part keys under a lower stamp is stamped shape 3,
+ * and one holding a shared module shape 4.
  * Only touches a doc that has been seeded (has `meta.version`), and
  * makes no change — no Yjs update — when there is nothing to do.
  * Returns true when it changed anything.
@@ -91,5 +95,7 @@ export function upgradeDoc(doc: Y.Doc, origin?: unknown): boolean {
   }
   // Module part keys under a lower stamp (moduleMembers.ts): shape 3.
   const stamped = stampMemberKeys(doc);
-  return missing.length > 0 || stamp || stamped;
+  // A shared module under a lower stamp (sharedShape.ts): shape 4.
+  const shared = stampShared(doc);
+  return missing.length > 0 || stamp || stamped || shared;
 }

@@ -20,7 +20,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import * as Y from 'yjs';
 import { WebsocketProvider } from 'y-websocket';
 import { Awareness } from 'y-protocols/awareness';
-import { canReadDoc, keepSidecarThroughUndo, mayAddDuplicates, removeDuplicateItems, repairSidecarCache, stampMemberKeys } from '@cld/ydoc';
+import { canReadDoc, keepSidecarThroughUndo, mayAddDuplicates, removeDuplicateItems, repairSidecarCache, stampMemberKeys, stampShared } from '@cld/ydoc';
 import { watchModuleMerges } from './moduleMergeGuard';
 import { keepRefusedCopy, type RefusedWhy } from './refusedCopies';
 import { announceSignInEnded } from '../demo/demoVisitor';
@@ -551,6 +551,8 @@ export function useLayoutDoc(layoutId: string, canEdit?: boolean): LayoutDocStat
         // Module part keys under a lower shape stamp (two stamps written
         // at the same instant): older builds must refuse the layout.
         stampMemberKeys(fresh);
+        // The same for a shared module under a lower stamp (doc shape 4).
+        stampShared(fresh);
         // Two people moving the same part or ruler, or painting the same
         // cell, at once leave it there twice.
         if (duplicatesPossible) {

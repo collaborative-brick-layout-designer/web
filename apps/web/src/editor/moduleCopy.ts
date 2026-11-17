@@ -19,7 +19,8 @@ export function wholeModule(modules: readonly SidecarModule[], selection: readon
 
 /** A copy of `module` holding `members`: a new id, "X (copy)", the same look, no library link, unpinned. */
 export function moduleCopy(module: SidecarModule, members: string[], newId: () => string = makeId): SidecarModule {
-  const { id: _id, members: _m, libraryModuleId: _l, libraryVersion: _v, sourceFile: _s, importedAt: _i, pinned: _p, ...look } = module;
+  // (A shared module's link goes too: the copy follows nothing. sharedModules.ts pastedShared makes a shared copy.)
+  const { id: _id, members: _m, libraryModuleId: _l, libraryVersion: _v, sourceFile: _s, importedAt: _i, pinned: _p, shared: _sh, ...look } = module as SidecarModule & { shared?: unknown };
   return {
     ...look,
     id: newId(),

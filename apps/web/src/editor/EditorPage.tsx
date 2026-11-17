@@ -163,6 +163,9 @@ import { withShowName } from './moduleLook';
 import { ModuleEditDim, editedModuleFrame } from './render/ModuleEditDim';
 import { DRAG_LAYER } from './render/BrickLayer';
 import { fetchModuleBatches, libraryVersionOf } from './moduleSnapshot';
+import { SharedModulesHost } from './SharedModulesHost';
+import { dropPlacement, followsHere, forClipboard, libraryPlacement, pastedLooseText, pastedShared } from './sharedModules';
+import { sharedPlaced } from '@cld/modules';
 import { moduleDropTranslation, placedModuleBatches } from './moduleDrop';
 import type { GroupTurn } from './snapFeel';
 import { absorbIntoEditedModule, openMakeModule, enterModuleEdit, leaveModuleEdit, selectionMayMove, setModulePinned } from './moduleActions';
@@ -778,7 +781,7 @@ function Editor({ layoutId, docState, moduleMode }: { layoutId: string; docState
     if (panelId === 'parts') return <PartsPanel onPlacePart={onPlacePart} budgetLimits={budgetLimits} map={budgetLimits.size > 0 ? docMap : null} canUploadPart={!!me.data?.user && !me.data.user.isDemoAccount} mapEmpty={!isViewer && mapHasNoParts(docMap)} />;
     if (panelId === 'layers') return <LayersPanelHost doc={doc} isViewer={isViewer} />;
     if (panelId === 'usedparts') return <UsedPartsPanel doc={doc} budgetLimits={budgetLimits} />;
-    if (panelId === 'modules') return <Suspense fallback={null}><ModulesPanel doc={doc} isViewer={isViewer} /></Suspense>;
+    if (panelId === 'modules') return <Suspense fallback={null}><ModulesPanel doc={doc} isViewer={isViewer} layoutId={moduleMode ? null : layoutId} /></Suspense>;
     if (panelId === 'modlibrary')
       return (
         <Suspense fallback={null}>
@@ -1428,7 +1431,7 @@ function Editor({ layoutId, docState, moduleMode }: { layoutId: string; docState
         )}
         {touchModuleId && doc && <TouchModuleSheet doc={doc} moduleId={touchModuleId} onClose={() => setTouchModuleId(null)} />}
 
-        <Canvas doc={doc} awareness={awareness} isViewer={isViewer} size={canvasSize} touchEl={canvasBox} phone={viewport.isMobile} saveNow={saveNow} placeAtCenterRef={placeAtCenterRef} exportImageRef={exportImageRef} canvasActionsRef={canvasActionsRef} undo={undo} onOpenVenueProps={() => setShowVenueProps(true)} onMakeModule={() => openMakeModule(doc)} />
+        <Canvas doc={doc} awareness={awareness} isViewer={isViewer} size={canvasSize} touchEl={canvasBox} phone={viewport.isMobile} saveNow={saveNow} placeAtCenterRef={placeAtCenterRef} exportImageRef={exportImageRef} canvasActionsRef={canvasActionsRef} undo={undo} onOpenVenueProps={() => setShowVenueProps(true)} onMakeModule={() => openMakeModule(doc)} sharedLayoutId={moduleMode ? null : layoutId} />
       </main>
       {showRight && (
         <DockColumn
@@ -1748,7 +1751,10 @@ function Canvas({
   undo,
   onOpenVenueProps,
   onMakeModule,
+  sharedLayoutId,
 }: {
+  /** The layout on the server (null in a module's own editor): where shared modules are looked up. */
+  sharedLayoutId: string | null;
   doc: import('yjs').Doc;
   awareness: import('y-protocols/awareness').Awareness | null;
   isViewer: boolean;
@@ -2994,9 +3000,12 @@ function Canvas({
             // Bricks go to host layers named like the module's layers and
             // are registered as a sidecar module in the same undo step.
             const v = await version;
+            // Someone else's module is placed shared (locked), where it may go (sharedModules.ts).
+            const library = await libraryPlacement(moduleId, v, dropPlacement(offset));
+            if (!library) return;
             const res = await placeModuleAsking(doc, placedModuleBatches(batches, offset, catalog), {
               name: moduleName,
-              library: { id: moduleId, ...(v ? { version: v } : {}) },
+              library,
             });
             if (res) {
               absorbIntoEditedModule(doc, res.ids);
@@ -3765,7 +3774,13 @@ function Canvas({
       }
     }
     // Exactly one module picked: a paste makes a copy of the module.
-    return writeBricksToClipboard(entries, pickedWholeModule());
+    const whole = pickedWholeModule();
+    // (A shared module's placement keeps its sheets by name, for a paste in another layout.)
+    const sheetName = (id: string) => {
+      const l = map.layers.find((x) => x.id === id);
+      return l ? l.name || 'Bricks' : undefined;
+    };
+    return writeBricksToClipboard(entries, whole ? forClipboard(whole, sheetName) : whole);
   }
 
   /** The one module the picked parts are exactly, outside Edit module (where parts join the edited module instead). */
@@ -3942,6 +3957,10 @@ function Canvas({
       byLayerName.get(key)!.push(entry);
     }
 
+    // A copied shared module stays shared when it can follow its owner here (sharedModules.ts).
+    const sharedCopy = read.module && entries.length === clipped.length && !useEditorStore.getState().editingModuleId ? sharedPlaced(read.module) : null;
+    const keepShared = sharedCopy ? await followsHere(sharedCopy.moduleId) : false;
+    const sheetByName = new Map<string, string>();
     const newIds: string[] = [];
     const pastedOn: string[] = [];
     // One undo step: the parts, and the module copy when a whole module was copied.
@@ -3950,6 +3969,7 @@ function Canvas({
       const targetLayerId = findOrCreateBrickLayerByName(name);
       if (!targetLayerId) continue;
       if (!pastedOn.includes(targetLayerId)) pastedOn.push(targetLayerId);
+      sheetByName.set(name, targetLayerId);
       const layerEntries = byLayerName.get(name)!;
       const copied = cloneGroups(
         layerEntries.flatMap((e) => e.groups ?? []),
@@ -3966,8 +3986,12 @@ function Canvas({
       newIds.push(...ids);
       copyPlacedSets(doc, layerEntries.flatMap((e, i) => (e.placedSet && ids[i] ? [{ brick: ids[i], link: e.placedSet }] : [])));
     }
-    if (read.module && entries.length === clipped.length) addModuleCopy(read.module, newIds);
+    if (read.module && entries.length === clipped.length) {
+      if (sharedCopy && keepShared) addSidecarModule(doc, pastedShared(read.module, newIds, dx, dy, (n) => sheetByName.get(n)));
+      else addModuleCopy(read.module, newIds);
+    }
     }, LOCAL_ORIGIN);
+    if (sharedCopy && !keepShared && newIds.length > 0) useEditorStore.getState().showNotice(pastedLooseText(read.module!, sharedCopy.by), 'done', 12000);
     absorbIntoEditedModule(doc, newIds);
     if (newIds.length > 0) setSelection(newIds);
     // A paste keeps each part's own sheet (by name), not the active one: say where they went.
@@ -4074,7 +4098,11 @@ function Canvas({
     const anchors = linksByAnchor(readSidecarFromDoc(doc) as Record<string, unknown> | null);
     doc.transact(() => {
       ids = insertBricksAcrossLayers(doc, perLayer, offset, groupsPerLayer);
-      if (whole && kept === whole.members.length) addModuleCopy(whole, ids);
+      if (whole && kept === whole.members.length) {
+        // A shared module's duplicate is another shared placement, on the same sheets.
+        if (sharedPlaced(whole)) addSidecarModule(doc, pastedShared(whole, ids, offset.dx, offset.dy, (id) => id));
+        else addModuleCopy(whole, ids);
+      }
       // (insertBricksAcrossLayers adds the layers' parts in this order.)
       const originals = [...perLayer.values()].flat().map((b) => sourceOf.get(b) ?? '');
       copyPlacedSets(doc, originals.flatMap((from, i) => (anchors.has(from) && ids[i] ? [{ brick: ids[i], link: anchors.get(from)! }] : [])));
@@ -4368,6 +4396,18 @@ function Canvas({
       picked.map((b) => ({ ...b.displayArea })),
     );
     // Not closer than now (or 1:1), so a small set isn't blown up to fill the screen.
+    const fit = fitView(bounds, width, height, { min: MIN_ZOOM, max: Math.min(MAX_ZOOM, Math.max(1, useEditorStore.getState().zoom)) });
+    if (fit) useEditorStore.setState(fit);
+  }
+
+  /** Pick these parts, and bring them into view (a shared module's notice). */
+  function showParts(ids: readonly string[]) {
+    if (!map || ids.length === 0) return;
+    const want = new Set(ids);
+    const picked = map.layers.flatMap((l) => (l.type === 'brick' ? l.bricks.filter((b) => want.has(b.id)) : []));
+    if (picked.length === 0) return;
+    setSelection(picked.map((b) => b.id));
+    const bounds = unionStudRects(null, picked.map((b) => ({ ...b.displayArea })));
     const fit = fitView(bounds, width, height, { min: MIN_ZOOM, max: Math.min(MAX_ZOOM, Math.max(1, useEditorStore.getState().zoom)) });
     if (fit) useEditorStore.setState(fit);
   }
@@ -4984,6 +5024,7 @@ function Canvas({
       )}
       </Suspense>
       <SetUpdatesBar updates={setUpdates} onUpdate={updatePlacedSets} onShow={showPlacedSets} top={phone} />
+      <SharedModulesHost doc={doc} layoutId={sharedLayoutId} isViewer={isViewer} onShowParts={showParts} parts={partsByKey} top={phone} />
       {ctxMenu && !isViewer && (
         <CanvasContextMenu
           x={ctxMenu.x}
@@ -5058,7 +5099,7 @@ function Canvas({
           onMakeModule={onMakeModule}
           module={ctxModule}
           editingModuleId={editingModuleId}
-          onEditModule={(id) => enterModuleEdit(id)}
+          onEditModule={(id) => doc && enterModuleEdit(doc, id)}
           onDoneEditing={leaveModuleEdit}
           onPinModule={(id, pinned) => setModulePinned(doc, id, pinned)}
           onModuleShowName={(id, show) => updateSidecarModule(doc, id, (m) => withShowName(m, show))}

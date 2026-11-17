@@ -17,6 +17,7 @@ import {
   deleteBricks,
   moveBrick,
   moveBrickAndOrient,
+  keepingPlacements,
   setActiveConnectionPoint,
 } from '../mutations';
 import { annoCount, deleteMixedSelection, translateMixedSelection } from '../mixedSelection';
@@ -1279,7 +1280,8 @@ const BrickGlyph = memo(function BrickGlyph({
       // follow the leader, all one undo step.
       const rawDx = groupTurn.raw.x - dragStart.leaderStartCentre.x;
       const rawDy = groupTurn.raw.y - dragStart.leaderStartCentre.y;
-      doc.transact(() => {
+      // (A shared module turned with the group keeps its placement: keepingPlacements.)
+      keepingPlacements(doc, () => doc.transact(() => {
         for (const [lid, ids] of bricksByLayer(map, selection)) {
           const layer = map.layers.find((l) => l.id === lid);
           if (!layer || layer.type !== 'brick') continue;
@@ -1295,7 +1297,7 @@ const BrickGlyph = memo(function BrickGlyph({
         if (annoCount(anno) > 0) {
           translateMixedSelection(doc, map, labels, modules, { bricks: [], anno, dx, dy, movedBricks: selection });
         }
-      }, LOCAL_ORIGIN);
+      }, LOCAL_ORIGIN), (n) => partsByKey.get(n.toLowerCase()));
     } else if (inSelection && selection.length > 1) {
       // Multi-select drag: translate every selected brick (and ruler /
       // label) by the same delta, across ALL layers in one transaction
@@ -1398,7 +1400,7 @@ const BrickGlyph = memo(function BrickGlyph({
     // module being edited it opens the part's properties as usual.
     const mod = moduleByPart(getModules()).get(brick.id);
     if (mod && mod.id !== useEditorStore.getState().editingModuleId) {
-      enterModuleEdit(mod.id, brick.id);
+      enterModuleEdit(doc, mod.id, brick.id);
       return;
     }
     if (!byTouch && onEditBrick) onEditBrick(brick, layerId, meta);
