@@ -30,8 +30,8 @@ vi.mock('../brickGeometry', async (importOriginal) => {
   };
 });
 
-import { addLinearRuler, attachRulerEndpoint, ensureRulerLayer, moveBrick, placeBrick } from '../mutations';
-import { RulerLayers } from '../render/RulerLayer';
+import { addLinearRuler, attachRulerEndpoint, deleteBricks, ensureRulerLayer, moveBrick, placeBrick } from '../mutations';
+import { RulerLayers, rulerCentreStats } from '../render/RulerLayer';
 import { projectDoc } from '../useDocMap';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -69,6 +69,40 @@ describe('RulerLayers re-render scope', () => {
     prims = 0;
     await act(async () => root.render(render()));
     expect(prims).toBeGreaterThan(3);
+    await act(async () => root.unmount());
+  });
+
+  it("finds the attached parts where they were, going through every part only when one isn't there", async () => {
+    const N = 500;
+    const doc = createDefaultLayoutDoc();
+    const brickLayer = docToBbm(doc).layers.find((l) => l.type === 'brick')!.id;
+    const ids: string[] = [];
+    doc.transact(() => {
+      for (let i = 0; i < N; i++) ids.push(placeBrick(doc, brickLayer, { partNumber: 'track.0', x: i * 16, y: 0, width: 16, height: 8 }));
+    });
+    const rulerLayer = ensureRulerLayer(doc);
+    const ruler = addLinearRuler(doc, rulerLayer, { x: 0, y: 40 }, { x: 80, y: 40 });
+    attachRulerEndpoint(doc, rulerLayer, ruler, 0, ids[300]!);
+    const root = createRoot(document.createElement('div'));
+    const render = () => h(RulerLayers, { map: projectDoc(doc)! });
+    rulerCentreStats.wholeLooks = 0;
+    await act(async () => root.render(render()));
+    expect(rulerCentreStats.wholeLooks).toBe(1);
+    // Moves, of it and of others: found where it was.
+    for (const i of [300, 10, 450]) {
+      moveBrick(doc, brickLayer, ids[i]!, 7 + i, 9);
+      await act(async () => root.render(render()));
+    }
+    expect(rulerCentreStats.wholeLooks).toBe(1);
+    // A part before it deleted: it's at another place, looked for again, and followed after.
+    deleteBricks(doc, brickLayer, [ids[5]!]);
+    await act(async () => root.render(render()));
+    expect(rulerCentreStats.wholeLooks).toBe(2);
+    moveBrick(doc, brickLayer, ids[300]!, 1, 1);
+    prims = 0;
+    await act(async () => root.render(render()));
+    expect(prims).toBeGreaterThan(3);
+    expect(rulerCentreStats.wholeLooks).toBe(2);
     await act(async () => root.unmount());
   });
 });

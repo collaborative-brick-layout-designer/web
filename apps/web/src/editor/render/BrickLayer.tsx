@@ -290,7 +290,7 @@ export const BrickLayer = memo(function BrickLayer({ map, doc, isViewer = false,
     doc, isViewer, view.tool, view.showConnectionPoints, view.alwaysShowConnections, dotsInParts ? selectedIds : null,
     getMap, getModules, modules, editingModuleId, editFrame, partsByKey, byBarePartNumber, glyphs, onEditBrick, onTurn,
   ];
-  const elements = useRef(new Map<string, { shared: unknown[]; made: WeakMap<Brick, ReactElement>; runs: Map<string, KeptRun> }>());
+  const elements = useRef(new Map<string, { shared: unknown[]; made: WeakMap<Brick, ReactElement>; runs: Map<string, KeptRun>; bricks?: readonly Brick[]; starts?: Uint8Array }>());
 
   return (
     <Group>
@@ -401,16 +401,31 @@ export function startsRun(id: string): boolean {
  * change). Where a run starts comes from the part ids, so a move changes
  * one run, and a part added or deleted changes only the run it is in.
  */
-export function inRuns(bricks: readonly Brick[], kept: { runs: Map<string, KeptRun> }, elementFor: (brick: Brick) => ReactElement): ReactElement[] {
+/** How many part ids `inRuns` hashed (for tests). */
+export const inRunsStats = { hashed: 0 };
+
+export function inRuns(
+  bricks: readonly Brick[],
+  kept: { runs: Map<string, KeptRun>; bricks?: readonly Brick[]; starts?: Uint8Array },
+  elementFor: (brick: Brick) => ReactElement,
+): ReactElement[] {
   const out: ReactElement[] = [];
   const runs = new Map<string, KeptRun>();
+  // Where runs start, from the last time for the parts that are the same
+  // objects at the same places: only a changed part's id is hashed (every
+  // id was, on each render: a few ms on 7,520 parts at 4x slowed CPU).
+  const n = bricks.length;
+  const prev = kept.bricks;
+  const prevStarts = kept.starts;
+  const aligned = prev !== undefined && prevStarts !== undefined && prev.length === n;
+  const starts = new Uint8Array(n);
   let key = '';
   let from = 0;
   const close = (to: number) => {
     if (to === from) return;
     // Two runs started by one id (a part there twice for a moment): keys stay apart.
     let k = key;
-    for (let n = 1; runs.has(k); n++) k = `${key}#${n}`;
+    for (let i = 1; runs.has(k); i++) k = `${key}#${i}`;
     const had = kept.runs.get(k);
     let run: KeptRun;
     if (had && had.bricks.length === to - from && had.bricks.every((b, i) => b === bricks[from + i])) run = had;
@@ -421,16 +436,25 @@ export function inRuns(bricks: readonly Brick[], kept: { runs: Map<string, KeptR
     runs.set(k, run);
     out.push(run.el);
   };
-  for (let i = 0; i < bricks.length; i++) {
-    const id = bricks[i]!.id;
-    if (i > from && startsRun(id)) {
+  for (let i = 0; i < n; i++) {
+    const b = bricks[i]!;
+    let s: number;
+    if (aligned && b === prev[i]) s = prevStarts[i]!;
+    else {
+      inRunsStats.hashed++;
+      s = startsRun(b.id) ? 1 : 0;
+    }
+    starts[i] = s;
+    if (i > from && s) {
       close(i);
       from = i;
-      key = id;
+      key = b.id;
     }
   }
-  close(bricks.length);
+  close(n);
   kept.runs = runs;
+  kept.bricks = bricks;
+  kept.starts = starts;
   return out;
 }
 

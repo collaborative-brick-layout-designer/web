@@ -31,8 +31,10 @@ import {
 import type Konva from 'konva';
 import type {
   BbmMap,
+  Brick,
   CircularRulerItem,
   ColorSpec,
+  LayerBrick,
   LayerRuler,
   LinearRulerItem,
 } from '@cld/model';
@@ -86,6 +88,9 @@ interface Props {
   onScaleDrag?: (rulerId: string, studX: number, studY: number) => void;
 }
 
+/** How many times the rulers' attached parts were looked for through every part (for tests). */
+export const rulerCentreStats = { wholeLooks: 0 };
+
 export function RulerLayers({
   map: committedMap,
   isViewer = false,
@@ -115,6 +120,7 @@ export function RulerLayers({
   // change (anyone's move) took about 20 ms at 4x slowed CPU. And the same
   // Map while they stay put, so the rulers aren't rendered again.
   const centresKept = useRef<Map<string, { x: number; y: number }>>(new Map());
+  const attachedAt = useRef(new Map<string, { sheet: string; index: number }>());
   const brickCentres = useMemo(() => {
     const attached = new Set<string>();
     for (const layer of map.layers) {
@@ -125,12 +131,33 @@ export function RulerLayers({
     }
     const m = new Map<string, { x: number; y: number }>();
     if (attached.size > 0) {
-      for (const layer of map.layers) {
-        if (layer.type !== 'brick') continue;
-        for (const b of layer.bricks) {
-          // Attached ends follow the sprite centre, like desktop
-          // SceneBuilder brickCentreByGuid_ (imageCentre).
-          if (attached.has(b.id)) m.set(b.id, pivotOf(b, partsByKey?.get(b.partNumber.toLowerCase())));
+      // Where each attached part was found (its sheet and place), looked at
+      // first: only when one isn't there any more is every part gone through
+      // (it was on each change, about 8 ms on 7,520 parts at 4x slowed CPU).
+      const sheets = new Map<string, LayerBrick>();
+      for (const layer of map.layers) if (layer.type === 'brick') sheets.set(layer.id, layer);
+      const at = (b: Brick) => pivotOf(b, partsByKey?.get(b.partNumber.toLowerCase()));
+      const where = attachedAt.current;
+      let lost = false;
+      for (const id of attached) {
+        const w = where.get(id);
+        const b = w ? sheets.get(w.sheet)?.bricks[w.index] : undefined;
+        if (b && b.id === id) m.set(id, at(b));
+        else lost = true;
+      }
+      if (lost) {
+        rulerCentreStats.wholeLooks++;
+        m.clear();
+        where.clear();
+        for (const layer of sheets.values()) {
+          layer.bricks.forEach((b, index) => {
+            // Attached ends follow the sprite centre, like desktop
+            // SceneBuilder brickCentreByGuid_ (imageCentre). (The last
+            // of a part there twice, as before.)
+            if (!attached.has(b.id)) return;
+            m.set(b.id, at(b));
+            where.set(b.id, { sheet: layer.id, index });
+          });
         }
       }
     }

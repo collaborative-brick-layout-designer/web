@@ -34,7 +34,7 @@ vi.mock('../moduleEdit', async (importOriginal) => {
 });
 
 import { deleteBricks, moveBrick, placeBrick } from '../mutations';
-import { BrickLayer, inRuns, partRunRenders, startsRun } from '../render/BrickLayer';
+import { BrickLayer, inRuns, inRunsStats, partRunRenders, startsRun } from '../render/BrickLayer';
 import { useEditorStore } from '../editorStore';
 import { projectDoc } from '../useDocMap';
 
@@ -241,5 +241,28 @@ describe('BrickLayer re-render scope', () => {
     // A part there twice for a moment: the runs' keys stay apart.
     const twice = inRuns([...next, ...next.slice(0, 300)], kept, el);
     expect(new Set(twice.map((r) => r.key)).size).toBe(twice.length);
+  });
+
+  it('hashes only the ids of parts that changed in place', () => {
+    const bricks = Array.from({ length: 3000 }, (_, i) => ({ id: `p${i}` }) as unknown as import('@cld/model').Brick);
+    const kept = { runs: new Map() };
+    const el = (b: import('@cld/model').Brick) => h('i', { key: b.id });
+    const order = (els: ReturnType<typeof inRuns>) => els.flatMap((r) => (r.props as { parts: { key: string }[] }).parts.map((p) => p.key));
+    inRunsStats.hashed = 0;
+    const first = inRuns(bricks, kept, el);
+    expect(inRunsStats.hashed).toBe(3000);
+    // One part moved (a new object at its place): only its id.
+    const moved = bricks.slice();
+    moved[1234] = { id: 'p1234' } as unknown as import('@cld/model').Brick;
+    inRunsStats.hashed = 0;
+    const after = inRuns(moved, kept, el);
+    expect(inRunsStats.hashed).toBe(1);
+    expect(order(after)).toEqual(order(first));
+    expect(after.filter((r) => !first.includes(r)).length).toBe(1);
+    // One taken out: the places shift, every id again, and the same runs as from scratch.
+    const fewer = [...moved.slice(0, 10), ...moved.slice(11)];
+    const got = inRuns(fewer, kept, el);
+    expect(order(got)).toEqual(fewer.map((b) => b.id));
+    expect(got.map((r) => r.key)).toEqual(inRuns(fewer, { runs: new Map() }, el).map((r) => r.key));
   });
 });
