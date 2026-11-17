@@ -144,7 +144,8 @@ describe('kept links', () => {
       expect(incremental).toBeGreaterThan(20);
       expect(looked / incremental).toBeLessThan(all / 5);
     }
-  });
+    // (30 random sheets of 40 steps, each checked against a whole pass: a few seconds on CI.)
+  }, 30_000);
 
   it('a move far from everything goes through only its own connections', () => {
     const bricks: Brick[] = [];

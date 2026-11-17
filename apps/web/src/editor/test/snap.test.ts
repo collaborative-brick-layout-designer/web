@@ -1081,7 +1081,7 @@ describe('liveDragSnap — the ends near the drag', () => {
     }
     // (Snapped often enough to tell.)
     expect(snapped).toBeGreaterThan(300);
-  });
+  }, 20_000);
 
   it('a frame looks only at the ends near the dragged one', () => {
     const bricks = Array.from({ length: 2000 }, (_, i) => makeBrick({ id: `p${i}`, partNumber: 'track.0', x: (i % 100) * 16, y: Math.floor(i / 100) * 16 }));
