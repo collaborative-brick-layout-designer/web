@@ -44,6 +44,11 @@ interface Props {
 /** A shared module's frame: longer dashes than an ordinary module's. */
 export const SHARED_FRAME_DASH = [14, 6, 2, 6];
 
+/** The shared badge's size on the map (px): half the module's name, or a stud and a half when it shows no name. */
+export function badgePx(l: Pick<ModuleLabelLayout, 'text'>): number {
+  return Math.max(l.text ? l.text.fontPx * 0.5 : 0, 12);
+}
+
 /** The badge over a shared module's frame: "🔗 Alice", and "● v8 is ready" when a version waits; null for an ordinary module. */
 export function sharedBadge(m: SidecarModule | undefined, updates: Record<string, number>): string | null {
   const s = sharedPlaced(m);
@@ -83,7 +88,7 @@ export function ModuleOverlay({ map: committed, modules }: Props) {
   const tint = useEditorStore((s) => s.selectionTint);
   const snapActive = useEditorStore((s) => s.liveSnap !== null);
   // Shared (read-only) modules carry a link badge (docs/shared-modules.md): the badge says it, not a color.
-  const zoom = useEditorStore((s) => s.zoom);
+  // (Sized on the map, like the names, so a zoom never renders this in React.)
   const sharedUpdates = useEditorStore((s) => s.sharedModuleUpdates);
   // The parts being dragged where they are now (liveDragPose.ts): outlines
   // and names move and turn with them, every frame.
@@ -150,14 +155,14 @@ export function ModuleOverlay({ map: committed, modules }: Props) {
             <Text
               name="module-shared-badge"
               x={l.frame.x}
-              y={l.frame.y - 16 / Math.max(zoom, 0.01)}
+              y={l.frame.y - badgePx(l) * 1.3}
               text={sharedBadge(byId.get(l.id), sharedUpdates)!}
-              fontSize={12 / Math.max(zoom, 0.01)}
+              fontSize={badgePx(l)}
               fontStyle="bold"
               fontFamily={MAP_FONT_STACK}
               fill={l.nameFill}
               stroke={MODULE_NAME_STROKE}
-              strokeWidth={moduleNameStrokePx(12 / Math.max(zoom, 0.01))}
+              strokeWidth={moduleNameStrokePx(badgePx(l))}
               fillAfterStrokeEnabled
               perfectDrawEnabled={false}
             />
