@@ -997,6 +997,11 @@ function sharpenSoon(t: Track): void {
 export const sliced: { enabled: boolean; slices: number; fixed?: number } = { enabled: true, slices: 0 };
 /** A slice of the sharp draw: about this long, in ms (they run while the page is idle). */
 const SLICE_MS = 12;
+/**
+ * At most this long in one idle callback, in ms, whatever time the browser
+ * offers (up to 50): with the next slice it stays under a long task's 50.
+ */
+const STEP_MS = 30;
 
 /**
  * The sharp draw after a pan's end (`sharpenSoon`), a slice of parts at a
@@ -1043,9 +1048,10 @@ function sharpInSlices(t: Track, then: () => void): void {
   const only: Box = { x0: (0 / pr - sx) / scale, y0: (0 / pr - sy) / scale, x1: (canvas.width / pr - sx) / scale, y1: (canvas.height / pr - sy) / scale };
   const container = Konva.Container.prototype as unknown as Own;
   let from = 0;
-  let per = sliced.fixed ?? 200;
+  let per = sliced.fixed ?? 100;
   sliced.slices = 0;
   const step = (d: { timeRemaining: () => number }): void => {
+    const begun = performance.now();
     t.sharpenIdle = null;
     if (!still() || !view) {
       if (tracks.get(layer) === t && t.soft.scene) sharpenSoon(t);
@@ -1087,7 +1093,7 @@ function sharpInSlices(t: Track, then: () => void): void {
       const took = performance.now() - t0;
       // About SLICE_MS a slice, whatever the machine.
       per = sliced.fixed ?? Math.max(20, Math.min(4000, Math.round((per * SLICE_MS) / Math.max(took, 0.5))));
-      if (done || d.timeRemaining() < SLICE_MS + 2) break;
+      if (done || d.timeRemaining() < SLICE_MS + 2 || performance.now() - begun + took > STEP_MS) break;
     } while (!done);
     if (!done) {
       t.sharpenIdle = w.requestIdleCallback!(step, { timeout: SHARPEN_IDLE_MS });
@@ -1154,7 +1160,7 @@ export function hitInSlices(layer: Konva.Layer, done: (ok: boolean) => void): ()
   const still = () => tracks.get(layer) === t && t.marks === marks && drawnFor(layer, canvas) === at && layer.isVisible() && layer.shouldDrawHit();
   const container = Konva.Container.prototype as unknown as Own;
   let from = 0;
-  let per = slicedHits.fixed ?? 400;
+  let per = slicedHits.fixed ?? 100;
   let handle: number | null = null;
   let over = false;
   slicedHits.slices = 0;
@@ -1164,6 +1170,7 @@ export function hitInSlices(layer: Konva.Layer, done: (ok: boolean) => void): ()
     done(ok);
   };
   const step = (d: { timeRemaining: () => number }): void => {
+    const begun = performance.now();
     handle = null;
     if (over) return;
     if (!still()) return finish(false);
@@ -1188,7 +1195,7 @@ export function hitInSlices(layer: Konva.Layer, done: (ok: boolean) => void): ()
       from += per;
       const took = performance.now() - t0;
       per = slicedHits.fixed ?? Math.max(20, Math.min(8000, Math.round((per * SLICE_MS) / Math.max(took, 0.5))));
-      if (ended || d.timeRemaining() < SLICE_MS + 2) break;
+      if (ended || d.timeRemaining() < SLICE_MS + 2 || performance.now() - begun + took > STEP_MS) break;
     } while (!ended);
     if (!ended) {
       handle = w.requestIdleCallback!(step, { timeout: SHARPEN_IDLE_MS });

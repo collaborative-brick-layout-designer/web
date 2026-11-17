@@ -2475,6 +2475,8 @@ function Canvas({
     viewBitmapRef.current = vb;
     // For tests that count a pan's draws (e2e bigLayoutWork): whether the next move starts on the kept picture.
     (stage as unknown as { viewPictureReady?: () => boolean }).viewPictureReady = () => vb.ready();
+    // For tests of the hit canvas after a move (e2e panFinish): whether it's still behind the view.
+    (stage as unknown as { hitsBehind?: () => boolean }).hitsBehind = () => hitStaleRef.current;
     const changed = () => vb.invalidate();
     doc.on('update', changed);
     const offSprites = subscribeSpriteProgress(changed);
@@ -2493,6 +2495,7 @@ function Canvas({
       offStore();
       vb.dispose();
       delete (stage as unknown as { viewPictureReady?: unknown }).viewPictureReady;
+      delete (stage as unknown as { hitsBehind?: unknown }).hitsBehind;
       if (viewBitmapRef.current === vb) viewBitmapRef.current = null;
     };
   }, [hasMap, doc]);
