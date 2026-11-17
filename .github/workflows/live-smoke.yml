@@ -4,8 +4,9 @@ name: Live smoke
 # repo's headless bld_sync_driver: its own SyncSession, driven over stdin) on
 # one layout on a real server. Presence, a move each way, a drop and
 # reconnect on each side, a role change and a sign-out (liveSmoke.spec.ts),
-# and the desktop/web merge spec (desktopLiveSync.spec.ts). Full review
-# area 4, Idea 1.
+# the desktop/web merge spec (desktopLiveSync.spec.ts), and a shared module
+# with the web and the desktop in one layout (sharedModulesDesktop.spec.ts).
+# Full review area 4, Idea 1.
 #
 # Building the driver takes Qt and Rust, so this runs on main and at night,
 # not on every pull request (only those that change it).
@@ -20,6 +21,7 @@ on:
       - .github/workflows/live-smoke.yml
       - apps/web/e2e/test/liveSmoke.spec.ts
       - apps/web/e2e/test/desktopLiveSync.spec.ts
+      - apps/web/e2e/test/sharedModulesDesktop.spec.ts
   schedule:
     - cron: '47 7 * * *'
   workflow_dispatch:
@@ -99,7 +101,7 @@ jobs:
         working-directory: apps/web
         env:
           QT_QPA_PLATFORM: offscreen
-        run: npx playwright test e2e/test/liveSmoke.spec.ts e2e/test/desktopLiveSync.spec.ts --workers=1 --retries=1 --reporter=list,html
+        run: npx playwright test e2e/test/liveSmoke.spec.ts e2e/test/desktopLiveSync.spec.ts e2e/test/sharedModulesDesktop.spec.ts --workers=1 --retries=1 --reporter=list,html
 
       - name: Upload the Playwright report and traces
         if: failure()
