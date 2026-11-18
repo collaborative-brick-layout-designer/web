@@ -33,6 +33,7 @@ import {
 import { db, schema } from '../db/index.js';
 import { docHub, type DocSession } from '../ws/docHub.js';
 import { syncLayoutSharedModules } from './placed.js';
+import { rememberSharedGeometry } from '../ws/sharedGeometry.js';
 
 /** The origin of the server's own changes to a room's document. */
 export const SERVER_ORIGIN = 'cld-server';
@@ -172,6 +173,8 @@ export async function applyVersion(
 ): Promise<ApplyResult> {
   const next = batchesOrNull(await versionBytes(moduleId, version));
   if (!next) return { ok: false, error: 'version_not_found' };
+  // The guard measures this layout's moves with the same geometry (ws/sharedGeometry.ts).
+  rememberSharedGeometry(layoutId, partOf);
   // Everything that has to be awaited is read before the step: nothing
   // may come between reading the module's state and writing it.
   const session = await docHub.getOrCreate(layoutId);

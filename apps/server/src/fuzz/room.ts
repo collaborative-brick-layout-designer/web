@@ -45,15 +45,16 @@ import * as syncProtocol from 'y-protocols/sync';
 import * as awarenessProtocol from 'y-protocols/awareness';
 import type { WebSocket } from '@fastify/websocket';
 import { readBbm } from '@cld/bbm';
-import { bbmToDoc, rulersInPlace, markShapeInPlace, cellOffsetOf } from '@cld/ydoc';
+import { bbmToDoc, rulersInPlace, markShapeInPlace, cellOffsetOf, readSidecarCache, writeSidecarCache } from '@cld/ydoc';
 import { DocSession, MAX_AWARENESS_IDS } from '../ws/docHub.js';
 import { handleMessage, type Sender } from '../ws/handler.js';
 import { newPace, resetCopyBudgets } from '../ws/pacing.js';
 import { MAX_PENDING_BYTES, MAX_PENDING_DS_BYTES, pendingBytes, pendingDsBytes } from '../ws/pending.js';
 import { MAX_HELD_UPDATES } from '../ws/held.js';
 import { checkUpdate } from '../ws/updateGuard.js';
-import { decodeIncoming } from '../ws/decoded.js';
+import { decodeIncoming, guardWork } from '../ws/decoded.js';
 import { UNSURE, checkGridSizesOnCopy, drawingProblems, exactVerdict } from '../ws/gridGuard.js';
+import { lockBroken, lockState } from '../ws/sharedGuard.js';
 import { PropertyFailure, clocksInRange, desktopReads, fail, fromHex, fuzzData, serverDir, stateKey, timed, updateGuardContract } from './common.js';
 
 // ---- rooms ------------------------------------------------------------------
@@ -100,7 +101,8 @@ let rooms: Uint8Array[] | null = null;
 /**
  * The rooms an input starts from: empty; a small layout and a large one read
  * from .bbm files; the contract's grid and drawing-settings rooms; that one
- * after a shape-2 conversion; and a layout as the desktop (yrs) writes it.
+ * after a shape-2 conversion; a layout as the desktop (yrs) writes it; and
+ * a layout with a shared (read-only) module on a sheet of its own.
  */
 export function roomStates(): Uint8Array[] {
   if (rooms) return rooms;
@@ -114,8 +116,75 @@ export function roomStates(): Uint8Array[] {
     shape2Room(drawing),
     bbmRoom('tight-corner.bbm', 104),
     new Uint8Array(readFileSync(fuzzData('seeds', 'desktop-tight-corner.ydoc'))),
+    sharedRoom(),
   ];
   return rooms;
+}
+
+/** The shared room's module, its parts and its sheet. */
+export const SHARED_ROOM = {
+  index: 7,
+  sheet: 'shared-sheet',
+  placedId: 'shared-crane',
+  parts: [
+    { id: '8100000000000001', pn: '3001.1', x: 100, y: 50, o: 0 },
+    { id: '8100000000000002', pn: '3001.1', x: 104, y: 50, o: 0 },
+    { id: '8100000000000003', pn: '3003.1', x: 100, y: 58, o: 90 },
+    { id: '8100000000000004', pn: '3020.1', x: 110, y: 54, o: 45 },
+  ],
+} as const;
+
+/** A small layout with a shared module of four parts on a sheet of its own, written by one client. */
+function sharedRoom(): Uint8Array {
+  const doc = new Y.Doc();
+  doc.clientID = 107;
+  Y.applyUpdate(doc, bbmRoom('oracle/sleepers.bbm', 101));
+  doc.transact(() => {
+    const l = new Y.Map<unknown>();
+    l.set('id', SHARED_ROOM.sheet);
+    l.set('type', 'brick');
+    l.set('name', 'Harbor');
+    l.set('visible', true);
+    l.set('transparency', 100);
+    l.set('hullProperties', { isVisible: false, hullColor: { kind: 'known', name: 'Black' }, hullThickness: 1 });
+    l.set('displayBrickElevation', false);
+    const bricks = new Y.Array<Y.Map<unknown>>();
+    bricks.push(
+      SHARED_ROOM.parts.map((p) => {
+        const b = new Y.Map<unknown>();
+        b.set('id', p.id);
+        b.set('displayArea', { x: p.x, y: p.y, width: 2, height: 2 });
+        b.set('myGroup', '');
+        b.set('partNumber', p.pn);
+        b.set('orientation', p.o);
+        b.set('activeConnectionPointIndex', 0);
+        b.set('altitude', 0);
+        b.set('connexions', []);
+        return b;
+      }),
+    );
+    l.set('bricks', bricks);
+    l.set('groups', new Y.Array());
+    doc.getMap('layerData').set(SHARED_ROOM.sheet, l);
+    doc.getArray<string>('layers').push([SHARED_ROOM.sheet]);
+    const cache = readSidecarCache(doc) ?? { schemaVersion: 1, bbmHashSha256: '' };
+    writeSidecarCache(doc, {
+      ...cache,
+      modules: [
+        ...(Array.isArray(cache.modules) ? cache.modules : []),
+        {
+          id: SHARED_ROOM.placedId,
+          name: 'Harbor crane',
+          members: SHARED_ROOM.parts.map((p) => p.id),
+          transform: [1, 0, 0, 0, 1, 0, 0, 0, 1],
+          libraryModuleId: '5f0c0c0e-5d0e-4c55-9a43-1f3a2c9f7d10',
+          libraryVersion: 1,
+          shared: { by: 'alice', placement: { degrees: 0, x: 100, y: 50, sheets: { Layout: SHARED_ROOM.sheet } } },
+        },
+      ],
+    });
+  });
+  return Y.encodeStateAsUpdate(doc);
 }
 
 // ---- connections --------------------------------------------------------------
@@ -253,6 +322,7 @@ export function fuzzRoom(data: Uint8Array, { allTaken = false } = {}): void {
 
   const session = new DocSession('fuzz-room');
   const mirror = new Y.Doc(); // a desktop that only ever gets what the room relays
+  const putBackBefore = guardWork.sharedPutBack;
   try {
     Y.applyUpdate(session.doc, base);
     Y.applyUpdate(mirror, base);
@@ -282,6 +352,7 @@ export function fuzzRoom(data: Uint8Array, { allTaken = false } = {}): void {
       // (Only on the small rooms: the copy costs the room's size.)
       if (update && base.length <= DIFF_ROOM_BYTES) compareGridChecks(Y.encodeStateAsUpdate(session.doc), update);
       const sentBefore = conn.ws.sent.length;
+      const locks = lockState(session.doc);
       relayed = [];
       let threw: unknown = null;
       timed('handling a message', () => {
@@ -333,7 +404,12 @@ export function fuzzRoom(data: Uint8Array, { allTaken = false } = {}): void {
         }
       }
       checkPresence(session);
+      if (locks.shared.size > 0) {
+        const broken = lockBroken(locks, lockState(session.doc));
+        if (broken !== null) fail(`a message left a shared module broken: ${broken}`);
+      }
     }
+    if (allTaken && guardWork.sharedPutBack > putBackBefore) fail('a real client\'s edit to a shared module was put back');
 
     if (allTaken && session.held.count > 0) fail(`${session.held.count} updates of real clients were never applied`);
 

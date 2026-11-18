@@ -10,14 +10,19 @@
 //     deleting a sheet), each sent live and as one offline session; two
 //     edits arriving out of order; a viewer's edit; presence, a takeover of
 //     it and a reconnect; values out of range; and the contract's grid and
-//     drawing-settings updates on their own rooms.
+//     drawing-settings updates on their own rooms;
+//   - on the shared-module room: the module moved, turned (a quarter, and
+//     by a connection snap's odd angle), nudged and put on another sheet as
+//     a whole (taken, never put back), by two people at once, and an
+//     outdated app's changes that break it (one part moved, turned or
+//     recolored, a part deleted: put back).
 
 import { readFileSync } from 'node:fs';
 import * as Y from 'yjs';
 import * as encoding from 'lib0/encoding';
 import * as syncProtocol from 'y-protocols/sync';
 import { fromHex, fuzzData, updateGuardContract } from './common.js';
-import { convertShape, encodeRoomInput, roomStates } from './room.js';
+import { SHARED_ROOM, convertShape, encodeRoomInput, roomStates } from './room.js';
 
 type Msg = [number, Uint8Array];
 
@@ -217,12 +222,15 @@ export function roomSeeds(): Uint8Array[] {
 
 export function taggedRoomSeeds(): RoomSeed[] {
   const out: RoomSeed[] = [];
-  const real = (input: Uint8Array) => out.push({ input, real: true });
+  const realClient = (input: Uint8Array) => out.push({ input, real: true });
   const other = (input: Uint8Array) => out.push({ input, real: false });
   const states = roomStates();
   const c = updateGuardContract();
   const empty = Y.encodeStateVector(new Y.Doc());
   states.forEach((state, r) => {
+    // The edits below don't know which parts are a shared module's (the web's
+    // tools refuse those), so on the shared room they aren't a real client's.
+    const real = r === SHARED_ROOM.index ? other : realClient;
     const roomSv = (() => {
       const d = new Y.Doc();
       Y.applyUpdate(d, state);
@@ -286,6 +294,7 @@ export function taggedRoomSeeds(): RoomSeed[] {
       ]),
     );
   });
+  sharedSeeds(states[SHARED_ROOM.index]!, realClient, other);
   // The contract's grid and drawing-settings updates on their own rooms (2 and 3).
   for (const [room, vectors] of [
     [2, c.gridSize.vectors],
@@ -301,7 +310,7 @@ export function taggedRoomSeeds(): RoomSeed[] {
     other(encodeRoomInput(0, 0, [[0, v.kind === 'stateVector' ? msgStep1(fromHex(v.hex)) : msgUpdate(fromHex(v.hex))]]));
   }
   // A desktop uploading its layout into an empty room, with its presence.
-  real(
+  realClient(
     encodeRoomInput(0, 0, [
       [0, msgStep1(empty)],
       [0, msgStep2(new Uint8Array(readFileSync(fuzzData('seeds', 'desktop-tight-corner.ydoc'))))],
@@ -312,6 +321,88 @@ export function taggedRoomSeeds(): RoomSeed[] {
     ]),
   );
   return out;
+}
+
+/** The shared module's parts in `doc`, by id. */
+function sharedParts(doc: Y.Doc): Y.Map<unknown>[] {
+  const ids = new Set<string>(SHARED_ROOM.parts.map((p) => p.id));
+  const out: Y.Map<unknown>[] = [];
+  for (const l of sheets(doc)) {
+    const bricks = l.get('bricks');
+    if (bricks instanceof Y.Array) for (const b of bricks) if (b instanceof Y.Map && ids.has(b.get('id') as string)) out.push(b);
+  }
+  return out;
+}
+
+/** Turn every part of the module by `deg` about `about` and move it by (dx, dy), as the apps do (parts without a hull: about the box center). */
+function moveShared(parts: readonly Y.Map<unknown>[], deg: number, about: { x: number; y: number }, dx: number, dy: number): void {
+  const r = (deg * Math.PI) / 180;
+  for (const b of parts) {
+    const a = b.get('displayArea') as { x: number; y: number; width: number; height: number };
+    const cx = a.x + a.width / 2 - about.x;
+    const cy = a.y + a.height / 2 - about.y;
+    const to = { x: about.x + cx * Math.cos(r) - cy * Math.sin(r) + dx, y: about.y + cx * Math.sin(r) + cy * Math.cos(r) + dy };
+    const quarter = Math.round(deg / 90) % 2 !== 0;
+    const w = quarter ? a.height : a.width;
+    const h = quarter ? a.width : a.height;
+    b.set('displayArea', { x: to.x - w / 2, y: to.y - h / 2, width: w, height: h });
+    b.set('orientation', ((((b.get('orientation') as number) ?? 0) + deg) % 360 + 360) % 360);
+  }
+}
+
+function sharedSeeds(state: Uint8Array, real: (u: Uint8Array) => void, other: (u: Uint8Array) => void): void {
+  const r = SHARED_ROOM.index;
+  const whole: ((doc: Y.Doc) => void)[] = [
+    (doc) => doc.transact(() => moveShared(sharedParts(doc), 0, { x: 0, y: 0 }, 24.5, -8)),
+    (doc) => doc.transact(() => moveShared(sharedParts(doc), 0, { x: 0, y: 0 }, 1, 0)),
+    (doc) => doc.transact(() => moveShared(sharedParts(doc), 90, { x: 104, y: 54 }, 0, 0)),
+    (doc) => doc.transact(() => moveShared(sharedParts(doc), 33.333, { x: 96, y: 50 }, -12.25, 3)),
+    (doc) =>
+      doc.transact(() => {
+        // Another sheet: the same ids deleted and added again, on the layout's first parts sheet.
+        const to = sheets(doc).find((l) => l.get('id') !== SHARED_ROOM.sheet && l.get('bricks') instanceof Y.Array);
+        const from = sheets(doc).find((l) => l.get('id') === SHARED_ROOM.sheet);
+        if (!to || !from) return;
+        const list = from.get('bricks') as Y.Array<Y.Map<unknown>>;
+        const copies = list.toArray().map((b) => {
+          const c = new Y.Map<unknown>();
+          for (const [k, v] of b.entries()) c.set(k, v);
+          return c;
+        });
+        list.delete(0, list.length);
+        (to.get('bricks') as Y.Array<unknown>).push(copies);
+      }),
+  ];
+  const broken: ((doc: Y.Doc) => void)[] = [
+    (doc) => doc.transact(() => moveShared(sharedParts(doc).slice(0, 1), 0, { x: 0, y: 0 }, 3, 0)),
+    (doc) => doc.transact(() => moveShared(sharedParts(doc).slice(0, 2), 90, { x: 104, y: 54 }, 0, 0)),
+    (doc) => doc.transact(() => sharedParts(doc)[1]?.set('partNumber', '3001.4')),
+    (doc) =>
+      doc.transact(() => {
+        const from = sheets(doc).find((l) => l.get('id') === SHARED_ROOM.sheet);
+        (from?.get('bricks') as Y.Array<unknown> | undefined)?.delete(2, 1);
+      }),
+  ];
+  whole.forEach((edit, i) => {
+    const a = client(state, 7700 + i);
+    edit(a.doc);
+    if (a.edits.length) real(encodeRoomInput(r, 0, a.edits.map((u): Msg => [0, msgUpdate(u)])));
+  });
+  // Two people at once: a turn and a move made on the same layout, in both orders.
+  for (const [x, y] of [[2, 0], [0, 2], [3, 1]] as const) {
+    const a = client(state, 7720 + x);
+    const b = client(state, 7730 + y);
+    whole[x]!(a.doc);
+    whole[y]!(b.doc);
+    real(encodeRoomInput(r, 0, [...a.edits.map((u): Msg => [0, msgUpdate(u)]), ...b.edits.map((u): Msg => [3, msgUpdate(u)])]));
+  }
+  // An outdated app's changes that break it, each after a move of the whole (put back; the connection stays).
+  broken.forEach((edit, i) => {
+    const a = client(state, 7740 + i);
+    whole[0]!(a.doc);
+    edit(a.doc);
+    other(encodeRoomInput(r, 0, a.edits.map((u): Msg => [i % 2, msgUpdate(u)])));
+  });
 }
 
 export function guardSeeds(): Uint8Array[] {
