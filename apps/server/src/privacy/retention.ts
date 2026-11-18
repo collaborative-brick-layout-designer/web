@@ -11,16 +11,20 @@
 //                       happened stays
 //   recordsKeepDays     erasure records, and privacy requests once closed
 //   always              background pictures whose layout is gone
+//   180 days            notifications read that long ago (never unread
+//                       ones, never warnings)
 
 import { readdirSync, unlinkSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { and, asc, eq, gt, isNotNull, isNull, like, lt, lte, or } from 'drizzle-orm';
+import { and, asc, eq, gt, isNotNull, isNull, like, lt, lte, notInArray, or } from 'drizzle-orm';
 import { db, schema } from '../db/index.js';
 import { env } from '../env.js';
 import { privacySettings } from './settings.js';
 import { purgeClosedRequests } from '../routes/privacyAdmin.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+/** How long a read notification is kept. */
+export const NOTIFICATIONS_KEEP_DAYS = 180;
 /** Audit rows read at a time. */
 const AUDIT_BATCH = 2000;
 const EMAIL_RE = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
@@ -37,6 +41,7 @@ export interface RetentionResult {
   erasures: number;
   requests: number;
   pictures: number;
+  notifications: number;
 }
 
 /** A payload with addresses and ip / user-agent fields taken out; null when nothing changed. */
@@ -88,6 +93,7 @@ export async function purgeRetention(now = new Date()): Promise<RetentionResult>
     erasures: 0,
     requests: 0,
     pictures: 0,
+    notifications: 0,
   };
   const run = (q: { run: () => { changes: number } }) => q.run().changes;
 
@@ -139,6 +145,13 @@ export async function purgeRetention(now = new Date()): Promise<RetentionResult>
   const recordsCutoff = new Date(now.getTime() - p.recordsKeepDays * DAY_MS);
   res.erasures = run(db.delete(s.erasures).where(lte(s.erasures.erasedAt, recordsCutoff)));
   res.requests = await purgeClosedRequests(now);
+
+  // Notifications read more than 180 days ago. Unread ones stay, and so
+  // do warnings (the moderation record needs them to say they were read).
+  const readCutoff = new Date(now.getTime() - NOTIFICATIONS_KEEP_DAYS * DAY_MS);
+  res.notifications = run(
+    db.delete(s.notifications).where(and(isNotNull(s.notifications.readAt), lt(s.notifications.readAt, readCutoff), notInArray(s.notifications.type, ['moderation.warning', 'moderation.final_warning']))),
+  );
 
   // Background pictures whose layout is gone (deleted before erasure swept
   // its files, or by an older version that left them behind).

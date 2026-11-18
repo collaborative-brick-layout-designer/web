@@ -22,7 +22,8 @@ import { db, schema } from '../db/index.js';
 import type { ClubAccess } from '../access/clubPermissions.js';
 import { clubAudience } from '../access/clubNotices.js';
 import { publish } from '../events/audience.js';
-import { postClubNote } from '../routes/warnings.js';
+import { postClubNote, type NoteKind } from '../routes/warnings.js';
+import { resolve } from '../notifications/notify.js';
 import { noJoinRequestEmails } from '../routes/preferences.js';
 import { sendNoticeEmail } from '../email/sendNotice.js';
 import { moduleSharesChanged } from '../sharedModules/lifecycle.js';
@@ -89,8 +90,8 @@ export async function partnersOf(orgId: string): Promise<{ org: Org; since: Date
  * A note to the club's Admins and Managers (with their other notices, live),
  * about another club: a partnership accepted or ended, a module accepted.
  */
-export async function noteToClub(orgId: string, actorId: string | null, text: string, link: string | null): Promise<void> {
-  const id = await postClubNote(orgId, actorId, text, link);
+export async function noteToClub(orgId: string, actorId: string | null, text: string, link: string | null, kind?: NoteKind): Promise<void> {
+  const id = await postClubNote(orgId, actorId, text, link, kind);
   void publish({ kind: 'warning', id, action: 'create' }, { ownerless: true, users: await clubAudience(orgId, 'club_note') });
 }
 
@@ -201,6 +202,7 @@ export async function clubSharingAfterErase(before: { partners: Org[]; modules: 
       actorId,
       `${name} was deleted, so your clubs are no longer partners. Its modules placed in your layouts stay as they are, marked “Deleted by its owner”, and can be removed or made yours.`,
       `/orgs/${p.slug}?tab=partners`,
+      { type: 'club.partner_deleted', title: `Your partner club ${name} was deleted` },
     );
   }
 }
@@ -261,6 +263,7 @@ export async function settleOffersBetween(a: string, b: string, actorId: string 
       tx.delete(schema.moduleClubOffers).where(eq(schema.moduleClubOffers.id, o.id)).run();
     });
     settled++;
+    await resolve({ kind: 'module_offer', id: o.id }, 'accepted', actorId);
     await moduleSharesChanged(o.moduleId);
     await writeAuditEvent({ resourceKind: 'module', resourceId: o.moduleId, userId: actorId, eventType: 'share', payload: { club: o.toOrgId, readOnly: true, via: 'partner', fromOffer: true } });
     const [from, to] = await Promise.all([
@@ -273,6 +276,7 @@ export async function settleOffersBetween(a: string, b: string, actorId: string 
         actorId,
         `${from.name} offered your club the module “${r.title}”, and now that your clubs are partners it is shared with you. Its members can place it in the club’s layouts, and they get ${from.name}’s updates.`,
         `/orgs/${to.slug}?tab=partners`,
+        { type: 'sharing.module_shared', title: `${from.name} shared the module “${r.title}” with your club` },
       );
     }
   }

@@ -27,6 +27,8 @@ import { writeAuditEvent } from '../audit/writeAuditEvent.js';
 import { nameFor } from '../utils/publicName.js';
 import { perPerson } from '../utils/rateLimits.js';
 import { postPersonalNote } from './warnings.js';
+import { clubMemberIds, notify, notifyClub, resolve } from '../notifications/notify.js';
+import { publicName } from '../utils/publicName.js';
 import { randomUUID } from 'node:crypto';
 import { escapeLike } from '../utils/validate.js';
 import { clubLogoUrls } from './clubLogos.js';
@@ -195,6 +197,18 @@ export async function moduleShareRoutes(app: FastifyInstance): Promise<void> {
         eventType: 'share',
         payload: { club: org.id, readOnly: true },
       });
+      await notify({
+        type: 'sharing.module_shared',
+        to: await clubMemberIds(org.id),
+        actor: user.id,
+        club: org.id,
+        needsMembership: true,
+        subject: { kind: 'module', id: req.params.id },
+        title: `${publicName(user.id, user.displayName)} shared the module “${mod.title}” with ${org.name}`,
+        body: 'You can place it in the club’s layouts, and you get its updates.',
+        link: `/orgs/${org.slug}`,
+        groupKey: `shared:${org.id}`,
+      });
       return reply.code(201).send({ ok: true, orgId: org.id, name: org.name, slug: org.slug });
     },
   );
@@ -232,6 +246,17 @@ export async function moduleShareRoutes(app: FastifyInstance): Promise<void> {
         eventType: 'unshare',
         payload: { club: req.params.orgId, ...(isOwner ? {} : { byClub: true }) },
       });
+      // Stopped by its owner: the club's members who look after its things hear it.
+      if (isOwner && club && mod) {
+        await notifyClub(req.params.orgId, 'club_note', {
+          type: 'sharing.module_unshared',
+          actor: user.id,
+          subject: { kind: 'module', id: req.params.id },
+          title: `The module “${mod.title}” is no longer shared with ${club.name}`,
+          body: 'Copies already placed in the club’s layouts stay as they are, marked “No longer shared”, and get no more updates.',
+          link: `/orgs/${club.slug}`,
+        });
+      }
       // Taken off by the club: a club's module's own club is told, through its Admins and Managers.
       if (!isOwner && mod?.ownerOrgId && club) {
         const owning = await db.select({ slug: schema.orgs.slug }).from(schema.orgs).where(eq(schema.orgs.id, mod.ownerOrgId)).get();
@@ -240,6 +265,7 @@ export async function moduleShareRoutes(app: FastifyInstance): Promise<void> {
           user.id,
           `${club.name} took your club’s module “${mod.title}” off its shared modules. Copies already placed in its layouts stay as they are and get no more updates. You can share it with the club again.`,
           owning ? `/orgs/${owning.slug}?tab=partners` : null,
+          { type: 'sharing.module_unshared', title: `${club.name} took “${mod.title}” off its shared modules` },
         );
       }
       // Taken off by the club: its owner is told (a note in the app). Copies already placed stay, at their version.
@@ -248,7 +274,7 @@ export async function moduleShareRoutes(app: FastifyInstance): Promise<void> {
           mod.ownerUserId,
           `${club.name} took your module “${mod.title}” off the club’s shared modules. Copies already placed in its layouts stay as they are and get no more updates. You can share it with the club again.`,
           `/orgs/${club.slug}`,
-          { clubOrgId: req.params.orgId, issuedBy: user.id },
+          { clubOrgId: req.params.orgId, issuedBy: user.id, kind: { type: 'sharing.module_unshared', title: `${club.name} took “${mod.title}” off its shared modules` } },
         );
       }
       return { ok: true };
@@ -270,6 +296,7 @@ export async function moduleShareRoutes(app: FastifyInstance): Promise<void> {
         .returning()
         .all();
       if (gone.length === 0) return reply.code(404).send({ error: 'offer_not_found' });
+      await resolve({ kind: 'module_offer', id: gone[0]!.id }, 'withdrawn', user.id);
       if (gone[0]!.state === 'pending') {
         await writeAuditEvent({
           resourceKind: 'org',
@@ -402,6 +429,18 @@ async function shareClubModule(
     });
     await moduleSharesChanged(moduleId);
     await writeAuditEvent({ resourceKind: 'module', resourceId: moduleId, userId: user.id, eventType: 'share', payload: { club: org.id, readOnly: true, via: 'partner' } });
+    await notify({
+      type: 'sharing.module_shared',
+      to: await clubMemberIds(org.id),
+      actor: user.id,
+      club: org.id,
+      needsMembership: true,
+      subject: { kind: 'module', id: moduleId },
+      title: `${from.name} shared the module “${title}” with ${org.name}`,
+      body: 'Your partner club shared it. You can place it in the club’s layouts, and you get its updates.',
+      link: `/orgs/${org.slug}`,
+      groupKey: `shared:${org.id}`,
+    });
     return reply.code(201).send({ ok: true, status: 'shared' as const, ...shown, via: 'partner' });
   }
   // An offer: one per club, sent again only a day after a decline; a few at a time.
@@ -441,6 +480,14 @@ async function shareClubModule(
   }
   await writeAuditEvent({ resourceKind: 'org', resourceId: ownerOrgId, userId: user.id, eventType: 'module_offer', payload: { module: moduleId, to: org.id } });
   await writeAuditEvent({ resourceKind: 'org', resourceId: org.id, userId: user.id, eventType: 'module_offer', payload: { module: moduleId, from: ownerOrgId } });
+  await notifyClub(org.id, 'club_note', {
+    type: 'club.offer_received',
+    actor: user.id,
+    subject: { kind: 'module_offer', id },
+    title: `${from.name} wants to share “${title}” with ${org.name}`,
+    body: 'If your club accepts, its members can place the module in the club’s layouts and get its updates. They can’t change its parts.',
+    link: `/orgs/${org.slug}?tab=partners`,
+  });
   void emailClubRunners(org, user.id, `${from.name} wants to share “${title}” with ${org.name}`, [
     `${from.name} wants to share its module “${title}” with ${org.name}.`,
     'If your club accepts, its members can place the module in the club’s layouts and get its updates. They can’t change its parts.',

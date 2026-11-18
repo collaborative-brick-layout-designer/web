@@ -19,6 +19,7 @@ import { partGeometry } from '../routes/parts.js';
 import { applyVersion } from './apply.js';
 import { stateFor } from './placed.js';
 import { AUTO_UPDATE_EVENT, type AutoUpdatePayload } from './visits.js';
+import { notifyUpdatedAutomatically } from '../notifications/sharedModules.js';
 
 interface Logger {
   log: { warn: (obj: object, msg?: string) => void; error: (obj: object, msg?: string) => void };
@@ -66,7 +67,7 @@ export function automaticUpdatesSettled(): Promise<void> {
 
 async function run(app: Logger, moduleId: string, onlyLayout?: string): Promise<void> {
   const lib = await db
-    .select({ latestVersion: schema.modules.latestVersion, ownerUserId: schema.modules.ownerUserId, ownerOrgId: schema.modules.ownerOrgId })
+    .select({ latestVersion: schema.modules.latestVersion, ownerUserId: schema.modules.ownerUserId, ownerOrgId: schema.modules.ownerOrgId, title: schema.modules.title })
     .from(schema.modules)
     .where(eq(schema.modules.id, moduleId))
     .get();
@@ -112,6 +113,7 @@ async function run(app: Logger, moduleId: string, onlyLayout?: string): Promise<
     if (changed > 0) {
       const now = await ownerOfResource('layout', layoutId);
       await publish({ kind: 'layout', ...(now?.owner ? { owner: now.owner } : {}), id: layoutId, action: 'shared-module-updated' });
+      await notifyUpdatedAutomatically(layoutId, lib.title, lib.latestVersion);
     }
   }
 }

@@ -254,7 +254,10 @@ export async function returnToAuthor(
     mode === 'take'
       ? `${authorName} took back the ${word} “${title}” they made. ${org.name} keeps its own copy, credited to them, so nothing the club built with it changes.`
       : `${actorName} gave the ${word} “${title}” back to ${authorName}, who made it. ${org.name} keeps its own copy, credited to them, so nothing the club built with it changes.`;
-  const noticeId = await postClubNote(orgId, actor.id, reason, linkTo(kind, copyId, org.slug));
+  const noticeId = await postClubNote(orgId, actor.id, reason, linkTo(kind, copyId, org.slug), {
+    type: 'club.item_returned',
+    title: mode === 'take' ? `${authorName} took back the ${word} “${title}”` : `${actorName} gave the ${word} “${title}” back to ${authorName}`,
+  });
   const auditKind = kind === 'custom-part' ? 'custom_part' : kind;
   await writeAuditEvent({
     ...(kind === 'layout' ? { layoutId: id } : { resourceKind: auditKind, resourceId: id }),

@@ -30,6 +30,7 @@ import { clubLogoUrls } from './clubLogos.js';
 import { loadOrgBySlug } from './orgs.js';
 import { moduleSharesChanged } from '../sharedModules/lifecycle.js';
 import { slugFrom } from '../clubPartners/slug.js';
+import { notifyClub, resolve } from '../notifications/notify.js';
 import {
   ASK_AGAIN_AFTER_MS,
   OPEN_PARTNER_REQUESTS_MAX,
@@ -232,6 +233,14 @@ export async function clubPartnerRoutes(app: FastifyInstance): Promise<void> {
       }
       await writeAuditEvent({ resourceKind: 'org', resourceId: org.id, userId: user.id, eventType: 'partner_request', payload: { to: other.id } });
       await writeAuditEvent({ resourceKind: 'org', resourceId: other.id, userId: user.id, eventType: 'partner_request', payload: { from: org.id } });
+      await notifyClub(other.id, 'club_note', {
+        type: 'club.partner_request',
+        actor: user.id,
+        subject: { kind: 'partner_request', id },
+        title: `${org.name} asked to be partners with ${other.name}`,
+        body: 'Partner clubs can share their modules with each other, read-only, with no need to accept each one. Each module is still picked.',
+        link: `/orgs/${other.slug}?tab=partners`,
+      });
       void emailClubRunners(other, user.id, `${org.name} asked to be partners with ${other.name}`, [
         `${org.name} asked to be partner clubs with ${other.name}.`,
         'Partner clubs can share their modules with each other, read-only, with no need to accept each one. Each module is still picked.',
@@ -255,6 +264,7 @@ export async function clubPartnerRoutes(app: FastifyInstance): Promise<void> {
         .returning()
         .all();
       if (gone.length === 0) return reply.code(404).send({ error: 'request_not_found' });
+      await resolve({ kind: 'partner_request', id: gone[0]!.id }, 'withdrawn', user.id);
       if (gone[0]!.state === 'pending') {
         await writeAuditEvent({ resourceKind: 'org', resourceId: got.org.id, userId: user.id, eventType: 'partner_withdraw', payload: { to: gone[0]!.toOrgId } });
       }
@@ -291,6 +301,15 @@ export async function clubPartnerRoutes(app: FastifyInstance): Promise<void> {
           .where(eq(schema.clubPartnerRequests.id, request.id));
         await writeAuditEvent({ resourceKind: 'org', resourceId: org.id, userId: user.id, eventType: 'partner_decline', payload: { from: from.id } });
         await writeAuditEvent({ resourceKind: 'org', resourceId: from.id, userId: user.id, eventType: 'partner_decline', payload: { to: org.id } });
+        await resolve({ kind: 'partner_request', id: request.id }, 'declined', user.id);
+        await notifyClub(from.id, 'club_note', {
+          type: 'club.partner_declined',
+          actor: user.id,
+          subject: { kind: 'org', id: org.id },
+          title: `${org.name} declined your club’s partner request`,
+          body: 'You can ask again a day after it declined.',
+          link: `/orgs/${from.slug}?tab=partners`,
+        });
         return { ok: true, status: 'declined' as const, fromOrgId: from.id };
       },
     );
@@ -319,6 +338,7 @@ export async function clubPartnerRoutes(app: FastifyInstance): Promise<void> {
           user.id,
           `${org.name} ended its partnership with ${other.name}. ${stoppedWords(ours, theirs, org.name)} Modules shared one off and accepted stay shared.`,
           `/orgs/${other.slug}?tab=partners`,
+          { type: 'club.partner_ended', title: `${org.name} ended its partnership with ${other.name}` },
         );
       }
       return { ok: true, stopped: stopped.length, orgId: req.params.orgId };
@@ -350,6 +370,7 @@ export async function clubPartnerRoutes(app: FastifyInstance): Promise<void> {
         // The module left the club that offered it (handed to someone else), or that club is going: the offer is over.
         if (!mod || mod.ownerOrgId !== offer.fromOrgId || !from || !isLive(from)) {
           await db.delete(schema.moduleClubOffers).where(eq(schema.moduleClubOffers.id, offer.id));
+          await resolve({ kind: 'module_offer', id: offer.id }, 'gone', null);
           return reply.code(410).send({ error: 'offer_gone' });
         }
         if (answer === 'accept') {
@@ -369,7 +390,9 @@ export async function clubPartnerRoutes(app: FastifyInstance): Promise<void> {
             user.id,
             `${org.name} accepted your club’s module “${mod.title}”. Its members can place it in the club’s layouts, and they get your updates.`,
             `/orgs/${from.slug}?tab=partners`,
+            { type: 'club.offer_accepted', title: `${org.name} accepted your club’s module “${mod.title}”` },
           );
+          await resolve({ kind: 'module_offer', id: offer.id }, 'accepted', user.id);
           return { ok: true, status: 'shared' as const, moduleId: offer.moduleId, fromOrgId: from.id };
         }
         await db
@@ -378,6 +401,15 @@ export async function clubPartnerRoutes(app: FastifyInstance): Promise<void> {
           .where(eq(schema.moduleClubOffers.id, offer.id));
         await writeAuditEvent({ resourceKind: 'org', resourceId: org.id, userId: user.id, eventType: 'module_offer_decline', payload: { module: offer.moduleId, from: from.id } });
         await writeAuditEvent({ resourceKind: 'org', resourceId: from.id, userId: user.id, eventType: 'module_offer_decline', payload: { module: offer.moduleId, to: org.id } });
+        await resolve({ kind: 'module_offer', id: offer.id }, 'declined', user.id);
+        await notifyClub(from.id, 'club_note', {
+          type: 'club.offer_declined',
+          actor: user.id,
+          subject: { kind: 'module', id: offer.moduleId },
+          title: `${org.name} declined your club’s module “${mod.title}”`,
+          body: 'It stays yours. You can offer it again a day after it was declined.',
+          link: `/orgs/${from.slug}?tab=partners`,
+        });
         return { ok: true, status: 'declined' as const, moduleId: offer.moduleId, fromOrgId: from.id };
       },
     );
@@ -425,7 +457,9 @@ async function becomePartners(request: typeof schema.clubPartnerRequests.$inferS
     userId,
     `${answering.name} accepted your club’s partner request. Your clubs can now share modules with each other, with no need to accept each one.`,
     `/orgs/${asking.slug}?tab=partners`,
+    { type: 'club.partner_accepted', title: `${answering.name} and ${asking.name} are partner clubs now` },
   );
+  await resolve({ kind: 'partner_request', id: request.id }, 'accepted', userId);
   // Offers still waiting between them are partner shares now, both ways.
   await settleOffersBetween(answering.id, asking.id, userId);
 }

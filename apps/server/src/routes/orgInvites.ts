@@ -19,6 +19,7 @@ import { ownsEmail } from '../auth/users.js';
 import { sameEmail } from '../utils/validate.js';
 import { maskEmail } from '../utils/maskEmail.js';
 import { publicName } from '../utils/publicName.js';
+import { resolve } from '../notifications/notify.js';
 
 export async function orgInviteRoutes(app: FastifyInstance): Promise<void> {
   // Home's "You're invited to a club": the open invites for the signed-in
@@ -179,13 +180,16 @@ export async function orgInviteRoutes(app: FastifyInstance): Promise<void> {
         .onConflictDoNothing();
       if (!already && giving) await setMemberRoles(invite.orgId, user.id, [giving.id]);
       // Any request to join is answered now.
-      await db
+      const answered = await db
         .delete(schema.orgJoinRequests)
-        .where(and(eq(schema.orgJoinRequests.orgId, invite.orgId), eq(schema.orgJoinRequests.userId, user.id)));
+        .where(and(eq(schema.orgJoinRequests.orgId, invite.orgId), eq(schema.orgJoinRequests.userId, user.id)))
+        .returning({ id: schema.orgJoinRequests.id });
+      for (const a of answered) await resolve({ kind: 'join_request', id: a.id }, 'accepted', invite.invitedBy);
       await db
         .update(schema.orgInvites)
         .set({ acceptedAt: now })
         .where(eq(schema.orgInvites.id, invite.id));
+      await resolve({ kind: 'org_invite', id: invite.id }, 'accepted', user.id);
 
       return { orgId: invite.orgId, role: invite.role };
     },

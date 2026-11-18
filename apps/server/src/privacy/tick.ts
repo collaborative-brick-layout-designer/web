@@ -45,6 +45,7 @@ const RETENTION_WORDS: Record<keyof RetentionResult, [string, string]> = {
   erasures: ['erasure record', 'erasure records'],
   requests: ['privacy request', 'privacy requests'],
   pictures: ['picture', 'pictures'],
+  notifications: ['read notification', 'read notifications'],
 };
 
 const count = (n: number, [one, many]: [string, string]) => `${n} ${n === 1 ? one : many}`;

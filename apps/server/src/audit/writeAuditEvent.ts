@@ -35,6 +35,8 @@ export type AuditEventType =
   | 'join'
   | 'join_approve'
   | 'join_decline'
+  | 'invite_decline'
+  | 'transfer_decline'
   // Partner clubs (clubPartners/partners.ts), on each club's log: a request
   // sent, taken back, accepted or declined, and a partnership ended.
   | 'partner_request'

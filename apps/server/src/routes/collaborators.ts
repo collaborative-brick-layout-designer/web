@@ -16,6 +16,7 @@ import { isDemoUser } from '../demo/demoAccount.js';
 import { hasAtLeast, resolveResourceRole, type Role } from '../access/resolveResourceRole.js';
 import { sendInviteEmailCapped } from '../email/inviteEmailCap.js';
 import { writeAuditEvent } from '../audit/writeAuditEvent.js';
+import { notifyInvitee, resolve } from '../notifications/notify.js';
 import { env } from '../env.js';
 import { isValidEmail, normalizeEmail } from '../utils/validate.js';
 import { emailsVisible, nameFor, publicName } from '../utils/publicName.js';
@@ -175,6 +176,15 @@ export async function collaboratorRoutes(app: FastifyInstance): Promise<void> {
         eventType: 'share',
         payload: { invitedEmail: email, role: inviteRole, inviteId: id },
       });
+      const layout = await db.select({ title: schema.layouts.title }).from(schema.layouts).where(eq(schema.layouts.id, req.params.id)).get();
+      await notifyInvitee(email, {
+        type: 'sharing.layout_invite',
+        actor: user.id,
+        subject: { kind: 'layout_invite', id },
+        title: `${publicName(user.id, user.displayName)} invited you to the layout “${layout?.title ?? 'Untitled'}”`,
+        body: inviteRole === 'editor' ? 'You could change it with them.' : 'You could look at it.',
+        link: `/editor/${req.params.id}`,
+      });
 
       return {
         id,
@@ -205,6 +215,7 @@ export async function collaboratorRoutes(app: FastifyInstance): Promise<void> {
             eq(schema.layoutInvites.layoutId, req.params.id),
           ),
         );
+      await resolve({ kind: 'layout_invite', id: req.params.inviteId }, 'withdrawn', user.id);
       return { ok: true };
     },
   );

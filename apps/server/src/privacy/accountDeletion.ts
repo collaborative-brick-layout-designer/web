@@ -37,6 +37,7 @@ import { placedCopiesOfModulesOf, unlockPlacedCopies } from '../sharedModules/li
 import { publish } from '../events/audience.js';
 import { sendNoticeEmail } from '../email/sendNotice.js';
 import { postPersonalNote } from '../routes/warnings.js';
+import { notify } from '../notifications/notify.js';
 import { backgroundImagePath } from './exportFiles.js';
 import { removeExportsOf } from './exports.js';
 import { privacySettings } from './settings.js';
@@ -220,6 +221,16 @@ export async function requestDeletion(user: User, now = new Date()): Promise<{ d
     ],
     link: { text: 'Sign in to keep your account', path: '/login' },
   });
+  // Seen by the desktop app (still signed in, refused until they sign in again) and kept for when they come back.
+  await notify({
+    type: 'account.deletion_scheduled',
+    to: [user.id],
+    subject: { kind: 'user', id: user.id },
+    title: 'Your account will be deleted',
+    body: `It will be deleted for good on ${whenText(dueAt)}. Sign in before then to keep it.`,
+    link: '/profile#delete-account',
+    at: now,
+  });
   return { dueAt };
 }
 
@@ -229,7 +240,9 @@ export async function cancelDeletionOnSignIn(userId: string): Promise<boolean> {
   if (!user?.deletionDueAt) return false;
   await db.update(schema.users).set({ deletionRequestedAt: null, deletionDueAt: null }).where(eq(schema.users.id, userId));
   await writeAuditEvent({ resourceKind: 'user', resourceId: userId, userId, eventType: 'deletion_cancel', payload: { by: 'sign_in' } });
-  await postPersonalNote(userId, 'Welcome back. You signed in, so your account will not be deleted. Everything in it is just as you left it.', '/profile#delete-account');
+  await postPersonalNote(userId, 'Welcome back. You signed in, so your account will not be deleted. Everything in it is just as you left it.', '/profile#delete-account', {
+    kind: { type: 'account.deletion_cancelled', title: 'Your account will not be deleted' },
+  });
   await sendNoticeEmail({
     to: user.email,
     subject: 'Your account will not be deleted',
@@ -304,6 +317,7 @@ export async function eraseUser(userId: string, how: 'self' | 'admin' | 'request
     await writeAuditEvent({ resourceKind: 'org', resourceId: c.id, userId: null, eventType: 'hand_over', payload: { toUserId: heir, reason: 'admin_account_deleted' } });
     await postPersonalNote(heir, `${c.name}'s only admin deleted their account, so you're now its admin. You can make others admins too.`, `/orgs/${c.slug}`, {
       clubOrgId: c.id,
+      kind: { type: 'account.club_admin_inherited', title: `You’re now an admin of ${c.name}` },
     });
   }
 
@@ -383,6 +397,8 @@ export async function eraseUser(userId: string, how: 'self' | 'admin' | 'request
     // Their own counters and limits.
     tx.delete(s.usageDaily).where(and(eq(s.usageDaily.subjectKind, 'user'), eq(s.usageDaily.subjectId, userId))).run();
     tx.delete(s.limitOverrides).where(and(eq(s.limitOverrides.subjectKind, 'user'), eq(s.limitOverrides.subjectId, userId))).run();
+    // Notifications that name them to others ("Ann asked to join"): the words carry their name.
+    tx.delete(s.notifications).where(eq(s.notifications.actorUserId, userId)).run();
     // Clubs nobody else is in.
     if (clubsGone.length) tx.delete(s.orgs).where(inArray(s.orgs.id, clubsGone)).run();
     // The account: sessions, tokens, memberships, shares, preferences, notices

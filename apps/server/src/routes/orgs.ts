@@ -21,6 +21,7 @@ import { checkGrowth } from '../limits/limits.js';
 import { requireUser } from '../auth/cookie.js';
 import { isDemoUser } from '../demo/demoAccount.js';
 import { writeAuditEvent } from '../audit/writeAuditEvent.js';
+import { notify, provenAccountFor, resolve } from '../notifications/notify.js';
 import { sendInviteEmailCapped } from '../email/inviteEmailCap.js';
 import { env } from '../env.js';
 import { escapeLike, isValidEmail, normalizeEmail, trimmed } from '../utils/validate.js';
@@ -593,6 +594,20 @@ export async function orgRoutes(app: FastifyInstance): Promise<void> {
         eventType: 'share',
         payload: { invitedEmail: email, role, roleId: chosen.id, roleName: chosen.name, inviteId: id },
       });
+      // Someone with an account (that owns the address) also hears in the app, and can answer there.
+      const invitee = await provenAccountFor(email);
+      if (invitee) {
+        await notify({
+          type: 'club.invite',
+          to: [invitee],
+          actor: user.id,
+          club: org.id,
+          subject: { kind: 'org_invite', id },
+          title: `${publicName(user.id, user.displayName)} invited you to join ${org.name}`,
+          body: `You’d join as ${chosen.name}.`,
+          link: '/',
+        });
+      }
 
       return {
         id,
@@ -694,14 +709,16 @@ export async function orgRoutes(app: FastifyInstance): Promise<void> {
       if (target && !mayGiveRole(myMembership, await inviteRole(org.id, target))) {
         return reply.code(403).send({ error: 'only_admins_set_roles' });
       }
-      await db
+      const gone = await db
         .delete(schema.orgInvites)
         .where(
           and(
             eq(schema.orgInvites.id, req.params.inviteId),
             eq(schema.orgInvites.orgId, org.id),
           ),
-        );
+        )
+        .returning({ id: schema.orgInvites.id });
+      for (const g of gone) await resolve({ kind: 'org_invite', id: g.id }, 'withdrawn', user.id);
       return { ok: true };
     },
   );
@@ -814,6 +831,23 @@ export async function orgRoutes(app: FastifyInstance): Promise<void> {
     }
     // Open layouts and modules follow at once (read only, or editable again).
     notifyAccessChanged({ userId: req.params.userId });
+    if (added.length || removed.length) {
+      const words = [
+        added.length ? `You now have ${added.map(nameOf).join(', ')}.` : '',
+        removed.length ? `You no longer have ${removed.map(nameOf).join(', ')}.` : '',
+      ].filter(Boolean);
+      await notify({
+        type: 'club.role_changed',
+        to: [req.params.userId],
+        actor: user.id,
+        club: org.id,
+        needsMembership: true,
+        subject: { kind: 'org', id: org.id },
+        title: `Your roles in ${org.name} changed`,
+        body: words.join(' '),
+        link: `/orgs/${org.slug}`,
+      });
+    }
 
     return { ok: true, roleIds: next, role: after?.role ?? 'member' };
   });
@@ -980,6 +1014,17 @@ export async function orgRoutes(app: FastifyInstance): Promise<void> {
         eventType: 'unshare',
         payload: { targetUserId: req.params.userId, selfRemoved: isSelf },
       });
+      if (!isSelf && target) {
+        await notify({
+          type: 'club.removed',
+          to: [req.params.userId],
+          club: org.id,
+          subject: { kind: 'org', id: org.id },
+          title: `You were removed from ${org.name}`,
+          body: 'Your own layouts, modules and parts are still yours. Ask one of its members if you think this was a mistake.',
+          link: '/orgs',
+        });
+      }
       return { ok: true };
     },
   );

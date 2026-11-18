@@ -462,6 +462,13 @@ function warningHint(idFrom: (ctx: HintCtx) => string | null): HintSpec {
   };
 }
 
+/** Your own notifications changed: your other tabs and apps. */
+function mine(act: string): HintSpec {
+  return {
+    after: async (ctx) => (ctx.userId ? [{ hint: { kind: 'notification', action: act }, reach: { ownerless: true, users: [ctx.userId] } }] : []),
+  };
+}
+
 /**
  * A club's thing handed back to its author (routes/ownership.ts): the
  * thing's hints (the club, which also gains its copy, and the author),
@@ -746,6 +753,25 @@ export const ROUTE_HINTS: Record<string, HintSpec> = {
       const out = [];
       for (const id of ids) out.push(...(await warningHint(() => id).after!(ctx)));
       return out;
+    },
+  },
+
+  // ---- notifications: the person's other tabs and apps (an answer also
+  // sends the answered thing's own hints, from the route it ran)
+  'POST /api/notifications/:id/read': {
+    // A note read is acknowledged: whoever sees its history hears too.
+    after: async (ctx) => {
+      const row = await db.select({ k: schema.notifications.subjectKind, s: schema.notifications.subjectId }).from(schema.notifications).where(eq(schema.notifications.id, ctx.params.id ?? '')).get();
+      return [...(await mine('update:read').after(ctx)), ...(row?.k === 'warning' && row.s ? await warningHint(() => row.s).after(ctx) : [])];
+    },
+  },
+  'POST /api/notifications/:id/unread': mine('update:unread'),
+  'POST /api/notifications/read-all': mine('update:read-all'),
+  'POST /api/notifications/:id/act': mine('update:act'),
+  'POST /api/notifications/:id/acknowledge': {
+    after: async (ctx) => {
+      const row = await db.select({ s: schema.notifications.subjectId }).from(schema.notifications).where(eq(schema.notifications.id, ctx.params.id ?? '')).get();
+      return [...(await mine('update:acknowledge').after(ctx)), ...(row?.s ? await warningHint(() => row.s).after(ctx) : [])];
     },
   },
 

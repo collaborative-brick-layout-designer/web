@@ -42,6 +42,7 @@ import { transferRoutes } from './transfers.js';
 import { wsRoutes } from './ws.js';
 import { eventRoutes } from './events.js';
 import { warningRoutes } from './warnings.js';
+import { notificationRoutes } from './notifications.js';
 import { ownershipRoutes } from './ownership.js';
 import { privacyRoutes } from './privacy.js';
 import { privacyAdminRoutes } from './privacyAdmin.js';
@@ -95,6 +96,7 @@ export async function registerApiRoutes(app: FastifyInstance): Promise<void> {
   await app.register(wsRoutes);
   await app.register(eventRoutes);
   await app.register(warningRoutes);
+  await app.register(notificationRoutes);
   await app.register(ownershipRoutes);
   await app.register(privacyRoutes);
   await app.register(privacyAdminRoutes);
