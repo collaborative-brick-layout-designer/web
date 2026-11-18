@@ -924,6 +924,20 @@ export const api = {
       post<{ ok: true }>(`/api/orgs/${slug}/join-requests/${encodeURIComponent(id)}/decline`, {}),
     /** Requests waiting in the clubs you run, for the badge on Clubs. */
     joinRequestCount: () => get<{ count: number; clubs: { slug: string; count: number }[] }>('/api/join-requests/count'),
+    /** Partner requests and module offers waiting in the clubs you look after (Admins and Managers), for the badge on Clubs. */
+    clubRequestCount: () => get<{ count: number; clubs: { slug: string; name: string; count: number }[] }>('/api/club-requests/count'),
+    /** The club's partner clubs; for its Admins and Managers, requests in and out and module offers in. */
+    partners: (slug: string) => get<ClubPartners>(`/api/orgs/${slug}/partners`),
+    /** Ask a club to be partners: its address, or a pasted link to it. */
+    askPartner: (slug: string, other: string) =>
+      post<{ status: 'requested' | 'partners'; id?: string; club: PartnerClubRef; already?: boolean }>(`/api/orgs/${slug}/partners`, { slug: other }),
+    withdrawPartnerRequest: (slug: string, id: string) => del(`/api/orgs/${slug}/partner-requests/${encodeURIComponent(id)}`),
+    answerPartnerRequest: (slug: string, id: string, answer: 'accept' | 'decline') =>
+      post<{ ok: true; status: 'partners' | 'declined' }>(`/api/orgs/${slug}/partner-requests/${encodeURIComponent(id)}/${answer}`, {}),
+    /** End a partnership (Admins): every module shared through it stops, both ways. */
+    endPartnership: (slug: string, orgId: string) => delJson<{ ok: true; stopped: number }>(`/api/orgs/${slug}/partners/${encodeURIComponent(orgId)}`),
+    answerModuleOffer: (slug: string, id: string, answer: 'accept' | 'decline') =>
+      post<{ ok: true; status: 'shared' | 'declined'; moduleId: string }>(`/api/orgs/${slug}/module-offers/${encodeURIComponent(id)}/${answer}`, {}),
     changeMemberRole: (slug: string, userId: string, role: ClubRole) =>
       patch<{ ok: true }>(`/api/orgs/${slug}/members/${userId}`, { role }),
     removeMember: (slug: string, userId: string) =>
@@ -1149,9 +1163,22 @@ export const api = {
     sharedWithMe: () => get<{ modules: SharedModuleSummary[] }>('/api/modules?owner=shared'),
     /** For its owner: who it's shared with, the clubs it could be shared with, and where it's used. */
     shares: (id: string) => get<ModuleShares>(`/api/modules/${encodeURIComponent(id)}/shares`),
-    /** Share it, read-only, with a club you're in. */
+    /**
+     * Share it, read-only, with a club you're in; a club's module with a partner
+     * club (status 'shared'), or offered to any other club (status 'offered').
+     */
     shareWithClub: (id: string, orgSlug: string) =>
-      post<{ ok: true; orgId: string; name: string; slug: string; already?: boolean }>(`/api/modules/${encodeURIComponent(id)}/club-shares`, { orgSlug }),
+      post<{ ok: true; status?: 'shared' | 'offered'; orgId: string | null; name: string | null; slug: string; offerId?: string; already?: boolean }>(
+        `/api/modules/${encodeURIComponent(id)}/club-shares`,
+        { orgSlug },
+      ),
+    /** Take back an offer of a club's module (or forget a declined one). */
+    withdrawClubOffer: (id: string, offerId: string) => del(`/api/modules/${encodeURIComponent(id)}/club-offers/${encodeURIComponent(offerId)}`),
+    /** A club's module: listed clubs matching `q`, to share it with or offer it to. */
+    clubTargets: (id: string, q: string) =>
+      get<{ clubs: { orgId: string; name: string; slug: string; logoUrl: string | null; partner: boolean; shared: boolean; offer: 'pending' | 'declined' | null }[] }>(
+        `/api/modules/${encodeURIComponent(id)}/club-targets?q=${encodeURIComponent(q.trim())}`,
+      ),
     stopClubShare: (id: string, orgId: string) => del(`/api/modules/${encodeURIComponent(id)}/club-shares/${encodeURIComponent(orgId)}`),
   },
 
@@ -2143,14 +2170,49 @@ export interface SharedModuleSummary extends ModuleSummary {
   sharedVia: { direct: boolean; clubs: { id: string; name: string; slug: string }[] };
 }
 
+/** Another club, as a partner request or a module offer shows it. A club that isn't listed has only its address until it accepts. */
+export interface PartnerClubRef {
+  id: string | null;
+  name: string | null;
+  slug: string;
+  logoUrl?: string | null;
+}
+
+/** A club's partner clubs, and (for its Admins and Managers) what waits. */
+export interface ClubPartners {
+  /** Admins and Managers: they ask, answer and share. */
+  canManage: boolean;
+  /** Admins: they end a partnership. */
+  canEnd: boolean;
+  partners: { id: string; name: string; slug: string; logoUrl: string | null; since: number; modulesIn: number; modulesOut: number }[];
+  requestsIn?: { id: string; club: { id: string; name: string; slug: string; logoUrl: string | null }; createdAt: number }[];
+  requestsOut?: { id: string; club: PartnerClubRef; state: 'pending' | 'declined'; createdAt: number; decidedAt: number | null; askAgainAt: number | null }[];
+  offersIn?: {
+    id: string;
+    module: { id: string; title: string; latestVersion: number };
+    from: { id: string; name: string; slug: string; logoUrl: string | null };
+    partner: boolean;
+    createdAt: number;
+  }[];
+}
+
 /** What a module's owner sees about its sharing (the Share dialog). */
 export interface ModuleShares {
   latestVersion: number;
-  /** False for a club's own module: its members already see it. */
+  /** A person's module: it can go to the clubs they're in (false for a club's own module). */
   canShareWithClubs: boolean;
+  /** A club's module: it can go to the club's partner clubs, or be offered to any club (older servers leave it out). */
+  canShareWithOtherClubs?: boolean;
+  /** A club's module: its club. */
+  club?: { id: string; name: string; slug: string } | null;
+  /** A club's module: the club's partner clubs. */
+  partners?: { orgId: string; name: string; slug: string; logoUrl: string | null }[];
+  /** A club's module: offers to other clubs, waiting or declined. */
+  offers?: { id: string; club: { orgId: string | null; name: string | null; slug: string; logoUrl: string | null }; state: 'pending' | 'declined'; createdAt: number; askAgainAt: number | null }[];
   people: { userId: string; role: 'viewer' | 'editor' | 'owner'; addedAt: number; email: string; displayName: string }[];
   invites: InviteSummary[];
-  clubs: { orgId: string; name: string; slug: string; createdAt: number }[];
+  /** `via`: 'partner' (a partner club), 'offer' (accepted one off), or null (shared with a club you're in). */
+  clubs: { orgId: string; name: string; slug: string; createdAt: number; via?: 'partner' | 'offer' | null }[];
   /** The clubs you're in (it can be shared with those). */
   myClubs: { orgId: string; name: string; slug: string }[];
   /** Where it's placed: counts by club and by the people it's shared with, never a layout's name. */
@@ -2331,6 +2393,8 @@ export interface OrgDetail extends OrgSummary {
   listed?: boolean;
   /** Requests waiting (admins only). */
   pendingRequests?: number;
+  /** Partner requests and module offers waiting for an answer (its Admins and Managers). */
+  pendingPartners?: number;
 }
 
 /** Who can join a club: only by invite, by asking, or anyone signed in. */

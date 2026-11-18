@@ -13,6 +13,7 @@ import { runsClub } from './clubPermissions';
 import { ClubCollectionsSection } from '../catalog/Collections';
 import { TrustedBadge } from '../catalog/TrustedBadge';
 import { creditText } from '../owners/owners';
+import { ClubPartnersSection } from './ClubPartners';
 
 export function OrgDetailPage() {
   const params = useParams<{ slug: string }>();
@@ -83,6 +84,8 @@ function OrgDetail({ slug }: { slug: string }) {
         <ClubThings org={org} />
 
         <ClubCollectionsSection club={slug} />
+
+        <ClubPartnersSection slug={slug} name={org.name} />
 
         {members.isLoading ? (
           <p className="text-sm text-muted">Loading…</p>

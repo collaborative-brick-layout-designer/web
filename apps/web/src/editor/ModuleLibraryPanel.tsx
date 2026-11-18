@@ -3,7 +3,7 @@
 // drag-to-canvas (MIME `application/x-cld-module` carrying the module id).
 // Drag drop is handled by the canvas event listeners in EditorPage.
 
-import { useRef, useState } from 'react';
+import { Fragment, useRef, useState } from 'react';
 import * as Y from 'yjs';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { ModuleSummary, SharedModuleSummary } from '../api';
@@ -32,6 +32,11 @@ import { HelpButton } from '../help/HelpButton';
 export { MODULE_MIME };
 
 type LibraryTab = 'mine' | 'clubs' | 'shared';
+
+/** The club that shared a module with a club of yours (another club's module, not shared with you in person), or null. */
+export function fromClubOf(m: Pick<ModuleSummary, 'owner'> & { sharedVia?: SharedModuleSummary['sharedVia'] }): string | null {
+  return m.owner?.kind === 'org' && m.sharedVia && !m.sharedVia.direct && m.sharedVia.clubs.length > 0 ? m.owner.name : null;
+}
 const LIBRARY_TABS: { id: LibraryTab; label: string }[] = [
   { id: 'mine', label: 'Mine' },
   { id: 'clubs', label: 'Clubs' },
@@ -68,14 +73,25 @@ export function ModuleLibraryPanel({ doc, isViewer, editingModuleId = null }: Pr
   const [tab, setTab] = useState<LibraryTab>('mine');
   const sharedIds = new Set((sharedList.data?.modules ?? []).map((m) => m.id));
   const own = (list.data?.modules ?? []).filter((m) => !sharedIds.has(m.id));
+  // Another club's module, shared with a club of yours (a partner, or accepted one off):
+  // on the Clubs tab, under the club that shared it (docs/shared-modules.md, section 11).
+  const fromClubs = (sharedList.data?.modules ?? []).filter((m) => fromClubOf(m) !== null);
   const byTab: Record<LibraryTab, ModuleSummary[]> = {
     mine: own.filter((m) => !m.ownerOrgId),
-    clubs: own.filter((m) => !!m.ownerOrgId),
-    shared: sharedList.data?.modules ?? [],
+    clubs: [...own.filter((m) => !!m.ownerOrgId), ...[...fromClubs].sort((a, b) => (fromClubOf(a) ?? '').localeCompare(fromClubOf(b) ?? '') || a.title.localeCompare(b.title))],
+    shared: (sharedList.data?.modules ?? []).filter((m) => fromClubOf(m) === null),
   };
   const modules = byTab[tab].filter((m) =>
     !filter.trim() || m.title.toLowerCase().includes(filter.trim().toLowerCase()),
   );
+  /** The heading over a run of another club's modules on the Clubs tab ("From Train Club"), or null. */
+  const headingBefore = (i: number): string | null => {
+    if (tab !== 'clubs') return null;
+    const from = fromClubOf(modules[i]!);
+    if (!from) return null;
+    const prev = i > 0 ? fromClubOf(modules[i - 1]!) : null;
+    return prev === from ? null : from;
+  };
   // A club's admins and managers (whoever may delete the club's things) can take a
   // module shared with the club off its list; copies already placed stay.
   const orgs = useQuery({ queryKey: ['orgs'], queryFn: api.orgs.list, staleTime: 60_000 });
@@ -112,6 +128,8 @@ export function ModuleLibraryPanel({ doc, isViewer, editingModuleId = null }: Pr
   const sharedVia = (m: ModuleSummary): string | null => {
     const s = sharedList.data?.modules.find((x) => x.id === m.id);
     if (!s) return null;
+    // Another club's: the heading names that club; the line says which of your clubs has it.
+    if (fromClubOf(s)) return `shared with ${s.sharedVia.clubs.map((c) => c.name).join(', ')}`;
     const who = s.owner?.name ? `${s.owner.name} · ` : '';
     return `${who}${s.sharedVia.clubs.length > 0 ? `via ${s.sharedVia.clubs.map((c) => c.name).join(', ')}` : 'shared with you'}`;
   };
@@ -188,9 +206,14 @@ export function ModuleLibraryPanel({ doc, isViewer, editingModuleId = null }: Pr
           </p>
         )}
         <ul className="divide-y divide-line/60">
-          {modules.map((m) => (
+          {modules.map((m, i) => (
+            <Fragment key={m.id}>
+            {headingBefore(i) && (
+              <li className="bg-soft/40 px-2 py-1 text-[11px] font-semibold uppercase tracking-wide text-muted" data-testid="module-library-from-club">
+                From {headingBefore(i)}
+              </li>
+            )}
             <ModuleLibraryRow
-              key={m.id}
               module={m}
               thumbPx={iconSize}
               isViewer={isViewer}
@@ -214,6 +237,7 @@ export function ModuleLibraryPanel({ doc, isViewer, editingModuleId = null }: Pr
                 });
               }}
             />
+            </Fragment>
           ))}
         </ul>
       </div>

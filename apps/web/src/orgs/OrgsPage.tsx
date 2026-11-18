@@ -17,6 +17,9 @@ export function OrgsPage() {
   const [showCreate, setShowCreate] = useState(false);
   const waiting = useQuery({ queryKey: ['join-request-count'], queryFn: api.orgs.joinRequestCount, enabled: Boolean(me.data?.user) });
   const waitingIn = (slug: string) => waiting.data?.clubs.find((c) => c.slug === slug)?.count ?? 0;
+  // Partner requests and module offers waiting for an answer (Admins and Managers).
+  const asks = useQuery({ queryKey: ['club-request-count'], queryFn: api.orgs.clubRequestCount, enabled: Boolean(me.data?.user) });
+  const asksIn = (slug: string) => asks.data?.clubs.find((c) => c.slug === slug)?.count ?? 0;
   // /orgs#being-deleted (a member's notice links there).
   useHashScroll(!!list.data);
 
@@ -65,6 +68,15 @@ export function OrgsPage() {
                       className="mt-1 inline-flex rounded-full bg-accent-soft px-2 py-0.5 text-xs font-semibold text-accent-text hover:underline"
                     >
                       {waitingIn(o.slug) === 1 ? '1 request to join' : `${waitingIn(o.slug)} requests to join`}
+                    </Link>
+                  )}
+                  {asksIn(o.slug) > 0 && (
+                    <Link
+                      to={`/orgs/${o.slug}?tab=partners`}
+                      data-testid="club-partners-waiting"
+                      className="ml-1 mt-1 inline-flex rounded-full bg-accent-soft px-2 py-0.5 text-xs font-semibold text-accent-text hover:underline"
+                    >
+                      {asksIn(o.slug) === 1 ? '1 partner request or module offer' : `${asksIn(o.slug)} partner requests or module offers`}
                     </Link>
                   )}
                   {(o.pendingReviews ?? 0) > 0 && (

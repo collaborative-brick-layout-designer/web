@@ -45,7 +45,16 @@ export function AppHeader({ user }: Props) {
     staleTime: 60_000,
     retry: false,
   });
-  const waitingCount = waiting.data?.count ?? 0;
+  // …and partner requests and module offers waiting in the clubs they look after.
+  const clubAsks = useQuery({
+    queryKey: ['club-request-count'],
+    queryFn: api.orgs.clubRequestCount,
+    staleTime: 60_000,
+    retry: false,
+  });
+  const joinCount = waiting.data?.count ?? 0;
+  const askCount = clubAsks.data?.count ?? 0;
+  const waitingCount = joinCount + askCount;
 
   // Any of the four catalogs (a site may share only layouts or venues).
   const c = catalog.data;
@@ -58,7 +67,7 @@ export function AppHeader({ user }: Props) {
       label: 'Clubs',
       to: '/orgs',
       ...(waitingCount > 0
-        ? { badge: waitingCount, badgeLabel: `${waitingCount} ${waitingCount === 1 ? 'request' : 'requests'} to join` }
+        ? { badge: waitingCount, badgeLabel: clubBadgeLabel(joinCount, askCount) }
         : {}),
     },
     ...(showCatalog ? [{ label: 'Catalog', to: '/catalog' }] : []),
@@ -121,4 +130,14 @@ export function AppHeader({ user }: Props) {
     )}
     </>
   );
+}
+
+/** The Clubs badge's words: "2 requests to join, 1 partner request or module offer". */
+export function clubBadgeLabel(join: number, asks: number): string {
+  return [
+    join ? `${join} ${join === 1 ? 'request' : 'requests'} to join` : '',
+    asks ? `${asks} ${asks === 1 ? 'partner request or module offer' : 'partner requests or module offers'}` : '',
+  ]
+    .filter(Boolean)
+    .join(', ');
 }
