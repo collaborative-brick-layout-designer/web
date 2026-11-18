@@ -24,6 +24,7 @@ import { checkUpdate } from './updateGuard.js';
 import { HeldUpdates } from './held.js';
 import type { Sender } from './handler.js';
 import { syncLayoutSharedModules } from '../sharedModules/placed.js';
+import { warmSharedGeometry } from './sharedGeometry.js';
 
 /**
  * Largest awareness (presence) message taken from a client. A presence
@@ -399,6 +400,8 @@ export class DocSession {
       this.pendingUpdates = 0;
       // Which shared modules it places, and at which version (sharedModules/placed.ts).
       await syncLayoutSharedModules(this.layoutId, this.doc).catch((err: unknown) => this.persistError(err));
+      // A shared module placed since the room opened: its parts' geometry too (sharedGeometry.ts).
+      void warmSharedGeometry(this.layoutId, this.doc);
     } finally {
       this.flushing = false;
       if (covered.length > 0 && !this.closed) {
@@ -479,6 +482,8 @@ class DocHub {
       await session.hydrate();
       session.startBroadcasting((err) => this.onPersistError(session, err));
       this.live.set(layoutId, session);
+      // The parts' geometry the shared-module guard measures moves with (sharedGeometry.ts).
+      void warmSharedGeometry(layoutId, session.doc);
       return session;
     })();
     this.sessions.set(layoutId, promise);

@@ -46,7 +46,8 @@ import { concerns, onAccessChanged, suspendedIn } from './liveAccess.js';
 import { COPY_BUDGET_SPENT, checkGridSizesDecoded, heldValueProblem } from './gridGuard.js';
 import { backgroundUrlProblem } from './backgroundGuard.js';
 import { memberKeyProblem } from './memberGuard.js';
-import { LOCK_COPY_BUDGET_SPENT, sharedLockProblem } from './sharedGuard.js';
+import { LOCK_COPY_BUDGET_SPENT, repairShared, sharedLockCheck, type LockBreak } from './sharedGuard.js';
+import { sharedPartLookup } from './sharedGeometry.js';
 import { decodeIncoming, guardWork, type DecodedUpdate } from './decoded.js';
 import { MAX_HELD_UPDATES, deletesPresent, waitsOn } from './held.js';
 import { MAX_UPDATE_WORK, yjsWork } from './yjsWork.js';
@@ -429,18 +430,16 @@ function takeUpdate(ws: WebSocket, session: DocSession, sender: Sender, update: 
     refuseUpdate(ws, session, sender, update.length, 'unreadable', badMember);
     return false;
   }
-  // A shared module's parts stay its owner's (sharedGuard.ts).
+  // A shared module's parts stay its owner's (sharedGuard.ts): one this
+  // breaks is put back once it is in (below).
   const copiedForLock = guardWork.copyBytes;
-  const badLock = decoded ? sharedLockProblem(session.doc, update, decoded, payer.available) : null;
+  const lockCheck = decoded ? sharedLockCheck(session.doc, update, decoded, payer.available, sharedPartLookup(session.layoutId)) : null;
   payer.charge(guardWork.copyBytes - copiedForLock);
-  if (badLock === LOCK_COPY_BUDGET_SPENT) {
+  if (lockCheck === LOCK_COPY_BUDGET_SPENT) {
     slowDown(ws, session, sender, update.length);
     return false;
   }
-  if (badLock !== null) {
-    refuseUpdate(ws, session, sender, update.length, 'locked', badLock);
-    return false;
-  }
+  const broken: LockBreak | null = lockCheck;
   const check = checkIncomingDecoded(session.doc, update, decoded);
   if (check.refuse) {
     refuseMerge(ws, session, sender, check);
@@ -459,6 +458,7 @@ function takeUpdate(ws: WebSocket, session: DocSession, sender: Sender, update: 
       );
     }
   }
+  if (broken) putSharedBack(session, sender, update.length, broken);
   // What it left waiting for changes the room doesn't have is kept up
   // to a limit (ws/pending.ts), with the updates the room holds back
   // (ws/held.ts). Past it, what this update left goes; what it
@@ -610,12 +610,41 @@ function once(sender: Sender, what: string): boolean {
  * changes the layout doesn't have: drop it, end this connection with a
  * reason both apps treat as final, and say so once in the log and the audit.
  */
+/** The origin of the server's step putting shared modules back (sent to everyone, the sender too). */
+export const SHARED_REPAIR_ORIGIN = 'cld-shared-repair';
+
+/**
+ * An update that broke the lock on shared modules is in: put them back as
+ * they were, in the server's own step, which everyone gets (the sender
+ * too, whose copy then matches the layout's again). Its connection stays
+ * open: closing it would leave the change in the app's copy, sent again
+ * and again (sharedGuard.ts).
+ */
+function putSharedBack(session: DocSession, sender: Sender, updateBytes: number, broken: LockBreak): void {
+  guardWork.sharedPutBack += 1;
+  try {
+    repairShared(session.doc, broken, SHARED_REPAIR_ORIGIN);
+  } catch (err) {
+    console.error(`[ws] could not put the shared modules of layout ${session.layoutId} back: ${String(err)}`);
+  }
+  if (!once(sender, 'shared_put_back')) return;
+  console.warn(
+    `[ws] put shared modules back in layout ${session.layoutId} after an update from user ${sender.userId} (${sender.client || 'unknown client'}): ${broken.why} (${updateBytes} bytes)`,
+  );
+  writeAuditEvent({
+    layoutId: session.layoutId,
+    userId: sender.userId,
+    eventType: 'layout_update_refused',
+    payload: { client: auditClient(sender.client), via: sender.credential?.kind ?? null, updateBytes, kind: 'locked', why: broken.why, putBack: broken.modules.length },
+  }).catch((err) => console.error('[ws] could not write the layout_update_refused audit event', err));
+}
+
 function refuseUpdate(
   ws: WebSocket,
   session: DocSession,
   sender: Sender,
   updateBytes: number,
-  kind: 'unreadable' | 'incomplete' | 'locked',
+  kind: 'unreadable' | 'incomplete',
   why: string,
 ): void {
   session.held.drop(ws);

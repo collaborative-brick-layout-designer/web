@@ -1,8 +1,10 @@
 // Shared modules over real sockets: the owner saves a new version, one
 // person in the layout presses Update, and everyone in the room has the
 // new parts (once); a change to a shared module's parts from an outdated
-// app is refused (1008) and leaves the layout as it was, while moving the
-// module goes through.
+// app, or a move that pulls its parts apart, is put back by the server
+// (everyone, the sender too, sees it as it was) without closing anyone's
+// connection, so the change isn't sent again and again; moving the module
+// goes through.
 
 import Fastify, { type FastifyInstance } from 'fastify';
 import cookie from '@fastify/cookie';
@@ -129,7 +131,7 @@ describe('shared modules, live', () => {
     await a.leave();
   });
 
-  it('refuses a change to a shared module’s part, and leaves the layout as it was', async () => {
+  it('puts back a change to a shared module’s part, for everyone, and keeps the connection', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const a = new Peer(port, layoutId, alice.cookie, new Y.Doc());
     const b = new Peer(port, layoutId, bob.cookie, new Y.Doc());
@@ -141,14 +143,59 @@ describe('shared modules, live', () => {
         if (bricks instanceof Y.Array && bricks.length > 0) (bricks.get(0) as Y.Map<unknown>).set('partNumber', 'a.4');
       }
     });
-    expect(await b.closed).toEqual([1008, 'unreadable_update']);
     const session = await docHub.getOrCreate(layoutId);
-    expect(pns(session.doc)).toEqual(['a.1', 'b.1']);
-    expect(pns(a.doc)).toEqual(['a.1', 'b.1']);
+    for (const doc of [session.doc, a.doc, b.doc]) await expect.poll(() => pns(doc)).toEqual(['a.1', 'b.1']);
+    expect(b.ws.readyState).toBe(b.ws.OPEN);
     expect(warn.mock.calls.some((c) => String(c[0]).includes('it changes a part of a shared module'))).toBe(true);
     const audit = await db.select().from(schema.auditEvents).where(eq(schema.auditEvents.eventType, 'layout_update_refused')).all();
     expect(audit).toHaveLength(1);
-    expect(JSON.parse(audit[0]!.payload)).toMatchObject({ kind: 'locked', why: 'it changes a part of a shared module' });
-    await a.leave();
+    expect(JSON.parse(audit[0]!.payload)).toMatchObject({ kind: 'locked', why: 'it changes a part of a shared module', putBack: 1 });
+    await Promise.all([a.leave(), b.leave()]);
+  });
+
+  it('an older app’s undo that moves only some of its parts back after an Update: put back, and no refuse-and-resend loop', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const a = new Peer(port, layoutId, alice.cookie, new Y.Doc());
+    const bobDoc = new Y.Doc();
+    const b = new Peer(port, layoutId, bob.cookie, bobDoc);
+    await Promise.all([a.synced, b.synced]);
+    const bricksOf = (doc: Y.Doc) => [...doc.getMap<Y.Map<unknown>>('layerData').values()].flatMap((l) => (l.get('bricks') instanceof Y.Array ? ((l.get('bricks') as Y.Array<Y.Map<unknown>>).toArray()) : []));
+    const xs = (doc: Y.Doc) => partsOf(doc).map((p) => p.x);
+    // Bob moves the module (his own undo step), then Alice saves version 2 and it goes in (all new parts).
+    const undo = new Y.UndoManager([bobDoc.getMap('layerData'), bobDoc.getMap('sidecarItems'), bobDoc.getMap('meta')], { trackedOrigins: new Set(['bob']) });
+    bobDoc.transact(() => {
+      for (const brick of bricksOf(bobDoc)) {
+        const area = brick.get('displayArea') as { x: number; y: number; width: number; height: number };
+        brick.set('displayArea', { ...area, x: area.x + 16 });
+      }
+    }, 'bob');
+    await expect.poll(() => xs(a.doc)).toEqual([116, 120]);
+    await save(V2);
+    expect((await app.inject({ method: 'POST', url: `/api/layouts/${layoutId}/shared-modules/placed-1/apply`, headers: { cookie: alice.cookie }, payload: {} })).statusCode).toBe(200);
+    await expect.poll(() => pns(bobDoc)).toEqual(['a.1', 'b.1', 'c.1']);
+    const placed = xs(a.doc);
+    // His undo now finds nothing of his (the parts it moved are gone): nothing is sent.
+    undo.undo();
+    expect(xs(bobDoc)).toEqual(placed);
+    // An older app's undo that still moves one part back: put back by the server, for him too, and he stays connected.
+    bobDoc.transact(() => {
+      const brick = bricksOf(bobDoc)[0]!;
+      const area = brick.get('displayArea') as { x: number; y: number; width: number; height: number };
+      brick.set('displayArea', { ...area, x: area.x - 16 });
+    }, 'bob');
+    const session = await docHub.getOrCreate(layoutId);
+    for (const doc of [session.doc, a.doc, bobDoc]) await expect.poll(() => xs(doc)).toEqual(placed);
+    expect(b.ws.readyState).toBe(b.ws.OPEN);
+    // He closes the layout and opens it again from his saved copy (as the desktop does): nothing is refused, nothing changes.
+    await b.leave();
+    const again = new Peer(port, layoutId, bob.cookie, bobDoc);
+    await again.synced;
+    await new Promise((r) => setTimeout(r, 200));
+    expect(again.ws.readyState).toBe(again.ws.OPEN);
+    expect(xs(session.doc)).toEqual(placed);
+    expect(pns(session.doc)).toEqual(['a.1', 'b.1', 'c.1']);
+    const audit = await db.select().from(schema.auditEvents).where(eq(schema.auditEvents.eventType, 'layout_update_refused')).all();
+    expect(audit).toHaveLength(1);
+    await Promise.all([a.leave(), again.leave()]);
   });
 });

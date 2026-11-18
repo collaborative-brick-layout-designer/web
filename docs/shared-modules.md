@@ -273,15 +273,29 @@ a silent no:
 was allowed. Undoing "Make it mine" puts the lock back.
 
 **2. The server guard** (`ws/sharedGuard.ts`, run with the other checks).
-For parts that belong to a shared module, refuse an update that changes a
+For parts that belong to a shared module, catch an update that changes a
 part's number, color or other fields, deletes one without deleting the
 whole module (a sheet change deletes and re-adds the same id, allowed),
 writes `p:` keys for the module, or rewrites its `members`. Only the
-server's own update step and Make it mine change those. Normal apps never
-send such a change (the tools don't allow it), so the refusal is for an
-outdated or broken app. Later (phase 3), also check that a move is rigid:
-the distances between the parts' centers and the differences of their
-turns stay the same, which the server can tell without part pictures.
+server's own update step and Make it mine change those. It also checks
+that a move is rigid (phase 3): every part turned by the same amount, and
+the distances between the parts' centers kept, within 0.05 studs for float
+rounding. A center is the part's pivot, from the parts' geometry the
+server reads ahead per layout (`ws/sharedGeometry.ts`). Until that has
+been read, or for a part no catalog knows, the box center is used, and a
+turned module lets such a part off by its size. Two people moving the
+module at the same moment are never measured against each other: the
+layout then holds some of each person's move.
+
+Normal apps never send such a change (the tools don't allow it), so this
+is for an outdated or broken app. Such an update is **taken, then put
+back**: the server restores the modules it broke, in its own step that
+everyone gets (the sender too), and the connection stays open. Closing
+the connection, as the other guards do, would leave the change in the
+app's copy. A desktop saves that copy and sends it again each time the
+layout is opened, so it would be refused again every time. Putting the
+module back works the same for every app, old ones included. It is logged
+and audited (`layout_update_refused`, kind `locked`, `putBack`).
 
 **3. Drift check (files and BlueBrick).** A file can be changed anywhere:
 in BlueBrick, by an older desktop, by hand. On opening, both apps compare

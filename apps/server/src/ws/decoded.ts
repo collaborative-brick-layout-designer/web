@@ -41,6 +41,8 @@ export const guardWork = {
   gridExact: 0,
   /** Layers whose type and grid size that took reading (gridGuard): a few per update, whatever the layout's size. */
   gridLayersRead: 0,
+  /** Updates that broke the lock on shared modules, which the server then put back (sharedGuard.ts repairShared). */
+  sharedPutBack: 0,
 };
 
 /** The update's structs, or null when Yjs can't read it (Yjs then refuses it on its own). */
