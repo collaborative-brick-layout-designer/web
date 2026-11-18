@@ -22,6 +22,7 @@ import {
   checkedLookup,
   endpointProblem,
   forgetVapidKeys,
+  vapidKeys,
   isPrivateAddress,
   sendDuePush,
   setPushSenderForTests,
@@ -139,6 +140,20 @@ describe('push routes and sending', () => {
     expect(admin).not.toContain(row.vapidPrivateKey!);
     expect(admin).not.toContain('vapidPrivateKey');
     expect(JSON.parse(admin).push).toMatchObject({ value: true, forcedBy: null, keys: 'server' });
+  });
+
+  it('first asks at the same time share one pair, and a pair stored meanwhile wins', async () => {
+    const keys = await Promise.all([vapidKeys(), vapidKeys(), call(bob, 'GET', '/api/push/key').then((r) => r.json() as { publicKey: string })]);
+    const row = (await db.select().from(schema.platformSettings).get())!;
+    expect(new Set(keys.map((k) => k!.publicKey))).toEqual(new Set([row.vapidPublicKey]));
+    // Another process stored a different pair since this one cached nothing: this one takes the stored pair, not a new one.
+    forgetVapidKeys();
+    await db.update(schema.platformSettings).set({ vapidPublicKey: null, vapidPrivateKey: null });
+    const a = await vapidKeys();
+    forgetVapidKeys();
+    const b = await vapidKeys();
+    expect(b!.publicKey).toBe(a!.publicKey);
+    expect((await db.select().from(schema.platformSettings).get())!.vapidPublicKey).toBe(a!.publicKey);
   });
 
   it('saves a browser on a known push service that resolves publicly; refuses the rest', async () => {
