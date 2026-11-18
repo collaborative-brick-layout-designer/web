@@ -43,7 +43,7 @@ describe('keysFor', () => {
     // One-off pages whose data doesn't change under the reader.
     const STATIC = new Set([
       // The list of notification types only changes with a new server.
-      'notification-types',
+      'notification-types', 'unsubscribe',
       'public-layout', 'public-layout-snapshot', 'reset-link', 'pending-link', 'invite-preview', 'module-invite-preview', 'part-invite-preview', 'org-invite-preview',
       'admin-series', 'admin-people', 'admin-health', 'admin-content', 'admin-usage',
     ]);

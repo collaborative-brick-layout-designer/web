@@ -5,6 +5,7 @@
 // the editor, so changing the look doesn't mean leaving a layout.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { NotificationSettings } from '../notifications/NotificationSettings';
 import { Link, useNavigate } from 'react-router-dom';
 import { SignInLink } from '../auth/signIn';
 import { usePreferences } from '../theme/PrefsProvider';
@@ -391,20 +392,8 @@ export function SettingsContent({ onClose }: { onClose?: () => void }) {
         )}
 
         {syncedToAccount && (
-          <Section id="email" title="Email">
-            <div className="flex items-center justify-between gap-6">
-              <div>
-                <div className="text-[15px] font-semibold">Email me about requests to join</div>
-                <div className="text-sm text-muted">
-                  When someone asks to join a club where your roles let people in. The request also waits on the club’s People page.
-                </div>
-              </div>
-              <Switch
-                label="Email me about requests to join"
-                checked={prefs.emailJoinRequests !== false}
-                onChange={(v) => setPrefs({ emailJoinRequests: v })}
-              />
-            </div>
+          <Section id="notifications" title="Notifications" help="notifications.settings">
+            <NotificationSettings />
           </Section>
         )}
 

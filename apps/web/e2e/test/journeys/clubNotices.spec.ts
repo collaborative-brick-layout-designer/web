@@ -6,9 +6,9 @@
 //   holds it. Gus asks to join with a note → Cleo's Clubs link shows the
 //   waiting request at once, and she gets an email about it (one, though
 //   she holds two roles); so does Ada, the Admin. Ben, a Manager without
-//   that permission, sees no badge and gets no email. Cleo turns off
-//   Settings › Email › "Email me about requests to join"; Hal asks next,
-//   and only Ada is emailed.
+//   that permission, sees no badge and gets no email. Cleo turns the
+//   email for requests to join off in Settings › Notifications; Hal asks
+//   next, and only Ada is emailed.
 
 import { test, expect, type Page } from '@playwright/test';
 import { fromSettingsMenu, signIn } from '../../helpers';
@@ -106,15 +106,16 @@ test('a Door crew role that lets people in gets the join requests; a Manager wit
     await cleo.getByRole('link', { name: '1 request to join', exact: true }).click();
     await expect(cleo.getByRole('region', { name: /Requests to join/ }).getByText('Gus Guest')).toBeVisible();
 
-    // ── Cleo turns the emails off in Settings › Email. ──
-    await fromSettingsMenu(cleo, 'Emails');
-    const emails = cleo.getByRole('switch', { name: 'Email me about requests to join' });
-    await expect(emails).toBeChecked();
-    await emails.click();
-    await expect(emails).not.toBeChecked();
+    // ── Cleo turns the emails off in Settings › Notifications. ──
+    await fromSettingsMenu(cleo, 'Notifications and email');
+    const clubs = cleo.getByTestId('notification-category-clubs');
+    await clubs.locator('summary').click();
+    const emails = clubs.getByRole('combobox', { name: 'Requests to join a club you run: email' });
+    await expect(emails).toHaveValue('now');
+    await emails.selectOption('off');
     await expect
-      .poll(async () => ((await call(cleo, 'get', '/api/me/preferences')).prefs as { emailJoinRequests: boolean }).emailJoinRequests)
-      .toBe(false);
+      .poll(async () => ((await call(cleo, 'get', '/api/me/notification-settings')).types as { type: string; email: string }[]).find((t) => t.type === 'club.join_request')!.email)
+      .toBe('off');
 
     // Hal asks next: Ada is emailed, Cleo isn't (her badge still counts it).
     await call(hal, 'post', `/api/orgs/${slug}/join`, {});

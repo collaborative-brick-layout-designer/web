@@ -87,6 +87,9 @@ host's to keep or not.
 | Table | Personal data | Export | Notes |
 |---|---|---|---|
 | `warnings` | warnings and notes to a person, the reason, who sent and read them | yes | Also used for "your download is ready" notes. |
+| `notification_settings` | how a person wants notifications: per type, email mode, push, quiet hours, time zone, summary times, per-club choices | yes | Deleted with the account. |
+| `notification_deliveries` | which notifications were (or wait to be) emailed to a person, and when | yes | Deleted with the notification or the account. |
+| `notification_digests` | the daily and weekly summary emails sent to a person (when, how many items) | yes | Keeps a summary from being sent twice. Deleted with the account. |
 | `notifications` | what the site told a person (plain-text title and body, which may name the person who did it), when they read it and how they answered | yes | One row per person (docs/notifications.md). Read ones are cleared 180 days after they were read by the hourly privacy clean-up; unread ones and warnings stay. |
 | `limit_overrides` | a person's own limits, suspension and its reason | yes | |
 | `usage_daily` | per-person daily counts (requests, uploads, bytes) | yes | Numbers only; swept after `USAGE_RETENTION_DAYS`. |

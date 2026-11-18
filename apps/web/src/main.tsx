@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { LiveUpdates } from './live/LiveUpdates';
 import { WarningBanner } from './notices/Notices';
 import { NotificationsPage } from './notifications/NotificationsPage';
+import { UnsubscribePage } from './notifications/UnsubscribePage';
 import { RefusedCopies } from './editor/RefusedCopies';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { PARTS_SECTION } from './parts/CustomPartsSection';
@@ -129,6 +130,7 @@ createRoot(root).render(
           <Route path="/about" element={<AboutPage />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/notifications" element={<NotificationsPage />} />
+          <Route path="/unsubscribe" element={<UnsubscribePage />} />
           {/* The old Notices page: the same list lives in Notifications now. */}
           <Route path="/notices" element={<Navigate to="/notifications" replace />} />
           <Route path="/privacy" element={<PrivacyPage />} />

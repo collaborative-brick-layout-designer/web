@@ -1589,6 +1589,11 @@ export const api = {
     /** Every unread one, or just `ids`. */
     readAll: (ids?: string[]) => post<{ ok: true; read: number }>('/api/notifications/read-all', ids ? { ids } : {}),
     acknowledge: (id: string) => post<{ ok: true; acknowledgedAt: number }>(`/api/notifications/${encodeURIComponent(id)}/acknowledge`, {}),
+    settings: () => get<NotificationSettingsView>('/api/me/notification-settings'),
+    saveSettings: (settings: Record<string, unknown>) => put<NotificationSettingsView>('/api/me/notification-settings', { settings }),
+    /** "Stop these emails": what the link stops (changes nothing), and stopping it. No sign-in. */
+    unsubscribeInfo: (t: string) => get<{ ok: true; scope: string; what: string }>(`/api/notifications/unsubscribe?t=${encodeURIComponent(t)}`),
+    unsubscribe: (t: string) => post<{ ok: true; scope: string; what: string }>(`/api/notifications/unsubscribe?t=${encodeURIComponent(t)}`, {}),
     act: (id: string, action: 'accept' | 'decline') =>
       post<{ ok: true; outcome: string; already?: boolean; notification: NotificationItem | null }>(`/api/notifications/${encodeURIComponent(id)}/act`, { action }),
   },
@@ -1994,6 +1999,33 @@ export interface NotificationQuery {
   q?: string;
   cursor?: string;
   limit?: number;
+}
+
+export type NotificationEmailMode = 'now' | 'daily' | 'weekly' | 'off';
+
+/** Settings › Notifications (GET/PUT /api/me/notification-settings). */
+export interface NotificationSettingsView {
+  categories: NotificationCategory[];
+  types: {
+    type: string;
+    category: NotificationCategory;
+    label: string;
+    waits: boolean;
+    appLocked: boolean;
+    emailApart: 'invite' | 'account' | null;
+    app: boolean;
+    email: NotificationEmailMode;
+    push: boolean;
+  }[];
+  quiet: { on: boolean; start: string; end: string };
+  timeZone: string | null;
+  dailyAt: string;
+  weeklyDay: number;
+  pauseEmail: boolean;
+  pausePush: boolean;
+  clubs: { id: string; name: string; slug: string; mute: boolean; email: boolean; push: boolean }[];
+  emailAvailable: boolean;
+  pushAvailable: boolean;
 }
 
 export interface NotificationTypeInfo {

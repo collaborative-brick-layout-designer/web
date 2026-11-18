@@ -80,7 +80,7 @@ const KEYS: Record<HintKind, (h: Hint) => QueryKey[]> = {
     ...(MEMBERSHIP_CHANGE.test(h.action ?? '') ? [['parts-catalog']] : []),
     ...ADMIN_LISTS,
   ],
-  me: () => [['trash'], ['me'], ['preferences'], ['api-tokens'], ['sessions'], ['providers'], ['my-exports'], ['my-deletion'], ['club-exports'], ['my-org-invites']],
+  me: () => [['trash'], ['me'], ['preferences'], ['notification-settings'], ['api-tokens'], ['sessions'], ['providers'], ['my-exports'], ['my-deletion'], ['club-exports'], ['my-org-invites']],
   transfer: () => [['layouts'], ['modules'], ['transfer-preview']],
   // …and the demo account's last reset (Admin › Settings and the dashboard).
   admin: () => [
@@ -93,7 +93,7 @@ const KEYS: Record<HintKind, (h: Hint) => QueryKey[]> = {
   'parts-library': () => [['parts-catalog'], ['custom-parts'], ['admin-global-parts'], ['admin-part-libraries'], ['org-part-libraries']],
   warning: () => [['notices'], ['notifications'], ['notification-count'], ['warnings'], ['admin-user-detail'], ['admin-org-detail'], ['org-warnings']],
   // The bell's count and list, in every tab (and the old per-feature counts it sits beside).
-  notification: () => [['notifications'], ['notification-count'], ['notices'], ['join-request-count'], ['club-request-count'], ['my-org-invites']],
+  notification: () => [['notifications'], ['notification-count'], ['notification-settings'], ['notices'], ['join-request-count'], ['club-request-count'], ['my-org-invites']],
 };
 
 export function isHintKind(v: unknown): v is HintKind {
