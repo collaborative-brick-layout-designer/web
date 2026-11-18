@@ -58,6 +58,7 @@ host's to keep or not.
 | `module_club_shares` | which clubs a module is shared with read-only, and who shared it | yes (the sharer's and the owner's download; the club's download) | Go with the module or the club. A module kept in Recently deleted keeps them, and a restore puts them back. |
 | `module_share_parts` | which custom parts someone (or a club) has only because a module that uses them was shared with them | yes | Worked out again whenever the module is saved, shared or unshared; go with the module's share, the module, the part, the person or the club. |
 | `layout_shared_modules` | which shared modules are placed in a layout, and at which version (no names) | yes (the layout owner's download) | Kept by the server from the layouts it stores; goes with the layout. The module's owner sees counts and club names from it, never a layout's title. |
+| `layout_visits` | when each person last had a layout open (a time only) | yes (your download) | Stamped when you leave a layout and when it opens, so "Updated while you were away" lists only what changed since. Goes with the layout or your account. |
 | `custom_parts` | owner, creator, the part's XML and picture | yes, own parts as XML + picture | The XML may name an author. |
 | `custom_part_collaborators` | shares | yes | |
 | `custom_part_invites` | who invited which email to a custom part, and the role | yes (no token) | Pending ones go when the part changes hands. |

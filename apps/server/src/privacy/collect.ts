@@ -184,6 +184,7 @@ export async function collectUserData(userId: string): Promise<DataSection[]> {
       .where(eq(s.layouts.ownerUserId, userId))
       .all()) as Record<string, unknown>[],
   );
+  add('layout-visits', 'When you last had each layout open, so it can say what changed while you were away.', await select(s.layoutVisits, eq(s.layoutVisits.userId, userId)));
   add(
     'module-transfers',
     'Modules you offered to someone, or someone offered to you.',
@@ -308,6 +309,7 @@ export const READ_TABLES = [
   'module_club_shares',
   'module_share_parts',
   'layout_shared_modules',
+  'layout_visits',
   'custom_parts',
   'custom_part_collaborators',
   'custom_part_invites',

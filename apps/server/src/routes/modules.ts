@@ -40,6 +40,7 @@ import { trashModule } from '../trash/trash.js';
 import { sharedModuleIds } from '../access/moduleShares.js';
 import { moduleSharesChanged } from '../sharedModules/lifecycle.js';
 import { refreshStatesForModule } from '../sharedModules/placed.js';
+import { updateAutomatically } from '../sharedModules/auto.js';
 
 type ModuleRow = typeof schema.modules.$inferSelect;
 
@@ -406,6 +407,8 @@ export async function moduleRoutes(app: FastifyInstance): Promise<void> {
     const version = await recordVersion(req.params.id, bytes, user.id, note);
     // The parts that come along with its shares follow its contents.
     await moduleSharesChanged(req.params.id);
+    // Layouts set to take its updates automatically get this version now.
+    updateAutomatically(app, req.params.id);
     reply.header('ETag', `"${next}"`);
     return { ok: true, updatedAt: updatedAt.getTime(), version, docVersion: next };
   });
@@ -579,6 +582,7 @@ export async function moduleRoutes(app: FastifyInstance): Promise<void> {
       .where(eq(schema.modules.id, req.params.id));
     const version = await recordVersion(req.params.id, bytes, user.id, `Restored version ${found.row.version}`, thumb, found.row.thumbnailMime);
     await moduleSharesChanged(req.params.id);
+    updateAutomatically(app, req.params.id);
     await writeAuditEvent({
       resourceKind: 'module',
       resourceId: req.params.id,

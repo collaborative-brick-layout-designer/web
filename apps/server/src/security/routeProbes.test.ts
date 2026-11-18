@@ -82,6 +82,8 @@ const ACCESS: Record<string, [Access, Scope, Flags?]> = {
   'POST /api/layouts/:id/shared-modules/:placedId/apply': ['owner', 'layouts:write'],
   'POST /api/layouts/:id/shared-modules/apply-all': ['owner', 'layouts:write'],
   'POST /api/layouts/:id/shared-modules/:placedId/detach': ['owner', 'layouts:write'],
+  'POST /api/layouts/:id/shared-modules/away': ['shared', 'layouts:read'],
+  'PUT /api/layouts/:id/shared-modules/updates': ['owner', 'layouts:write'],
   'GET /api/layouts/:id/export.bbm': ['shared', 'layouts:read'],
   'GET /api/layouts/:id/export.bld-layout': ['shared', 'layouts:read'],
   'GET /api/layouts/:id/snapshot': ['shared', null],

@@ -18,6 +18,7 @@ import { closeAll } from '../../events/hub.js';
 import { db, loginAs, resetDb, schema } from '../../test/helpers.js';
 import { docHub } from '../../ws/docHub.js';
 import { forgetLayout } from '../../sharedModules/placed.js';
+import { automaticUpdatesSettled } from '../../sharedModules/auto.js';
 import { contents, moduleOf, partsOf, place, type Part } from '../../test/sharedWorld.js';
 import { Peer } from './wsPeer.js';
 
@@ -105,6 +106,27 @@ describe('shared modules, live', () => {
     await Promise.all([a.leave(), b.leave()]);
     // Stored with the room: the layout's row says version 2.
     await expect.poll(async () => (await db.select().from(schema.layoutSharedModules).where(eq(schema.layoutSharedModules.layoutId, layoutId)).get())?.version).toBe(2);
+  });
+
+  it('Automatically: the owner saves and everyone in the layout has the new version, nobody pressing anything; leaving notes the visit', async () => {
+    await db.update(schema.layouts).set({ sharedModuleUpdates: 'auto' }).where(eq(schema.layouts.id, layoutId));
+    const a = new Peer(port, layoutId, alice.cookie, new Y.Doc());
+    const b = new Peer(port, layoutId, bob.cookie, new Y.Doc());
+    await Promise.all([a.synced, b.synced]);
+    // The room knows what it places once someone asks (as the editor does on opening).
+    await app.inject({ method: 'GET', url: `/api/layouts/${layoutId}/shared-modules`, headers: { cookie: bob.cookie } });
+    await save(V2);
+    await automaticUpdatesSettled();
+    for (const peer of [a, b]) {
+      await expect.poll(() => pns(peer.doc)).toEqual(['a.1', 'b.1', 'c.1']);
+      expect(moduleOf(peer.doc, 'placed-1')).toMatchObject({ libraryVersion: 2, shared: { review: { from: 1, to: 2 } } });
+    }
+    const before = Date.now();
+    await b.leave();
+    await expect
+      .poll(async () => (await db.select().from(schema.layoutVisits).where(eq(schema.layoutVisits.userId, bob.id)).get())?.seenAt.getTime() ?? 0)
+      .toBeGreaterThanOrEqual(before);
+    await a.leave();
   });
 
   it('refuses a change to a shared module’s part, and leaves the layout as it was', async () => {
