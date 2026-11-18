@@ -5,6 +5,7 @@ import * as Y from 'yjs';
 import { DOC_BASE_SCHEMA } from './shape.js';
 import { stampMemberKeys } from './moduleMembers.js';
 import { stampShared } from './sharedShape.js';
+import { restampKeepIds } from './keepIdsShape.js';
 
 /**
  * Version of the Y.Doc layout shape, stored as `meta.schemaVersion`.
@@ -19,8 +20,11 @@ import { stampShared } from './sharedShape.js';
  *       (moduleMembers.ts). A doc moves to 3 with its first such key.
  *   4 — a module may be shared, read-only (`shared` in its sidecar value;
  *       sharedShape.ts). A doc moves to 4 with its first shared module.
+ *   5 — a shared module's update keeps its unchanged parts (keepIdsShape.ts),
+ *       and the apps finish an undo that would pull it apart. A doc moves
+ *       to 5 with its first such update.
  */
-export const DOC_SCHEMA_VERSION = 4;
+export const DOC_SCHEMA_VERSION = 5;
 
 /**
  * The oldest `meta.schemaVersion` this code still reads. Raise it only
@@ -68,7 +72,8 @@ export function makeId(): string {
  * `meta.schemaVersion`. Legacy plain-object cells are left alone (the
  * web editor converts them to Y.Maps, with an id, on first edit).
  * A doc holding module part keys under a lower stamp is stamped shape 3,
- * and one holding a shared module shape 4.
+ * one holding a shared module shape 4, and one marked as having had an
+ * update that kept parts shape 5.
  * Only touches a doc that has been seeded (has `meta.version`), and
  * makes no change — no Yjs update — when there is nothing to do.
  * Returns true when it changed anything.
@@ -97,5 +102,7 @@ export function upgradeDoc(doc: Y.Doc, origin?: unknown): boolean {
   const stamped = stampMemberKeys(doc);
   // A shared module under a lower stamp (sharedShape.ts): shape 4.
   const shared = stampShared(doc);
-  return missing.length > 0 || stamp || stamped || shared;
+  // An update that kept parts under a lower stamp (keepIdsShape.ts): shape 5.
+  const kept = restampKeepIds(doc);
+  return missing.length > 0 || stamp || stamped || shared || kept;
 }

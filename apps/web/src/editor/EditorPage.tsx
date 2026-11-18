@@ -148,7 +148,7 @@ import { PlaceGhost } from './render/PlaceGhost';
 import { ModuleGhost } from './render/ModuleGhost';
 import { snapPlacement, snapToAnchorBrick, type SnapResult } from './snap';
 import { MarqueeOverlay, bricksInMarquee } from './render/MarqueeOverlay';
-import { useUndoManager } from './useUndoManager';
+import { undoPartLookup, useUndoManager } from './useUndoManager';
 import { isEditableTarget } from './keyboardGuard';
 import { catalogFromParts, recomputeConnectivity, useConnectivity } from './useConnectivity';
 import type { OpenedMapState } from '../mapFormats';
@@ -2754,6 +2754,8 @@ function Canvas({
     useEditorStore.getState().showNotice(setsAgainNotice(fromModules.length, loose.length), 'done', 12000);
   }, [doc, map, partsByKey, isViewer]);
   const partOf = (partNumber: string) => partsByKey.get(partNumber.toLowerCase());
+  // The parts' geometry for finishing an undo that moves a shared module (useUndoManager).
+  undoPartLookup.current = partOf;
   // Ask for every picture the shown layout needs at once, so the loading
   // card counts against the real total ("132 of 480") from the start.
   const [spriteUrls] = useState(layoutSpriteUrlsKept);

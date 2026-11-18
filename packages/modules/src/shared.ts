@@ -9,6 +9,10 @@
 //     review:    set by an update: which version it came from, so the apps
 //                can say what changed, mark what it now overlaps, and offer
 //                "Go back to version N". Cleared when someone presses OK.
+//     retired:   the ids of parts its updates took out (the newest
+//                RETIRED_MAX), so an undo that brings one back (undoing a
+//                change of sheet made before the update) takes it away
+//                again (settle.ts settleRetired)
 //   }
 //
 // BlueBrick never sees any of it (the sidecar only), and an app that
@@ -16,6 +20,9 @@
 
 import type { SidecarModule } from '@cld/bbm';
 import { readPlacement, type Placement } from './placement.js';
+
+/** At most this many ids of parts updates took out are kept (`shared.retired`), the newest. */
+export const RETIRED_MAX = 1000;
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
@@ -35,6 +42,7 @@ export interface SharedLink {
   server?: string;
   placement?: Placement;
   review?: SharedReview;
+  retired?: string[];
   /** Fields a newer build added; kept as they are. */
   [extra: string]: unknown;
 }
@@ -53,6 +61,8 @@ export interface SharedPlaced {
   placement: Placement | null;
   review: SharedReview | null;
   members: string[];
+  /** Ids of parts its updates took out (`shared.retired`; empty when none). */
+  retired?: string[] | undefined;
 }
 
 type ModuleLike = Pick<SidecarModule, 'id' | 'name' | 'members' | 'libraryModuleId' | 'libraryVersion'> & { shared?: unknown };
@@ -85,6 +95,7 @@ export function sharedPlaced(m: ModuleLike | null | undefined): SharedPlaced | n
     placement: readPlacement(o.placement),
     review: readReview(o.review),
     members: Array.isArray(m.members) ? m.members.filter((x): x is string => typeof x === 'string') : [],
+    ...(Array.isArray(o.retired) && o.retired.length > 0 ? { retired: o.retired.filter((x): x is string => typeof x === 'string') } : {}),
   };
 }
 
@@ -117,4 +128,11 @@ export function withShared<T extends object>(m: T, patch: { [K in keyof SharedLi
 export function detached<T extends object>(m: T): T {
   const { shared: _shared, libraryModuleId: _id, libraryVersion: _version, ...rest } = m as T & { shared?: unknown; libraryModuleId?: unknown; libraryVersion?: unknown };
   return rest as unknown as T;
+}
+
+/** `retired` with `ids` added (each once), the newest RETIRED_MAX kept. */
+export function moreRetired(retired: readonly string[], ids: readonly string[]): string[] {
+  const out = retired.filter((id) => !ids.includes(id));
+  out.push(...new Set(ids));
+  return out.slice(Math.max(0, out.length - RETIRED_MAX));
 }

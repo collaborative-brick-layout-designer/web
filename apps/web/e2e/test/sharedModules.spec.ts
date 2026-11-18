@@ -8,7 +8,9 @@
 //   - moved as a whole, its placement follows it;
 //   - Alice saves a new version: Bob's layout says so without a reload, he
 //     presses Update, and both Bob and Alice (who has the layout open too)
-//     get the new parts once, where Bob moved the module to;
+//     get the new parts once, where Bob moved the module to, the part that
+//     didn't change keeping its id; Bob's undo of his move, made before the
+//     update, takes the whole module back, and redo moves it again;
 //   - a copy of the layout from its file, with a part laid over the module,
 //     says after the update what the module overlaps; one whose module's
 //     parts were changed outside the app offers Put back Alice's version;
@@ -241,6 +243,16 @@ test('a module shared with a club: placed locked, updated by its owner, for ever
   // Where Bob moved it: its first track hasn't gone back.
   const updatedBricks = await serverBricks(bob, layout.id!);
   expect(updatedBricks.some((b) => Math.abs(b.x - (firstBefore.x + 32)) < 0.01 && Math.abs(b.y - (firstBefore.y + 16)) < 0.01)).toBe(true);
+  // The update kept the part that didn't change: the same part, by its id (doc shape 5).
+  expect(updatedBricks.map((b) => b.id)).toContain(firstBefore.id);
+  // Bob's undo of his move, made before the update, takes the whole module back (the new part too),
+  // and redo moves it all again: the module is never pulled apart.
+  await bob.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+  await bob.keyboard.press('Control+z');
+  const movedBack = spots(updatedBricks.map((b) => ({ ...b, x: b.x - 32, y: b.y - 16 })));
+  await expect.poll(async () => spots(await serverBricks(bob, layout.id!)), { timeout: 15000 }).toEqual(movedBack);
+  await bob.keyboard.press('Control+Shift+z');
+  await expect.poll(async () => spots(await serverBricks(bob, layout.id!)), { timeout: 15000 }).toEqual(spots(updatedBricks));
 
   // The layout's file, opened as a new layout of the club's: once with a part laid over the
   // module (the update's notice says what it overlaps), once with the module's parts changed
@@ -249,7 +261,7 @@ test('a module shared with a club: placed locked, updated by its owner, for ever
   const bbm = file.get('layout.bbm')!.toString('utf-8');
   const sidecarText = file.get('sidecar.json')!.toString('utf-8');
   const firstXml = /<Brick id="[^"]+">[\s\S]*?<\/Brick>/.exec(bbm)![0];
-  const laidOver = firstXml.replace(/id="[^"]+"/, 'id="990001"').replace(/<Connexions[\s\S]*?(<\/Connexions>|\/>)/, '<Connexions count="0" />');
+  const laidOver = firstXml.replace(/id="[^"]+"/, 'id="990001"').replace(/<Connexions[^>]*\/>|<Connexions[\s\S]*?<\/Connexions>/, '<Connexions count="0" />');
   const overLayout = await post(bob, '/api/layouts', { title: `Overlap ${ts}`, orgSlug: club.slug!, bbm: bbm.replace(firstXml, firstXml + laidOver), sidecar: sidecarText });
   await bob.goto(`/editor/${overLayout.id}`);
   await expect.poll(() => brickCount(bob), { timeout: 20000 }).toBe(3);

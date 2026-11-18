@@ -17,9 +17,13 @@
 //     parts once, where the desktop moved the module to; asking again
 //     changes nothing;
 //   - the web presses Go back, and the desktop follows;
+//   - the update keeps the track that didn't change (its id; doc shape 5),
+//     and the desktop's undo of its move, made before the update, takes
+//     the whole module back (the new track too); redo moves it again;
 //   - an older desktop (2.1.4, which reads up to doc shape 3) refuses the
 //     layout cleanly and changes nothing (BLD_SYNC_DRIVER_OLD; skipped
-//     without it).
+//     without it); so does one that reads up to shape 4 (2.1.6,
+//     BLD_SYNC_DRIVER_SHAPE4) once an update kept parts.
 //
 // It was written in the desktop repo with the desktop side, and lives here
 // now. CI runs it on main and nightly with the desktop's main driver
@@ -27,6 +31,7 @@
 //
 //   BLD_SYNC_DRIVER=<build>/src/app/bld_sync_driver \
 //   BLD_SYNC_DRIVER_OLD=<2.1.4 build>/src/app/bld_sync_driver \
+//   BLD_SYNC_DRIVER_SHAPE4=<2.1.6 build>/src/app/bld_sync_driver \
 //   BLD_SYNC_SERVER=http://127.0.0.1:3000 \
 //   pnpm --filter @cld/web exec playwright test sharedModulesDesktop
 //
@@ -40,6 +45,8 @@ import { signIn } from '../helpers';
 
 const DRIVER = process.env.BLD_SYNC_DRIVER;
 const OLD_DRIVER = process.env.BLD_SYNC_DRIVER_OLD;
+/** A desktop that reads up to doc shape 4 (2.1.6): it must refuse the layout once an update kept parts (shape 5). Optional. */
+const SHAPE4_DRIVER = process.env.BLD_SYNC_DRIVER_SHAPE4;
 const SERVER = process.env.BLD_SYNC_SERVER ?? 'http://127.0.0.1:3000';
 const ts = Date.now();
 const ALICE = `shared-desk-alice-${ts}@example.com`;
@@ -280,7 +287,15 @@ test('a shared module with the web and the desktop in one layout', async ({ page
     expect(rows.modules[0]).toMatchObject({ placedId: m.id, state: 'shared', latestNote: 'longer pier', owner: 'Alice' });
 
     // Update from the desktop: the server puts version 2 in, for the desktop and the web, once.
+    // (A desktop from before doc shape 5, such as CI's main build until the desktop's shape-5 release,
+    // is told plainly that the layout needs a newer version once the update keeps parts: checked, and the rest skipped.)
+    const keepsIds = (await driver.say('features')).includes('keepIds');
     expect(await driver.json('shared-apply ' + m.id + ' 2')).toEqual({ changed: true, version: 2, from: 1 });
+    if (!keepsIds) {
+      await expect.poll(() => brickCount(bob), { timeout: 20000 }).toBe(2);
+      await expect.poll(async () => await driver.say('wait-synced 2000'), { timeout: 20000 }).toMatch(/^error/);
+      return;
+    }
     await expect.poll(async () => (await driver.json<Shared[]>('shared'))[0]?.version, { timeout: 15000 }).toBe(2);
     shared = await driver.json<Shared[]>('shared');
     expect(shared[0]!.members).toHaveLength(2);
@@ -291,6 +306,30 @@ test('a shared module with the web and the desktop in one layout', async ({ page
     const after = await serverBricks(bob, layout.id!);
     expect(after).toHaveLength(2);
     expect(after.some((b) => Math.abs(b.x - (before[0]!.x + 32)) < 0.01 && Math.abs(b.y - (before[0]!.y + 16)) < 0.01)).toBe(true);
+    // The track that didn't change is the same part (its id): the layout is shape 5 from here.
+    expect(shared[0]!.members).toContain(m.members[0]);
+    // The desktop's undo of its move, made before the update, takes the whole module back, the
+    // new track too, as one change; redo moves it all again.
+    const spotsOf = (bricks: { x: number; y: number }[]) => bricks.map((b) => `${b.x.toFixed(2)},${b.y.toFixed(2)}`).sort();
+    expect(await driver.run('undo')).toBe('true');
+    await expect
+      .poll(async () => spotsOf(await serverBricks(bob, layout.id!)), { timeout: 15000 })
+      .toEqual(spotsOf(after.map((b) => ({ x: b.x - 32, y: b.y - 16 }))));
+    expect(await driver.run('redo')).toBe('true');
+    await expect.poll(async () => spotsOf(await serverBricks(bob, layout.id!)), { timeout: 15000 }).toEqual(spotsOf(after));
+    expect(await driver.run('status')).toContain('Synced');
+    // A desktop that reads up to shape 4 is told plainly, and changes nothing.
+    if (SHAPE4_DRIVER) {
+      const older = new Driver(SHAPE4_DRIVER, await desktopToken(bob, request));
+      try {
+        await older.run(`open ${layout.id}`);
+        const answer = await older.say('wait-synced 8000');
+        expect(answer.startsWith('error'), `the shape-4 desktop: ${answer}`).toBe(true);
+        expect(spotsOf(await serverBricks(bob, layout.id!))).toEqual(spotsOf(after));
+      } finally {
+        await older.close();
+      }
+    }
     // Pressed again (or by someone else at the same moment): nothing more changes.
     expect(await driver.json('shared-apply ' + m.id + ' 2')).toEqual({ changed: false, version: 2, from: 2 });
     expect(await serverBricks(bob, layout.id!)).toHaveLength(2);

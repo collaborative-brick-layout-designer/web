@@ -7,8 +7,11 @@
 import * as Y from 'yjs';
 import type { Group } from '@cld/model';
 import type { SidecarModule } from '@cld/bbm';
-import { makeId, pushOnTop, readSidecarCache, writeSidecarCache } from '@cld/ydoc';
+import { hasZOrder, itemsInOrder, makeId, pushOnTop, readSidecarCache, reorderByZ, stampKeepIds, writeSidecarCache } from '@cld/ydoc';
 import type { BatchBrick, ModuleBatch } from './batches.js';
+import type { PartLookup } from './geometry.js';
+import { planKeep, versionKey, type PlanSheet } from './keepIds.js';
+import { moreRetired, sharedPlaced, withShared } from './shared.js';
 
 /** `id` and its parents, innermost first (cycles and dangling ids stop it). */
 export function groupChain(groups: readonly Group[] | undefined, id: string | undefined): Group[] {
@@ -188,4 +191,163 @@ function dropEmptyGroups(layer: Y.Map<unknown>, freed: ReadonlySet<string>): voi
     const id = g.get('id') as string;
     if (candidates.has(id) && !inUse.has(id)) yGroups.delete(i, 1);
   }
+}
+
+/** The layout's parts sheets, in layer order, as planKeep reads them (each bottom to top, with its sets). */
+export function planSheets(doc: Y.Doc): PlanSheet[] {
+  const out: PlanSheet[] = [];
+  const layerData = doc.getMap('layerData');
+  for (const layerId of doc.getArray<string>('layers').toArray()) {
+    const l = layerData.get(layerId);
+    if (!(l instanceof Y.Map)) continue;
+    const bricks = l.get('bricks');
+    if (!(bricks instanceof Y.Array)) continue;
+    const yGroups = l.get('groups');
+    const groups: Group[] = [];
+    if (yGroups instanceof Y.Array) {
+      for (const g of yGroups) {
+        if (!(g instanceof Y.Map) || typeof g.get('id') !== 'string') continue;
+        groups.push({ id: g.get('id') as string, ...(typeof g.get('partNumber') === 'string' ? { partNumber: g.get('partNumber') as string } : {}), myGroup: (g.get('myGroup') as string | undefined) ?? '' });
+      }
+    }
+    const parts = itemsInOrder(bricks)
+      .filter((b): b is Y.Map<unknown> => b instanceof Y.Map && typeof b.get('id') === 'string')
+      .map((b) => {
+        const a = (b.get('displayArea') as { x: number; y: number; width: number; height: number } | undefined) ?? { x: 0, y: 0, width: 0, height: 0 };
+        return {
+          id: b.get('id') as string,
+          partNumber: typeof b.get('partNumber') === 'string' ? (b.get('partNumber') as string) : '',
+          displayArea: { x: a.x, y: a.y, width: a.width, height: a.height },
+          orientation: typeof b.get('orientation') === 'number' ? (b.get('orientation') as number) : 0,
+          altitude: typeof b.get('altitude') === 'number' ? (b.get('altitude') as number) : 0,
+          myGroup: typeof b.get('myGroup') === 'string' ? (b.get('myGroup') as string) : '',
+        };
+      });
+    out.push({ id: layerId, parts, groups });
+  }
+  return out;
+}
+
+/**
+ * Put `batches` (another version, already where it goes) in place of a
+ * placed module's parts, keeping the parts that didn't change (keepIds.ts):
+ * those not matched go, the version's parts not matched come in new, each
+ * in its place in the drawing order, and the matched ones aren't touched.
+ * The module keeps its id, name and look, holds the version's parts in its
+ * order, and gets `patch`. One transaction with `origin`, after the doc is
+ * stamped shape 5 (stampKeepIds) in its own, so builds that can't finish
+ * an undo across it stop writing before it arrives. Returns the module's
+ * parts, or null when it isn't in the layout.
+ */
+export function updateModuleParts(
+  doc: Y.Doc,
+  moduleId: string,
+  batches: readonly ModuleBatch[],
+  sheetFor: (sheetName: string) => string,
+  partOf: PartLookup,
+  patch: Partial<SidecarModule> | ((m: SidecarModule) => SidecarModule) = {},
+  origin?: unknown,
+): { members: string[]; kept: number; added: number; removed: number } | null {
+  const mod = sidecarModules(readSidecarCache(doc)).find((m) => m.id === moduleId);
+  if (!mod) return null;
+  const next = batches.map((b) => ({ sheetId: sheetFor(b.layerName || 'Module'), bricks: b.bricks, groups: b.groups ?? [] }));
+  const plan = planKeep(planSheets(doc), new Set(mod.members), next, partOf);
+  const members: string[] = [];
+  stampKeepIds(doc);
+  doc.transact(() => {
+    const layerData = doc.getMap('layerData');
+    const gone = new Set(plan.removed);
+    for (const layerId of doc.getArray<string>('layers').toArray()) {
+      const l = layerData.get(layerId);
+      if (!(l instanceof Y.Map)) continue;
+      const bricks = l.get('bricks');
+      if (!(bricks instanceof Y.Array)) continue;
+      const freed = new Set<string>();
+      for (let i = bricks.length - 1; i >= 0; i--) {
+        const b = bricks.get(i);
+        if (!(b instanceof Y.Map) || !gone.has(b.get('id') as string)) continue;
+        const g = b.get('myGroup');
+        if (typeof g === 'string' && g) freed.add(g);
+        bricks.delete(i, 1);
+      }
+      if (freed.size > 0) dropEmptyGroups(l, freed);
+    }
+    // The new parts, each with its id and its sets (the kept parts' sets where they share them, else new copies).
+    const fresh = new Map<string, Y.Map<unknown>>();
+    const freshIds = new Map<string, string>();
+    const made = new Map<string, string>();
+    const setFor = (key: string, sheetId: string): string => {
+      const chain = plan.newGroups.get(key) ?? [];
+      let parent = '';
+      // Outermost first, so each set's parent is there before it.
+      for (let k = chain.length - 1; k >= 0; k--) {
+        const token = chain[k]!;
+        if (!token.startsWith('new:')) {
+          parent = token;
+          continue;
+        }
+        let id = made.get(token);
+        if (id === undefined) {
+          id = makeId();
+          made.set(token, id);
+          const [b, gid] = token.slice(4).split('/') as [string, string];
+          const g = next[Number(b)]!.groups.find((x) => x.id === gid);
+          const yGroups = (layerData.get(sheetId) as Y.Map<unknown> | undefined)?.get('groups');
+          if (yGroups instanceof Y.Array) {
+            const y = new Y.Map<unknown>();
+            y.set('id', id);
+            if (g?.partNumber !== undefined) y.set('partNumber', g.partNumber);
+            y.set('myGroup', parent);
+            yGroups.push([y]);
+          }
+        }
+        parent = id;
+      }
+      return parent;
+    };
+    next.forEach((batch, b) => {
+      batch.bricks.forEach((brick, i) => {
+        const key = versionKey(b, i);
+        const keptId = plan.kept.get(key);
+        if (keptId !== undefined) {
+          members.push(keptId);
+          return;
+        }
+        const id = makeId();
+        members.push(id);
+        fresh.set(`new:${key}`, brickEntry({ ...brick, myGroup: setFor(key, batch.sheetId) }, id));
+        freshIds.set(`new:${key}`, id);
+      });
+    });
+    // Each sheet's new parts, where the plan puts them.
+    for (const [sheetId, order] of plan.sheets) {
+      if (!order.some((t) => fresh.has(t))) continue;
+      const bricks = (layerData.get(sheetId) as Y.Map<unknown> | undefined)?.get('bricks');
+      if (!(bricks instanceof Y.Array)) continue;
+      // (A new entry's fields can't be read until it is in the document: its id from freshIds.)
+      const ids = order.map((t) => freshIds.get(t) ?? t);
+      if (hasZOrder(bricks)) {
+        bricks.push(order.flatMap((t) => (fresh.has(t) ? [fresh.get(t)!] : [])));
+        reorderByZ(bricks, ids);
+      } else {
+        order.forEach((t, at) => {
+          const m = fresh.get(t);
+          if (m) bricks.insert(Math.min(at, bricks.length), [m]);
+        });
+      }
+    }
+    const cache = readSidecarCache(doc) ?? {};
+    writeSidecarCache(doc, {
+      ...cache,
+      modules: sidecarModules(cache).map((m) => {
+        if (m.id !== moduleId) return m;
+        const out = typeof patch === 'function' ? patch(m) : { ...m, ...patch };
+        // A shared module remembers the parts its updates took out (settle.ts settleRetired).
+        const shared = sharedPlaced(out as SidecarModule & { shared?: unknown });
+        const kept = shared && plan.removed.length > 0 ? withShared(out, { retired: moreRetired(shared.retired ?? [], plan.removed) }) : out;
+        return { ...kept, id: m.id, members };
+      }),
+    });
+  }, origin);
+  return { members, kept: plan.kept.size, added: plan.added.length, removed: plan.removed.length };
 }

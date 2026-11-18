@@ -14,9 +14,9 @@ const write = (doc: Y.Doc, modules: unknown[], origin: unknown = 'local') =>
   doc.transact(() => writeSidecarCache(doc, { schemaVersion: 1, bbmHashSha256: '', modules }), origin);
 
 describe('doc shape 4', () => {
-  it('is the newest shape, and a reader of shape 3 refuses it', () => {
+  it('is read from here on, and a reader of shape 3 refuses it', () => {
     expect(DOC_SHAPE_SHARED).toBe(4);
-    expect(DOC_SCHEMA_VERSION).toBe(4);
+    expect(DOC_SCHEMA_VERSION).toBeGreaterThanOrEqual(4);
     expect(canReadDoc(4)).toBe(true);
     expect(canReadDoc(4, 3)).toBe(false);
     expect(canReadDoc(3, 4)).toBe(true);

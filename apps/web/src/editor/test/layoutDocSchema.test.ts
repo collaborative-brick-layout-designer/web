@@ -50,7 +50,7 @@ describe('useLayoutDoc and the layout schema', () => {
   });
 
   it('opens a layout at the schema this page reads', () => {
-    expect(DOC_SCHEMA_VERSION).toBe(4);
+    expect(DOC_SCHEMA_VERSION).toBe(5);
     const { result } = renderHook(() => useLayoutDoc('a'));
     const p = providers.at(-1)!;
     act(() => {
