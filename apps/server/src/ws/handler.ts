@@ -295,12 +295,12 @@ export async function attachWsHandlers(
       awarenessProtocol.removeAwarenessStates(session.awareness, owned, ws);
     }
     await docHub.detach(session, ws);
-    // "Updated while you were away" counts from here (sharedModules/visits.ts).
-    if (!session.closed) {
-      await stampVisit(layoutId, userId).catch((err: unknown) => {
-        console.error("[ws] couldn't note when someone left layout %s", layoutId, err);
-      });
-    }
+    // "Updated while you were away" counts from here (sharedModules/visits.ts),
+    // also when this was the last connection and the room closed with it.
+    await stampVisit(layoutId, userId).catch((err: unknown) => {
+      // (A layout deleted meanwhile has nobody to remember.)
+      if (!session.closed) console.error("[ws] couldn't note when someone left layout %s", layoutId, err);
+    });
   };
 }
 

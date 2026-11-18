@@ -420,7 +420,14 @@ export interface LayoutSummary {
    */
   publicShareToken: string | null;
   credit?: Credit | null;
+  /** Updates from shared modules: 'ask' (a notice, someone presses Update) or 'auto' (put in as soon as their owner saves). */
+  sharedModuleUpdates?: SharedModuleUpdates;
+  /** List responses: how many of its shared modules have a newer version waiting. */
+  sharedUpdates?: number;
 }
+
+/** Updates from shared modules (docs/shared-modules.md): Ask first, or Automatically. */
+export type SharedModuleUpdates = 'ask' | 'auto';
 
 /** Anonymous-readable summary for `/p/:token` viewer pages. */
 export interface PublicLayoutSummary {
@@ -1182,6 +1189,15 @@ export const api = {
     /** "Make it mine": the copy becomes an ordinary module of the layout. */
     detach: (layoutId: string, placedId: string) =>
       post<{ ok: true; changed: boolean }>(`/api/layouts/${encodeURIComponent(layoutId)}/shared-modules/${encodeURIComponent(placedId)}/detach`, {}),
+    /** The layout setting "Updates from shared modules" (layout editors). */
+    setUpdates: (layoutId: string, updates: SharedModuleUpdates) =>
+      put<{ ok: true; updates: SharedModuleUpdates }>(`/api/layouts/${encodeURIComponent(layoutId)}/shared-modules/updates`, { updates }),
+    /**
+     * What was updated automatically since you last had the layout open
+     * ("Updated while you were away"). Asked once on opening: the server
+     * then notes that you have it open, so the same updates aren't listed again.
+     */
+    whileAway: (layoutId: string) => post<{ updates: SharedAwayUpdate[] }>(`/api/layouts/${encodeURIComponent(layoutId)}/shared-modules/away`, {}),
   },
 
   moduleInvites: {
@@ -2161,7 +2177,24 @@ export interface LayoutSharedModule {
   hasPicture: boolean;
 }
 
+/** One shared module updated automatically while you were away. */
+export interface SharedAwayUpdate {
+  placedId: string;
+  moduleId: string;
+  /** The version it had before; null when not known. */
+  from: number | null;
+  /** The version the last automatic update put in. */
+  to: number;
+  /** The version it has now (someone may have gone back since). */
+  version: number;
+  /** Its name, while it is still shared with this layout. */
+  title: string | null;
+  at: number;
+}
+
 export interface LayoutSharedModules {
+  /** Updates from shared modules: Ask first, or Automatically (older servers: absent, as Ask first). */
+  updates?: SharedModuleUpdates;
   /** You may press Update and Go back (you can edit the layout). */
   canUpdate: boolean;
   /** You may "Make it mine" (the layout's owner; a club's admins and managers). */

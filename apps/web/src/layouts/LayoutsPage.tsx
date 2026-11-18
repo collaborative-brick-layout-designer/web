@@ -536,6 +536,25 @@ function ShareDialogLoader({
   );
 }
 
+/**
+ * "2 updates": shared modules in the layout have a newer version waiting
+ * (an Ask first layout; docs/shared-modules.md). Opening it shows them,
+ * with Update.
+ */
+export function SharedUpdatesBadge({ n }: { n: number }) {
+  const words = n === 1 ? '1 update' : `${n} updates`;
+  return (
+    <span
+      data-testid="shared-updates-badge"
+      title={n === 1 ? 'A shared module in this layout has a new version. Open the layout to update it.' : `${n} shared modules in this layout have new versions. Open the layout to update them.`}
+      className="inline-flex items-center gap-1 rounded-full border border-accent px-2 py-0.5 text-xs font-semibold text-accent-text"
+    >
+      <span aria-hidden>↻</span>
+      {words}
+    </span>
+  );
+}
+
 function LayoutRow({
   layout,
   chip,
@@ -570,6 +589,7 @@ function LayoutRow({
         <p className="flex flex-wrap items-center gap-2">
           <span className="break-words font-medium">{layout.title}</span>
           {chip}
+          {(layout.sharedUpdates ?? 0) > 0 && <SharedUpdatesBadge n={layout.sharedUpdates!} />}
           {catalog.shared('layout', layout.id) && <CatalogBadge item={catalog.shared('layout', layout.id)!} />}
         </p>
         <p className="text-xs text-muted">

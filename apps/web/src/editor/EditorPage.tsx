@@ -216,6 +216,7 @@ const ModuleLookDialog = lazyRetry(() => import('./ModuleLookDialog').then((m) =
 const ModuleDialogHost = lazyRetry(() => import('./ModuleDialogs').then((m) => ({ default: m.ModuleDialogHost })));
 const EditBrickDialog = lazyRetry(() => import('./EditBrickDialog').then((m) => ({ default: m.EditBrickDialog })));
 const EditRulerDialog = lazyRetry(() => import('./EditRulerDialog').then((m) => ({ default: m.EditRulerDialog })));
+const SharedUpdatesDialog = lazyRetry(() => import('./SharedUpdatesDialog').then((m) => ({ default: m.SharedUpdatesDialog })));
 const GeneralInfoDialog = lazyRetry(() => import('./GeneralInfoDialog').then((m) => ({ default: m.GeneralInfoDialog })));
 const BackgroundColorDialog = lazyRetry(() => import('./BackgroundColorDialog').then((m) => ({ default: m.BackgroundColorDialog })));
 const BackgroundImageDialog = lazyRetry(() => import('./BackgroundImageDialog').then((m) => ({ default: m.BackgroundImageDialog })));
@@ -504,6 +505,7 @@ function Editor({ layoutId, docState, moduleMode }: { layoutId: string; docState
   const [showExportImage, setShowExportImage] = useState(false);
   const [showPreferences, setShowPreferences] = useState(false);
   const [showImportBbm, setShowImportBbm] = useState(false);
+  const [showSharedUpdates, setShowSharedUpdates] = useState(false);
   const [showAddLabel, setShowAddLabel] = useState(false);
   const [showSaveAsSet, setShowSaveAsSet] = useState(false);
   const mapToggles = useMapMenuToggles();
@@ -1112,6 +1114,7 @@ function Editor({ layoutId, docState, moduleMode }: { layoutId: string; docState
                         insertLabel: () => setShowAddLabel(true),
                         saveAsSet: () => setShowSaveAsSet(true),
                         importBbm: () => setShowImportBbm(true),
+                        ...(moduleMode ? {} : { sharedModuleUpdates: () => setShowSharedUpdates(true) }),
                         venueDesigner: () => setShowVenueDesigner(true),
                         venueDimensions: () => setShowVenueDimensions(true),
                         venueProps: () => setShowVenueProps(true),
@@ -1293,6 +1296,7 @@ function Editor({ layoutId, docState, moduleMode }: { layoutId: string; docState
               onExportImage={onExportImage}
               onExportCsv={() => setShowPartList(true)}
               onImportBbm={() => setShowImportBbm(true)}
+              onSharedModuleUpdates={moduleMode ? undefined : () => setShowSharedUpdates(true)}
               onCreateModule={() => openMakeModule(doc)}
               onSaveAsSet={() => setShowSaveAsSet(true)}
               onInsertLabel={() => setShowAddLabel(true)}
@@ -1628,6 +1632,9 @@ function Editor({ layoutId, docState, moduleMode }: { layoutId: string; docState
       )}
       {showPreferences && (
         <PreferencesDialog onClose={() => setShowPreferences(false)} />
+      )}
+      {showSharedUpdates && !moduleMode && (
+        <SharedUpdatesDialog layoutId={layoutId} readOnly={role === 'viewer'} onClose={() => setShowSharedUpdates(false)} />
       )}
       {showImportBbm && (
         <ImportBbmDialog doc={doc} onClose={() => setShowImportBbm(false)} />
@@ -6005,6 +6012,7 @@ function MapMenu({
   onExportImage,
   onExportCsv,
   onImportBbm,
+  onSharedModuleUpdates,
   onCreateModule,
   onSaveAsSet,
   onInsertLabel,
@@ -6033,6 +6041,7 @@ function MapMenu({
   onExportImage: () => void;
   onExportCsv: () => void;
   onImportBbm: () => void;
+  onSharedModuleUpdates?: (() => void) | undefined;
   onCreateModule: () => void;
   onSaveAsSet: () => void;
   onInsertLabel: () => void;
@@ -6070,6 +6079,7 @@ function MapMenu({
         createModule: onCreateModule,
         saveAsSet: onSaveAsSet,
         importBbm: onImportBbm,
+        ...(onSharedModuleUpdates ? { sharedModuleUpdates: onSharedModuleUpdates } : {}),
         venueDesigner: onVenueDesigner,
         venueDrawOutline: onVenueDrawOutline,
         venueDrawObstacle: onVenueDrawObstacle,

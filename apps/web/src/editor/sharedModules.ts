@@ -161,6 +161,31 @@ export function reviewText(p: SharedPlaced): string {
   return `“${p.name || 'The shared module'}” is now version ${p.review?.to ?? p.version ?? ''}.`.replace(' .', '.');
 }
 
+/** A shared module updated automatically while you were away (api.sharedModules.whileAway), with its copy here. */
+export interface AwayUpdate {
+  placed: SharedPlaced;
+  from: number | null;
+  to: number;
+}
+
+/** "Updated while you were away": what went in automatically since you last had the layout open. */
+export function awayText(list: readonly AwayUpdate[]): string {
+  if (list.length === 1) {
+    const u = list[0]!;
+    const name = u.placed.name || 'A shared module';
+    const who = u.placed.by ? `${u.placed.by}’s` : 'its owner’s';
+    return u.from !== null && u.from !== u.to
+      ? `“${name}” went from version ${u.from} to ${u.to}: this layout takes ${who} updates automatically.`
+      : `“${name}” is now version ${u.to}: this layout takes ${who} updates automatically.`;
+  }
+  return `${list.length} shared modules were updated: this layout takes their owners’ updates automatically.`;
+}
+
+/** The same in a short line per module, for several. */
+export function awayLine(u: AwayUpdate): string {
+  return `“${u.placed.name || 'Module'}” ${u.from !== null && u.from !== u.to ? `v${u.from} → v${u.to}` : `v${u.to}`}`;
+}
+
 /** "Make it mine…": asks first, then the server unlocks the copy. True when it did. */
 export async function makeItMine(layoutId: string, placed: Pick<SharedPlaced, 'placedId' | 'name' | 'by'>): Promise<boolean> {
   const name = placed.name || 'This module';
