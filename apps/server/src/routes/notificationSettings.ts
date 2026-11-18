@@ -19,6 +19,7 @@ import { loadStored, parseSettings, resolve, saveStored, type StoredSettings } f
 import { readUnsubscribeToken, type UnsubscribeScope } from '../notifications/unsubscribe.js';
 import { hintNotifications } from '../notifications/notify.js';
 import '../notifications/delivery.js';
+import { pushAvailable } from '../notifications/push.js';
 
 const READ = { apiToken: ['layouts:read', 'layouts:write', 'account:prefs'] } as const;
 const WRITE = { apiToken: 'account:prefs' } as const;
@@ -54,8 +55,7 @@ export async function settingsView(userId: string) {
       .sort((a, b) => a.name.localeCompare(b.name))
       .map((o) => ({ ...o, ...(r.clubs[o.id] ?? { mute: false, email: true, push: true }) })),
     emailAvailable: await emailConfigured(),
-    // Browser push arrives in Web C.
-    pushAvailable: false,
+    pushAvailable: await pushAvailable(),
   };
 }
 

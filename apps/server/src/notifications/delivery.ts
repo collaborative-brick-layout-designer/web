@@ -16,12 +16,14 @@
 import { randomUUID } from 'node:crypto';
 import { and, count, desc, eq, gt, gte, inArray, isNull, lte, or } from 'drizzle-orm';
 import { db, schema } from '../db/index.js';
+import { env } from '../env.js';
 import { emailConfigured } from '../email/transporter.js';
 import { sendNotificationEmail } from '../email/sendNotification.js';
 import { channelsFor, periodKey, quietEnds, settingsFor, summaryDue, type Resolved } from './settings.js';
 import { NOTIFICATION_TYPES, isNotificationType } from './types.js';
 import { unsubscribePaths } from './unsubscribe.js';
 import { onNotified } from './notify.js';
+import { pushAvailable, sendDuePush } from './push.js';
 
 /** Right-away emails one person gets in an hour before the rest wait for the summary. */
 export const EMAILS_PER_HOUR = 20;
@@ -39,6 +41,12 @@ export function setDeliveryErrorLogger(fn: (msg: string, err: unknown) => void):
 export async function queueDeliveries(rows: schema.Notification[], now = new Date()): Promise<void> {
   if (rows.length === 0) return;
   const settings = await settingsFor(rows.map((r) => r.userId));
+  // Pop-ups only for people with a browser signed up, while the site has push on.
+  const pushers = (await pushAvailable())
+    ? new Set(
+        (await db.selectDistinct({ u: schema.pushSubscriptions.userId }).from(schema.pushSubscriptions).where(inArray(schema.pushSubscriptions.userId, [...new Set(rows.map((r) => r.userId))])).all()).map((r) => r.u),
+      )
+    : new Set<string>();
   const out: (typeof schema.notificationDeliveries.$inferInsert)[] = [];
   for (const r of rows) {
     const s = settings.get(r.userId)!;
@@ -46,14 +54,27 @@ export async function queueDeliveries(rows: schema.Notification[], now = new Dat
     if (ch.email === 'now') {
       out.push({ id: randomUUID(), notificationId: r.id, userId: r.userId, channel: 'email', dueAt: quietEnds(s, now), state: 'waiting', createdAt: now });
     }
+    if (ch.push && pushers.has(r.userId)) {
+      out.push({ id: randomUUID(), notificationId: r.id, userId: r.userId, channel: 'push', dueAt: quietEnds(s, now), state: 'waiting', createdAt: now });
+    }
   }
   if (out.length) db.insert(schema.notificationDeliveries).values(out).run();
 }
 
+/** Send at once after each notification (off in tests, which call sendDue and sendDuePush themselves). */
+let sendAtOnce = env.nodeEnv !== 'test';
+export function setSendAtOnceForTests(on: boolean): void {
+  sendAtOnce = on;
+}
+
 onNotified(async (rows) => {
   await queueDeliveries(rows);
+  if (!sendAtOnce) return;
   // What's due now goes at once, after the request (never slows it down).
-  setImmediate(() => void sendDue().catch((err: unknown) => logError('[notifications] sending failed', err)));
+  setImmediate(() => {
+    void sendDue().catch((err: unknown) => logError('[notifications] sending failed', err));
+    void sendDuePush().catch((err: unknown) => logError('[notifications] push failed', err));
+  });
 });
 
 const why = (type: string) => {
@@ -210,8 +231,9 @@ export async function sendSummaries(now = new Date()): Promise<number> {
 }
 
 /** The job, every minute: right-away emails now due (quiet hours over), then summaries. */
-export async function notificationsTick(now = new Date()): Promise<{ sent: number; summaries: number }> {
+export async function notificationsTick(now = new Date()): Promise<{ sent: number; pushed: number; summaries: number }> {
   const sent = await sendDue(now);
+  const pushed = await sendDuePush(now);
   const summaries = await sendSummaries(now);
-  return { sent, summaries };
+  return { sent, pushed, summaries };
 }

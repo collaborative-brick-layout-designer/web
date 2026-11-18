@@ -31,6 +31,7 @@ import { docHub } from '../ws/docHub.js';
 import { safeFetch } from '../utils/safeFetch.js';
 import { env } from '../env.js';
 import { backgroundJobs } from '../workers/jobs.js';
+import { pushSetting } from '../notifications/push.js';
 import { EraseRefused, eraseUser } from '../privacy/accountDeletion.js';
 import { NOTICE_MAX, privacyContact, validContact } from '../privacy/page.js';
 import { readPlan, requestClubDeletion } from '../privacy/clubDeletion.js';
@@ -1236,6 +1237,9 @@ export async function adminRoutes(app: FastifyInstance): Promise<void> {
       // Background jobs: switches here, unless the server's env var
       // forces one (forcedBy names it).
       jobs: await backgroundJobs(),
+      // Browser pop-up notifications: the switch, unless PUSH_ENABLED forces
+      // it; where the keys come from (never the keys themselves).
+      push: { ...(await pushSetting()), keys: env.vapidPublicKey && env.vapidPrivateKey ? 'env' : 'server' },
       // The demo account: on or off, how often it resets, when it last
       // did and how many things it has now.
       demo: { ...demoStatus(settings), items: await demoItemCount(), maxSpaces: settings.demoMaxSpaces, liveSpaces: await liveDemoSpaces() },
@@ -1278,6 +1282,8 @@ export async function adminRoutes(app: FastifyInstance): Promise<void> {
       catalogAnonymousBrowse?: boolean;
       backupsEnabled?: boolean;
       dailyCompactionEnabled?: boolean;
+      /** Browser pop-up notifications for the whole site. */
+      pushEnabled?: boolean;
       demoEnabled?: boolean;
       demoResetEvery?: string;
       demoMaxSpaces?: unknown;
@@ -1349,6 +1355,7 @@ export async function adminRoutes(app: FastifyInstance): Promise<void> {
     if (typeof body.catalogAnonymousBrowse === 'boolean') patch.catalogAnonymousBrowse = body.catalogAnonymousBrowse;
     if (typeof body.backupsEnabled === 'boolean') patch.backupsEnabled = body.backupsEnabled;
     if (typeof body.dailyCompactionEnabled === 'boolean') patch.dailyCompactionEnabled = body.dailyCompactionEnabled;
+    if (typeof body.pushEnabled === 'boolean') patch.pushEnabled = body.pushEnabled;
     if (typeof body.demoEnabled === 'boolean') patch.demoEnabled = body.demoEnabled;
     if ('demoMaxSpaces' in body) {
       const n = body.demoMaxSpaces;

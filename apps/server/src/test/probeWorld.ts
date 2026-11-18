@@ -97,6 +97,8 @@ export async function seedProbeWorld(app: FastifyInstance): Promise<ProbeWorld> 
   await db.insert(schema.catalogCollections).values({ id: collection, title: 'Olive picks', ownerUserId: olive.id, orgId: club, status: 'in_review', audience: 'everyone', createdAt: now, updatedAt: now });
   const notice = randomUUID();
   await db.insert(schema.warnings).values({ id: notice, scope: 'site', severity: 'note', reason: 'Hello', subjectUserId: olive.id, createdAt: now } as never);
+  const pushSub = randomUUID();
+  await db.insert(schema.pushSubscriptions).values({ id: pushSub, userId: olive.id, endpoint: `https://fcm.googleapis.com/fcm/send/${pushSub}`, p256dh: 'p'.repeat(43), auth: 'a'.repeat(22), name: 'Probe browser', createdAt: now });
   const notification = randomUUID();
   await db.insert(schema.notifications).values({ id: notification, userId: olive.id, type: 'moderation.note', subjectKind: 'warning', subjectId: notice, title: 'Note from the site team', body: 'Hello', createdAt: now });
   const dataExport = randomUUID();
@@ -134,7 +136,7 @@ export async function seedProbeWorld(app: FastifyInstance): Promise<ProbeWorld> 
     mod,
     demoCookie,
     prefsOnlyToken,
-    ids: { club, layout, module: mod1, part, venue, item, publicItem, version, collection, notice, notification, dataExport, request, invite, moduleInvite, partInvite, orgInvite, transfer, joinRequest, oliveToken, pine, partnerRequest, moduleOffer },
+    ids: { club, layout, module: mod1, part, venue, item, publicItem, version, collection, notice, notification, pushSub, dataExport, request, invite, moduleInvite, partInvite, orgInvite, transfer, joinRequest, oliveToken, pine, partnerRequest, moduleOffer },
   };
 }
 
@@ -195,6 +197,7 @@ export function concreteUrl(pattern: string, w: ProbeWorld, override?: string): 
       ['/api/auth/sessions/', 'no-such-session'],
       ['/api/notices/', i.notice!],
       ['/api/notifications/', i.notification!],
+      ['/api/push/subscriptions/', i.pushSub!],
       ['/api/trash/', 'no-such-trash'],
       ['/api/privacy/exports/', i.dataExport!],
       ['/api/orgs/olive-club/join-requests/', i.joinRequest!],

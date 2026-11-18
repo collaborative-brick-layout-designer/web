@@ -767,6 +767,8 @@ export const ROUTE_HINTS: Record<string, HintSpec> = {
   },
   'POST /api/notifications/:id/unread': mine('update:unread'),
   'PUT /api/me/notification-settings': mine('update:settings'),
+  'POST /api/push/subscriptions': mine('update:push'),
+  'DELETE /api/push/subscriptions/:id': mine('update:push'),
   'POST /api/notifications/read-all': mine('update:read-all'),
   'POST /api/notifications/:id/act': mine('update:act'),
   'POST /api/notifications/:id/acknowledge': {

@@ -287,6 +287,17 @@ export const platformSettings = sqliteTable('platform_settings', {
   backupsEnabled: integer('backups_enabled', { mode: 'boolean' }).notNull().default(true),
   dailyCompactionEnabled: integer('daily_compaction_enabled', { mode: 'boolean' }).notNull().default(true),
   /**
+   * Browser push (0057; Admin › Settings › Notifications). On by default;
+   * PUSH_ENABLED, when set, forces it. The VAPID keys are made on the first
+   * start that needs them; the private key is stored encrypted
+   * (secrets/secretBox.ts) and never sent to any client, logged, or put in
+   * a download. VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY, when set, are used
+   * instead (several servers sharing one site).
+   */
+  pushEnabled: integer('push_enabled', { mode: 'boolean' }).notNull().default(true),
+  vapidPublicKey: text('vapid_public_key'),
+  vapidPrivateKey: text('vapid_private_key'),
+  /**
    * No longer used: demo layouts don't expire any more (the one demo
    * account resets instead). Left in place so no column is dropped.
    */
@@ -1961,5 +1972,33 @@ export const notificationDigests = sqliteTable(
   },
   (t) => ({
     once: uniqueIndex('notification_digests_once_idx').on(t.userId, t.kind, t.period),
+  }),
+);
+
+/**
+ * Browsers that asked for pop-up notifications (0057): one per browser per
+ * person, at most a few each. The endpoint is a push service's address,
+ * checked against the known services when it's saved and before each send.
+ * `p256dh` and `auth` are the browser's keys for encrypting what is sent:
+ * never shown, and left out of the data download.
+ */
+export const pushSubscriptions = sqliteTable(
+  'push_subscriptions',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    endpoint: text('endpoint').notNull(),
+    p256dh: text('p256dh').notNull(),
+    auth: text('auth').notNull(),
+    /** "Firefox on Linux": what Settings lists it as. */
+    name: text('name').notNull(),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+    lastUsedAt: integer('last_used_at', { mode: 'timestamp_ms' }),
+  },
+  (t) => ({
+    endpointIdx: uniqueIndex('push_subscriptions_endpoint_idx').on(t.endpoint),
+    userIdx: index('push_subscriptions_user_idx').on(t.userId),
   }),
 );
