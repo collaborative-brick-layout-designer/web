@@ -11,7 +11,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { useState, type ReactNode } from 'react';
 import catalogueText from '../tours.json?raw';
-import { forDevice, getTour, markSeen, stepCount, TOURS, toursFor, WELCOME, WELCOME_ID } from '../tours';
+import helpText from '../../help/help-texts.json?raw';
+import { forClubless, forDevice, getTour, markSeen, stepCount, TOURS, toursFor, WELCOME, WELCOME_ID } from '../tours';
 import { findTourTarget, TourProvider, useTours } from '../TourProvider';
 import { WelcomeCard } from '../WelcomeCard';
 import { HelpMenu } from '../../editor/EditorChrome';
@@ -28,7 +29,7 @@ const SOURCES = import.meta.glob(['../../**/*.{ts,tsx}', '!../../**/*.test.{ts,t
 }) as Record<string, string>;
 
 /** Steps that show their card in the middle on purpose: there's nothing on screen to point at. */
-const CENTRED = new Set(['clubs.join']);
+const CENTRED = new Set(['clubs.join', 'club.partners']);
 
 describe('the tour catalogue', () => {
   it('has the welcome card and the four tours, with ids the server accepts', () => {
@@ -65,7 +66,22 @@ describe('the tour catalogue', () => {
     const desktopOnly = raw.tours.flatMap((t) => t.steps.filter((s) => s.apps && !s.apps.includes('web')).map((s) => s.target));
     expect(desktopOnly).toContain('servers.status');
     for (const t of TOURS) for (const s of t.steps) expect(desktopOnly, s.target).not.toContain(s.target);
-    expect(getTour('clubs')!.steps.map((s) => s.target)).toEqual(['owners.filter', 'publish.owner', 'module.shared', 'clubs.page', 'clubs.join']);
+    expect(getTour('clubs')!.steps.map((s) => s.target)).toEqual(['owners.filter', 'publish.owner', 'module.shared', 'club.partners', 'clubs.page', 'clubs.join']);
+  });
+
+  it('the Clubs tour has a Partner clubs stop in each app, pointing at its help ⓘ', () => {
+    const raw = JSON.parse(catalogueText) as { tours: { id: string; steps: { target: string; apps?: string[]; needsClub?: boolean; title: string; text: string }[] }[] };
+    const stops = raw.tours.find((t) => t.id === 'clubs')!.steps.filter((s) => s.title === 'Partner clubs');
+    expect(stops.map((s) => [s.target, s.apps])).toEqual([['club.partners', ['web']], ['club.moduleOffers', ['desktop']]]);
+    // Where the club's page is, the web's stop is for club members; the desktop's names the website's Accept and Decline.
+    expect(stops[0]!.needsClub).toBe(true);
+    expect(stops[1]!.text).toContain('Open on the Website');
+    // Someone in no club doesn't get it; a club member does.
+    expect(forClubless(getTour('clubs')!, false).steps.map((s) => s.title)).not.toContain('Partner clubs');
+    expect(forClubless(getTour('clubs')!, true).steps.map((s) => s.title)).toContain('Partner clubs');
+    // Both ⓘ are real help entries.
+    const help = JSON.parse(helpText) as Record<string, unknown>;
+    for (const s of stops) expect(Object.keys(help.entries ?? help), s.target).toContain(s.target);
   });
 
   it('names where the desktop copy lives, so the two stay identical', () => {

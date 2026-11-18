@@ -130,6 +130,22 @@ describe('ModuleLibraryPanel drag', () => {
   });
 });
 
+describe('ModuleLibraryPanel versions', () => {
+  it('never shows v0: a copy made before it had a first version shows v1', async () => {
+    apiMock.modulesList.mockResolvedValue({
+      modules: [
+        { id: '11111111-2222-3333-4444-555555555555', title: 'Old copy', ownerUserId: 'u', ownerOrgId: null, docVersion: 0, latestVersion: 0, hasSidecar: false, createdAt: 0, updatedAt: 0 },
+        { id: '11111111-2222-3333-4444-555555555556', title: 'Saved twice', ownerUserId: 'u', ownerOrgId: null, docVersion: 2, latestVersion: 2, hasSidecar: false, createdAt: 0, updatedAt: 0 },
+      ],
+    });
+    render(withQuery(h(ModuleLibraryPanel, { doc: createDefaultLayoutDoc(), isViewer: false })));
+    const old = (await screen.findByText('Old copy')).closest('li')!;
+    expect(old.textContent).toContain('v1 ·');
+    expect(old.textContent).not.toContain('v0');
+    expect((await screen.findByText('Saved twice')).closest('li')!.textContent).toContain('v2 ·');
+  });
+});
+
 const HALL = {
   name: 'Hall',
   enabled: true,

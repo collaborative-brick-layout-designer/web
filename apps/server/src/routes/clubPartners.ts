@@ -40,6 +40,7 @@ import {
   noteToClub,
   pairOf,
   partnersOf,
+  settleOffersBetween,
   runsPartners,
   waitingFor,
 } from '../clubPartners/partners.js';
@@ -425,4 +426,6 @@ async function becomePartners(request: typeof schema.clubPartnerRequests.$inferS
     `${answering.name} accepted your club’s partner request. Your clubs can now share modules with each other, with no need to accept each one.`,
     `/orgs/${asking.slug}?tab=partners`,
   );
+  // Offers still waiting between them are partner shares now, both ways.
+  await settleOffersBetween(answering.id, asking.id, userId);
 }
