@@ -190,6 +190,8 @@ export async function clubSharingAfterErase(before: { partners: Org[]; modules: 
     }
   }
   for (const p of before.partners) {
+    // Its Partners section drops the club, live.
+    void publish({ kind: 'club', owner: { kind: 'org', id: p.id }, id: p.id, action: 'update:partners' });
     await noteToClub(
       p.id,
       actorId,

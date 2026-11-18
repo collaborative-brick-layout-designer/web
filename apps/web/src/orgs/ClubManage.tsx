@@ -1076,6 +1076,24 @@ export function describeEvent(e: AuditEventSummary, memberName: (id: string) => 
       return `${who} went back to version ${typeof p.from === 'number' ? p.from : 'an earlier version'} of a module`;
     case 'join_decline':
       return `${who} declined a request to join`;
+    case 'partner_request':
+      return p.to ? `${who} asked another club to be partners` : `${who} asked to be partners with this club`;
+    case 'partner_withdraw':
+      return `${who} took back a partner request`;
+    case 'partner_accept':
+      return `${who} accepted a partnership with another club`;
+    case 'partner_decline':
+      return `${who} declined a partner request`;
+    case 'partner_end':
+      return `${who} ended a partnership with another club`;
+    case 'module_offer':
+      return p.to ? `${who} offered one of the club’s modules to another club` : `${who} offered a module to this club`;
+    case 'module_offer_withdraw':
+      return `${who} took back a module offer`;
+    case 'module_offer_accept':
+      return `${who} accepted a module from another club`;
+    case 'module_offer_decline':
+      return `${who} declined a module offer`;
     case 'transfer':
       return `${who} moved a layout into the club`;
     case 'rename':
