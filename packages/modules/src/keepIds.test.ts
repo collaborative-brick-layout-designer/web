@@ -148,7 +148,7 @@ describe('updateModuleParts', () => {
 
   it('swaps only the changed parts, each where the version has it in the drawing order, in its set', () => {
     for (const z of [false, true]) {
-      const { doc, members, under, over } = layout(5, z);
+      const { doc, members, under } = layout(5, z);
       // Part 2 moved, part 0 recolored, and a part added on top.
       const v = version(5, (b) => {
         b[2]!.displayArea = A(4, 6);

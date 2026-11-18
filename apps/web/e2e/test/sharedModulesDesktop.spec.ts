@@ -303,11 +303,11 @@ test('a shared module with the web and the desktop in one layout', async ({ page
     // The desktop's undo of its move, made before the update, takes the whole module back, the
     // new track too, as one change; redo moves it all again.
     const spotsOf = (bricks: { x: number; y: number }[]) => bricks.map((b) => `${b.x.toFixed(2)},${b.y.toFixed(2)}`).sort();
-    expect(await driver.run('undo')).toBe('ok true');
+    expect(await driver.run('undo')).toBe('true');
     await expect
       .poll(async () => spotsOf(await serverBricks(bob, layout.id!)), { timeout: 15000 })
       .toEqual(spotsOf(after.map((b) => ({ x: b.x - 32, y: b.y - 16 }))));
-    expect(await driver.run('redo')).toBe('ok true');
+    expect(await driver.run('redo')).toBe('true');
     await expect.poll(async () => spotsOf(await serverBricks(bob, layout.id!)), { timeout: 15000 }).toEqual(spotsOf(after));
     expect(await driver.run('status')).toContain('Synced');
     // A desktop that reads up to shape 4 is told plainly, and changes nothing.

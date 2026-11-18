@@ -261,7 +261,7 @@ test('a module shared with a club: placed locked, updated by its owner, for ever
   const bbm = file.get('layout.bbm')!.toString('utf-8');
   const sidecarText = file.get('sidecar.json')!.toString('utf-8');
   const firstXml = /<Brick id="[^"]+">[\s\S]*?<\/Brick>/.exec(bbm)![0];
-  const laidOver = firstXml.replace(/id="[^"]+"/, 'id="990001"').replace(/<Connexions[\s\S]*?(<\/Connexions>|\/>)/, '<Connexions count="0" />');
+  const laidOver = firstXml.replace(/id="[^"]+"/, 'id="990001"').replace(/<Connexions[^>]*\/>|<Connexions[\s\S]*?<\/Connexions>/, '<Connexions count="0" />');
   const overLayout = await post(bob, '/api/layouts', { title: `Overlap ${ts}`, orgSlug: club.slug!, bbm: bbm.replace(firstXml, firstXml + laidOver), sidecar: sidecarText });
   await bob.goto(`/editor/${overLayout.id}`);
   await expect.poll(() => brickCount(bob), { timeout: 20000 }).toBe(3);

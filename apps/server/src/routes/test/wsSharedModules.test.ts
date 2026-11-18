@@ -161,7 +161,7 @@ describe('shared modules, live', () => {
     await Promise.all([a.leave(), b.leave()]);
   });
 
-  it('an older app’s undo that moves only some of its parts back after an Update: put back, and no refuse-and-resend loop', async () => {
+  it('an app’s undo that moves only some of its parts back after an Update: put back, and no refuse-and-resend loop', async () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     const a = new Peer(port, layoutId, alice.cookie, new Y.Doc());
     const bobDoc = new Y.Doc();
@@ -169,7 +169,7 @@ describe('shared modules, live', () => {
     await Promise.all([a.synced, b.synced]);
     const bricksOf = (doc: Y.Doc) => [...doc.getMap<Y.Map<unknown>>('layerData').values()].flatMap((l) => (l.get('bricks') instanceof Y.Array ? ((l.get('bricks') as Y.Array<Y.Map<unknown>>).toArray()) : []));
     const xs = (doc: Y.Doc) => partsOf(doc).map((p) => p.x);
-    // Bob moves the module (his own undo step), then Alice saves version 2 and it goes in (all new parts).
+    // Bob moves the module (his own undo step), then Alice saves version 2 and it goes in.
     const undo = new Y.UndoManager([bobDoc.getMap('layerData'), bobDoc.getMap('sidecarItems'), bobDoc.getMap('meta')], { trackedOrigins: new Set(['bob']) });
     bobDoc.transact(() => {
       for (const brick of bricksOf(bobDoc)) {
@@ -182,15 +182,11 @@ describe('shared modules, live', () => {
     expect((await app.inject({ method: 'POST', url: `/api/layouts/${layoutId}/shared-modules/placed-1/apply`, headers: { cookie: alice.cookie }, payload: {} })).statusCode).toBe(200);
     await expect.poll(() => pns(bobDoc)).toEqual(['a.1', 'b.1', 'c.1']);
     const placed = xs(a.doc);
-    // His undo now finds nothing of his (the parts it moved are gone): nothing is sent.
+    // The update kept the part that didn't change (doc shape 5), so an app that doesn't finish its
+    // undo for the whole module (one from before shape 5) moves only that part back with its undo.
+    expect(bobDoc.getMap('meta').get('schemaVersion')).toBe(5);
     undo.undo();
-    expect(xs(bobDoc)).toEqual(placed);
-    // An older app's undo that still moves one part back: put back by the server, for him too, and he stays connected.
-    bobDoc.transact(() => {
-      const brick = bricksOf(bobDoc)[0]!;
-      const area = brick.get('displayArea') as { x: number; y: number; width: number; height: number };
-      brick.set('displayArea', { ...area, x: area.x - 16 });
-    }, 'bob');
+    expect(xs(bobDoc)).not.toEqual(placed);
     const session = await docHub.getOrCreate(layoutId);
     for (const doc of [session.doc, a.doc, bobDoc]) await expect.poll(() => xs(doc)).toEqual(placed);
     expect(b.ws.readyState).toBe(b.ws.OPEN);
