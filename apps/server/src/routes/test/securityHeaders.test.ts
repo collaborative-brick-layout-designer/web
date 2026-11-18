@@ -180,6 +180,10 @@ describe('audit 2026-10 hardening', () => {
   it('masks link tokens and OAuth codes in logged URLs', () => {
     expect(redactUrl('/api/invites/abc123/accept')).toBe('/api/invites/[redacted]/accept');
     expect(redactUrl('/api/org-invites/tok')).toBe('/api/org-invites/[redacted]');
+    // The invite links notifications answer for you (notifications/act.ts) log their URL too.
+    expect(redactUrl('/api/module-invites/tok')).toBe('/api/module-invites/[redacted]');
+    expect(redactUrl('/api/part-invites/tok')).toBe('/api/part-invites/[redacted]');
+    expect(redactUrl('/api/auth/password/reset/tok')).toBe('/api/auth/password/reset/[redacted]');
     expect(redactUrl('/api/transfers/tok')).toBe('/api/transfers/[redacted]');
     expect(redactUrl('/api/public-layouts/tok/snapshot')).toBe('/api/public-layouts/[redacted]/snapshot');
     expect(redactUrl('/api/auth/password/verify-email/tok')).toBe('/api/auth/password/verify-email/[redacted]');
