@@ -73,9 +73,11 @@ test('a module moves to the club with its author credited, Sam takes it back, an
     await expect(adaRow).toHaveCount(1, { timeout: 15000 });
     await expect(adaRow.getByTestId('credit')).toHaveText(`by Sam · in ${CLUB} · based on ${MODULE} by Sam`, { timeout: 15000 });
     // …and a note about it.
-    const banner = ada.page.getByTestId('notice-banner');
-    await expect(banner).toContainText(`From ${CLUB}`, { timeout: 15000 });
-    await expect(banner).toContainText(`Sam took back the module “${MODULE}”`);
+    await expect(ada.page.getByTestId('notification-badge')).toHaveText('1', { timeout: 15000 });
+    await ada.page.getByTestId('notification-bell').click();
+    const note = ada.page.getByTestId('notification-panel').getByTestId('notification-item').first();
+    await expect(note).toContainText(CLUB);
+    await expect(note).toContainText(`Sam took back the module “${MODULE}”`);
 
     // The club's layout is just as it was.
     expect(await (await ada.page.request.get(`/api/layouts/${layout.id}/export.bbm`)).text()).toBe(bbmBefore);

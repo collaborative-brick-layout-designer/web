@@ -3,7 +3,7 @@
 // Ada runs Rail Club; Ben is a member. The club shared a module in the
 // public catalog. Ada deletes the club: the screen says what goes and
 // when, she hands the public module to Ben, and types the club's name.
-// The club disappears for Ben at once, and he gets a notice saying Ada
+// The club disappears for Ben at once, and he gets a notification saying Ada
 // deleted it, when it goes for good, and that it can be restored. Ben
 // can't restore it himself; Ada restores it from Clubs › Being deleted,
 // and it's back for both of them, with Ben still holding the club's own
@@ -78,10 +78,14 @@ test('a club admin deletes a club handing its public module to a member; the mem
   await ben.goto('/orgs');
   await expect(ben.getByText(CLUB, { exact: true }).first()).toBeVisible(); // in Being deleted
   await expect(ben.getByRole('link', { name: CLUB })).toHaveCount(0); // not in Your clubs
-  const notice = ben.getByTestId('notice-banner');
+  // The news is in his notifications.
+  await expect(ben.getByTestId('notification-badge')).toHaveText('1', { timeout: 15000 });
+  await ben.getByTestId('notification-bell').click();
+  const notice = ben.getByTestId('notification-panel').getByTestId('notification-item').first();
   await expect(notice).toContainText(`Ada deleted the club ${CLUB}`);
   await expect(notice).toContainText('gone for good on');
   await expect(notice).toContainText('restore it');
+  await ben.getByTestId('notification-panel').getByRole('button', { name: 'Close notifications' }).click();
   await expect(ben.getByTestId('being-deleted')).toContainText('Ask one of its admins to restore it.');
   expect((await ben.request.post(`/api/orgs/${club.slug}/restore`)).status()).toBe(404);
   // An old link to the club says what happened, not "Club not found".
