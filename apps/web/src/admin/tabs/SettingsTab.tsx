@@ -5,7 +5,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../api';
 import { GlobalLimitsForm } from '../limits/LimitsUi';
 import { CatalogSettingsSection } from '../Moderation';
-import { BackgroundJobsSection, ServerSetupSection } from '../ServerSetup';
+import { BackgroundJobsSection, PushSettingsSection, ServerSetupSection } from '../ServerSetup';
 import { DemoAccountSection } from '../DemoAccount';
 import { PrivacySettingsSection } from '../../privacy/PrivacySettings';
 import { SignInSettingsSection } from '../SignInSettings';
@@ -82,6 +82,7 @@ export function SettingsTab() {
       <DemoAccountSection />
       <CatalogSettingsSection />
       <BackgroundJobsSection />
+      <PushSettingsSection />
       <PrivacySettingsSection />
       <SignInSettingsSection />
       <ServerSetupSection />

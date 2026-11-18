@@ -5,6 +5,7 @@ import { LiveUpdates } from './live/LiveUpdates';
 import { WarningBanner } from './notices/Notices';
 import { NotificationsPage } from './notifications/NotificationsPage';
 import { UnsubscribePage } from './notifications/UnsubscribePage';
+import { PushBridge } from './notifications/PushDevices';
 import { RefusedCopies } from './editor/RefusedCopies';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { PARTS_SECTION } from './parts/CustomPartsSection';
@@ -90,6 +91,7 @@ createRoot(root).render(
         <FileOpener />
         <SiteVersionBar />
         <WarningBanner />
+        <PushBridge />
         <RefusedCopies />
         <DemoBanner />
         <DemoResetNotice />

@@ -9,7 +9,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 vi.mock('../../limits/LimitsUi', () => ({ GlobalLimitsForm: () => null }));
 vi.mock('../../Moderation', () => ({ CatalogSettingsSection: () => null }));
-vi.mock('../../ServerSetup', () => ({ BackgroundJobsSection: () => null, ServerSetupSection: () => null }));
+vi.mock('../../ServerSetup', () => ({ BackgroundJobsSection: () => null, PushSettingsSection: () => null, ServerSetupSection: () => null }));
 vi.mock('../../DemoAccount', () => ({ DemoAccountSection: () => null }));
 vi.mock('../../../privacy/PrivacySettings', () => ({ PrivacySettingsSection: () => null }));
 vi.mock('../../SignInSettings', () => ({ SignInSettingsSection: () => null }));

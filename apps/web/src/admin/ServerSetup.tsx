@@ -43,6 +43,34 @@ export function BackgroundJobsSection() {
   );
 }
 
+/** Admin › Settings › Notifications: browser pop-ups for the whole site. */
+export function PushSettingsSection() {
+  const qc = useQueryClient();
+  const settings = useQuery({ queryKey: ['admin-settings'], queryFn: api.admin.settings });
+  const save = useMutation({
+    mutationFn: api.admin.patchSettings,
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['admin-settings'] }),
+  });
+  const push = settings.data?.push;
+  if (!push) return null;
+  return (
+    <section className="space-y-3" aria-labelledby="push-settings">
+      <h2 id="push-settings" className="text-sm font-semibold text-neutral-300">Notifications</h2>
+      <div className="space-y-1">
+        <label className="flex items-center gap-2 text-sm">
+          <input type="checkbox" checked={push.value} disabled={!!push.forcedBy || save.isPending} onChange={(e) => save.mutate({ pushEnabled: e.target.checked })} />
+          Pop-up notifications in browsers
+        </label>
+        <p className="text-xs text-muted">
+          People can choose to get a pop-up from their browser when something waits for them. Turned off, nobody gets pop-ups and Settings doesn’t offer them; email and the bell carry on.
+          {push.keys === 'env' ? ' The keys come from the server’s settings.' : ' The server made its own keys and keeps them.'}
+        </p>
+        <Forced by={push.forcedBy} />
+      </div>
+    </section>
+  );
+}
+
 const WHY: Record<ServerSetupWhy, string> = {
   secret: 'A password or key: set it in the server’s settings, so it is never shown here.',
   restart: 'Read when the server starts: change it in the server’s settings and restart.',

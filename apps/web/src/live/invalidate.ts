@@ -93,7 +93,7 @@ const KEYS: Record<HintKind, (h: Hint) => QueryKey[]> = {
   'parts-library': () => [['parts-catalog'], ['custom-parts'], ['admin-global-parts'], ['admin-part-libraries'], ['org-part-libraries']],
   warning: () => [['notices'], ['notifications'], ['notification-count'], ['warnings'], ['admin-user-detail'], ['admin-org-detail'], ['org-warnings']],
   // The bell's count and list, in every tab (and the old per-feature counts it sits beside).
-  notification: () => [['notifications'], ['notification-count'], ['notification-settings'], ['notices'], ['join-request-count'], ['club-request-count'], ['my-org-invites']],
+  notification: () => [['notifications'], ['notification-count'], ['notification-settings'], ['push-devices'], ['notices'], ['join-request-count'], ['club-request-count'], ['my-org-invites']],
 };
 
 export function isHintKind(v: unknown): v is HintKind {
@@ -161,6 +161,7 @@ const WRITE_RULES: Array<[RegExp, HintKind[]]> = [
   // An answer from a notification also changes what it answered (a club, a layout…).
   [/^\/api\/notifications\/[^/]+\/act$/, ['notification', 'club', 'layout', 'module', 'custom-part', 'transfer']],
   [/^\/api\/notifications\b/, ['notification', 'warning']],
+  [/^\/api\/push\b/, ['notification']],
   [/^\/api\/(auth|tokens|me)\b/, ['me']],
   // Taking back or giving back: the thing, the club's copy, and the note to the club's runners.
   [/^\/api\/[^/]+\/[^/]+\/(take|give)-back$/, ['layout', 'module', 'venue', 'custom-part', 'warning']],
