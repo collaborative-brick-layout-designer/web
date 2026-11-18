@@ -56,6 +56,9 @@ host's to keep or not.
 | `module_transfers` | offers | yes (no token) | |
 | `module_invites` | who invited which email to a module, and the role | yes (no token) | Pending ones go when the module changes hands. |
 | `module_club_shares` | which clubs a module is shared with read-only, and who shared it | yes (the sharer's and the owner's download; the club's download) | Go with the module or the club. A module kept in Recently deleted keeps them, and a restore puts them back. |
+| `club_partner_requests` | a request for two clubs to be partners: the clubs, who sent it, who answered and when, and whether it was declined | yes (the sender's and the answerer's download; both clubs' downloads) | Go with either club. Taken back: deleted. Accepted: deleted (the partnership is kept instead). Declined: kept, so it isn't sent again at once. |
+| `club_partners` | two clubs that are partners: since when, which asked, who accepted | yes (the accepter's download; both clubs' downloads) | Go when either club ends it, or with either club. |
+| `module_club_offers` | a club's module offered one off to another club: the clubs, who offered it, who answered and when | yes (the offerer's and the answerer's download; both clubs' downloads) | Go with the module or either club. Taken back or accepted: deleted. Declined: kept, so it isn't offered again at once. |
 | `module_share_parts` | which custom parts someone (or a club) has only because a module that uses them was shared with them | yes | Worked out again whenever the module is saved, shared or unshared; go with the module's share, the module, the part, the person or the club. |
 | `layout_shared_modules` | which shared modules are placed in a layout, and at which version (no names) | yes (the layout owner's download) | Kept by the server from the layouts it stores; goes with the layout. The module's owner sees counts and club names from it, never a layout's title. |
 | `layout_visits` | when each person last had a layout open (a time only) | yes (your download) | Stamped when you leave a layout and when it opens, so "Updated while you were away" lists only what changed since. Goes with the layout or your account. |
@@ -151,6 +154,7 @@ When the account is erased (`privacy/accountDeletion.ts`):
 | Club things they made | stay with the club: `created_by` moves to a club admin, chosen the same way (it must name an account), `deleted_author_id` keeps the credit "Builder #…". A club collection they curate moves to them too. |
 | `layout_collaborators`, `module_collaborators`, `custom_part_collaborators` | deleted: they leave share lists. Their edits to other people's layouts stay. |
 | `module_club_shares`, `module_share_parts` | deleted with their modules and parts; a share of someone else's module that they made (`shared_by`) stays, with `shared_by` empty |
+| `club_partner_requests`, `club_partners`, `module_club_offers` | kept with the clubs; `requested_by`, `accepted_by`, `offered_by` and `decided_by` become empty |
 | Invites and transfers they sent, or addressed to their email | deleted |
 | `warnings` to them | deleted; warnings they sent keep `issued_by` empty |
 | `usage_daily`, `limit_overrides` about them | deleted |

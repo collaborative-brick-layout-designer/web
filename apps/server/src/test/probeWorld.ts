@@ -114,6 +114,15 @@ export async function seedProbeWorld(app: FastifyInstance): Promise<ProbeWorld> 
   const joinRequest = randomUUID();
   await db.insert(schema.orgJoinRequests).values({ id: joinRequest, orgId: club, userId: root.id, createdAt: now } as never);
 
+  // Another club that asked Olive's club to be partners, and offered it a module.
+  const pine = randomUUID();
+  await db.insert(schema.orgs).values({ id: pine, name: 'Pine Club', slug: 'pine-club', createdAt: now, createdBy: root.id, listed: true });
+  await db.insert(schema.orgMembers).values({ orgId: pine, userId: root.id, role: 'admin', joinedAt: now });
+  const partnerRequest = randomUUID();
+  await db.insert(schema.clubPartnerRequests).values({ id: partnerRequest, fromOrgId: pine, toOrgId: club, requestedBy: root.id, state: 'pending', createdAt: now });
+  const moduleOffer = randomUUID();
+  await db.insert(schema.moduleClubOffers).values({ id: moduleOffer, moduleId: mod1, fromOrgId: pine, toOrgId: club, offeredBy: root.id, state: 'pending', createdAt: now });
+
   return {
     olive,
     stranger,
@@ -123,7 +132,7 @@ export async function seedProbeWorld(app: FastifyInstance): Promise<ProbeWorld> 
     mod,
     demoCookie,
     prefsOnlyToken,
-    ids: { club, layout, module: mod1, part, venue, item, publicItem, version, collection, notice, dataExport, request, invite, moduleInvite, partInvite, orgInvite, transfer, joinRequest, oliveToken },
+    ids: { club, layout, module: mod1, part, venue, item, publicItem, version, collection, notice, dataExport, request, invite, moduleInvite, partInvite, orgInvite, transfer, joinRequest, oliveToken, pine, partnerRequest, moduleOffer },
   };
 }
 
@@ -140,6 +149,8 @@ export function concreteUrl(pattern: string, w: ProbeWorld, override?: string): 
         return w.olive.id;
       case 'inviteId':
         return before.startsWith('/api/orgs') ? i.orgInvite! : before.startsWith('/api/modules') ? i.moduleInvite! : before.startsWith('/api/custom-parts') ? i.partInvite! : i.invite!;
+      case 'offerId':
+        return i.moduleOffer!;
       case 'transferId':
         return i.transfer!;
       case 'n':
@@ -184,6 +195,8 @@ export function concreteUrl(pattern: string, w: ProbeWorld, override?: string): 
       ['/api/trash/', 'no-such-trash'],
       ['/api/privacy/exports/', i.dataExport!],
       ['/api/orgs/olive-club/join-requests/', i.joinRequest!],
+      ['/api/orgs/olive-club/partner-requests/', i.partnerRequest!],
+      ['/api/orgs/olive-club/module-offers/', i.moduleOffer!],
       ['/api/orgs/olive-club/review/versions/', i.version!],
       ['/api/orgs/olive-club/review/items/', i.item!],
       ['/api/orgs/olive-club/review/collections/', i.collection!],

@@ -173,6 +173,17 @@ export async function collectUserData(userId: string): Promise<DataSection[]> {
       .where(or(eq(s.moduleClubShares.sharedBy, userId), eq(s.modules.ownerUserId, userId)))
       .all()) as Record<string, unknown>[],
   );
+  add(
+    'club-partner-requests',
+    'Requests to be partner clubs that you sent or answered.',
+    await select(s.clubPartnerRequests, or(eq(s.clubPartnerRequests.requestedBy, userId), eq(s.clubPartnerRequests.decidedBy, userId))),
+  );
+  add('club-partnerships-you-accepted', 'Partnerships between clubs that you accepted.', await select(s.clubPartners, eq(s.clubPartners.acceptedBy, userId)));
+  add(
+    'club-module-offers',
+    'Club modules you offered to another club, or answered an offer of.',
+    await select(s.moduleClubOffers, or(eq(s.moduleClubOffers.offeredBy, userId), eq(s.moduleClubOffers.decidedBy, userId))),
+  );
   add('custom-parts-with-a-module', 'Parts you have because a module that uses them was shared with you.', await select(s.moduleShareParts, eq(s.moduleShareParts.userId, userId)));
   add(
     'shared-modules-in-your-layouts',
@@ -307,6 +318,9 @@ export const READ_TABLES = [
   'module_transfers',
   'module_invites',
   'module_club_shares',
+  'club_partner_requests',
+  'club_partners',
+  'module_club_offers',
   'module_share_parts',
   'layout_shared_modules',
   'layout_visits',
@@ -363,7 +377,19 @@ export async function collectOrgData(orgId: string): Promise<DataSection[]> {
   add('join-requests', 'People asking to join.', await select(s.orgJoinRequests, eq(s.orgJoinRequests.orgId, orgId)));
   add('layouts', 'The club’s layouts (the files are in the layouts folder).', await select(s.layouts, eq(s.layouts.ownerOrgId, orgId)));
   add('modules', 'The club’s modules (the files are in the modules folder).', await select(s.modules, eq(s.modules.ownerOrgId, orgId)));
-  add('modules-shared-with-the-club', 'Other people’s modules shared with the club, to place and not to change.', await select(s.moduleClubShares, eq(s.moduleClubShares.orgId, orgId)));
+  add('modules-shared-with-the-club', 'Other people’s and clubs’ modules shared with the club, to place and not to change.', await select(s.moduleClubShares, eq(s.moduleClubShares.orgId, orgId)));
+  add('modules-shared-by-the-club', 'The club’s modules it shared with partner clubs, or that another club accepted.', await select(s.moduleClubShares, eq(s.moduleClubShares.fromOrgId, orgId)));
+  add('partner-clubs', 'The club’s partner clubs.', await select(s.clubPartners, or(eq(s.clubPartners.orgA, orgId), eq(s.clubPartners.orgB, orgId))));
+  add(
+    'partner-requests',
+    'Requests to be partners the club sent or received.',
+    await select(s.clubPartnerRequests, or(eq(s.clubPartnerRequests.fromOrgId, orgId), eq(s.clubPartnerRequests.toOrgId, orgId))),
+  );
+  add(
+    'module-offers',
+    'Modules the club offered to another club, or another club offered to it.',
+    await select(s.moduleClubOffers, or(eq(s.moduleClubOffers.fromOrgId, orgId), eq(s.moduleClubOffers.toOrgId, orgId))),
+  );
   add('custom-parts', 'The club’s custom parts (in the parts folder).', await select(s.customParts, eq(s.customParts.ownerOrgId, orgId)));
   add('venues', 'The club’s venues (in the venues folder).', await select(s.venueLibrary, eq(s.venueLibrary.ownerOrgId, orgId)));
   add('catalog-items', 'What the club shared in the public catalog.', await select(s.catalogItems, eq(s.catalogItems.ownerOrgId, orgId)));

@@ -173,7 +173,7 @@ describe('sharing a module read-only', () => {
     expect(await db.select().from(schema.warnings).where(eq(schema.warnings.subjectUserId, alice.id)).all()).toHaveLength(2);
   });
 
-  it('only with a club you are in, and not a club’s own module', async () => {
+  it('only with a club you are in; a club’s own module not with itself', async () => {
     const alice = await loginAs(app, 'alice@example.com');
     const bob = await loginAs(app, 'bob@example.com');
     const theirs = await club(bob, 'Train Club North');
@@ -186,8 +186,8 @@ describe('sharing a module read-only', () => {
     const clubs = await module(alice, 'Club depot', contents('3001.1'), mine.slug);
     const r = await call(alice, 'POST', `/api/modules/${clubs}/club-shares`, { orgSlug: mine.slug });
     expect(r.statusCode).toBe(400);
-    expect(r.json()).toEqual({ error: 'club_module_not_shareable' });
-    expect((await call(alice, 'GET', `/api/modules/${clubs}/shares`)).json()).toMatchObject({ canShareWithClubs: false, myClubs: [] });
+    expect(r.json()).toEqual({ error: 'same_club' });
+    expect((await call(alice, 'GET', `/api/modules/${clubs}/shares`)).json()).toMatchObject({ canShareWithClubs: false, canShareWithOtherClubs: true, myClubs: [], partners: [], offers: [] });
   });
 
   it('shared with a person too: both ways show, and each stops on its own', async () => {

@@ -35,6 +35,19 @@ export type AuditEventType =
   | 'join'
   | 'join_approve'
   | 'join_decline'
+  // Partner clubs (clubPartners/partners.ts), on each club's log: a request
+  // sent, taken back, accepted or declined, and a partnership ended.
+  | 'partner_request'
+  | 'partner_withdraw'
+  | 'partner_accept'
+  | 'partner_decline'
+  | 'partner_end'
+  // A club's module offered one off to another club, the offer taken back,
+  // and the other club accepting or declining it (on both clubs' logs).
+  | 'module_offer'
+  | 'module_offer_withdraw'
+  | 'module_offer_accept'
+  | 'module_offer_decline'
   // The live editor refused an update that would have merged another
   // layout into this one (ws/mergeGuard.ts), or applied one that looked
   // like it might (many clients the layout had never seen at once).

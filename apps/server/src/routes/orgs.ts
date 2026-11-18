@@ -49,6 +49,7 @@ import { maskEmail } from '../utils/maskEmail.js';
 import { notifyAccessChanged } from '../ws/liveAccess.js';
 import { hidingLastActive, lastActiveBucket, type LastActive } from './preferences.js';
 import { clubLogoUrls } from './clubLogos.js';
+import { runsPartners, waitingFor } from '../clubPartners/partners.js';
 
 interface CreateOrgBody {
   name: string;
@@ -273,6 +274,8 @@ export async function orgRoutes(app: FastifyInstance): Promise<void> {
           }
         : {}),
       ...(org.trusted && perms.has('send_catalog') ? { pendingReviews: await clubReviewCount(org.id) } : {}),
+      // Its Admins and Managers see how many partner requests and module offers wait for an answer.
+      ...(runsPartners(myMembership) ? { pendingPartners: (await waitingFor([org.id])).get(org.id) ?? 0 } : {}),
     };
   });
 
