@@ -10,6 +10,7 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { api, type NotificationCategory } from '../api';
 import { HelpButton } from '../help/HelpButton';
 import { NotificationList } from './NotificationList';
+import { PushPrompt } from './PushDevices';
 import { CATEGORY_LABEL, badgeText, useNotificationCount, useNotificationTypes } from './model';
 
 export function NotificationBell() {
@@ -122,6 +123,7 @@ function Panel({ onClose }: { onClose: () => void }) {
             </svg>
           </button>
         </header>
+        <PushPrompt />
         <div className="flex flex-wrap items-center gap-2 border-b border-line px-3 py-2">
           <div role="radiogroup" aria-label="Show" className="inline-flex rounded-control border border-border p-0.5 text-xs font-semibold">
             {(['all', 'unread'] as const).map((f) => (

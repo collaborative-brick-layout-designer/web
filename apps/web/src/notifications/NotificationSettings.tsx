@@ -7,6 +7,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, type NotificationCategory, type NotificationSettingsView, type NotificationEmailMode } from '../api';
 import { CATEGORY_LABEL } from './model';
+import { PushDevices } from './PushDevices';
 
 const EMAIL_LABEL: Record<NotificationEmailMode, string> = { now: 'Right away', daily: 'Daily summary', weekly: 'Weekly summary', off: 'Off' };
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -81,6 +82,7 @@ export function NotificationSettings() {
         </div>
         <Toggle label="Pause all email" checked={v.pauseEmail} onChange={(x) => set({ pauseEmail: x })} />
       </div>
+      {pushShown && <PushDevices />}
       {pushShown && (
         <div className="flex items-center justify-between gap-6">
           <div>

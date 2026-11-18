@@ -88,6 +88,15 @@ export const env = {
   backupsEnabledForced: forcedBool(process.env.BACKUPS_ENABLED),
   backupsDir: process.env.BACKUPS_DIR ?? '/backups',
   dailyCompactionEnabledForced: forcedBool(process.env.DAILY_COMPACTION_ENABLED),
+  // Browser push (notifications/push.ts): Admin › Settings switches it
+  // (on by default); PUSH_ENABLED, when set, forces it. The VAPID keys are
+  // made and kept by the server unless both of these are set (several
+  // servers for one site must share them). VAPID_SUBJECT is the contact
+  // push services may use (mailto: or https:); PUBLIC_URL by default.
+  pushEnabledForced: forcedBool(process.env.PUSH_ENABLED),
+  vapidPublicKey: process.env.VAPID_PUBLIC_KEY?.trim() || null,
+  vapidPrivateKey: process.env.VAPID_PRIVATE_KEY?.trim() || null,
+  vapidSubject: process.env.VAPID_SUBJECT?.trim() || null,
   // The biggest collection cover upload, in bytes: Admin › Settings (5 MB
   // by default); this env var, when set, forces it (images/covers.ts).
   collectionCoverMaxBytesForced: forcedInt(process.env.COLLECTION_COVER_MAX_BYTES),

@@ -1390,6 +1390,7 @@ export const api = {
       limitsEnforced?: boolean;
       backupsEnabled?: boolean;
       dailyCompactionEnabled?: boolean;
+      pushEnabled?: boolean;
       demoEnabled?: boolean;
       demoResetEvery?: DemoResetEvery;
       demoMaxSpaces?: number;
@@ -1596,6 +1597,14 @@ export const api = {
     unsubscribe: (t: string) => post<{ ok: true; scope: string; what: string }>(`/api/notifications/unsubscribe?t=${encodeURIComponent(t)}`, {}),
     act: (id: string, action: 'accept' | 'decline') =>
       post<{ ok: true; outcome: string; already?: boolean; notification: NotificationItem | null }>(`/api/notifications/${encodeURIComponent(id)}/act`, { action }),
+  },
+
+  // Pop-ups in the browser (Web Push).
+  push: {
+    key: () => get<{ enabled: boolean; publicKey: string | null }>('/api/push/key'),
+    list: () => get<{ subscriptions: PushDevice[] }>('/api/push/subscriptions'),
+    subscribe: (sub: { endpoint: string; keys: { p256dh: string; auth: string } }) => post<{ id: string }>('/api/push/subscriptions', sub),
+    remove: (id: string) => del(`/api/push/subscriptions/${encodeURIComponent(id)}`),
   },
 
   // Per-org part library management (org admin only).
@@ -2003,6 +2012,16 @@ export interface NotificationQuery {
 
 export type NotificationEmailMode = 'now' | 'daily' | 'weekly' | 'off';
 
+/** A browser that gets pop-up notifications (Settings › Notifications). */
+export interface PushDevice {
+  id: string;
+  name: string;
+  createdAt: number;
+  lastUsedAt: number | null;
+  /** The push service's host, e.g. fcm.googleapis.com. */
+  service: string;
+}
+
 /** Settings › Notifications (GET/PUT /api/me/notification-settings). */
 export interface NotificationSettingsView {
   categories: NotificationCategory[];
@@ -2071,6 +2090,8 @@ export interface AdminSettings {
     backups: AdminJobSetting<boolean>;
     dailyCompaction: AdminJobSetting<boolean>;
   };
+  /** Browser pop-up notifications: the switch, what applies, the env var forcing it; where the keys come from. */
+  push?: AdminJobSetting<boolean> & { keys: 'env' | 'server' };
   /** The demo account: on or off, how often it resets, and what it has now. */
   demo?: DemoStatus & { items: number; maxSpaces: number; liveSpaces: number };
   /** Privacy: data downloads (and more), each with its default and whether the server forces it. */

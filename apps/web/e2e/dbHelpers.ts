@@ -130,7 +130,8 @@ export function resetCatalogSettings(): void {
       `UPDATE platform_settings
        SET module_catalog_enabled = 0, parts_catalog_enabled = 0,
            layout_catalog_enabled = 0, venue_catalog_enabled = 0,
-           catalog_review = 'moderators', catalog_anonymous_browse = 1`,
+           catalog_review = 'moderators', catalog_anonymous_browse = 1,
+           push_enabled = 1`,
     ).run();
   } finally {
     db.close();

@@ -501,6 +501,10 @@ when they fall behind.
 | `CBLD_SECRET_KEY` | unset (the key file is used) | — | The key the saved SMTP password is encrypted with, at least 16 characters (for example from `openssl rand -base64 32`). Unset, the server makes and uses the key file `cbld-secret.key` beside the database (`/data` in Docker). Change or lose the key and the SMTP password has to be entered again in Admin › Site settings. |
 | `BACKUPS_ENABLED` | unset (the switch decides; on) | Admin › Site settings › Background jobs | When set, forces the daily database backup on or off. |
 | `BACKUPS_DIR` | `/backups` | — | Where backups go. |
+| `PUSH_ENABLED` | unset (the switch decides; on) | Admin › Site settings › Notifications | When set, forces browser pop-up notifications (Web Push) on or off for the whole site. |
+| `VAPID_PUBLIC_KEY` | unset (the server makes a key pair and keeps it) | — | With `VAPID_PRIVATE_KEY`, the Web Push key pair to use instead of the one the server makes (for several servers serving one site). Both or neither. Never share the private key. |
+| `VAPID_PRIVATE_KEY` | unset | — | The private half of `VAPID_PUBLIC_KEY`. Kept out of logs and pages. |
+| `VAPID_SUBJECT` | unset (`PUBLIC_URL`) | — | The contact push services may use about this site's notifications: a `mailto:` address or an `https:` page. |
 | `DAILY_COMPACTION_ENABLED` | unset (the switch decides; on) | Admin › Site settings › Background jobs | When set, forces the daily compaction of layout histories on or off. |
 | `COLLECTION_COVER_MAX_BYTES` | unset (5 MB) | Admin › Site settings › Public catalogs | When set, forces the largest collection and catalog cover picture, in bytes (at most 7 MB). |
 | `LIMITS_ENFORCE` | unset (the switch decides; on) | Admin › Site settings › Usage limits | `on` or `off` forces whether usage limits are enforced. Read-only accounts and clubs stay read-only either way. |

@@ -325,6 +325,49 @@ The token is signed by the server and names the account and what it stops
 (a type, or `all`). It can only turn email off. The web's `/unsubscribe?t=`
 page asks before it stops anything.
 
+## Browser pop-ups (Web Push)
+
+A person can ask for a pop-up from their browser for the types with push on
+(Settings › Notifications, or the bell panel's one-time offer; never on page
+load). The web registers its service worker (`/sw.js`, which only shows
+pop-ups and caches nothing) at that moment. Pop-ups follow quiet hours like
+email. Clicking one marks it read and opens the app at its link. The desktop
+shows its own system notifications instead and doesn't use these routes.
+
+| Method and path | Body | Answer |
+|---|---|---|
+| `GET /api/push/key` | | `{ enabled, publicKey }` (the public VAPID key; null while push is off) |
+| `GET /api/push/subscriptions` | | `{ subscriptions: [{ id, name, createdAt, lastUsedAt, service }] }` |
+| `POST /api/push/subscriptions` | `{ endpoint, keys: { p256dh, auth }, name? }` (a browser's `PushSubscription.toJSON()`) | 201 `{ id }`; 400 `invalid_endpoint`, `unknown_push_service`, `invalid_keys`; 409 `push_off` |
+| `DELETE /api/push/subscriptions/:id` | | `{ ok: true }`; 404 |
+
+Signed-in browsers only (no desktop tokens).
+
+- **Endpoints:** https, port 443, no user info, on a known push service:
+  `fcm.googleapis.com`, `android.googleapis.com`,
+  `updates.push.services.mozilla.com`, `push.services.mozilla.com`,
+  `web.push.apple.com`, `push.apple.com`, `*.notify.windows.com` (and their
+  subdomains). The host must resolve only to public addresses, checked when
+  saved and again as each connection is made (no private, loopback,
+  link-local, CGNAT or multicast address). Redirects are never followed.
+- At most 10 browsers per person (the oldest goes). A push service answering
+  404 or 410 means the browser is gone: it's deleted. Every send times out
+  after 10 seconds.
+- **What is sent:** `{ id, title, body, link }`: the notification's title, its
+  body cut to 140 characters, its link, its id. Nothing the person can't see
+  in the app.
+- **Keys:** the server makes a VAPID key pair on first use and keeps it in
+  `platform_settings`, the private key encrypted with the server's secret key
+  (it is never sent, logged, or put in a download or backup in the clear).
+  `VAPID_PUBLIC_KEY` and `VAPID_PRIVATE_KEY` (both) replace it, for several
+  servers serving one site; `VAPID_SUBJECT` is the contact push services may
+  use (`mailto:` or `https:`; `PUBLIC_URL` by default).
+- **Site switch:** Admin › Settings › Notifications turns pop-ups off for
+  everyone; `PUSH_ENABLED` forces it on or off (the page says so).
+- If the server's secret key changes, the stored private key can't be read:
+  the server makes a new pair and forgets the old browsers (they can't be
+  reached with a new key), and people turn pop-ups on again.
+
 ## Live updates
 
 The event stream (`GET /api/events`, any token scope) sends

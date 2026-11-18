@@ -265,6 +265,15 @@ export async function collectUserData(userId: string): Promise<DataSection[]> {
   );
   add('notification-settings', 'How you want your notifications: in the app, by email, push, quiet hours and summaries.', await select(s.notificationSettings, eq(s.notificationSettings.userId, userId)));
   add('notification-emails', 'Which notifications were emailed to you, and when.', await select(s.notificationDeliveries, eq(s.notificationDeliveries.userId, userId)));
+  add(
+    'pop-up-devices',
+    'The browsers you asked for pop-up notifications on (their name and when; never their keys or push address).',
+    (await db
+      .select({ id: s.pushSubscriptions.id, name: s.pushSubscriptions.name, createdAt: s.pushSubscriptions.createdAt, lastUsedAt: s.pushSubscriptions.lastUsedAt })
+      .from(s.pushSubscriptions)
+      .where(eq(s.pushSubscriptions.userId, userId))
+      .all()) as Record<string, unknown>[],
+  );
   add('notification-summaries', 'The daily and weekly summary emails sent to you.', await select(s.notificationDigests, eq(s.notificationDigests.userId, userId)));
   add(
     'usage-limits',
@@ -349,6 +358,7 @@ export const READ_TABLES = [
   'notification_settings',
   'notification_deliveries',
   'notification_digests',
+  'push_subscriptions',
   'limit_overrides',
   'usage_daily',
   'audit_events',
