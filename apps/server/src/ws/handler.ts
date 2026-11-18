@@ -54,6 +54,7 @@ import { eq } from 'drizzle-orm';
 import { db, schema } from '../db/index.js';
 import { deviceName } from '../auth/session.js';
 import { publicName } from '../utils/publicName.js';
+import { stampVisit } from '../sharedModules/visits.js';
 
 /**
  * Close code and reason for an update refused because it would merge
@@ -294,6 +295,12 @@ export async function attachWsHandlers(
       awarenessProtocol.removeAwarenessStates(session.awareness, owned, ws);
     }
     await docHub.detach(session, ws);
+    // "Updated while you were away" counts from here (sharedModules/visits.ts).
+    if (!session.closed) {
+      await stampVisit(layoutId, userId).catch((err: unknown) => {
+        console.error("[ws] couldn't note when someone left layout %s", layoutId, err);
+      });
+    }
   };
 }
 

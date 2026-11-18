@@ -8,7 +8,7 @@ import { join, dirname } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import type { FastifyInstance } from 'fastify';
 import * as Y from 'yjs';
-import { and, eq, isNull, or, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, lt, or, sql } from 'drizzle-orm';
 import { readBbm, readSidecar, writeBbm, writeSidecar, type Sidecar } from '@cld/bbm';
 import { hashBbmBytes } from '@cld/bbm/hash';
 import { createDefaultLayoutDoc, decodeDoc, encodeDoc, exportBbmFromDoc, exportSidecarFromDoc, importSidecarIntoDoc, readSidecarCache, seedFromBbm, seedFromSidecar, writeSidecarCache } from '@cld/ydoc';
@@ -158,7 +158,15 @@ export async function layoutRoutes(app: FastifyInstance) {
     }
     const shown = all.filter((l) => matchesOwner(l, filter, user.id));
     const ownerOf = await ownerLookup(shown);
-    return { layouts: await withCredits('layout', shown.map((l) => ({ ...l, owner: ownerOf(l) })), user.id) };
+    const waiting = await sharedUpdatesWaiting(shown.map((l) => l.id));
+    return {
+      layouts: await withCredits(
+        'layout',
+        // sharedUpdates: how many of its shared modules have a newer version waiting (the list's badge).
+        shown.map((l) => ({ ...l, owner: ownerOf(l), sharedUpdates: waiting.get(l.id) ?? 0 })),
+        user.id,
+      ),
+    };
   });
 
   // ---- get -----------------------------------------------------------------
@@ -880,6 +888,7 @@ export const layoutListColumns = {
   docVersion: schema.layouts.docVersion,
   publicShareToken: schema.layouts.publicShareToken,
   hasSidecar: sql<number>`${schema.layouts.sidecarSnapshot} IS NOT NULL`,
+  sharedModuleUpdates: schema.layouts.sharedModuleUpdates,
 };
 
 type LayoutListRow = {
@@ -887,6 +896,32 @@ type LayoutListRow = {
     ? number
     : (typeof schema.layouts.$inferSelect)[K & keyof typeof schema.layouts.$inferSelect];
 };
+
+/**
+ * For each of `layoutIds`, how many of its shared modules have a newer
+ * version than the one placed, while they still follow their owner: the
+ * "updates" badge in the layout lists. Layouts with none are left out.
+ */
+export async function sharedUpdatesWaiting(layoutIds: readonly string[]): Promise<Map<string, number>> {
+  const out = new Map<string, number>();
+  for (let i = 0; i < layoutIds.length; i += 400) {
+    const rows = await db
+      .select({ layoutId: schema.layoutSharedModules.layoutId, n: sql<number>`count(*)`.mapWith(Number) })
+      .from(schema.layoutSharedModules)
+      .innerJoin(schema.modules, eq(schema.modules.id, schema.layoutSharedModules.moduleId))
+      .where(
+        and(
+          inArray(schema.layoutSharedModules.layoutId, layoutIds.slice(i, i + 400)),
+          eq(schema.layoutSharedModules.state, 'shared'),
+          lt(schema.layoutSharedModules.version, schema.modules.latestVersion),
+        ),
+      )
+      .groupBy(schema.layoutSharedModules.layoutId)
+      .all();
+    for (const r of rows) out.set(r.layoutId, r.n);
+  }
+  return out;
+}
 
 /**
  * `role` is the caller's role on the layout. The public-share token is
@@ -915,6 +950,8 @@ function toListItem(
     docVersion: l.docVersion,
     hasSidecar: Boolean(l.hasSidecar),
     publicShareToken: role === 'owner' ? (l.publicShareToken ?? null) : null,
+    /** Updates from shared modules: 'ask' or 'auto' (docs/shared-modules.md). */
+    sharedModuleUpdates: l.sharedModuleUpdates,
   };
 }
 

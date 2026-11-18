@@ -7,6 +7,8 @@
 //   POST /api/layouts/:id/shared-modules/:placedId/apply   { version?, again? }   the server puts that version in (newer: Update; older: Go back; again: put the owner's version back). Layout editors.
 //   POST /api/layouts/:id/shared-modules/apply-all                          every one that has a newer version
 //   POST /api/layouts/:id/shared-modules/:placedId/detach                   "Make it mine" (the layout's owner; a club's admins and managers)
+//   PUT  /api/layouts/:id/shared-modules/updates           { updates: 'ask' | 'auto' }   the layout setting "Updates from shared modules" (layout editors)
+//   POST /api/layouts/:id/shared-modules/away                               what was updated automatically since the caller last had the layout open ("Updated while you were away"); notes that they have it open now
 //
 // "Seen through the layout": someone who edits a club's layout sees a
 // module placed in it, its versions and its updates, without the module
@@ -30,6 +32,8 @@ import { writeAuditEvent } from '../audit/writeAuditEvent.js';
 import { docHub } from '../ws/docHub.js';
 import { applyVersion, detachModule, versionBytes } from '../sharedModules/apply.js';
 import { stateFor, syncLayoutSharedModules, type SharedState } from '../sharedModules/placed.js';
+import { updatesWhileAway } from '../sharedModules/visits.js';
+import { catchUpAutomatically } from '../sharedModules/auto.js';
 import { followLayoutOwners } from '../sharedModules/lifecycle.js';
 import { nameFor, publicName } from '../utils/publicName.js';
 import { perPerson } from '../utils/rateLimits.js';
@@ -44,10 +48,10 @@ interface LayoutOwner {
   ownerOrgId: string | null;
 }
 
-async function layoutOwner(layoutId: string): Promise<LayoutOwner | null> {
+async function layoutOwner(layoutId: string): Promise<(LayoutOwner & { sharedModuleUpdates: 'ask' | 'auto' }) | null> {
   return (
     (await db
-      .select({ ownerUserId: schema.layouts.ownerUserId, ownerOrgId: schema.layouts.ownerOrgId })
+      .select({ ownerUserId: schema.layouts.ownerUserId, ownerOrgId: schema.layouts.ownerOrgId, sharedModuleUpdates: schema.layouts.sharedModuleUpdates })
       .from(schema.layouts)
       .where(eq(schema.layouts.id, layoutId))
       .get()) ?? null
@@ -154,7 +158,10 @@ export async function layoutSharedModuleRoutes(app: FastifyInstance): Promise<vo
         .get();
       notes.set(m.id, v?.note ?? null);
     }
+    const settings = await layoutOwner(req.params.id);
     return {
+      /** Updates from shared modules: 'ask' (the notice) or 'auto' (the server puts them in). */
+      updates: settings?.sharedModuleUpdates ?? 'ask',
       /** May press Update and Go back. */
       canUpdate: hasAtLeast(role, 'editor'),
       /** May "Make it mine". */
@@ -333,6 +340,72 @@ export async function layoutSharedModuleRoutes(app: FastifyInstance): Promise<vo
         else if (r.body.changed) updated.push({ placedId: mod.id, version: r.body.version as number, from: r.body.from as number | null });
       }
       return { ok: true, updated, skipped };
+    },
+  );
+
+  // ---- the layout setting ------------------------------------------------------------------
+  // "Updates from shared modules: Ask first / Automatically". Whoever may
+  // edit the layout; the desktop with a layouts:write token.
+  app.put<{ Params: { id: string }; Body: { updates?: unknown } }>(
+    '/api/layouts/:id/shared-modules/updates',
+    { config: { ...TOKEN_WRITE, rateLimit: perPerson(30, '1 minute') } },
+    async (req, reply) => {
+      const user = requireUser(req);
+      const { role } = await resolveResourceRole(user.id, 'layout', req.params.id);
+      if (role === null) return reply.code(404).send({ error: 'not_found' });
+      if (!hasAtLeast(role, 'editor')) return reply.code(403).send({ error: 'forbidden' });
+      const updates = req.body?.updates;
+      if (updates !== 'ask' && updates !== 'auto') return reply.code(400).send({ error: 'invalid_updates' });
+      const was = await layoutOwner(req.params.id);
+      if (!was) return reply.code(404).send({ error: 'not_found' });
+      if (was.sharedModuleUpdates !== updates) {
+        await db.update(schema.layouts).set({ sharedModuleUpdates: updates }).where(eq(schema.layouts.id, req.params.id));
+        await writeAuditEvent({ layoutId: req.params.id, userId: user.id, eventType: 'settings', payload: { sharedModuleUpdates: updates } });
+        // Set to Automatically: what it was waiting on goes in now.
+        if (updates === 'auto') catchUpAutomatically(app, req.params.id);
+      }
+      return { ok: true, updates };
+    },
+  );
+
+  // ---- updated while you were away ------------------------------------------------------
+  // Asked once when the editor opens the layout. A POST: it notes that the
+  // caller has the layout open, so the same updates aren't listed again.
+  app.post<{ Params: { id: string } }>(
+    '/api/layouts/:id/shared-modules/away',
+    { config: { ...TOKEN_READ, rateLimit: perPerson(60, '1 minute') } },
+    async (req, reply) => {
+      const user = requireUser(req);
+      const { role } = await resolveResourceRole(user.id, 'layout', req.params.id);
+      if (role === null) return reply.code(404).send({ error: 'not_found' });
+      const away = await updatesWhileAway(req.params.id, user.id);
+      if (away.length === 0) return { updates: [] };
+      const live = docHub.peek(req.params.id);
+      if (live) await syncLayoutSharedModules(req.params.id, live.doc);
+      // Named as the list names them: only while the module is still shared with this layout.
+      const rows = await db
+        .select({ placedId: schema.layoutSharedModules.placedId, state: schema.layoutSharedModules.state, version: schema.layoutSharedModules.version })
+        .from(schema.layoutSharedModules)
+        .where(eq(schema.layoutSharedModules.layoutId, req.params.id))
+        .all();
+      const rowOf = new Map(rows.map((r) => [r.placedId, r]));
+      const titles = new Map<string, string>();
+      const ids = [...new Set(away.map((a) => a.moduleId))];
+      for (const m of await db.select({ id: schema.modules.id, title: schema.modules.title }).from(schema.modules).where(inArray(schema.modules.id, ids))) titles.set(m.id, m.title);
+      return {
+        updates: away
+          // Still placed (a module removed since isn't news).
+          .filter((a) => rowOf.has(a.placedId))
+          .map((a) => {
+            const r = rowOf.get(a.placedId)!;
+            return {
+              ...a,
+              title: r.state === 'shared' ? (titles.get(a.moduleId) ?? null) : null,
+              /** The version it has now (someone may have gone back since). */
+              version: r.version,
+            };
+          }),
+      };
     },
   );
 

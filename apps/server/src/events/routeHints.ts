@@ -487,6 +487,8 @@ export const ROUTE_HINTS: Record<string, HintSpec> = {
   'POST /api/layouts/:id/shared-modules/:placedId/apply': sharedModuleStep,
   'POST /api/layouts/:id/shared-modules/apply-all': sharedModuleStep,
   'POST /api/layouts/:id/shared-modules/:placedId/detach': sharedModuleStep,
+  // The layout setting: its settings dialogs and the lists follow.
+  'PUT /api/layouts/:id/shared-modules/updates': resource('layout'),
   'POST /api/layouts/:id/public-share': resource('layout'),
   'DELETE /api/layouts/:id/public-share': resource('layout'),
   'POST /api/layouts/:id/background-image': resource('layout'),
@@ -751,6 +753,7 @@ export const NO_HINT: Record<string, string> = {
   'POST /api/auth/device/token': 'the desktop polling for its token',
   'POST /api/auth/device/lookup': 'reads a pending device code',
   'POST /api/layouts/:id/compare': 'a read (compares two copies)',
+  'POST /api/layouts/:id/shared-modules/away': 'a read: notes only when the caller had the layout open',
   'POST /api/metrics/client': 'anonymous client timing beacon',
 };
 

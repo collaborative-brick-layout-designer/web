@@ -538,8 +538,9 @@ export const layouts = sqliteTable(
     deletedAuthorId: text('deleted_author_id'),
     /**
      * Updates from shared modules (0050, docs/shared-modules.md): 'ask' shows
-     * a notice and someone presses Update; 'auto' is for a later release and
-     * nothing sets it yet.
+     * a notice and someone presses Update; 'auto' puts each new version in as
+     * soon as its owner saves it (sharedModules/auto.ts). Layout editors set
+     * it (PATCH /api/layouts/:id).
      */
     sharedModuleUpdates: text('shared_module_updates', { enum: ['ask', 'auto'] }).notNull().default('ask'),
   },
@@ -983,6 +984,27 @@ export const layoutSharedModules = sqliteTable(
   (t) => ({
     pk: primaryKey({ columns: [t.layoutId, t.placedId] }),
     moduleIdx: index('layout_shared_modules_module_idx').on(t.moduleId),
+  }),
+);
+
+// When each person last had a layout open (0051, docs/shared-modules.md):
+// stamped when they leave its room and when the editor asks what changed
+// while they were away, so "Updated while you were away" lists only the
+// automatic shared-module updates since then.
+export const layoutVisits = sqliteTable(
+  'layout_visits',
+  {
+    layoutId: text('layout_id')
+      .notNull()
+      .references(() => layouts.id, { onDelete: 'cascade' }),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    seenAt: integer('seen_at', { mode: 'timestamp_ms' }).notNull(),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.layoutId, t.userId] }),
+    userIdx: index('layout_visits_user_idx').on(t.userId),
   }),
 );
 
