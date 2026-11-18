@@ -15,6 +15,7 @@ import { eq, inArray } from 'drizzle-orm';
 import { db, schema } from '../db/index.js';
 import { requireUser } from '../auth/cookie.js';
 import { isLegoColorId } from '@cld/model';
+import { loadStored, parseSettings, saveStored } from '../notifications/settings.js';
 
 export const THEMES = ['light', 'dark', 'system'] as const;
 export const ACCENTS = ['brick', 'ocean', 'forest', 'plum', 'sunny', 'teal', 'orange', 'rose', 'indigo', 'slate'] as const;
@@ -67,8 +68,10 @@ export interface Preferences {
    */
   shareLastActive: boolean;
   /**
-   * Whether to email you when someone asks to join a club where your roles
-   * answer requests to join (Settings › Email).
+   * The old "Email me about requests to join" switch, still sent by
+   * desktop 2.1.8 and older. Notification settings (0056) took it over:
+   * saving it sets email for requests to join, partner requests and module
+   * offers (right away, or off) there too.
    */
   emailJoinRequests: boolean;
 }
@@ -181,14 +184,6 @@ export async function hidingLastActive(userIds: string[]): Promise<Set<string>> 
   return out;
 }
 
-/** Which of `userIds` turned off the join-request emails (emailJoinRequests off). */
-export async function noJoinRequestEmails(userIds: string[]): Promise<Set<string>> {
-  const out = new Set<string>();
-  if (userIds.length === 0) return out;
-  const rows = await db.select().from(schema.userPreferences).where(inArray(schema.userPreferences.userId, userIds));
-  for (const r of rows) if (!fromStored(r.prefs).emailJoinRequests) out.add(r.userId);
-  return out;
-}
 
 /** Roughly when someone was last active: what a club's members list shows. */
 export type LastActive = 'today' | 'week' | 'month' | 'older';
@@ -231,6 +226,14 @@ export async function preferencesRoutes(app: FastifyInstance): Promise<void> {
       if (changes.colorStyle === 'original' && changes.colorStyleChosen !== true) delete changes.colorStyle;
       const prefs: Preferences = withChosenStyle({ ...current.prefs, ...changes });
       const updatedAt = new Date();
+      if (changes.emailJoinRequests !== undefined && changes.emailJoinRequests !== current.prefs.emailJoinRequests) {
+        const email = changes.emailJoinRequests ? 'now' : 'off';
+        const next = parseSettings(
+          { types: { 'club.join_request': { email }, 'club.partner_request': { email }, 'club.offer_received': { email } } },
+          (await loadStored(user.id)) ?? { v: 1 },
+        );
+        if ('ok' in next) await saveStored(user.id, next.ok, updatedAt);
+      }
       const json = JSON.stringify(prefs);
       await db
         .insert(schema.userPreferences)

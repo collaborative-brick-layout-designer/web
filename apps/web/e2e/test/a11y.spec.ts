@@ -95,6 +95,7 @@ const PAGES: PageCase[] = [
   { name: 'about', signedIn: true, path: () => '/about' },
   { name: 'catalog', signedIn: true, path: () => '/catalog' },
   { name: 'notifications', signedIn: true, path: () => '/notifications' },
+  { name: 'unsubscribe', signedIn: false, path: () => '/unsubscribe?t=not-a-real-link' },
   { name: 'admin', signedIn: true, path: () => '/admin', ready: (p) => expect(p.getByRole('heading', { name: 'Needs attention' })).toBeVisible() },
   { name: 'admin heavy use', signedIn: true, path: () => '/admin', ready: adminTab('heavy') },
   { name: 'admin users', signedIn: true, path: () => '/admin', ready: adminTab('users') },

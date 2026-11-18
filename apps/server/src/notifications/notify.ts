@@ -15,6 +15,7 @@ import { publish } from '../events/audience.js';
 import { clubAudience, type ClubNotice } from '../access/clubNotices.js';
 import { clubMembersAccess } from '../access/clubPermissions.js';
 import type { NotificationType } from './types.js';
+import { channelsFor, settingsFor } from './settings.js';
 import { publicName } from '../utils/publicName.js';
 import { ownsEmail } from '../auth/users.js';
 
@@ -87,6 +88,8 @@ export async function notify(a: NotifyArgs): Promise<schema.Notification[]> {
       (await db.select({ id: schema.users.id }).from(schema.users).where(inArray(schema.users.id, who)).all()).map((r) => r.id),
     );
     const at = a.at ?? new Date();
+    // Turned off in the app (Settings › Notifications): kept hidden, for their email summary.
+    const prefs = await settingsFor(who.filter((u) => live.has(u)));
     const rows: schema.Notification[] = who
       .filter((u) => live.has(u))
       .map((userId) => ({
@@ -107,11 +110,12 @@ export async function notify(a: NotifyArgs): Promise<schema.Notification[]> {
         doneAt: null,
         outcome: null,
         outcomeBy: null,
+        hidden: !channelsFor(prefs.get(userId)!, a.type, a.club ?? null).app,
       }));
     if (rows.length === 0) return [];
     for (let i = 0; i < rows.length; i += 200) db.insert(schema.notifications).values(rows.slice(i, i + 200)).run();
     hintNotifications(
-      rows.map((r) => r.userId),
+      rows.filter((r) => !r.hidden).map((r) => r.userId),
       'create',
     );
     for (const d of deliverers) {

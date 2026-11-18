@@ -136,4 +136,36 @@ describe('migrations 0054_notifications + 0055_notifications_backfill', () => {
     expect((sqlite.prepare('SELECT COUNT(*) AS n FROM notifications').get() as { n: number }).n).toBe(11);
     sqlite.close();
   });
+
+});
+
+describe('migration 0056_notification_settings', () => {
+  it('moves the old "Email me about requests to join" switch over, and changes nothing else', () => {
+    const sql = readFileSync('migrations/0056_notification_settings.sql', 'utf8').replace(/^--.*$/gm, '');
+    expect(sql).not.toMatch(/\bDROP\b|\bUPDATE\s+`|\bDELETE\s+FROM\b/i);
+    expect(sql.match(/\bALTER TABLE `notifications` ADD `hidden`/g)).toHaveLength(1);
+    const dir = mkdtempSync(join(tmpdir(), 'cld-mig-db-'));
+    dirs.push(dir);
+    const sqlite = new Database(join(dir, 'db.sqlite'));
+    sqlite.pragma('foreign_keys = ON');
+    const db = drizzle(sqlite);
+    migrate(db, { migrationsFolder: migrationsUpTo('0055_notifications_backfill') });
+    const t = 1_790_000_000_000;
+    const user = sqlite.prepare('INSERT INTO users (id, email, display_name, password_hash, is_demo_account, is_global_admin, is_moderator, email_verified, created_at) VALUES (?, ?, ?, ?, 0, 0, 0, 1, ?)');
+    for (const u of ['off', 'on', 'none', 'broken']) user.run(u, `${u}@example.com`, u, 'hash', t);
+    const prefs = sqlite.prepare('INSERT INTO user_preferences (user_id, prefs, updated_at) VALUES (?, ?, ?)');
+    prefs.run('off', JSON.stringify({ theme: 'dark', emailJoinRequests: false }), t);
+    prefs.run('on', JSON.stringify({ emailJoinRequests: true }), t);
+    prefs.run('broken', 'not json', t);
+    migrate(db, { migrationsFolder: 'migrations' });
+    const rows = sqlite.prepare('SELECT user_id, settings FROM notification_settings').all() as { user_id: string; settings: string }[];
+    expect(rows.map((r) => r.user_id)).toEqual(['off']);
+    expect(JSON.parse(rows[0]!.settings)).toEqual({
+      v: 1,
+      types: { 'club.join_request': { email: 'off' }, 'club.partner_request': { email: 'off' }, 'club.offer_received': { email: 'off' } },
+    });
+    // Their preferences stay as they were.
+    expect((sqlite.prepare("SELECT prefs FROM user_preferences WHERE user_id = 'off'").get() as { prefs: string }).prefs).toContain('"theme":"dark"');
+    sqlite.close();
+  });
 });

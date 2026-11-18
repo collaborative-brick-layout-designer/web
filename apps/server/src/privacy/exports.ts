@@ -23,7 +23,7 @@ import { writeOwnedFiles, type FileCounts, type Owner } from './exportFiles.js';
 import { privacySettings } from './settings.js';
 import { ZipFileWriter, ZipTooBigError } from './zipWriter.js';
 import { postPersonalNote } from '../routes/warnings.js';
-import { sendNoticeEmail, siteUrl } from '../email/sendNotice.js';
+import { siteUrl } from '../email/sendNotice.js';
 import { publish } from '../events/audience.js';
 import { privacyContact } from './page.js';
 
@@ -298,15 +298,10 @@ async function tellRequester(id: string, ok: boolean): Promise<void> {
   const what = row.reason === 'self' ? 'Your data download' : 'The data download you asked for';
   const until = row.expiresAt ? row.expiresAt.toUTCString() : '';
   const text = ok ? `${what} is ready. You can download it until ${until}.` : `${what} could not be made. ${row.error ?? ''}`.trim();
-  await postPersonalNote(row.requestedBy, text, page, { kind: { type: 'account.export_ready', title: ok ? `${what} is ready` : `${what} could not be made` } });
+  await postPersonalNote(row.requestedBy, ok ? `${text} Only you can download it, while signed in.` : text, page, { kind: { type: 'account.export_ready', title: ok ? `${what} is ready` : `${what} could not be made` } });
   void publish({ kind: 'me', owner: { kind: 'user', id: row.requestedBy }, action: 'update:export' });
   if (row.reason === 'admin') void publish({ kind: 'admin', action: 'update:export' }, { ownerless: true });
-  await sendNoticeEmail({
-    to: who.email,
-    subject: ok ? `${what} is ready` : `${what} could not be made`,
-    paragraphs: [text, ok ? 'Only you can download it, while signed in.' : ''].filter(Boolean),
-    link: { text: ok ? 'Download it here' : 'Try again here', path: page },
-  });
+  // Emailed as they chose in Settings › Notifications (right away, by default).
 }
 
 /**

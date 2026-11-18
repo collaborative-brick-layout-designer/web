@@ -31,7 +31,6 @@ import { lesserRole, type ClubAccess } from '../access/clubPermissions.js';
 import { clubAudience, clubsHearing, type ClubNotice } from '../access/clubNotices.js';
 import { canModerate } from './catalog.js';
 import { getMembership, loadOrgBySlug } from './orgs.js';
-import { sendWarningEmail } from '../email/sendWarning.js';
 import { publicName } from '../utils/publicName.js';
 import { publish } from '../events/audience.js';
 import { perPerson } from '../utils/rateLimits.js';
@@ -90,12 +89,6 @@ export async function recipientsOf(w: Pick<schema.Warning, 'subjectUserId' | 'su
 /** Who sees the club's Warnings list (for a club warning: they see what the club sent). */
 export async function clubRunners(orgId: string): Promise<string[]> {
   return clubAudience(orgId, 'member_warning');
-}
-
-async function emailsOf(userIds: string[]): Promise<string[]> {
-  if (userIds.length === 0) return [];
-  const rows = await db.select({ e: schema.users.email }).from(schema.users).where(inArray(schema.users.id, userIds)).all();
-  return rows.map((r) => r.e);
 }
 
 interface WarningOut {
@@ -172,13 +165,6 @@ async function issue(args: {
     payload: { warningId: row.id, severity: row.severity, reason: row.reason, link: row.link, ...(args.clubOrgId ? { clubOrgId: args.clubOrgId } : {}) },
   });
   await notifyWarning(row, args.fromName);
-  // Email too, when the site can send it. Never fails the warning.
-  try {
-    const to = await emailsOf(await recipientsOf(row));
-    for (const addr of to) await sendWarningEmail({ to: addr, severity: row.severity, reason: row.reason, fromName: args.fromName });
-  } catch {
-    // No SMTP or it failed: the notice in the app is what counts.
-  }
   return row;
 }
 

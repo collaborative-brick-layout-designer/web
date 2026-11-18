@@ -230,6 +230,101 @@ Content-Type: application/json
 200 {"ok":true,"outcome":"accepted","result":{"ok":true},"notification":{"id":"6f0c…","doneAt":1795000000500,"outcome":"accepted","outcomeBy":{"id":"…","name":"Ann","you":true},"actions":[],"…":"…"}}
 ```
 
+## Delivery settings
+
+Each person chooses, per type: **in the app** (on or off; warnings can't be
+turned off), **email** (`now` right away, `daily` or `weekly` summary, or
+`off`), and **push** (on or off; browser push comes in Web C). Plus quiet
+hours, the summary times, per-club choices and "pause all".
+
+Defaults: everything in the app; email `now` and push on for the types that
+wait for you (requests, invites, warnings, a download ready); off for the
+rest. Types whose email is sent apart (`emailApart`) have no email choice:
+`invite` (the invite or hand-over email carries its link, and is always
+sent) and `account` (account-deletion emails, always sent).
+
+Turning a type off in the app, or muting a club, takes its items out of the
+list and the count at once (they stay for the email summaries); turning it
+back on brings them back.
+
+| Method and path | Body | Token scope | Answer |
+|---|---|---|---|
+| `GET /api/me/notification-settings` | | `layouts:read`, `layouts:write` or `account:prefs` | the view (below) |
+| `PUT /api/me/notification-settings` | `{ "settings": { …some keys } }` | `account:prefs` | the view; 400 `{ error: "invalid_settings", message }` |
+
+The view:
+
+```json
+{
+  "categories": ["moderation", "clubs", "sharing", "shared_modules", "account"],
+  "types": [
+    { "type": "club.join_request", "category": "clubs", "label": "Requests to join a club you run", "waits": true,
+      "appLocked": false, "emailApart": null, "app": true, "email": "now", "push": true }
+  ],
+  "quiet": { "on": false, "start": "22:00", "end": "07:00" },
+  "timeZone": "America/Chicago",
+  "dailyAt": "08:00",
+  "weeklyDay": 1,
+  "pauseEmail": false,
+  "pausePush": false,
+  "clubs": [ { "id": "…", "name": "ArkLUG", "slug": "arklug", "mute": false, "email": true, "push": true } ],
+  "emailAvailable": true,
+  "pushAvailable": false
+}
+```
+
+`PUT` merges what it's given onto what is stored, so two apps changing
+different settings don't undo each other:
+
+```json
+{ "settings": {
+  "types": { "club.role_changed": { "app": true, "email": "daily", "push": false } },
+  "quiet": { "on": true, "start": "22:00", "end": "07:00" },
+  "timeZone": "Europe/London",
+  "dailyAt": "18:30",
+  "weeklyDay": 5,
+  "pauseEmail": false,
+  "pausePush": false,
+  "clubs": { "<orgId>": { "mute": false, "email": false, "push": true } }
+} }
+```
+
+- Times are `HH:MM`, in `timeZone` (an IANA name). `timeZone` null means "not
+  set yet": the web sets it to the browser's on first visit; until then the
+  server uses UTC. `weeklyDay`: 0 Sunday … 6 Saturday; the weekly summary goes
+  at `dailyAt` on that day.
+- `clubs.<id>: null` forgets a club's choices. Only clubs you're in.
+- Refused: `app: false` on a warning type; an email mode on an `emailApart`
+  type; unknown types or keys.
+- `emailAvailable` false: the site can't send email (choices are kept).
+- Desktop 2.1.8 and older still send the old `emailJoinRequests` preference
+  (`PUT /api/me/preferences`); it sets email `now` or `off` for
+  `club.join_request`, `club.partner_request` and `club.offer_received`.
+
+### Email
+
+- Right away: sent within a minute, or, in quiet hours, when they end.
+  Already read or answered in the app by then: not sent. More than 20 in an
+  hour: the rest go in the next daily summary (warnings are never held back).
+- Summaries: one email with what is unread since the last summary, once its
+  time comes. A record is written before it goes, so a restart never sends
+  one twice. Nothing new: no email.
+- Every email has "Stop these emails" and a link to Settings › Notifications,
+  and RFC 8058 headers (`List-Unsubscribe` with the one-click address below,
+  `List-Unsubscribe-Post: List-Unsubscribe=One-Click`). Right-away emails
+  stop their type; summaries stop all notification email.
+- Both run inside the server (an in-process job every minute, the same
+  pattern as the privacy clean-up); nothing else is needed on the host.
+
+| Method and path | Body | Sign-in | Answer |
+|---|---|---|---|
+| `GET /api/notifications/unsubscribe?t=<token>` | | none | `{ ok, scope, what }` (changes nothing: what the link would stop) |
+| `POST /api/notifications/unsubscribe?t=<token>` | none, `List-Unsubscribe=One-Click` (form), or `{ "t": "<token>" }` | none | `{ ok, scope, what }`; 404 `invalid_link` |
+
+The token is signed by the server and names the account and what it stops
+(a type, or `all`). It can only turn email off. The web's `/unsubscribe?t=`
+page asks before it stops anything.
+
 ## Live updates
 
 The event stream (`GET /api/events`, any token scope) sends
@@ -237,7 +332,7 @@ The event stream (`GET /api/events`, any token scope) sends
 notifications change: a new one (`create`), one answered or brought up to
 date (`update`), or marked read, unread or acknowledged in another tab or
 app (`update:read`, `update:unread`, `update:read-all`, `update:act`,
-`update:acknowledge`). The hint carries no content: refetch the count and
+`update:acknowledge`), or their settings changed (`update:settings`). The hint carries no content: refetch the count and
 the list. On reconnecting, refetch them once.
 
 ## Older desktop apps

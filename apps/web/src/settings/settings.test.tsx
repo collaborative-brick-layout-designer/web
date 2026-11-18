@@ -135,14 +135,17 @@ describe('Color: any LEGO color and how much color', () => {
     const { PrefsContext } = await import('../theme/PrefsProvider');
     const { DEFAULT_PREFERENCES } = await import('../theme/theme');
     const setPrefs = vi.fn();
+    const { QueryClient, QueryClientProvider } = await import('@tanstack/react-query');
     const show = (extra: object) =>
       render(
         <PrefsContext.Provider
           value={{ prefs: { ...DEFAULT_PREFERENCES, ...extra }, mode: 'light', setPrefs, syncedToAccount: true, updatedAt: null, ready: true }}
         >
-          <MemoryRouter>
-            <SettingsContent />
-          </MemoryRouter>
+          <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false, enabled: false } } })}>
+            <MemoryRouter>
+              <SettingsContent />
+            </MemoryRouter>
+          </QueryClientProvider>
         </PrefsContext.Provider>,
       );
     // Every save used to store "original", chosen or not.

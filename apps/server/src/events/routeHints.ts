@@ -766,6 +766,7 @@ export const ROUTE_HINTS: Record<string, HintSpec> = {
     },
   },
   'POST /api/notifications/:id/unread': mine('update:unread'),
+  'PUT /api/me/notification-settings': mine('update:settings'),
   'POST /api/notifications/read-all': mine('update:read-all'),
   'POST /api/notifications/:id/act': mine('update:act'),
   'POST /api/notifications/:id/acknowledge': {
@@ -830,6 +831,7 @@ export const NO_HINT: Record<string, string> = {
   'POST /api/layouts/:id/compare': 'a read (compares two copies)',
   'POST /api/layouts/:id/shared-modules/away': 'a read: notes only when the caller had the layout open',
   'POST /api/metrics/client': 'anonymous client timing beacon',
+  'POST /api/notifications/unsubscribe': 'no sign-in (a mail app); the route sends the account its own notification hint',
 };
 
 /** Route key as the table spells it. */

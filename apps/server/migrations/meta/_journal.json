@@ -393,6 +393,13 @@
       "when": 1795037106751,
       "tag": "0055_notifications_backfill",
       "breakpoints": true
+    },
+    {
+      "idx": 56,
+      "version": "6",
+      "when": 1795039359177,
+      "tag": "0056_notification_settings",
+      "breakpoints": true
     }
   ]
 }

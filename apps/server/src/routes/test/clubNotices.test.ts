@@ -13,19 +13,18 @@ import cookie from '@fastify/cookie';
 import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const mail = vi.hoisted(() => ({ notice: [] as Array<{ to: string; subject: string; paragraphs: string[]; link?: { path: string } }>, warning: [] as Array<{ to: string }> }));
-vi.mock('../../email/sendNotice.js', async (orig) => ({
-  ...(await orig<typeof import('../../email/sendNotice.js')>()),
-  sendNoticeEmail: vi.fn(async (a: (typeof mail.notice)[number]) => {
-    mail.notice.push(a);
+// Notification emails (notifications/delivery.ts), with a site that can send them.
+const mail = vi.hoisted(() => ({ sent: [] as Array<{ to: string; subject: string; items: { title: string; body: string; link: string | null }[] }> }));
+vi.mock('../../email/sendNotification.js', async (orig) => ({
+  ...(await orig<typeof import('../../email/sendNotification.js')>()),
+  sendNotificationEmail: vi.fn(async (a: (typeof mail.sent)[number]) => {
+    mail.sent.push(a);
     return true;
   }),
 }));
-vi.mock('../../email/sendWarning.js', () => ({
-  sendWarningEmail: vi.fn(async (a: { to: string }) => {
-    mail.warning.push(a);
-    return true;
-  }),
+vi.mock('../../email/transporter.js', async (orig) => ({
+  ...(await orig<typeof import('../../email/transporter.js')>()),
+  emailConfigured: vi.fn(async () => true),
 }));
 
 import { db, loginAs, resetDb, schema } from '../../test/helpers.js';
@@ -34,6 +33,7 @@ import { registerApiRoutes } from '../all.js';
 import { closeAll } from '../../events/hub.js';
 import { clubRunners, postClubNote, recipientsOf } from '../warnings.js';
 import { CLUB_NOTICE_PERMISSIONS, clubAudience, clubsHearing } from '../../access/clubNotices.js';
+import { sendDue } from '../../notifications/delivery.js';
 
 type Who = { cookie: string; id: string; email: string };
 
@@ -49,8 +49,7 @@ describe('club notices go by permission', () => {
 
   beforeEach(async () => {
     resetDb();
-    mail.notice.length = 0;
-    mail.warning.length = 0;
+    mail.sent.length = 0;
     app = Fastify({ logger: false });
     await app.register(cookie);
     app.addHook('preHandler', attachUser);
@@ -106,16 +105,17 @@ describe('club notices go by permission', () => {
   it('a request to join emails the people whose roles let people in, each once', async () => {
     const asked = await as(gus, 'POST', '/api/orgs/rail-club/join', { message: 'I build bridges' });
     expect(asked.json()).toMatchObject({ status: 'requested' });
-    await vi.waitFor(() => expect(mail.notice).toHaveLength(3));
-    expect(sorted(mail.notice.map((m) => m.to))).toEqual(sorted([ann.email, cy.email, eve.email]));
-    const one = mail.notice[0]!;
+    await sendDue();
+    await vi.waitFor(() => expect(mail.sent).toHaveLength(3));
+    expect(sorted(mail.sent.map((m) => m.to))).toEqual(sorted([ann.email, cy.email, eve.email]));
+    const one = mail.sent[0]!;
     expect(one.subject).toBe('gus asked to join Rail Club');
-    expect(one.paragraphs).toContain('Their note: “I build bridges”');
-    expect(one.link?.path).toBe('/orgs/rail-club/admin?tab=people');
+    expect(one.items[0]).toEqual({ title: 'gus asked to join Rail Club', body: 'Their note: “I build bridges”', link: '/orgs/rail-club/admin?tab=people' });
     // Asking again sends nothing more.
     await as(gus, 'POST', '/api/orgs/rail-club/join', {});
+    await sendDue();
     await new Promise((r) => setTimeout(r, 50));
-    expect(mail.notice).toHaveLength(3);
+    expect(mail.sent).toHaveLength(3);
   });
 
   it('the join badge counts for the same people', async () => {
@@ -137,16 +137,24 @@ describe('club notices go by permission', () => {
     expect(off.json().prefs.emailJoinRequests).toBe(false);
     expect((await as(fay, 'GET', '/api/me/preferences')).json().prefs.emailJoinRequests).toBe(true);
     expect((await as(cy, 'PUT', '/api/me/preferences', { prefs: { emailJoinRequests: 'no' } })).statusCode).toBe(400);
+    // The old switch (desktop 2.1.8 and older) is now the notification setting for those types.
+    const settings = (await as(cy, 'GET', '/api/me/notification-settings')).json() as { types: { type: string; email: string }[] };
+    expect(settings.types.filter((t) => ['club.join_request', 'club.partner_request', 'club.offer_received'].includes(t.type)).map((t) => t.email)).toEqual(['off', 'off', 'off']);
     await as(gus, 'POST', '/api/orgs/rail-club/join', {});
-    await vi.waitFor(() => expect(mail.notice).toHaveLength(2));
-    expect(sorted(mail.notice.map((m) => m.to))).toEqual(sorted([ann.email, eve.email]));
+    await sendDue();
+    await vi.waitFor(() => expect(mail.sent).toHaveLength(2));
+    expect(sorted(mail.sent.map((m) => m.to))).toEqual(sorted([ann.email, eve.email]));
+    // On again.
+    await as(cy, 'PUT', '/api/me/preferences', { prefs: { emailJoinRequests: true } });
+    expect(((await as(cy, 'GET', '/api/me/notification-settings')).json() as { types: { type: string; email: string }[] }).types.find((t) => t.type === 'club.join_request')!.email).toBe('now');
   });
 
   it('a site warning to the club reaches the people who run its members, with one email each', async () => {
     const sent = await as(site, 'POST', '/api/admin/warnings', { subjectKind: 'org', subjectId: orgId, severity: 'warning', reason: 'Your club is over its storage limit' });
     expect(sent.statusCode, sent.body).toBe(201);
     const id = sent.json().id as string;
-    expect(sorted(mail.warning.map((m) => m.to))).toEqual(sorted([ann.email, cy.email, eve.email]));
+    await sendDue();
+    expect(sorted(mail.sent.map((m) => m.to))).toEqual(sorted([ann.email, cy.email, eve.email]));
     const sees = async (who: Who) => ((await as(who, 'GET', '/api/notices')).json().notices as Array<{ id: string }>).some((n) => n.id === id);
     expect(await sees(ann)).toBe(true);
     expect(await sees(cy)).toBe(true);
@@ -176,10 +184,11 @@ describe('club notices go by permission', () => {
 
   it('a club warning to a member reaches the people who see the club’s warnings', async () => {
     expect(sorted(await clubRunners(orgId))).toEqual(sorted([ann.id, cy.id, eve.id]));
-    const sent = await as(ann, 'POST', '/api/orgs/rail-club/warnings', { userId: fay.id, severity: 'note', reason: 'Please tidy the yard' });
+    const sent = await as(ann, 'POST', '/api/orgs/rail-club/warnings', { userId: fay.id, severity: 'warning', reason: 'Please tidy the yard' });
     expect(sent.statusCode, sent.body).toBe(201);
     // Fay gets it; the copy for the club is its Warnings list, which Ben can't open.
-    expect(mail.warning.map((m) => m.to)).toEqual([fay.email]);
+    await sendDue();
+    expect(mail.sent.map((m) => m.to)).toEqual([fay.email]);
     expect((await as(ben, 'GET', '/api/orgs/rail-club/warnings')).statusCode).toBe(403);
     expect((await as(eve, 'GET', '/api/orgs/rail-club/warnings')).json().warnings).toHaveLength(1);
   });

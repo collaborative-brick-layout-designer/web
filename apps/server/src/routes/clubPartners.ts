@@ -35,7 +35,6 @@ import {
   ASK_AGAIN_AFTER_MS,
   OPEN_PARTNER_REQUESTS_MAX,
   arePartners,
-  emailClubRunners,
   endPartnership,
   isLive,
   noteToClub,
@@ -241,11 +240,6 @@ export async function clubPartnerRoutes(app: FastifyInstance): Promise<void> {
         body: 'Partner clubs can share their modules with each other, read-only, with no need to accept each one. Each module is still picked.',
         link: `/orgs/${other.slug}?tab=partners`,
       });
-      void emailClubRunners(other, user.id, `${org.name} asked to be partners with ${other.name}`, [
-        `${org.name} asked to be partner clubs with ${other.name}.`,
-        'Partner clubs can share their modules with each other, read-only, with no need to accept each one. Each module is still picked.',
-        'Your club’s Admins and Managers can accept or decline it on the club’s Partners page.',
-      ]);
       return reply.code(201).send({ status: 'requested' as const, id, club: shown });
     },
   );

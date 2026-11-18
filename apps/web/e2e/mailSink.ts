@@ -8,6 +8,8 @@ export interface SentMail {
   to: string[];
   subject: string;
   body: string;
+  /** The List-Unsubscribe header, when there is one (notification emails). */
+  listUnsubscribe: string;
 }
 
 export interface MailSink {
@@ -63,7 +65,7 @@ export async function startMailSink(): Promise<MailSink> {
           const data = buf.slice(0, end);
           buf = buf.slice(end + 5);
           inData = false;
-          mails.push({ to, subject: headerOf(data, 'Subject'), body: unquote(data.split(/\r\n\r\n/).slice(1).join('\n\n')) });
+          mails.push({ to, subject: headerOf(data, 'Subject'), body: unquote(data.split(/\r\n\r\n/).slice(1).join('\n\n')), listUnsubscribe: headerOf(data, 'List-Unsubscribe') });
           to = [];
           say('250 OK');
           continue;
