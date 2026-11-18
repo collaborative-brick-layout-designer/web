@@ -138,6 +138,34 @@ describe('partner clubs and module offers', () => {
     expect(await notes(w.train.id)).toEqual([expect.stringContaining('Riverside LUG accepted your club’s partner request')]);
   });
 
+  it('offers still waiting when the clubs become partners turn into partner shares, both ways, and the receiving Admins and Managers are told', async () => {
+    const w = await world();
+    const crane = await clubModule(w.tina, w.train.slug, 'Harbor crane');
+    const ferry = await clubModule(w.rita, w.lug.slug, 'Ferry dock');
+    expect((await call(w.max, 'POST', `/api/modules/${crane}/club-shares`, { orgSlug: w.lug.slug })).statusCode).toBe(202);
+    expect((await call(w.mo, 'POST', `/api/modules/${ferry}/club-shares`, { orgSlug: w.train.slug })).statusCode).toBe(202);
+    expect((await partners(w.mo, w.lug.slug)).offersIn).toHaveLength(1);
+    // Not shared yet.
+    expect(((await call(w.lou, 'GET', '/api/modules?owner=shared')).json() as { modules: unknown[] }).modules).toEqual([]);
+    const asked = await call(w.max, 'POST', `/api/orgs/${w.train.slug}/partners`, { slug: w.lug.slug });
+    const id = (asked.json() as { id: string }).id;
+    expect((await call(w.mo, 'POST', `/api/orgs/${w.lug.slug}/partner-requests/${id}/accept`)).statusCode).toBe(200);
+    // No offer waits any more, and both modules are shared as partner shares.
+    expect((await partners(w.mo, w.lug.slug)).offersIn).toEqual([]);
+    expect((await partners(w.tina, w.train.slug)).offersIn).toEqual([]);
+    expect(await db.select().from(schema.moduleClubOffers).all()).toEqual([]);
+    expect((await call(w.max, 'GET', `/api/modules/${crane}/shares`)).json()).toMatchObject({ offers: [], clubs: [expect.objectContaining({ name: 'Riverside LUG', via: 'partner' })] });
+    expect((await call(w.mo, 'GET', `/api/modules/${ferry}/shares`)).json()).toMatchObject({ offers: [], clubs: [expect.objectContaining({ name: 'Train Club', via: 'partner' })] });
+    expect(((await call(w.lou, 'GET', '/api/modules?owner=shared')).json() as { modules: { id: string }[] }).modules.map((m) => m.id)).toEqual([crane]);
+    expect(((await call(w.pat, 'GET', '/api/modules?owner=shared')).json() as { modules: { id: string }[] }).modules.map((m) => m.id)).toEqual([ferry]);
+    // Each receiving club's Admins and Managers are told.
+    expect(await notes(w.lug.id)).toEqual([expect.stringContaining('Harbor crane')]);
+    expect((await notes(w.train.id)).filter((t) => t.includes('Ferry dock'))).toHaveLength(1);
+    // Ending the partnership stops them like any partner share.
+    expect((await call(w.tina, 'DELETE', `/api/orgs/${w.train.slug}/partners/${w.lug.id}`)).statusCode).toBe(200);
+    expect(((await call(w.lou, 'GET', '/api/modules?owner=shared')).json() as { modules: unknown[] }).modules).toEqual([]);
+  });
+
   it('asking a club that already asked you makes you partners', async () => {
     const w = await world();
     await call(w.max, 'POST', `/api/orgs/${w.train.slug}/partners`, { slug: w.lug.slug });

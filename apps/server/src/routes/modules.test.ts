@@ -500,6 +500,23 @@ describe('modules', () => {
       expect((await save(aliceCookie, id, contents(3), 'x'.repeat(301))).statusCode).toBe(400);
     });
 
+    it('a copy starts at version 1, with a real first version that is the contents it was copied with', async () => {
+      const { aliceCookie, id } = await setup();
+      await save(aliceCookie, id, contents(1));
+      await save(aliceCookie, id, contents(2));
+      const copied = await app.inject({ method: 'POST', url: `/api/modules/${id}/copy`, headers: { cookie: aliceCookie }, payload: {} });
+      expect(copied.statusCode).toBe(201);
+      const copyId = (copied.json() as { id: string }).id;
+      const got = (await app.inject({ method: 'GET', url: `/api/modules/${copyId}`, headers: { cookie: aliceCookie } })).json() as { module: { docVersion: number; latestVersion: number } };
+      expect(got.module).toMatchObject({ docVersion: 1, latestVersion: 1 });
+      const v = await versions(aliceCookie, copyId);
+      expect(v.map((x) => x.version)).toEqual([1]);
+      const one = await app.inject({ method: 'GET', url: `/api/modules/${copyId}/versions/1/snapshot`, headers: { cookie: aliceCookie } });
+      expect([...one.rawPayload]).toEqual([...contents(2)]);
+      // Its next save is version 2.
+      expect((await save(aliceCookie, copyId, contents(3))).json()).toMatchObject({ version: 2, docVersion: 2 });
+    });
+
     it('restoring makes the old contents current as a new version', async () => {
       const { aliceCookie, id } = await setup();
       await save(aliceCookie, id, contents(1));

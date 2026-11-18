@@ -37,6 +37,11 @@ type LibraryTab = 'mine' | 'clubs' | 'shared';
 export function fromClubOf(m: Pick<ModuleSummary, 'owner'> & { sharedVia?: SharedModuleSummary['sharedVia'] }): string | null {
   return m.owner?.kind === 'org' && m.sharedVia && !m.sharedVia.direct && m.sharedVia.clubs.length > 0 ? m.owner.name : null;
 }
+/** The version a module row shows: never below 1 (a copy made before it had a first version, or one that was never saved, is version 1). */
+export function shownVersion(m: Pick<ModuleSummary, 'docVersion' | 'latestVersion'>, shared: boolean): number {
+  return Math.max(1, (shared ? (m.latestVersion ?? m.docVersion) : m.docVersion) || 0);
+}
+
 const LIBRARY_TABS: { id: LibraryTab; label: string }[] = [
   { id: 'mine', label: 'Mine' },
   { id: 'clubs', label: 'Clubs' },
@@ -341,7 +346,7 @@ function ModuleLibraryRow({
             </p>
           )}
           <p className="text-[11px] text-muted">
-            v{sharedVia ? (module.latestVersion ?? module.docVersion) : module.docVersion} · {new Date(module.updatedAt).toLocaleDateString()}
+            v{shownVersion(module, !!sharedVia)} · {new Date(module.updatedAt).toLocaleDateString()}
           </p>
           {sharedVia && (
             <p className="text-[11px] text-muted" data-testid="module-shared-via">

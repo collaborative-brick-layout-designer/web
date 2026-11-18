@@ -26,6 +26,10 @@ import { postClubNote } from '../routes/warnings.js';
 import { noJoinRequestEmails } from '../routes/preferences.js';
 import { sendNoticeEmail } from '../email/sendNotice.js';
 import { moduleSharesChanged } from '../sharedModules/lifecycle.js';
+import { writeAuditEvent } from '../audit/writeAuditEvent.js';
+
+/** The most clubs one module is shared with (the same limit as routes/moduleShares.ts). */
+const MAX_SHARES_PER_MODULE = 50;
 
 /** Partner requests one club may have waiting at once. */
 export const OPEN_PARTNER_REQUESTS_MAX = 20;
@@ -219,4 +223,58 @@ export async function waitingFor(orgIds: string[]): Promise<Map<string, number>>
     .all();
   for (const r of [...reqs, ...offers]) out.set(r.to, (out.get(r.to) ?? 0) + 1);
   return out;
+}
+
+/**
+ * Two clubs became partners: any module offer still waiting between them,
+ * either way, becomes a partner share at once. Partners get modules without
+ * accepting, so a waiting offer would be a dead end. The receiving club's
+ * Admins and Managers are told. Offers that can't be turned (the module left
+ * the club that offered it, or it is at its share limit) are left alone.
+ */
+export async function settleOffersBetween(a: string, b: string, actorId: string | null): Promise<number> {
+  const rows = await db
+    .select({ offer: schema.moduleClubOffers, title: schema.modules.title, ownerOrgId: schema.modules.ownerOrgId })
+    .from(schema.moduleClubOffers)
+    .innerJoin(schema.modules, eq(schema.modules.id, schema.moduleClubOffers.moduleId))
+    .where(
+      and(
+        eq(schema.moduleClubOffers.state, 'pending'),
+        or(
+          and(eq(schema.moduleClubOffers.fromOrgId, a), eq(schema.moduleClubOffers.toOrgId, b)),
+          and(eq(schema.moduleClubOffers.fromOrgId, b), eq(schema.moduleClubOffers.toOrgId, a)),
+        ),
+      ),
+    )
+    .all();
+  let settled = 0;
+  for (const r of rows) {
+    const o = r.offer;
+    if (r.ownerOrgId !== o.fromOrgId) continue;
+    const have = await db.select({ n: schema.moduleClubShares.orgId }).from(schema.moduleClubShares).where(eq(schema.moduleClubShares.moduleId, o.moduleId)).all();
+    if (have.length >= MAX_SHARES_PER_MODULE) continue;
+    db.transaction((tx) => {
+      tx.insert(schema.moduleClubShares)
+        .values({ moduleId: o.moduleId, orgId: o.toOrgId, sharedBy: o.offeredBy, createdAt: new Date(), via: 'partner', fromOrgId: o.fromOrgId })
+        .onConflictDoNothing()
+        .run();
+      tx.delete(schema.moduleClubOffers).where(eq(schema.moduleClubOffers.id, o.id)).run();
+    });
+    settled++;
+    await moduleSharesChanged(o.moduleId);
+    await writeAuditEvent({ resourceKind: 'module', resourceId: o.moduleId, userId: actorId, eventType: 'share', payload: { club: o.toOrgId, readOnly: true, via: 'partner', fromOffer: true } });
+    const [from, to] = await Promise.all([
+      db.select().from(schema.orgs).where(eq(schema.orgs.id, o.fromOrgId)).get(),
+      db.select().from(schema.orgs).where(eq(schema.orgs.id, o.toOrgId)).get(),
+    ]);
+    if (from && to) {
+      await noteToClub(
+        to.id,
+        actorId,
+        `${from.name} offered your club the module “${r.title}”, and now that your clubs are partners it is shared with you. Its members can place it in the club’s layouts, and they get ${from.name}’s updates.`,
+        `/orgs/${to.slug}?tab=partners`,
+      );
+    }
+  }
+  return settled;
 }

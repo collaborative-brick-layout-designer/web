@@ -56,7 +56,8 @@ export async function copyModuleTo(
   title: string,
 ): Promise<{ ok: true; id: string } | { ok: false; status: number; body: unknown }> {
   const copyOwner: Subject = destOrgId ? { kind: 'org', id: destOrgId } : { kind: 'user', id: user.id };
-  const copyBytes = (src.docSnapshot as Uint8Array).length + ((src.sidecarSnapshot as Uint8Array | null)?.length ?? 0);
+  // The copy's contents, and the first version's own copy of them.
+  const copyBytes = 2 * (src.docSnapshot as Uint8Array).length + ((src.sidecarSnapshot as Uint8Array | null)?.length ?? 0);
   const refusal = await checkGrowth({ actor: user, owner: copyOwner, add: { bytes: copyBytes } });
   if (refusal) return { ok: false, status: refusal.status, body: refusal.body };
   const id = randomUUID();
@@ -68,12 +69,14 @@ export async function copyModuleTo(
     ownerOrgId: destOrgId,
     createdBy: user.id,
     docSnapshot: src.docSnapshot,
-    docVersion: 0,
+    // A copy starts at version 1 (its first version is recorded just below), so no list shows "v0".
+    docVersion: 1,
     sidecarSnapshot: src.sidecarSnapshot,
     copiedFromId: src.id,
     createdAt: now,
     updatedAt: now,
   });
+  await recordVersion(id, Buffer.from(src.docSnapshot as Uint8Array), user.id, null);
   await writeAuditEvent({
     resourceKind: 'module',
     resourceId: id,
