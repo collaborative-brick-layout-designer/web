@@ -287,7 +287,15 @@ test('a shared module with the web and the desktop in one layout', async ({ page
     expect(rows.modules[0]).toMatchObject({ placedId: m.id, state: 'shared', latestNote: 'longer pier', owner: 'Alice' });
 
     // Update from the desktop: the server puts version 2 in, for the desktop and the web, once.
+    // (A desktop from before doc shape 5, such as CI's main build until the desktop's shape-5 release,
+    // is told plainly that the layout needs a newer version once the update keeps parts: checked, and the rest skipped.)
+    const keepsIds = (await driver.say('features')).includes('keepIds');
     expect(await driver.json('shared-apply ' + m.id + ' 2')).toEqual({ changed: true, version: 2, from: 1 });
+    if (!keepsIds) {
+      await expect.poll(() => brickCount(bob), { timeout: 20000 }).toBe(2);
+      await expect.poll(async () => await driver.say('wait-synced 2000'), { timeout: 20000 }).toMatch(/^error/);
+      return;
+    }
     await expect.poll(async () => (await driver.json<Shared[]>('shared'))[0]?.version, { timeout: 15000 }).toBe(2);
     shared = await driver.json<Shared[]>('shared');
     expect(shared[0]!.members).toHaveLength(2);
