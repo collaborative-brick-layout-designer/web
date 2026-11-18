@@ -337,6 +337,35 @@ describe('putting a broken shared module back', () => {
     }
   });
 
+  it('takes away again a part an update took out that an update brings back (settle rule 0)', () => {
+    const { doc, ids } = room(CRANE);
+    // The module's record remembers a part an earlier update took out; an app's undo puts it back.
+    doc.transact(() => {
+      const cache = readSidecarCache(doc)!;
+      writeSidecarCache(doc, { ...cache, modules: (cache.modules as SidecarModule[]).map((m) => ({ ...m, shared: { ...(m.shared as object), retired: ['424242'] } })) });
+    });
+    const u = edit(doc, (c) => {
+      const b = new Y.Map<unknown>();
+      b.set('id', '424242');
+      b.set('partNumber', 'straight.1');
+      b.set('displayArea', { x: 0, y: 0, width: 16, height: 4 });
+      ((c.getMap<Y.Map<unknown>>('layerData').get(SHEET)!.get('bricks')) as Y.Array<unknown>).push([b]);
+    });
+    const r = takeAndRepair(doc, u);
+    expect(r?.why).toBe('it brings back a part an update of a shared module took out');
+    expect(partMaps(doc).has('424242')).toBe(false);
+    expect([...partMaps(doc).keys()]).toEqual(expect.arrayContaining(ids));
+    // A new part with another id is no business of the guard's.
+    const other = edit(doc, (c) => {
+      const b = new Y.Map<unknown>();
+      b.set('id', '515151');
+      b.set('partNumber', 'straight.1');
+      b.set('displayArea', { x: 0, y: 0, width: 16, height: 4 });
+      ((c.getMap<Y.Map<unknown>>('layerData').get(SHEET)!.get('bricks')) as Y.Array<unknown>).push([b]);
+    });
+    expect(check(doc, other)).toBeNull();
+  });
+
   it('keeps the rest of the update (a loose part moved with it)', () => {
     const { doc, ids, loose } = room(CRANE);
     const u = edit(doc, (c) => {

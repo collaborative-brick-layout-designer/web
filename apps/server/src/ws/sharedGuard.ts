@@ -25,6 +25,10 @@
 // shared. The server's own steps (sharedModules/apply.ts) aren't checked:
 // they don't come through here.
 //
+// Also put back: a part a shared module's updates took out (`shared.retired`)
+// that an update brings back, as undoing a change of sheet made before the
+// update does in an app that doesn't finish its undo (settle rule 0).
+//
 // What happens to an update that breaks the lock (ws/handler.ts): it is
 // taken, and the server then puts the modules it broke back as they were,
 // in a step of its own that everyone gets (repairShared). Closing the
@@ -46,7 +50,7 @@
 
 import * as Y from 'yjs';
 import { readSidecarCache, writeSidecarCache } from '@cld/ydoc';
-import { norm360, pivotOf, sharedModulesIn, type PartLookup, type Pt } from '@cld/modules';
+import { norm360, pivotOf, settleRetired, sharedModulesIn, type PartLookup, type Pt } from '@cld/modules';
 import { guardWork, type DecodedUpdate } from './decoded.js';
 
 /** sharedLockProblem's answer when the update needs a copy and `mayCopy` says no: slow the sender down. */
@@ -360,6 +364,27 @@ export interface LockBreak {
   why: string;
   modules: string[];
   before: LockState;
+  /** Parts a shared module's updates took out (`shared.retired`) that it brought back: they go again (settle rule 0). */
+  retiredBack: string[];
+}
+
+/** Why an update that brings back parts a shared module's updates took out is put back. */
+export const RETIRED_BACK = 'it brings back a part an update of a shared module took out';
+
+/**
+ * Whether `decoded` writes a part id that is in `retired`: a part an
+ * update took out, put on the map again (an undo of a change of sheet made
+ * before the update, in an app that doesn't finish it: settle rule 0).
+ */
+export function writesRetired(decoded: DecodedUpdate, retired: ReadonlySet<string>): boolean {
+  if (retired.size === 0) return false;
+  for (const s of decoded.structs) {
+    if (!(s instanceof Y.Item) || s.parentSub !== 'id') continue;
+    const c = s.content;
+    const v = c instanceof Y.ContentAny ? c.arr[0] : c instanceof Y.ContentString ? c.str : undefined;
+    if (typeof v === 'string' && retired.has(v)) return true;
+  }
+  return false;
 }
 
 /** Every shared module `after` breaks the lock of (parts, link, or moved apart), and why. */
@@ -388,6 +413,20 @@ export function repairShared(doc: Y.Doc, brk: LockBreak, origin: unknown): void 
   const snaps = brk.before.snaps;
   if (!values || !snaps) return;
   doc.transact(() => {
+    // Parts an update took out that came back: gone again.
+    if (brk.retiredBack.length > 0) {
+      const back = new Set(brk.retiredBack);
+      const data = doc.getMap<unknown>('layerData');
+      for (const layer of data.values()) {
+        const bricks = layer instanceof Y.Map ? layer.get('bricks') : undefined;
+        if (!(bricks instanceof Y.Array)) continue;
+        for (let i = bricks.length - 1; i >= 0; i--) {
+          const b = bricks.get(i);
+          if (b instanceof Y.Map && back.has(b.get('id') as string)) bricks.delete(i, 1);
+        }
+      }
+    }
+    if (brk.modules.length === 0) return;
     const layerData = doc.getMap<unknown>('layerData');
     const sheets = doc
       .getArray<string>('layers')
@@ -530,8 +569,12 @@ export function sharedLockCheck(
   const placed = sharedModulesIn(readSidecarCache(doc));
   if (placed.length === 0) return null;
   const members = new Set<string>();
-  for (const p of placed) for (const id of p.members) members.add(id);
-  if (!mayTouchShared(doc, decoded, members)) return null;
+  const retired = new Set<string>();
+  for (const p of placed) {
+    for (const id of p.members) members.add(id);
+    for (const id of p.retired ?? []) retired.add(id);
+  }
+  if (!mayTouchShared(doc, decoded, members) && !writesRetired(decoded, retired)) return null;
   if (mayCopy && !mayCopy()) return LOCK_COPY_BUDGET_SPENT;
   guardWork.docCopies += 1;
   const after = new Y.Doc();
@@ -546,10 +589,13 @@ export function sharedLockCheck(
       // it applied before (the room would too): that is what is checked.
     }
     const before = lockState(doc);
-    const found = breaks(before, lockState(after), racedParts(doc, decoded, members), partOf);
-    if (!found) return null;
+    const now = lockState(after);
+    const found = breaks(before, now, racedParts(doc, decoded, members), partOf);
+    // Parts an update took out, brought back (settle rule 0, for apps that don't finish their undo).
+    const retiredBack = settleRetired(retired, before.alive, now.alive);
+    if (!found && retiredBack.length === 0) return null;
     // What it takes to put them back, read now, while the room is as it was.
-    return { ...found, before: lockState(doc, true) };
+    return { ...(found ?? { why: RETIRED_BACK, modules: [] }), before: lockState(doc, true), retiredBack };
   } catch {
     return null; // the room's own document can't be copied: nothing to compare
   } finally {

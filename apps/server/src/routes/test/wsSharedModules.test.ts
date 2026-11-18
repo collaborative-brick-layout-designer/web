@@ -21,7 +21,7 @@ import { db, loginAs, resetDb, schema } from '../../test/helpers.js';
 import { docHub } from '../../ws/docHub.js';
 import { forgetLayout } from '../../sharedModules/placed.js';
 import { automaticUpdatesSettled } from '../../sharedModules/auto.js';
-import { contents, moduleOf, partsOf, place, type Part } from '../../test/sharedWorld.js';
+import { SHEET, contents, moduleOf, partsOf, place, type Part } from '../../test/sharedWorld.js';
 import { Peer } from './wsPeer.js';
 
 const V1: Part[] = [{ pn: 'a.1', x: 0, y: 0 }, { pn: 'b.1', x: 4, y: 0 }];
@@ -158,6 +158,57 @@ describe('shared modules, live', () => {
     const audit = await db.select().from(schema.auditEvents).where(eq(schema.auditEvents.eventType, 'layout_update_refused')).all();
     expect(audit).toHaveLength(1);
     expect(JSON.parse(audit[0]!.payload)).toMatchObject({ kind: 'locked', why: 'it changes a part of a shared module', putBack: 1 });
+    await Promise.all([a.leave(), b.leave()]);
+  });
+
+  it('an older desktop’s undo of a change of sheet after an Update brings back a part the update took out: the server takes it away again', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const a = new Peer(port, layoutId, alice.cookie, new Y.Doc());
+    const bobDoc = new Y.Doc();
+    const b = new Peer(port, layoutId, bob.cookie, bobDoc);
+    await Promise.all([a.synced, b.synced]);
+    const ids = (doc: Y.Doc) => partsOf(doc).map((p) => p.id).sort();
+    // Bob (an app that doesn't finish its undo for the whole module) puts the module on a new sheet: his own step.
+    bobDoc.transact(() => {
+      const l = new Y.Map<unknown>();
+      l.set('id', 'brick-2');
+      l.set('type', 'brick');
+      l.set('name', 'Hills');
+      l.set('bricks', new Y.Array());
+      l.set('groups', new Y.Array());
+      bobDoc.getMap('layerData').set('brick-2', l);
+      bobDoc.getArray<string>('layers').push(['brick-2']);
+    });
+    const undo = new Y.UndoManager([bobDoc.getMap('layerData'), bobDoc.getMap('sidecarItems'), bobDoc.getMap('meta')], { trackedOrigins: new Set(['bob']) });
+    bobDoc.transact(() => {
+      const from = (bobDoc.getMap<Y.Map<unknown>>('layerData').get(SHEET)!.get('bricks')) as Y.Array<Y.Map<unknown>>;
+      const to = (bobDoc.getMap<Y.Map<unknown>>('layerData').get('brick-2')!.get('bricks')) as Y.Array<Y.Map<unknown>>;
+      const copies = from.toArray().map((x) => {
+        const c = new Y.Map<unknown>();
+        for (const [k, v] of x.entries()) c.set(k, v);
+        return c;
+      });
+      from.delete(0, from.length);
+      to.push(copies);
+    }, 'bob');
+    const original = ids(bobDoc);
+    await expect.poll(() => ids(a.doc)).toEqual(original);
+    // Version 2 moves b.1: the update takes out what it doesn't keep (and remembers it), and puts the new parts in.
+    await save([{ pn: 'a.1', x: 0, y: 0 }, { pn: 'b.1', x: 4, y: 6 }]);
+    expect((await app.inject({ method: 'POST', url: `/api/layouts/${layoutId}/shared-modules/placed-1/apply`, headers: { cookie: alice.cookie }, payload: {} })).statusCode).toBe(200);
+    await expect.poll(() => moduleOf(a.doc, 'placed-1')?.libraryVersion).toBe(2);
+    const updated = ids(a.doc);
+    await expect.poll(() => ids(bobDoc)).toEqual(updated);
+    const retired = original.filter((id) => !updated.includes(id));
+    expect(retired.length).toBeGreaterThan(0);
+    expect([...((moduleOf(a.doc, 'placed-1')!.shared as { retired?: string[] }).retired ?? [])].sort()).toEqual(retired);
+    // His undo brings the taken-out parts back on the old sheet; the server takes them away again, for everyone.
+    undo.undo();
+    expect(ids(bobDoc)).toEqual(expect.arrayContaining(retired));
+    const session = await docHub.getOrCreate(layoutId);
+    for (const doc of [session.doc, a.doc, bobDoc]) await expect.poll(() => ids(doc).filter((id) => retired.includes(id))).toEqual([]);
+    expect(b.ws.readyState).toBe(b.ws.OPEN);
+    expect(moduleOf(session.doc, 'placed-1')!.members.sort()).toEqual(updated);
     await Promise.all([a.leave(), b.leave()]);
   });
 
