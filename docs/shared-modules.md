@@ -719,7 +719,7 @@ Aaron, 2026-11-17 (design pass "club-to-club module sharing"). As built:
   offer to it is sent, but its name and logo are shown to the sender only
   once it accepts. The privacy downloads (a person's and a club's) hold
   partnerships, requests and offers.
-- **A copy starts at version 1.** A module copied into a club (or to a person) is recorded as its version 1 with the contents it was copied with, so no list shows "v0". Copies made before that show version 1 too (a list never shows 0); no stored row was changed.
+- **A copy starts at version 1.** A module copied into a club (or to a person) is recorded as its version 1 with the contents it was copied with, so no list shows "v0". Copies made before that, and never saved since, were given that same version 1 by migration 0053 (a one-time fix Aaron approved on 2026-11-18; it adds version rows and sets `doc_version` and `latest_version`, and removes nothing).
 - **Nothing is stamped in the live doc** (no new doc shape): a placed copy
   of a club's module is an ordinary shared module.
 
