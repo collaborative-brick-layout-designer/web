@@ -43,6 +43,7 @@ export async function visibleTo(userId: string): Promise<SQL> {
   const n = schema.notifications;
   return and(
     eq(n.userId, userId),
+    eq(n.hidden, false),
     clubs.length ? or(eq(n.needsMembership, false), inArray(n.clubOrgId, clubs)) : eq(n.needsMembership, false),
   )!;
 }

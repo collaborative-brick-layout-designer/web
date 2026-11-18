@@ -24,8 +24,6 @@ import { clubAudience } from '../access/clubNotices.js';
 import { publish } from '../events/audience.js';
 import { postClubNote, type NoteKind } from '../routes/warnings.js';
 import { resolve } from '../notifications/notify.js';
-import { noJoinRequestEmails } from '../routes/preferences.js';
-import { sendNoticeEmail } from '../email/sendNotice.js';
 import { moduleSharesChanged } from '../sharedModules/lifecycle.js';
 import { writeAuditEvent } from '../audit/writeAuditEvent.js';
 
@@ -93,35 +91,6 @@ export async function partnersOf(orgId: string): Promise<{ org: Org; since: Date
 export async function noteToClub(orgId: string, actorId: string | null, text: string, link: string | null, kind?: NoteKind): Promise<void> {
   const id = await postClubNote(orgId, actorId, text, link, kind);
   void publish({ kind: 'warning', id, action: 'create' }, { ownerless: true, users: await clubAudience(orgId, 'club_note') });
-}
-
-/**
- * Email the club's Admins and Managers that something waits for their
- * answer, as a request to join is emailed. Best effort; the Clubs badge and
- * the club's Partners tab show it anyway. Someone who turned off "Email me
- * about requests to join" in Settings › Email gets none.
- */
-export async function emailClubRunners(org: Pick<Org, 'id' | 'slug'>, actorId: string, subject: string, paragraphs: string[]): Promise<void> {
-  try {
-    const audience = (await clubAudience(org.id, 'club_note')).filter((id) => id !== actorId);
-    const off = await noJoinRequestEmails(audience);
-    const to = audience.filter((id) => !off.has(id));
-    if (to.length === 0) return;
-    const rows = await db.select({ email: schema.users.email }).from(schema.users).where(inArray(schema.users.id, to)).all();
-    for (const r of rows) {
-      await sendNoticeEmail({
-        to: r.email,
-        subject,
-        paragraphs: [
-          ...paragraphs,
-          'You get this email because your roles in the club look after its things. To stop these emails, turn off “Email me about requests to join” in Settings › Email (it covers partner requests and module offers too).',
-        ],
-        link: { text: 'Answer on the club’s Partners page', path: `/orgs/${org.slug}?tab=partners` },
-      });
-    }
-  } catch {
-    // The request itself is what counts.
-  }
 }
 
 /**

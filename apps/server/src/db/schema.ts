@@ -1878,6 +1878,8 @@ export const notifications = sqliteTable(
     /** How a request was answered: 'accepted', 'declined', 'withdrawn', 'gone', 'acknowledged'. */
     outcome: text('outcome'),
     outcomeBy: text('outcome_by').references(() => users.id, { onDelete: 'set null' }),
+    /** The person turned this type off in the app (0056): kept for their email summaries, never listed or counted. */
+    hidden: integer('hidden', { mode: 'boolean' }).notNull().default(false),
   },
   (t) => ({
     // The list, newest first, and the unread count.
@@ -1891,3 +1893,73 @@ export const notifications = sqliteTable(
   }),
 );
 export type Notification = typeof notifications.$inferSelect;
+
+/**
+ * How each person wants their notifications (0056; Settings ›
+ * Notifications): per type, in the app / email (right away, daily or
+ * weekly summary, off) / push; quiet hours in their time zone; summary
+ * times; per-club overrides; pause all email or push. JSON, checked by
+ * notifications/settings.ts; only what differs from the defaults is kept.
+ */
+export const notificationSettings = sqliteTable('notification_settings', {
+  userId: text('user_id')
+    .primaryKey()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  settings: text('settings').notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
+});
+
+/**
+ * Email (and, later, push) waiting to go out for one notification: now, or
+ * when the person's quiet hours end. The delivery job sends what is due and
+ * marks it; `deferred` ones (over the hourly email cap) go in the next
+ * summary instead.
+ */
+export const notificationDeliveries = sqliteTable(
+  'notification_deliveries',
+  {
+    id: text('id').primaryKey(),
+    notificationId: text('notification_id')
+      .notNull()
+      .references(() => notifications.id, { onDelete: 'cascade' }),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    channel: text('channel', { enum: ['email', 'push'] }).notNull(),
+    dueAt: integer('due_at', { mode: 'timestamp_ms' }).notNull(),
+    /** 'waiting' | 'sent' | 'deferred' | 'skipped' | 'failed'. */
+    state: text('state').notNull(),
+    sentAt: integer('sent_at', { mode: 'timestamp_ms' }),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+  },
+  (t) => ({
+    dueIdx: index('notification_deliveries_due_idx').on(t.state, t.dueAt),
+    userIdx: index('notification_deliveries_user_idx').on(t.userId, t.createdAt),
+    notificationIdx: index('notification_deliveries_notification_idx').on(t.notificationId),
+  }),
+);
+
+/**
+ * Summary emails sent (0056): one row per person, kind and period
+ * ("daily 2026-11-18", "weekly 2026-W47"), written before the email goes,
+ * so a restart never sends one twice.
+ */
+export const notificationDigests = sqliteTable(
+  'notification_digests',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    kind: text('kind', { enum: ['daily', 'weekly'] }).notNull(),
+    period: text('period').notNull(),
+    /** How many notifications it listed. */
+    items: integer('items').notNull().default(0),
+    /** 'sending' | 'sent' | 'empty' | 'failed'. */
+    state: text('state').notNull(),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+  },
+  (t) => ({
+    once: uniqueIndex('notification_digests_once_idx').on(t.userId, t.kind, t.period),
+  }),
+);

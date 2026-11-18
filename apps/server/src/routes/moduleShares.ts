@@ -39,7 +39,6 @@ import {
   OPEN_MODULE_OFFERS_MAX,
   OPEN_OFFERS_PER_CLUB_MAX,
   arePartners,
-  emailClubRunners,
   isLive,
   noteToClub,
   partnersOf,
@@ -488,10 +487,5 @@ async function shareClubModule(
     body: 'If your club accepts, its members can place the module in the club’s layouts and get its updates. They can’t change its parts.',
     link: `/orgs/${org.slug}?tab=partners`,
   });
-  void emailClubRunners(org, user.id, `${from.name} wants to share “${title}” with ${org.name}`, [
-    `${from.name} wants to share its module “${title}” with ${org.name}.`,
-    'If your club accepts, its members can place the module in the club’s layouts and get its updates. They can’t change its parts.',
-    'Your club’s Admins and Managers can accept or decline it on the club’s Partners page.',
-  ]);
   return reply.code(202).send({ ok: true, status: 'offered' as const, offerId: id, ...shown });
 }

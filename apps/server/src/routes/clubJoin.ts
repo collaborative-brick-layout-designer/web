@@ -20,10 +20,10 @@
 //   POST   /api/orgs/:slug/join-requests/:id/decline   (managers and admins)
 //   GET    /api/join-requests/count          requests waiting in the clubs you run
 //
-// A new request emails the members whose roles answer requests to join
-// (invite people, or manage members and roles; and the club's Admins),
-// each once, unless they turned that off in Settings › Email
-// (access/clubNotices.ts).
+// A new request is a notification to the members whose roles answer
+// requests to join (invite people, or manage members and roles; and the
+// club's Admins), each once (access/clubNotices.ts); it emails them as
+// they chose in Settings › Notifications.
 
 import { clubLogoUrls } from './clubLogos.js';
 import { randomUUID } from 'node:crypto';
@@ -37,9 +37,7 @@ import { writeAuditEvent } from '../audit/writeAuditEvent.js';
 import { escapeLike } from '../utils/validate.js';
 import { getMembership, loadOrgBySlug } from './orgs.js';
 import { clubAccessMap } from '../access/clubPermissions.js';
-import { clubAudience, hears } from '../access/clubNotices.js';
-import { noJoinRequestEmails } from './preferences.js';
-import { sendNoticeEmail } from '../email/sendNotice.js';
+import { hears } from '../access/clubNotices.js';
 import { type ClubRole } from '../access/clubRoles.js';
 import { publicName } from '../utils/publicName.js';
 import { perPerson } from '../utils/rateLimits.js';
@@ -88,37 +86,6 @@ async function statusOf(orgId: string, userId: string) {
   const m = await getMembership(orgId, userId);
   if (m) return m.role;
   return (await myRequest(orgId, userId)) ? ('requested' as const) : null;
-}
-
-/**
- * Email the people who answer the club's requests to join that `asker`
- * asked. Best effort, after the reply: no SMTP, or a failed send, changes
- * nothing (the Clubs badge and the People tab show the request anyway).
- */
-export async function emailJoinRequest(org: Org, asker: { id: string; displayName: string | null }, message: string): Promise<void> {
-  try {
-    const audience = (await clubAudience(org.id, 'join_request')).filter((id) => id !== asker.id);
-    const off = await noJoinRequestEmails(audience);
-    const to = audience.filter((id) => !off.has(id));
-    if (to.length === 0) return;
-    const rows = await db.select({ email: schema.users.email }).from(schema.users).where(inArray(schema.users.id, to));
-    const name = publicName(asker.id, asker.displayName);
-    for (const r of rows) {
-      await sendNoticeEmail({
-        to: r.email,
-        subject: `${name} asked to join ${org.name}`,
-        paragraphs: [
-          `${name} asked to join ${org.name}.`,
-          ...(message ? [`Their note: “${message}”`] : []),
-          'You can let them in or decline on the club’s People page.',
-          'You get this email because your roles in the club answer requests to join. To stop these emails, turn off “Email me about requests to join” in Settings › Email.',
-        ],
-        link: { text: 'See the request', path: `/orgs/${org.slug}/admin?tab=people` },
-      });
-    }
-  } catch {
-    // The request itself is what counts.
-  }
 }
 
 /** The club, as one of the people who answer its requests sees it; otherwise the reply has been sent. */
@@ -258,7 +225,6 @@ export async function clubJoinRoutes(app: FastifyInstance): Promise<void> {
         .onConflictDoNothing()
         .run();
       if (made.changes > 0) {
-        void emailJoinRequest(org, user, message);
         await notifyClub(org.id, 'join_request', {
           type: 'club.join_request',
           actor: user.id,

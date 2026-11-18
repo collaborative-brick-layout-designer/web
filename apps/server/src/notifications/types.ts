@@ -16,19 +16,27 @@ export interface NotificationTypeInfo {
   label: string;
   waits: boolean;
   action?: 'accept-decline' | 'acknowledge';
+  /**
+   * Its email is sent on its own and always (Web B settings don't offer
+   * one): 'invite' (the invite or hand-over email carries its link),
+   * 'account' (the account-deletion emails, for the account's safety).
+   */
+  emailApart?: 'invite' | 'account';
+  /** It can't be turned off in the app (warnings). */
+  appLocked?: true;
 }
 
 export const NOTIFICATION_TYPES = {
   // ---- moderation (the warnings table) ----
-  'moderation.warning': { category: 'moderation', label: 'Warnings', waits: true, action: 'acknowledge' },
-  'moderation.final_warning': { category: 'moderation', label: 'Final warnings', waits: true, action: 'acknowledge' },
+  'moderation.warning': { appLocked: true, category: 'moderation', label: 'Warnings', waits: true, action: 'acknowledge' },
+  'moderation.final_warning': { appLocked: true, category: 'moderation', label: 'Final warnings', waits: true, action: 'acknowledge' },
   'moderation.note': { category: 'moderation', label: 'Notes from the site team or a club', waits: false },
 
   // ---- clubs ----
   'club.join_request': { category: 'clubs', label: 'Requests to join a club you run', waits: true, action: 'accept-decline' },
   'club.join_approved': { category: 'clubs', label: 'Your request to join was approved', waits: false },
   'club.join_declined': { category: 'clubs', label: 'Your request to join was declined', waits: false },
-  'club.invite': { category: 'clubs', label: 'Invites to join a club', waits: true, action: 'accept-decline' },
+  'club.invite': { emailApart: 'invite', category: 'clubs', label: 'Invites to join a club', waits: true, action: 'accept-decline' },
   'club.role_changed': { category: 'clubs', label: 'Your roles in a club changed', waits: false },
   'club.removed': { category: 'clubs', label: 'You were removed from a club', waits: false },
   'club.partner_request': { category: 'clubs', label: 'Partner requests', waits: true, action: 'accept-decline' },
@@ -44,10 +52,10 @@ export const NOTIFICATION_TYPES = {
   'club.restored': { category: 'clubs', label: 'A club you’re in was restored', waits: false },
 
   // ---- sharing ----
-  'sharing.layout_invite': { category: 'sharing', label: 'Invites to a layout', waits: true, action: 'accept-decline' },
-  'sharing.module_invite': { category: 'sharing', label: 'Invites to a module', waits: true, action: 'accept-decline' },
-  'sharing.part_invite': { category: 'sharing', label: 'Invites to a custom part', waits: true, action: 'accept-decline' },
-  'sharing.transfer_offered': { category: 'sharing', label: 'Layouts offered to you', waits: true, action: 'accept-decline' },
+  'sharing.layout_invite': { emailApart: 'invite', category: 'sharing', label: 'Invites to a layout', waits: true, action: 'accept-decline' },
+  'sharing.module_invite': { emailApart: 'invite', category: 'sharing', label: 'Invites to a module', waits: true, action: 'accept-decline' },
+  'sharing.part_invite': { emailApart: 'invite', category: 'sharing', label: 'Invites to a custom part', waits: true, action: 'accept-decline' },
+  'sharing.transfer_offered': { emailApart: 'invite', category: 'sharing', label: 'Layouts offered to you', waits: true, action: 'accept-decline' },
   'sharing.transfer_accepted': { category: 'sharing', label: 'Layout hand-overs accepted', waits: false },
   'sharing.transfer_declined': { category: 'sharing', label: 'Layout hand-overs declined', waits: false },
   'sharing.module_shared': { category: 'sharing', label: 'Modules shared with you or your club', waits: false },
@@ -59,8 +67,8 @@ export const NOTIFICATION_TYPES = {
 
   // ---- account ----
   'account.export_ready': { category: 'account', label: 'Your data download is ready', waits: true },
-  'account.deletion_scheduled': { category: 'account', label: 'Your account will be deleted', waits: false },
-  'account.deletion_cancelled': { category: 'account', label: 'Your account will not be deleted', waits: false },
+  'account.deletion_scheduled': { emailApart: 'account', category: 'account', label: 'Your account will be deleted', waits: false },
+  'account.deletion_cancelled': { emailApart: 'account', category: 'account', label: 'Your account will not be deleted', waits: false },
   'account.club_admin_inherited': { category: 'account', label: 'You became a club’s admin', waits: false },
   'account.restriction_placed': { category: 'account', label: 'Your account was put on hold', waits: false },
   'account.restriction_lifted': { category: 'account', label: 'Your account is no longer on hold', waits: false },
