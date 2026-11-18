@@ -35,6 +35,14 @@
 //   BLD_SYNC_SERVER=http://127.0.0.1:3000 \
 //   pnpm --filter @cld/web exec playwright test sharedModulesDesktop
 //
+// A second test does the same for a partner club's module (section 11): the
+// desktop, as Train Club's admin, sees the partner in the Share dialog's
+// answer, shares the club's module with it at once and offers it to another
+// club (which the web shows that club live, and the desktop takes back); a
+// Riverside LUG member places it from the web's Clubs tab; the desktop, as
+// another member, lists it as another club's module and finds it locked,
+// shared by Train Club, in the club's layout.
+//
 // Needs BLD_SYNC_DRIVER (path to the built driver); skipped without it.
 // BLD_SYNC_DRIVER_OLD is optional (the older-desktop part is skipped without it).
 
@@ -347,5 +355,109 @@ test('a shared module with the web and the desktop in one layout', async ({ page
     expect(await driver.say(`shared-detach ${m.id}`)).toBe('error 403 only_the_layouts_owner');
   } finally {
     await driver.close();
+  }
+});
+
+test('a partner club’s module with the web and the desktop', async ({ page, browser, request }) => {
+  test.skip(!DRIVER, 'BLD_SYNC_DRIVER (the desktop repo’s bld_sync_driver) is not set');
+  test.setTimeout(240_000);
+  const n = (Date.now() + 7) % 100000;
+  const TINA = `partner-desk-tina-${ts}@example.com`;
+  const RITA = `partner-desk-rita-${ts}@example.com`;
+  const LOU = `partner-desk-lou-${ts}@example.com`;
+  const HANK = `partner-desk-hank-${ts}@example.com`;
+  const TRAIN = `Train Club ${n}`;
+  const LUG = `Riverside LUG ${n}`;
+  const HILL = `Hill Club ${n}`;
+  const CRANE = `Partner crane ${n}`;
+  await page.setViewportSize({ width: 1300, height: 1100 });
+  await signIn(page, TINA, 'Tina');
+  const other = async (email: string, name: string) => {
+    const p = await (await browser.newContext({ viewport: { width: 1300, height: 1100 } })).newPage();
+    await signIn(p, email, name);
+    return p;
+  };
+  const rita = await other(RITA, 'Rita');
+  const lou = await other(LOU, 'Lou');
+  const hank = await other(HANK, 'Hank');
+  const train = await post(page, '/api/orgs', { name: TRAIN });
+  const lug = await post(rita, '/api/orgs', { name: LUG });
+  const hill = await post(hank, '/api/orgs', { name: HILL });
+  // Listed, so its name shows to the club offering it (a club that isn't listed shows only its address).
+  expect((await hank.request.patch(`/api/orgs/${hill.slug}`, { data: { listed: true } })).ok()).toBe(true);
+  const invite = await post(rita, `/api/orgs/${lug.slug}/invites`, { email: LOU, role: 'member' });
+  await post(lou, `/api/org-invites/${invite.token}`, {});
+  // Partners (the web's Partner clubs section does this; covered in clubPartners.spec.ts).
+  const asked = await post(page, `/api/orgs/${train.slug}/partners`, { slug: lug.slug! });
+  await post(rita, `/api/orgs/${lug.slug}/partner-requests/${asked.id}/accept`, {});
+
+  // Train Club's module, with one track.
+  await page.goto('/');
+  await page.getByRole('button', { name: 'New module' }).click();
+  const made = page.getByRole('dialog', { name: 'New module' });
+  await made.getByLabel('Title').fill(`${CRANE} draft`);
+  await made.getByRole('button', { name: 'Create and open' }).click();
+  await expect(page.locator('canvas').first()).toBeVisible({ timeout: 15000 });
+  const draft = page.url().split('/').pop()!.split('?')[0]!;
+  await placePart(page);
+  await expect.poll(() => brickCount(page)).toBe(1);
+  await saveWithNote(page, 'One track');
+  const crane = await post(page, `/api/modules/${draft}/copy`, { orgSlug: train.slug!, title: CRANE });
+
+  // The desktop, as Train Club's admin: the partner, shared at once; another club, offered.
+  const tina = new Driver(DRIVER!, await desktopToken(page, request));
+  try {
+    // A driver from before partner clubs (desktop 2.1.7 and older) doesn't know these commands.
+    const knows = !(await tina.say('club-requests')).startsWith('error unknown command');
+    test.skip(!knows, 'this BLD_SYNC_DRIVER predates partner clubs');
+    const shares = await tina.json<{ canShareWithOtherClubs: boolean; club: string; partners: string[]; offers: unknown[] }>(`club-shares ${crane.id}`);
+    expect(shares).toMatchObject({ canShareWithOtherClubs: true, club: TRAIN, partners: [LUG], offers: [] });
+    expect(await tina.json(`club-share ${crane.id} ${lug.slug}`)).toEqual({ status: 'shared', name: LUG, slug: lug.slug });
+    expect(await tina.json(`club-share ${crane.id} ${SERVER}/orgs/${hill.slug}`)).toEqual({ status: 'offered', name: HILL, slug: hill.slug });
+    // Hill Club's page shows the offer with no reload; the desktop takes it back, and it goes there too.
+    await hank.goto(`/orgs/${hill.slug}`);
+    await expect(hank.getByTestId('module-offers-in')).toContainText(`${TRAIN} wants to share “${CRANE}” with you`);
+    const hankDesk = new Driver(DRIVER!, await desktopToken(hank, request));
+    try {
+      expect(await hankDesk.json('club-requests')).toEqual([{ slug: hill.slug, name: HILL, count: 1 }]);
+    } finally {
+      await hankDesk.close();
+    }
+    const offers = (await tina.json<{ offers: { id: string; club: string; state: string }[] }>(`club-shares ${crane.id}`)).offers;
+    expect(offers).toEqual([{ id: expect.any(String), club: HILL, state: 'pending' }]);
+    expect(await tina.say(`club-offer-withdraw ${crane.id} ${offers[0]!.id}`)).toBe('ok');
+    await expect(hank.getByTestId('module-offers-in')).toHaveCount(0, { timeout: 15000 });
+    expect((await tina.json<{ clubs: { name: string; via: string }[] }>(`club-shares ${crane.id}`)).clubs).toEqual([{ name: LUG, via: 'partner' }]);
+  } finally {
+    await tina.close();
+  }
+
+  // Lou places it from the web's Clubs tab in Riverside LUG's layout.
+  const show = await post(rita, '/api/layouts', { title: `Partner plan ${n}`, orgSlug: lug.slug! });
+  await lou.goto(`/editor/${show.id}`);
+  await expect(lou.locator('canvas').first()).toBeVisible({ timeout: 15000 });
+  await openPanel(lou, 'Module library');
+  await lou.getByTestId('module-library-tab-clubs').click();
+  await expect(lou.getByTestId('module-library-from-club').first()).toHaveText(`From ${TRAIN}`);
+  await lou.getByTestId('module-library-row').filter({ hasText: CRANE }).getByRole('button', { name: 'Add to layout' }).click();
+  await expect.poll(() => brickCount(lou)).toBe(1);
+
+  // The desktop, as Rita (another member): another club's module in the library; in the layout, locked, shared by Train Club.
+  const desk = new Driver(DRIVER!, await desktopToken(rita, request));
+  try {
+    const lib = await desk.json<{ id: string; owner: { kind: string; name: string }; fromAnotherClub: boolean; clubs: string[] }[]>('library-shared');
+    expect(lib).toEqual([{ id: crane.id, title: CRANE, owner: { kind: 'org', name: TRAIN }, fromAnotherClub: true, clubs: [LUG] }]);
+    await desk.run(`open ${show.id}`);
+    await desk.run('wait-synced 20000');
+    await expect.poll(async () => (await desk.json<Shared[]>('shared')).length, { timeout: 15000 }).toBe(1);
+    const [m] = await desk.json<Shared[]>('shared');
+    expect(m).toMatchObject({ moduleId: crane.id, by: TRAIN });
+    expect(await desk.say(`module-rename ${m!.id} Our crane`)).toBe(
+      `error locked: “${CRANE}” is shared by ${TRAIN}, so its name is ${TRAIN}'s. You can move it, turn it and change its outline color.`,
+    );
+    const rows = await desk.json<{ modules: { state: string; owner: string }[] }>('shared-rows');
+    expect(rows.modules).toEqual([expect.objectContaining({ state: 'shared', owner: TRAIN })]);
+  } finally {
+    await desk.close();
   }
 });
