@@ -1,0 +1,8 @@
+# Advisories we knowingly accept for a limited time. Each entry needs a
+# reason and an expiry date; when it passes, the scan fails again so
+# someone looks at it.
+
+[[IgnoredVulns]]
+id = "GHSA-fc5q-39xc-vjpf"
+ignoreUntil = 2026-12-17T00:00:00Z
+reason = "picomatch <= 4.0.7 ReDoS, no fixed version yet. Dev and build tooling only (vite, tinyglobby, typescript-eslint); `pnpm why --prod picomatch` is empty, so nothing on the server or in the shipped site uses it, and its patterns come from our own config, not from users. Drop this once a fixed picomatch is out."
