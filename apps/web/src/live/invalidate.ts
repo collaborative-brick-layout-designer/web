@@ -47,7 +47,8 @@ const COLLECTIONS: QueryKey[] = [['catalog-collections'], ['catalog-collection']
 
 const KEYS: Record<HintKind, (h: Hint) => QueryKey[]> = {
   layout: () => [['trash'], ['layout-shared-modules'], ['admin-audit'], ['admin-deleted-layouts'], ['layouts'], ['layout'], ['collaborators'], ['audit'], ['club-summary'], ['transfer-preview'], ...ADMIN_LISTS],
-  module: () => [['trash'], ['modules'], ['modules-shared'], ['module-shares'], ['layout-shared-modules'], ['module'], ['module-versions'], ['module-collaborators'], ['catalog-copies'], ['club-summary'], ...COLLECTIONS, ...ADMIN_LISTS],
+  // A module's new version is an update waiting in the layouts that place it (their list badge).
+  module: () => [['trash'], ['modules'], ['modules-shared'], ['module-shares'], ['layout-shared-modules'], ['layouts'], ['module'], ['module-versions'], ['module-collaborators'], ['catalog-copies'], ['club-summary'], ...COLLECTIONS, ...ADMIN_LISTS],
   venue: () => [['trash'], ['venues'], ['venue'], ['venue-library'], ['club-summary']],
   'custom-part': () => [['custom-parts'], ['custom-part-collaborators'], ['set-move-plan'], ['parts-catalog'], ['catalog-copies'], ['club-summary'], ...COLLECTIONS],
   catalog: () => [

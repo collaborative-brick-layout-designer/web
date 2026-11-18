@@ -26,6 +26,8 @@ export interface MapMenuActions {
   createModule: () => void;
   saveAsSet: () => void;
   importBbm: () => void;
+  /** Updates from shared modules… (a layout on the server only). */
+  sharedModuleUpdates?: () => void;
   venueDesigner: () => void;
   venueDrawOutline: () => void;
   venueDrawObstacle: () => void;
@@ -69,6 +71,18 @@ export interface MapMenuToggles {
 
 const notInModule = (c: MapMenuContext) => c.moduleMode;
 
+/** Updates from shared modules…: a layout's setting, so not in a module's own editor. */
+function sharedUpdatesItem(a: Pick<MapMenuActions, 'sharedModuleUpdates'>): MenuEntry<MapMenuContext> {
+  const open = a.sharedModuleUpdates;
+  return {
+    kind: 'item',
+    id: 'shared-module-updates',
+    label: 'Updates from shared modules…',
+    hidden: (c) => c.moduleMode || !open,
+    onSelect: () => open?.(),
+  };
+}
+
 function check(id: string, label: string, t: Toggle): MenuEntry<MapMenuContext> {
   return { kind: 'check', id, label, checked: t.on, onToggle: t.set };
 }
@@ -110,6 +124,8 @@ export function mapMenuEntries(a: MapMenuActions, t: MapMenuToggles, mod = modKe
         { kind: 'item', id: 'make-module', label: 'Make a module…', onSelect: a.createModule },
         { kind: 'item', id: 'save-set', label: 'Save selection as set…', onSelect: a.saveAsSet },
         { kind: 'item', id: 'import-bbm', label: 'Import .bbm as module…', onSelect: a.importBbm },
+        sep,
+        sharedUpdatesItem(a),
       ],
     },
     {
@@ -180,6 +196,7 @@ export type PhoneMapActions = Pick<
   | 'insertLabel'
   | 'saveAsSet'
   | 'importBbm'
+  | 'sharedModuleUpdates'
   | 'venueDesigner'
   | 'venueDimensions'
   | 'venueProps'
@@ -228,6 +245,8 @@ export function phoneMapEntries(a: PhoneMapActions, t: PhoneMapToggles, editing:
       kind: 'submenu', id: 'modules', label: 'Modules & sets', hidden: viewing, items: [
         { kind: 'item', id: 'save-set', label: 'Save selection as set…', onSelect: a.saveAsSet },
         { kind: 'item', id: 'import-bbm', label: 'Import .bbm as module…', onSelect: a.importBbm },
+        sep,
+        sharedUpdatesItem(a),
       ],
     },
     {

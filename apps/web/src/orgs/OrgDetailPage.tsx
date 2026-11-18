@@ -158,8 +158,10 @@ function ClubThings({ org }: { org: { id: string; name: string; slug: string } }
   const modules = useQuery({ queryKey: ['modules'], queryFn: api.modules.list });
   const count = (items: readonly { ownerOrgId: string | null }[] | undefined) =>
     items ? items.filter((i) => i.ownerOrgId === org.id).length : null;
+  // The club's layouts with shared-module updates waiting (each is badged in the list).
+  const waiting = (layouts.data?.layouts ?? []).filter((l) => l.ownerOrgId === org.id && (l.sharedUpdates ?? 0) > 0).length;
   const tiles = [
-    { label: 'Layouts', n: count(layouts.data?.layouts) },
+    { label: 'Layouts', n: count(layouts.data?.layouts), more: waiting > 0 ? (waiting === 1 ? '1 has updates' : `${waiting} have updates`) : null },
     { label: 'Venues', n: count(venues.data?.venues) },
     { label: 'Modules', n: count(modules.data?.modules) },
   ];
@@ -184,6 +186,11 @@ function ClubThings({ org }: { org: { id: string; name: string; slug: string } }
             <Link to={to} className="tap-target block rounded-lg border border-line bg-soft px-3 py-2 text-center hover:border-accent">
               <span className="block text-2xl font-bold">{t.n ?? '…'}</span>
               <span className="text-xs text-muted">{t.label}</span>
+              {'more' in t && t.more && (
+                <span data-testid="club-shared-updates" className="block text-xs font-semibold text-accent-text">
+                  {t.more}
+                </span>
+              )}
             </Link>
           </li>
         ))}

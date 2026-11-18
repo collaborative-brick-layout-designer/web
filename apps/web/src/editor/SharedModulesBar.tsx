@@ -3,14 +3,16 @@
 // (Show / Update / Not now; several: Update all), and, after an update,
 // what the module is now (and what it now overlaps) with Go back and OK;
 // and a copy changed outside the app, with Put back and Make it mine.
-// Nothing updates by itself:
-// someone who can edit the layout presses Update, and the server puts the
-// version in for everyone (sharedModules.ts, api.sharedModules).
+// In an Ask first layout nothing updates by itself: someone who can edit
+// the layout presses Update, and the server puts the version in for
+// everyone (sharedModules.ts, api.sharedModules). An Automatically layout
+// gets each version from the server; opening it later says what was
+// "Updated while you were away", with Go back.
 
 import { useState } from 'react';
 import { HelpButton } from '../help/HelpButton';
 import type { SharedPlaced } from '@cld/modules';
-import { putBackLabel, reviewText, updatesText, type SharedUpdate } from './sharedModules';
+import { awayLine, awayText, putBackLabel, reviewText, updatesText, type AwayUpdate, type SharedUpdate } from './sharedModules';
 import { marksText, type SharedMarks } from './sharedMarks';
 
 interface Props {
@@ -22,6 +24,10 @@ interface Props {
   marks?: Record<string, SharedMarks>;
   /** Copies whose parts aren't their version's ("changed outside the app"). */
   drifted?: readonly SharedPlaced[];
+  /** Updated automatically since you last had the layout open. */
+  away?: readonly AwayUpdate[];
+  /** "Updated while you were away" is read. */
+  onAwayOk?: (list: readonly AwayUpdate[]) => void;
   /** You can edit the layout: Update, Go back and OK are yours to press. */
   canUpdate: boolean;
   /** You may "Make it mine" (the layout's owner; a club's admins and managers). */
@@ -46,6 +52,8 @@ export function SharedModulesBar({
   reviews,
   marks = {},
   drifted = [],
+  away = [],
+  onAwayOk,
   canUpdate,
   canDetach = false,
   busy,
@@ -64,14 +72,44 @@ export function SharedModulesBar({
   // "Not now" for a changed copy: until it is opened again.
   const [driftClosed, setDriftClosed] = useState<string[]>([]);
   const drift = drifted.find((p) => !driftClosed.includes(p.placedId));
-  if (!showUpdates && reviews.length === 0 && !drift) return null;
+  // A module the "while you were away" notice is about isn't also told as "is now version N".
+  const awayIds = new Set(away.map((a) => a.placed.placedId));
+  reviews = reviews.filter((r) => !awayIds.has(r.placedId));
+  if (!showUpdates && reviews.length === 0 && !drift && away.length === 0) return null;
   const review = reviews[0];
+  const one = away.length === 1 ? away[0]! : null;
+  const awayMarks = one ? marksText(marks[one.placed.placedId] ?? { overlaps: 0, looseEnds: 0 }) : '';
   const reviewMarks = review && reviews.length === 1 ? marksText(marks[review.placedId] ?? { overlaps: 0, looseEnds: 0 }) : '';
   return (
     <div
       className="pointer-events-none absolute inset-x-0 z-30 flex flex-col items-center gap-2 px-3"
       style={top ? { top: 'var(--touch-top, 0.5rem)' } : { bottom: 'calc(4.5rem + var(--touch-bar-h, 0px))' }}
     >
+      {away.length > 0 && (
+        <div role="status" data-testid="shared-module-away" className="pointer-events-auto flex min-w-0 max-w-xl flex-wrap items-center gap-x-3 gap-y-2 rounded-card border border-accent bg-panel px-4 py-3 text-sm text-ink shadow-lg">
+          <span className="flex min-w-0 items-start gap-1">
+            <span>
+              <span className="block font-semibold">Updated while you were away</span>
+              <span className="mt-1 block">{[awayText(away), awayMarks].filter(Boolean).join(' ')}</span>
+              {away.length > 1 && <span className="mt-1 block text-xs text-muted">{away.map(awayLine).join(', ')}</span>}
+            </span>
+            <HelpButton helpKey="module.sharedUpdatesSetting" />
+          </span>
+          <span className="flex flex-wrap gap-2">
+            <button type="button" className={BTN} onClick={() => onShow(away.map((a) => a.placed.placedId))}>
+              Show
+            </button>
+            {canUpdate && one && one.from !== null && one.from !== one.to && (
+              <button type="button" className={BTN} disabled={busy} onClick={() => onGoBack(one.placed, one.from!)}>
+                Go back to version {one.from}
+              </button>
+            )}
+            <button type="button" className={PRIMARY} disabled={busy} onClick={() => onAwayOk?.(away)}>
+              OK
+            </button>
+          </span>
+        </div>
+      )}
       {review && (
         <div role="status" data-testid="shared-module-updated" className="pointer-events-auto flex min-w-0 max-w-xl flex-wrap items-center gap-x-3 gap-y-2 rounded-card border border-accent bg-panel px-4 py-3 text-sm text-ink shadow-lg">
           <span className="min-w-0">

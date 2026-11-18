@@ -4,25 +4,50 @@
 // and OK. After an update it says what the module now overlaps
 // (sharedMarks.ts). On opening, and after each new version, it checks that
 // each copy's parts are still its version's; one that was changed outside
-// the app gets "Put back ‹owner›'s version" or "Make it mine…". Also where
-// a refused change to a shared module is told to the person (sharedLock.ts).
+// the app gets "Put back ‹owner›'s version" or "Make it mine…". On opening
+// it also asks what was updated automatically since you last had the layout
+// open ("Updated while you were away"). Also where a refused change to a
+// shared module is told to the person (sharedLock.ts).
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type * as Y from 'yjs';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { readSidecarFromDoc } from '@cld/ydoc';
 import { matchesVersion, sharedModulesIn, type SharedPlaced } from '@cld/modules';
-import { api, type PartWire } from '../api';
+import { api, type PartWire, type SharedAwayUpdate } from '../api';
 import { useEditorStore } from './editorStore';
 import { updateSidecarModule } from './mutations';
 import { lockMessage, onSharedLock, sharedModule } from './sharedLock';
-import { findSharedUpdates, makeItMine, setSharedModulesLayout, type SharedUpdate } from './sharedModules';
+import { findSharedUpdates, makeItMine, setSharedModulesLayout, type AwayUpdate, type SharedUpdate } from './sharedModules';
 import { SharedModulesBar } from './SharedModulesBar';
 import { useYjsSnapshot } from './useYjsSnapshot';
 import { projectDoc, useDocMap } from './useDocMap';
 import { sharedMarks, type SharedMarks } from './sharedMarks';
 import { batchesFromBytes, partLookup, placedParts } from './moduleLibrary';
 import { lookupPart } from './snap';
+
+/**
+ * "Updated while you were away", asked once per opening: the server notes
+ * the visit when it answers, so a second ask would say nothing. The editor
+ * mounting again right away (React's development double mount, a remount
+ * while the document loads) gets the same answer; opening the layout again
+ * later asks again.
+ */
+const awayAsked = new Map<string, { at: number; answer: Promise<SharedAwayUpdate[]> }>();
+const AWAY_REUSE_MS = 15_000;
+
+export function whileAwayOnce(layoutId: string, now = Date.now()): Promise<SharedAwayUpdate[]> {
+  const had = awayAsked.get(layoutId);
+  if (had && now - had.at < AWAY_REUSE_MS) return had.answer;
+  const answer = api.sharedModules.whileAway(layoutId).then((r) => r.updates);
+  awayAsked.set(layoutId, { at: now, answer });
+  return answer;
+}
+
+/** The away notice was answered (OK, Go back): a remount doesn't show it again. */
+function awaySeen(layoutId: string): void {
+  awayAsked.set(layoutId, { at: Date.now(), answer: Promise.resolve([]) });
+}
 
 /** The query every part of the editor reads a layout's shared modules from. */
 export const sharedModulesKey = (layoutId: string) => ['layout-shared-modules', layoutId] as const;
@@ -78,6 +103,32 @@ export function SharedModulesHost({ doc, layoutId, isViewer, onShowParts, parts,
 
   const updates = useMemo(() => findSharedUpdates(placed, rows.data?.modules ?? []), [placed, rows.data]);
   const reviews = useMemo(() => placed.filter((p) => p.review), [placed]);
+
+  // ---- Updated while you were away (asked once per opening, once the layout's copies are known) ----
+  const [awayRows, setAwayRows] = useState<SharedAwayUpdate[]>([]);
+  const hasShared = placed.length > 0;
+  useEffect(() => {
+    if (!layoutId || !hasShared) return;
+    let live = true;
+    void whileAwayOnce(layoutId)
+      .then((list) => {
+        if (live) setAwayRows(list);
+      })
+      // An older server, or no answer: nothing to say.
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [layoutId, hasShared]);
+  // Only while each copy still has the version the update left it at (Go back, or another update, ends it).
+  const away = useMemo<AwayUpdate[]>(
+    () =>
+      awayRows.flatMap((a) => {
+        const p = placed.find((x) => x.placedId === a.placedId);
+        return p && p.version === a.to ? [{ placed: p, from: a.from, to: a.to }] : [];
+      }),
+    [awayRows, placed],
+  );
   // The map's badge on each shared module says when a version is ready (render/ModuleOverlay.tsx).
   useEffect(() => {
     useEditorStore.getState().setSharedModuleUpdates(Object.fromEntries(updates.map((u) => [u.placed.placedId, u.latest])));
@@ -87,9 +138,9 @@ export function SharedModulesHost({ doc, layoutId, isViewer, onShowParts, parts,
   const marks = useMemo(() => {
     const out: Record<string, SharedMarks> = {};
     if (!map || parts.size === 0) return out;
-    for (const p of reviews) out[p.placedId] = sharedMarks(map, new Set(p.members), (n) => lookupPart(parts, n));
+    for (const p of [...reviews, ...away.map((a) => a.placed)]) out[p.placedId] = sharedMarks(map, new Set(p.members), (n) => lookupPart(parts, n));
     return out;
-  }, [map, reviews, parts]);
+  }, [map, reviews, away, parts]);
   useEffect(() => {
     useEditorStore.getState().setSharedModuleMarks(marks);
     return () => useEditorStore.getState().setSharedModuleMarks({});
@@ -195,8 +246,22 @@ export function SharedModulesHost({ doc, layoutId, isViewer, onShowParts, parts,
     });
   };
 
+  // "Updated while you were away" is read: gone for you, and (for someone who may) its "is now version N" for everyone.
+  const awayOk = (list: readonly AwayUpdate[]) => {
+    setAwayRows([]);
+    awaySeen(layoutId);
+    if (canUpdate) ok(list.map((a) => a.placed).filter((p) => p.review));
+  };
+  const awayGoBack = (p: SharedPlaced, version: number) => {
+    setAwayRows([]);
+    awaySeen(layoutId);
+    goBack(p, version);
+  };
+
   return (
     <SharedModulesBar
+      away={away}
+      onAwayOk={awayOk}
       updates={updates}
       reviews={reviews}
       marks={marks}
@@ -206,7 +271,7 @@ export function SharedModulesHost({ doc, layoutId, isViewer, onShowParts, parts,
       busy={busy}
       onShow={show}
       onUpdate={update}
-      onGoBack={goBack}
+      onGoBack={(p, v) => (away.some((a) => a.placed.placedId === p.placedId) ? awayGoBack(p, v) : goBack(p, v))}
       onOk={ok}
       onPutBack={putBack}
       onMakeItMine={mine}
