@@ -42,6 +42,8 @@ describe('keysFor', () => {
   it('every query on the site is refetched by some kind (or is listed here as never changing live)', () => {
     // One-off pages whose data doesn't change under the reader.
     const STATIC = new Set([
+      // The list of notification types only changes with a new server.
+      'notification-types',
       'public-layout', 'public-layout-snapshot', 'reset-link', 'pending-link', 'invite-preview', 'module-invite-preview', 'part-invite-preview', 'org-invite-preview',
       'admin-series', 'admin-people', 'admin-health', 'admin-content', 'admin-usage',
     ]);
@@ -71,8 +73,10 @@ describe('hintsForWrite', () => {
     expect(kindsOfWrite('POST', '/api/layouts/l1/transfer')).toEqual(['layout', 'transfer']);
     expect(kindsOfWrite('POST', '/api/transfers/tok')).toEqual(['layout', 'transfer']);
     expect(kindsOfWrite('DELETE', '/api/layouts/l1/collaborators/u1')).toEqual(['layout']);
-    expect(kindsOfWrite('POST', '/api/orgs/club/join')).toEqual(['club']);
-    expect(kindsOfWrite('POST', '/api/org-invites/tok')).toEqual(['club']);
+    expect(kindsOfWrite('POST', '/api/orgs/club/join')).toEqual(['club', 'notification']);
+    expect(kindsOfWrite('POST', '/api/org-invites/tok')).toEqual(['club', 'notification']);
+    expect(kindsOfWrite('POST', '/api/notifications/n1/read')).toEqual(['notification', 'warning']);
+    expect(kindsOfWrite('POST', '/api/notifications/n1/act')).toEqual(['notification', 'club', 'layout', 'module', 'custom-part', 'transfer']);
     expect(kindsOfWrite('POST', '/api/catalog/items/i1/add')).toEqual(['catalog', 'module', 'custom-part', 'layout', 'venue']);
     expect(kindsOfWrite('POST', '/api/moderation/versions/v1/approve')).toEqual(['catalog']);
     expect(kindsOfWrite('PUT', '/api/admin/users/u1/limits')).toEqual(['limits', 'admin']);

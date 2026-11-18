@@ -1,7 +1,8 @@
 // The header's one menu ("Menu ▾"): everything that isn't a page link, in
 // groups. On a phone the page links come first, so it's the only menu.
 //
-//   Pages           Home · Clubs · Catalog · About · Notices (phones only)
+//   Pages           Home · Clubs · Catalog · About (phones only; the
+//                   notifications bell stays in the header)
 //   Help            the tours · help buttons on/off · all help topics ·
 //                   keyboard shortcuts (not on phones)
 //   Account         Profile and name · Sign-in methods · Devices · Sign out

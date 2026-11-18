@@ -66,7 +66,7 @@ describe('the tour catalogue', () => {
     const desktopOnly = raw.tours.flatMap((t) => t.steps.filter((s) => s.apps && !s.apps.includes('web')).map((s) => s.target));
     expect(desktopOnly).toContain('servers.status');
     for (const t of TOURS) for (const s of t.steps) expect(desktopOnly, s.target).not.toContain(s.target);
-    expect(getTour('clubs')!.steps.map((s) => s.target)).toEqual(['owners.filter', 'publish.owner', 'module.shared', 'club.partners', 'clubs.page', 'clubs.join']);
+    expect(getTour('clubs')!.steps.map((s) => s.target)).toEqual(['owners.filter', 'publish.owner', 'module.shared', 'club.partners', 'notifications.bell', 'clubs.page', 'clubs.join']);
   });
 
   it('the Clubs tour has a Partner clubs stop in each app, pointing at its help ⓘ', () => {

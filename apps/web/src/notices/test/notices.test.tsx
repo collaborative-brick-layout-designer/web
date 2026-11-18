@@ -1,42 +1,48 @@
 // @vitest-environment jsdom
-// What someone who got a warning sees (a banner until "I understand", and
-// the Notices page), the form senders use, and who a club member may warn.
-// The API is a stubbed fetch.
+// What someone who got a warning sees (a banner until "I understand", per
+// person, from their notifications), the form senders use, and who a club
+// member may warn. The API is a stubbed fetch.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
-import type { WarningSummary } from '../../api';
-import { NoticeBanner, NoticesPage, WarnForm } from '../Notices';
+import type { NotificationItem } from '../../api';
+import { WarningBanner, WarnForm } from '../Notices';
 import { mayWarn, MembersSection } from '../../orgs/ClubManage';
 
-const base: WarningSummary = {
+const base: NotificationItem = {
   id: 'w1',
-  scope: 'site',
-  severity: 'warning',
-  reason: 'Please stop posting spam',
+  type: 'moderation.warning',
+  category: 'moderation',
+  title: 'Warning from the site team',
+  body: 'Please stop posting spam',
   link: '/catalog',
   createdAt: 1000,
-  acknowledgedAt: null,
-  issuedBy: null,
+  readAt: null,
+  doneAt: null,
+  outcome: null,
+  outcomeBy: null,
   club: null,
-  to: { kind: 'user', id: 'u1', name: 'Me' },
+  actor: null,
+  subject: { kind: 'warning', id: 'x1' },
+  groupKey: null,
+  actions: ['acknowledge'],
 };
 
-let notices: WarningSummary[];
+let items: NotificationItem[];
 let calls: { method: string; path: string; body?: string | undefined }[];
 
 beforeEach(() => {
   calls = [];
-  notices = [];
+  items = [];
   vi.stubGlobal('fetch', async (input: string, init?: RequestInit) => {
     calls.push({ method: init?.method ?? 'GET', path: input, body: init?.body as string | undefined });
     let body: unknown = { ok: true };
     if (input === '/api/auth/me') body = { user: { id: 'u1', email: 'me@x.com', displayName: 'Me' } };
-    if (input === '/api/notices') body = { notices };
+    if (input.startsWith('/api/notifications?')) body = { notifications: items, nextCursor: null, unread: 0, waiting: 0, warnings: items.length };
     if (input.endsWith('/acknowledge')) {
-      notices = notices.map((n) => (input.includes(n.id) ? { ...n, acknowledgedAt: 2000 } : n));
+      items = items.map((n) => (input.includes(n.id) ? { ...n, doneAt: 2000, actions: [] } : n));
       body = { ok: true, acknowledgedAt: 2000 };
     }
     return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
@@ -57,81 +63,36 @@ function show(ui: React.ReactNode, at = '/') {
   return qc;
 }
 
-describe('NoticeBanner', () => {
-  it('shows the newest unread warning until "I understand"', async () => {
-    notices = [
-      { ...base, id: 'w2', severity: 'final', reason: 'Last chance', scope: 'club', club: { id: 'o1', name: 'Train Club', slug: 'train' } },
-      base,
-    ];
-    const qc = show(<NoticeBanner />);
+describe('WarningBanner', () => {
+  it('shows the newest warning waiting for "I understand", then the next', async () => {
+    items = [{ ...base, id: 'w2', type: 'moderation.final_warning', title: 'Final warning from Train Club', body: 'Last chance' }, base];
+    const qc = show(<WarningBanner />);
     const banner = await screen.findByTestId('notice-banner');
-    expect((banner).textContent).toContain('Final warning · From Train Club');
-    expect((banner).textContent).toContain('(1 of 2)');
-    expect((banner).textContent).toContain('Last chance');
+    expect(banner.textContent).toContain('Final warning from Train Club');
+    expect(banner.textContent).toContain('(1 of 2)');
+    expect(banner.textContent).toContain('Last chance');
     fireEvent.click(screen.getByRole('button', { name: 'I understand' }));
-    await waitFor(() => expect(calls.some((c) => c.method === 'POST' && c.path === '/api/notices/w2/acknowledge')).toBe(true));
-    // The write refetches the notices (live/invalidate.ts); then the next one shows.
-    await qc.invalidateQueries({ queryKey: ['notices'] });
-    await waitFor(() => expect((screen.getByTestId('notice-banner')).textContent).toContain('Please stop posting spam'));
+    await waitFor(() => expect(calls.some((c) => c.method === 'POST' && c.path === '/api/notifications/w2/acknowledge')).toBe(true));
+    // The write refetches the notifications (live/invalidate.ts); then the next one shows.
+    await qc.invalidateQueries({ queryKey: ['notifications'] });
+    await waitFor(() => expect(screen.getByTestId('notice-banner').textContent).toContain('Please stop posting spam'));
     expect(screen.getByRole('link', { name: "See what it's about" }).getAttribute('href')).toBe('/catalog');
+    expect(screen.getByRole('link', { name: 'All notifications' }).getAttribute('href')).toBe('/notifications');
   });
 
-  it('a warning comes before any note, and only warnings count in "1 of n"', async () => {
-    notices = [{ ...base, id: 'n1', severity: 'note', reason: 'Club restored' }, base];
-    show(<NoticeBanner />);
-    const banner = await screen.findByTestId('notice-banner');
-    expect(banner.getAttribute('role')).toBe('alertdialog');
-    expect(banner.textContent).toContain('Please stop posting spam');
-    expect(banner.textContent).not.toContain('1 of');
-  });
-
-  it('notes don’t block: a card at the bottom with Dismiss, and Dismiss all for more than one', async () => {
-    notices = [
-      { ...base, id: 'n1', severity: 'note', reason: 'Your download is ready' },
-      { ...base, id: 'n2', severity: 'note', reason: 'Club restored' },
-    ];
-    show(<NoticeBanner />);
-    const card = await screen.findByTestId('notice-banner');
-    expect(card.getAttribute('role')).toBe('status');
-    expect(card.textContent).toContain('Note · From the site team (1 of 2)');
-    expect(screen.queryByRole('button', { name: 'I understand' })).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: 'Dismiss all' }));
-    await waitFor(() => expect(calls.some((c) => c.method === 'POST' && c.path === '/api/notices/acknowledge-all')).toBe(true));
-    fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }));
-    await waitFor(() => expect(calls.some((c) => c.method === 'POST' && c.path === '/api/notices/n1/acknowledge')).toBe(true));
-  });
-
-  it('shows nothing when everything was read', async () => {
-    notices = [{ ...base, acknowledgedAt: 5 }];
-    show(<NoticeBanner />);
-    await waitFor(() => expect(calls.some((c) => c.path === '/api/notices')).toBe(true));
+  it('asks only for warnings, and shows nothing once each is understood', async () => {
+    items = [{ ...base, doneAt: 5, actions: [] }];
+    show(<WarningBanner />);
+    await waitFor(() => expect(calls.some((c) => c.path.startsWith('/api/notifications?'))).toBe(true));
+    expect(calls.find((c) => c.path.startsWith('/api/notifications?'))!.path).toContain('type=moderation.warning%2Cmoderation.final_warning');
     expect(screen.queryByTestId('notice-banner')).toBeNull();
   });
 
-  it('stays off the Notices page, which lists them with their own I understand', async () => {
-    notices = [base];
-    show(<NoticeBanner />, '/notices');
-    await waitFor(() => expect(calls.some((c) => c.path === '/api/notices')).toBe(true));
+  it('stays off the Notifications page, which lists them with their own I understand', async () => {
+    items = [base];
+    show(<WarningBanner />, '/notifications');
+    await waitFor(() => expect(calls.some((c) => c.path === '/api/auth/me')).toBe(true));
     expect(screen.queryByTestId('notice-banner')).toBeNull();
-  });
-
-  it("a warning to a club says it's to your club", async () => {
-    notices = [{ ...base, to: { kind: 'org', id: 'o1', name: 'Train Club', slug: 'train' } }];
-    show(<NoticeBanner />);
-    expect((await screen.findByTestId('notice-banner')).textContent).toContain('To your club Train Club');
-  });
-});
-
-describe('NoticesPage', () => {
-  it('lists every notice, read or not', async () => {
-    notices = [base, { ...base, id: 'w0', severity: 'note', reason: 'Old note', acknowledgedAt: 3 }];
-    show(<NoticesPage />);
-    const rows = await screen.findAllByTestId('notice-row');
-    expect(rows).toHaveLength(2);
-    expect(rows[0]!.textContent).toContain('Warning · From the site team');
-    expect(rows[1]!.textContent).toContain('Note');
-    expect(rows[1]!.textContent).toContain('Read');
-    expect(screen.getAllByRole('button', { name: 'I understand' })).toHaveLength(1);
   });
 });
 
