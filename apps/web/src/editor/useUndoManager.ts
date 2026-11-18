@@ -24,6 +24,8 @@ import { LOCAL_ORIGIN } from './useLayoutDoc';
 import { useEditorStore } from './editorStore';
 import { isEditableTarget } from './keyboardGuard';
 import { brickIdsInDoc } from './mixedSelection';
+import type { PartLookup } from '@cld/modules';
+import { finishShared, sharedBefore } from './sharedSettle';
 
 export interface UndoState {
   manager: Y.UndoManager | null;
@@ -59,8 +61,13 @@ export const NOTHING_TO_REDO = 'Someone else changed that after you, so there wa
  * dropped by Yjs without changing anything and without the event the
  * buttons listen for: `after` refreshes them, and the editor says why
  * nothing happened. Returns whether the layout changed.
+ *
+ * A step that would move or remove only some of a shared module's parts
+ * (the server kept the others in an update since: doc shape 5) is finished
+ * for the whole module in the same change (sharedSettle.ts), so it never
+ * leaves the module pulled apart. `partOf` gives the parts' pivots.
  */
-export function undoAndPick(doc: Y.Doc, manager: Y.UndoManager, which: 'undo' | 'redo', after?: () => void): boolean {
+export function undoAndPick(doc: Y.Doc, manager: Y.UndoManager, which: 'undo' | 'redo', after?: () => void, partOf?: PartLookup): boolean {
   const had = which === 'undo' ? manager.canUndo() : manager.canRedo();
   const before = brickIdsInDoc(doc);
   let changed = false;
@@ -69,8 +76,7 @@ export function undoAndPick(doc: Y.Doc, manager: Y.UndoManager, which: 'undo' | 
   };
   doc.on('update', onUpdate);
   try {
-    if (which === 'undo') manager.undo();
-    else manager.redo();
+    stepWhole(doc, manager, which, partOf);
   } finally {
     doc.off('update', onUpdate);
   }
@@ -83,6 +89,36 @@ export function undoAndPick(doc: Y.Doc, manager: Y.UndoManager, which: 'undo' | 
   if (back.length > 0) useEditorStore.getState().setSelection(back);
   return changed;
 }
+
+/**
+ * Undo or redo, and finish it for any shared module it would pull apart,
+ * in one change (one update for the server): it goes on the other stack
+ * as one step, so redoing it puts all of it back.
+ */
+export function stepWhole(doc: Y.Doc, manager: Y.UndoManager, which: 'undo' | 'redo', partOf?: PartLookup): void {
+  const before = sharedBefore(doc, partOf);
+  if (before.size === 0) {
+    if (which === 'undo') manager.undo();
+    else manager.redo();
+    return;
+  }
+  try {
+    doc.transact(() => {
+      if (which === 'undo') manager.undo();
+      else manager.redo();
+      // What follows is the step's too: the manager files the whole change on the other stack.
+      if (which === 'undo') manager.undoing = true;
+      else manager.redoing = true;
+      finishShared(doc, before, partOf ?? (() => undefined));
+    }, manager);
+  } finally {
+    manager.undoing = false;
+    manager.redoing = false;
+  }
+}
+
+/** The open editor's parts' geometry, for finishing an undo that moves a shared module (set by the editor's canvas). */
+export const undoPartLookup: { current: PartLookup | undefined } = { current: undefined };
 
 export function useUndoManager(doc: Y.Doc | null): UndoState {
   const [state, setState] = useState<UndoState>({
@@ -111,8 +147,8 @@ export function useUndoManager(doc: Y.Doc | null): UndoState {
         manager,
         canUndo: manager.canUndo(),
         canRedo: manager.canRedo(),
-        undo: () => void undoAndPick(d, manager, 'undo', updateState),
-        redo: () => void undoAndPick(d, manager, 'redo', updateState),
+        undo: () => void undoAndPick(d, manager, 'undo', updateState, undoPartLookup.current),
+        redo: () => void undoAndPick(d, manager, 'redo', updateState, undoPartLookup.current),
       });
     };
 
@@ -126,10 +162,10 @@ export function useUndoManager(doc: Y.Doc | null): UndoState {
       const key = e.key.toLowerCase();
       if (key === 'z' && !e.shiftKey) {
         e.preventDefault();
-        undoAndPick(d, manager, 'undo', updateState);
+        undoAndPick(d, manager, 'undo', updateState, undoPartLookup.current);
       } else if ((key === 'z' && e.shiftKey) || key === 'y') {
         e.preventDefault();
-        undoAndPick(d, manager, 'redo', updateState);
+        undoAndPick(d, manager, 'redo', updateState, undoPartLookup.current);
       }
     }
     window.addEventListener('keydown', onKey);

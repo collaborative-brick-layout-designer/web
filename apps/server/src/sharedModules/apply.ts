@@ -21,12 +21,12 @@ import {
   detached,
   moduleBatchesFromBytes,
   placeVersion,
-  replaceModuleParts,
   resolvePlacement,
   sharedPlaced,
   sheetKey,
   withShared,
   type ModuleBatch,
+  updateModuleParts,
   type PartLookup,
   type Placement,
 } from '@cld/modules';
@@ -203,11 +203,13 @@ export async function applyVersion(
       placement = found;
     }
     const placed = placeVersion(next, placement, partOf);
-    const ids = replaceModuleParts(
+    // Only the parts that differ change; the rest keep their ids and history (doc shape 5).
+    const done = updateModuleParts(
       doc,
       placedId,
       placed,
       chooser.pick,
+      partOf,
       (m) => {
         const linked = { ...m, libraryModuleId: moduleId, libraryVersion: version };
         if (!shared) return linked;
@@ -219,8 +221,8 @@ export async function applyVersion(
       },
       SERVER_ORIGIN,
     );
-    if (!ids) return { ok: false, error: 'not_placed' };
-    return { ok: true, changed: true, version, from, parts: ids.length };
+    if (!done) return { ok: false, error: 'not_placed' };
+    return { ok: true, changed: true, version, from, parts: done.members.length };
   });
 }
 

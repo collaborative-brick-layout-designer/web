@@ -77,6 +77,7 @@ describe('shared modules, live', () => {
     const b = new Peer(port, layoutId, bob.cookie, new Y.Doc());
     await Promise.all([a.synced, b.synced]);
     expect(pns(a.doc)).toEqual(['a.1', 'b.1']);
+    const idsBefore = partsOf(a.doc).map((p) => p.id);
     // The room knows what it places as soon as someone asks.
     const before = (await app.inject({ method: 'GET', url: `/api/layouts/${layoutId}/shared-modules`, headers: { cookie: bob.cookie } })).json() as { modules: { version: number; latest: number }[] };
     expect(before.modules[0]).toMatchObject({ version: 1, latest: 1 });
@@ -91,6 +92,9 @@ describe('shared modules, live', () => {
       await expect.poll(() => pns(peer.doc)).toEqual(['a.1', 'b.1', 'c.1']);
       expect(partsOf(peer.doc).map((p) => [p.x, p.y])).toEqual([[100, 50], [104, 50], [108, 52]]);
       expect(moduleOf(peer.doc, 'placed-1')).toMatchObject({ libraryVersion: 2, shared: { review: { from: 1, to: 2 } } });
+      // The unchanged parts kept their ids (doc shape 5): only c.1 is new.
+      expect(partsOf(peer.doc).slice(0, 2).map((p) => p.id)).toEqual(idsBefore);
+      expect(peer.doc.getMap('meta').get('schemaVersion')).toBe(5);
     }
     // Then Bob moves it: allowed, and Alice sees it move.
     b.doc.transact(() => {
@@ -115,6 +119,7 @@ describe('shared modules, live', () => {
     const a = new Peer(port, layoutId, alice.cookie, new Y.Doc());
     const b = new Peer(port, layoutId, bob.cookie, new Y.Doc());
     await Promise.all([a.synced, b.synced]);
+    const idsBefore = partsOf(a.doc).map((p) => p.id);
     // The room knows what it places once someone asks (as the editor does on opening).
     await app.inject({ method: 'GET', url: `/api/layouts/${layoutId}/shared-modules`, headers: { cookie: bob.cookie } });
     await save(V2);
@@ -122,6 +127,9 @@ describe('shared modules, live', () => {
     for (const peer of [a, b]) {
       await expect.poll(() => pns(peer.doc)).toEqual(['a.1', 'b.1', 'c.1']);
       expect(moduleOf(peer.doc, 'placed-1')).toMatchObject({ libraryVersion: 2, shared: { review: { from: 1, to: 2 } } });
+      // The unchanged parts kept their ids (doc shape 5): only c.1 is new.
+      expect(partsOf(peer.doc).slice(0, 2).map((p) => p.id)).toEqual(idsBefore);
+      expect(peer.doc.getMap('meta').get('schemaVersion')).toBe(5);
     }
     const before = Date.now();
     await b.leave();

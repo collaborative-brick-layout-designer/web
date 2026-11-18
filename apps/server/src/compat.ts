@@ -53,6 +53,10 @@ export const FEATURES = [
   // shared module is locked, and the server applies its updates. A desktop offers "Shared with
   // me", and makes a shape 4 layout, only on a server that says so.
   'sharedModules',
+  // Updates of shared modules that keep the unchanged parts (doc shape 5, docs/shared-modules.md
+  // phase 3): the web app here finishes an undo for the whole module. A desktop keeps the ids in
+  // its own offline update of a live layout only on a server that says so.
+  'sharedKeepIds',
 ] as const;
 
 interface Parsed {
