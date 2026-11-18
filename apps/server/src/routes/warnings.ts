@@ -185,7 +185,7 @@ async function issue(args: {
  * their notices, to read and acknowledge; it's not a warning to anyone,
  * so no email. The caller audit-logs what happened.
  */
-export async function postClubNote(orgId: string, actorId: string, reason: string, link: string | null): Promise<string> {
+export async function postClubNote(orgId: string, actorId: string | null, reason: string, link: string | null): Promise<string> {
   const id = randomUUID();
   await db.insert(schema.warnings).values({
     id,

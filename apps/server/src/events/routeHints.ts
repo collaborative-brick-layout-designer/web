@@ -18,6 +18,7 @@ import { clubRunners, recipientsOf } from '../routes/warnings.js';
 import { verificationFor } from '../routes/auth/password.js';
 import { clubShareMemberIds } from '../access/moduleShares.js';
 import { peopleWithPlacedCopies } from '../sharedModules/placed.js';
+import { slugFrom } from '../clubPartners/slug.js';
 
 type ResourceKind = 'layout' | 'module' | 'venue' | 'custom-part';
 
@@ -195,6 +196,45 @@ const sharedModuleStep: HintSpec = {
     return [{ hint: { kind: 'layout', ...(now?.owner ? { owner: now.owner } : {}), id, action: 'shared-module-updated' } }];
   },
 };
+
+/**
+ * Partner clubs and module offers (routes/clubPartners.ts): the members of
+ * both clubs hear, so the Partners tab, the Clubs badge and the Module
+ * library's Clubs tab follow with no reload. `modules`: shares changed, so
+ * both clubs' module lists are asked again too.
+ */
+function twoClubs(first: (ctx: HintCtx) => Promise<string | null>, second: (ctx: HintCtx) => Promise<string | null>, modules = false): HintSpec {
+  return {
+    after: async (ctx) => {
+      const ids = new Set([await first(ctx), await second(ctx)].filter((x): x is string => !!x));
+      const out: Array<{ hint: Hint; reach?: Reach }> = [];
+      for (const id of ids) {
+        out.push({ hint: { kind: 'club', owner: { kind: 'org', id }, id, action: action(ctx.req) } });
+        if (modules) out.push({ hint: { kind: 'module', owner: { kind: 'org', id }, action: 'update:club-shares' } });
+      }
+      return out;
+    },
+  };
+}
+
+const replyOrg = (key: string) => async (ctx: HintCtx) => str(ctx.reply?.[key]);
+const bodyClub = async (ctx: HintCtx) => orgIdBySlug(slugFrom(ctx.body.slug ?? ctx.body.orgSlug));
+async function moduleClub(ctx: HintCtx): Promise<string | null> {
+  const id = ctx.params.id;
+  if (!id) return null;
+  const m = await db.select({ o: schema.modules.ownerOrgId }).from(schema.modules).where(eq(schema.modules.id, id)).get();
+  return m?.o ?? null;
+}
+
+/** A module shared with a club, offered to one, or the offer taken back: the module's people, and both clubs. */
+function moduleToClub(target: (ctx: HintCtx) => Promise<string | null>): HintSpec {
+  const r = resource('module');
+  const c = twoClubs(moduleClub, target, true);
+  return {
+    before: async (ctx) => r.before?.(ctx),
+    after: async (ctx) => [...(await r.after(ctx)), ...(await c.after(ctx))],
+  };
+}
 
 /** Something only the signed-in person sees (their account, settings, devices). */
 const me: HintSpec = {
@@ -517,7 +557,8 @@ export const ROUTE_HINTS: Record<string, HintSpec> = {
   'POST /api/module-invites/:token': resource('module', { reply: 'moduleId' }),
   'DELETE /api/modules/:id/collaborators/:userId': resource('module', { param: 'id' }, (c) => [c.params.userId ?? null]),
   // A club share made or stopped: the club's members see it come or go (read before, so a stopped one still reaches them).
-  'POST /api/modules/:id/club-shares': resource('module'),
+  'POST /api/modules/:id/club-shares': moduleToClub(bodyClub),
+  'DELETE /api/modules/:id/club-offers/:offerId': moduleToClub(replyOrg('toOrgId')),
   'DELETE /api/modules/:id/club-shares/:orgId': resource('module'),
   'POST /api/modules/:id/transfer': resource('module'),
   'POST /api/modules/:id/take-back': returned('module'),
@@ -669,6 +710,14 @@ export const ROUTE_HINTS: Record<string, HintSpec> = {
   'PUT /api/orgs/:slug/part-libraries/:libraryId': club(bySlug),
   'DELETE /api/orgs/:slug/part-libraries/:libraryId': club(bySlug),
   'POST /api/org-invites/:token': club(async (c) => str(c.reply?.orgId)),
+  // ---- partner clubs, and module offers a club answers
+  'POST /api/orgs/:slug/partners': twoClubs(bySlug, bodyClub),
+  'DELETE /api/orgs/:slug/partners/:orgId': twoClubs(bySlug, async (c) => c.params.orgId ?? null, true),
+  'DELETE /api/orgs/:slug/partner-requests/:id': twoClubs(bySlug, replyOrg('toOrgId')),
+  'POST /api/orgs/:slug/partner-requests/:id/accept': twoClubs(bySlug, replyOrg('fromOrgId')),
+  'POST /api/orgs/:slug/partner-requests/:id/decline': twoClubs(bySlug, replyOrg('fromOrgId')),
+  'POST /api/orgs/:slug/module-offers/:id/accept': twoClubs(bySlug, replyOrg('fromOrgId'), true),
+  'POST /api/orgs/:slug/module-offers/:id/decline': twoClubs(bySlug, replyOrg('fromOrgId')),
   'POST /api/orgs/:slug/join': club(bySlug),
   'DELETE /api/orgs/:slug/join': club(bySlug),
   'POST /api/orgs/:slug/join-requests/:id/approve': {

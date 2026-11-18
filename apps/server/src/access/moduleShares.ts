@@ -26,7 +26,7 @@ export interface ClubShare {
 }
 
 /** The clubs `moduleId` is shared with. */
-export async function clubSharesOf(moduleId: string): Promise<(ClubShare & { sharedBy: string | null; createdAt: Date })[]> {
+export async function clubSharesOf(moduleId: string): Promise<(ClubShare & { sharedBy: string | null; createdAt: Date; via: string | null })[]> {
   return db
     .select({
       orgId: schema.orgs.id,
@@ -34,6 +34,7 @@ export async function clubSharesOf(moduleId: string): Promise<(ClubShare & { sha
       slug: schema.orgs.slug,
       sharedBy: schema.moduleClubShares.sharedBy,
       createdAt: schema.moduleClubShares.createdAt,
+      via: schema.moduleClubShares.via,
     })
     .from(schema.moduleClubShares)
     .innerJoin(schema.orgs, eq(schema.orgs.id, schema.moduleClubShares.orgId))

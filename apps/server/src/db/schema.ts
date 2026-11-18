@@ -957,9 +957,19 @@ export const moduleClubShares = sqliteTable(
       .references(() => orgs.id, { onDelete: 'cascade' }),
     sharedBy: text('shared_by').references(() => users.id, { onDelete: 'set null' }),
     createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+    /**
+     * How a club's module came to another club (0052): 'partner' (shared
+     * with a partner club; ending the partnership stops it) or 'offer' (a
+     * one-off share the club accepted). Null: a person shared their own module
+     * with a club they're in (phase 1).
+     */
+    via: text('via'),
+    /** The club that shared it ('partner' and 'offer'). */
+    fromOrgId: text('from_org_id').references(() => orgs.id, { onDelete: 'set null' }),
   },
   (t) => ({
     pk: primaryKey({ columns: [t.moduleId, t.orgId] }),
+    fromOrgIdx: index('module_club_shares_from_org_idx').on(t.fromOrgId),
     orgIdx: index('module_club_shares_org_idx').on(t.orgId),
     sharedByIdx: index('module_club_shares_shared_by_idx').on(t.sharedBy),
   }),
@@ -1737,3 +1747,90 @@ export const dataFixes = sqliteTable('data_fixes', {
   appliedAt: integer('applied_at', { mode: 'timestamp_ms' }).notNull(),
   summary: text('summary'),
 });
+
+// Partner clubs (0052, docs/shared-modules.md, section 11). A club's Admins or Managers
+// ask another club to be partners; that club's Admins or Managers accept or
+// decline. A request waits as 'pending'; a declined one stays as 'declined'
+// (so it can't be sent again at once). Accepted, it becomes a
+// club_partners row and the request goes.
+export const clubPartnerRequests = sqliteTable(
+  'club_partner_requests',
+  {
+    id: text('id').primaryKey(),
+    fromOrgId: text('from_org_id')
+      .notNull()
+      .references(() => orgs.id, { onDelete: 'cascade' }),
+    toOrgId: text('to_org_id')
+      .notNull()
+      .references(() => orgs.id, { onDelete: 'cascade' }),
+    requestedBy: text('requested_by').references(() => users.id, { onDelete: 'set null' }),
+    /** 'pending' | 'declined'. */
+    state: text('state').notNull(),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+    decidedAt: integer('decided_at', { mode: 'timestamp_ms' }),
+    decidedBy: text('decided_by').references(() => users.id, { onDelete: 'set null' }),
+  },
+  (t) => ({
+    pair: uniqueIndex('club_partner_requests_pair_idx').on(t.fromOrgId, t.toOrgId),
+    toIdx: index('club_partner_requests_to_idx').on(t.toOrgId),
+    requestedByIdx: index('club_partner_requests_requested_by_idx').on(t.requestedBy),
+    decidedByIdx: index('club_partner_requests_decided_by_idx').on(t.decidedBy),
+  }),
+);
+
+// Two clubs that are partners (0052): either may share any of its modules
+// with the other, with no accept per module. One row per pair, the smaller
+// id first.
+export const clubPartners = sqliteTable(
+  'club_partners',
+  {
+    orgA: text('org_a')
+      .notNull()
+      .references(() => orgs.id, { onDelete: 'cascade' }),
+    orgB: text('org_b')
+      .notNull()
+      .references(() => orgs.id, { onDelete: 'cascade' }),
+    /** The club that asked. */
+    requestedByOrg: text('requested_by_org').notNull(),
+    acceptedBy: text('accepted_by').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.orgA, t.orgB] }),
+    orgBIdx: index('club_partners_org_b_idx').on(t.orgB),
+    acceptedByIdx: index('club_partners_accepted_by_idx').on(t.acceptedBy),
+  }),
+);
+
+// A club's module offered, one off, to a club that isn't a partner (0052).
+// The receiving club's Admins or Managers accept it (it becomes a
+// module_club_shares row with via 'offer', and the offer goes) or decline it
+// ('declined' stays, so it can't be offered again at once).
+export const moduleClubOffers = sqliteTable(
+  'module_club_offers',
+  {
+    id: text('id').primaryKey(),
+    moduleId: text('module_id')
+      .notNull()
+      .references(() => modules.id, { onDelete: 'cascade' }),
+    fromOrgId: text('from_org_id')
+      .notNull()
+      .references(() => orgs.id, { onDelete: 'cascade' }),
+    toOrgId: text('to_org_id')
+      .notNull()
+      .references(() => orgs.id, { onDelete: 'cascade' }),
+    offeredBy: text('offered_by').references(() => users.id, { onDelete: 'set null' }),
+    /** 'pending' | 'declined'. */
+    state: text('state').notNull(),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+    decidedAt: integer('decided_at', { mode: 'timestamp_ms' }),
+    decidedBy: text('decided_by').references(() => users.id, { onDelete: 'set null' }),
+  },
+  (t) => ({
+    moduleTo: uniqueIndex('module_club_offers_module_to_idx').on(t.moduleId, t.toOrgId),
+    toIdx: index('module_club_offers_to_idx').on(t.toOrgId),
+    fromIdx: index('module_club_offers_from_idx').on(t.fromOrgId),
+    offeredByIdx: index('module_club_offers_offered_by_idx').on(t.offeredBy),
+    decidedByIdx: index('module_club_offers_decided_by_idx').on(t.decidedBy),
+  }),
+);

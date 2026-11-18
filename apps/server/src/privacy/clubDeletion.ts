@@ -31,6 +31,7 @@ import { publicName } from '../utils/publicName.js';
 import { backgroundImagePath } from './exportFiles.js';
 import { removeExportsOf } from './exports.js';
 import { privacySettings } from './settings.js';
+import { clubSharingAfterErase, clubSharingBeforeErase } from '../clubPartners/partners.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -260,6 +261,8 @@ export async function eraseClub(orgId: string, actorId: string | null, how: 'sel
     members: plan?.members.length ?? (await db.select({ n: count() }).from(s.orgMembers).where(eq(s.orgMembers.orgId, org.id)).get())?.n ?? 0,
   };
   let handedOver = 0;
+  // Its partnerships end, and its one-off shares stop with it (clubPartners/partners.ts).
+  const sharing = await clubSharingBeforeErase(org.id);
   await docHub.closeMany(layouts);
   db.transaction((tx) => {
     if (heir) {
@@ -290,6 +293,7 @@ export async function eraseClub(orgId: string, actorId: string | null, how: 'sel
     }
   }
   await removeExportsOf({ kind: 'org', id: org.id });
+  await clubSharingAfterErase(sharing, org.name, actorId);
   await writeAuditEvent({ resourceKind: 'org', resourceId: org.id, userId: actorId, eventType: 'club_erased', payload: { ref, how, counts, heir } });
   void publish({ kind: 'catalog', action: 'delete:club' }, { everyone: true });
   void publish({ kind: 'admin', action: 'delete:club' }, { ownerless: true });
