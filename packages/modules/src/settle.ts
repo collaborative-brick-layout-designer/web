@@ -17,6 +17,11 @@
 //      (in the module's order), and put on the sheet the moved parts went to
 //      from theirs.
 //
+//   0. a part one of its updates took out (`shared.retired`) that the step
+//      brought back goes again: undoing a change of sheet made before the
+//      update puts the parts it took off the old sheet back there, the ones
+//      the update took out among them, as loose parts (settleRetired).
+//
 // The web (editor/useUndoManager.ts) and the desktop (sync/SyncSession.cpp,
 // edit/SharedSettle.cpp) do the same; shared vectors in
 // fixtures/contracts/shared-module-settle.json.
@@ -100,4 +105,16 @@ export function settleShared(before: SettleSide, after: SettleSide, partOf: Part
     });
   }
   return { remove: [], removeModule: false, move };
+}
+
+/**
+ * Rule 0: the parts to take away again: those the step brought back
+ * (on the map after it, not before) that a shared module's updates took
+ * out (`retired`, every shared module's together).
+ */
+export function settleRetired(retired: Iterable<string>, before: ReadonlySet<string>, after: Iterable<string>): string[] {
+  const gone = new Set(retired);
+  const out: string[] = [];
+  for (const id of after) if (gone.has(id) && !before.has(id) && !out.includes(id)) out.push(id);
+  return out;
 }

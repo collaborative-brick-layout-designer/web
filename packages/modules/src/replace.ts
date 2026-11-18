@@ -11,6 +11,7 @@ import { hasZOrder, itemsInOrder, makeId, pushOnTop, readSidecarCache, reorderBy
 import type { BatchBrick, ModuleBatch } from './batches.js';
 import type { PartLookup } from './geometry.js';
 import { planKeep, versionKey, type PlanSheet } from './keepIds.js';
+import { moreRetired, sharedPlaced, withShared } from './shared.js';
 
 /** `id` and its parents, innermost first (cycles and dangling ids stop it). */
 export function groupChain(groups: readonly Group[] | undefined, id: string | undefined): Group[] {
@@ -341,7 +342,10 @@ export function updateModuleParts(
       modules: sidecarModules(cache).map((m) => {
         if (m.id !== moduleId) return m;
         const out = typeof patch === 'function' ? patch(m) : { ...m, ...patch };
-        return { ...out, id: m.id, members };
+        // A shared module remembers the parts its updates took out (settle.ts settleRetired).
+        const shared = sharedPlaced(out as SidecarModule & { shared?: unknown });
+        const kept = shared && plan.removed.length > 0 ? withShared(out, { retired: moreRetired(shared.retired ?? [], plan.removed) }) : out;
+        return { ...kept, id: m.id, members };
       }),
     });
   }, origin);

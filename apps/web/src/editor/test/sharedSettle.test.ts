@@ -12,7 +12,7 @@ import * as Y from 'yjs';
 import type { SidecarModule } from '@cld/bbm';
 import { docToBbm, readSidecarFromDoc } from '@cld/ydoc';
 import { partsInPlace, placeVersion, readPlacement, updateModuleParts, withShared, type ModuleBatch as Batch } from '@cld/modules';
-import { ensureBrickLayer, importBricksAsModule, moveModuleBricks, placeBrick, rotateModuleBricks } from '../mutations';
+import { addLayer, ensureBrickLayer, importBricksAsModule, moveBricksToLayer, moveModuleBricks, placeBrick, rotateModuleBricks } from '../mutations';
 import { createUndoManager, stepWhole } from '../useUndoManager';
 
 const LIB = '5f0c0c0e-5d0e-4c55-9a43-1f3a2c9f7d10';
@@ -117,6 +117,33 @@ describe('undo and redo across an update that kept parts', () => {
     stepWhole(bob, um, 'redo', noPart);
     expect(mod(bob, placed.moduleId)).toBeDefined();
     expect(whole(bob, placed.moduleId, V2)).toBe(true);
+  });
+
+  it('undoing a change of sheet brings back no part the update took out, and the module is whole on its sheet', () => {
+    const { bob, um, placed, server, sync } = room();
+    const other = addLayer(bob, 'brick');
+    um.stopCapturing();
+    const bySheet = new Map<string, string[]>();
+    for (const l of docToBbm(bob).layers) if (l.type === 'brick') bySheet.set(l.id, l.bricks.filter((b) => placed.ids.includes(b.id)).map((b) => b.id));
+    moveBricksToLayer(bob, bySheet, other);
+    um.stopCapturing();
+    sync();
+    // Version 2 goes in: c.1 moved (taken out, a new one in), d.1 added.
+    serverUpdate(server, placed.moduleId, V2, 2);
+    sync();
+    const c1 = placed.ids[2]!;
+    const sheetOf = (id: string) => docToBbm(bob).layers.find((l) => l.type === 'brick' && l.bricks.some((b) => b.id === id))?.id;
+    stepWhole(bob, um, 'undo', noPart);
+    // The part version 2 took out doesn't come back as a loose part; every part of the module is on the sheet it was on.
+    expect(parts(bob).some((b) => b.id === c1)).toBe(false);
+    expect(parts(bob)).toHaveLength(4);
+    const m = mod(bob, placed.moduleId)!;
+    expect(new Set(m.members.map(sheetOf)).size).toBe(1);
+    expect(sheetOf(m.members[0]!)).not.toBe(other);
+    expect(whole(bob, placed.moduleId, V2)).toBe(true);
+    stepWhole(bob, um, 'redo', noPart);
+    expect(parts(bob)).toHaveLength(4);
+    expect(new Set(mod(bob, placed.moduleId)!.members.map(sheetOf))).toEqual(new Set([other]));
   });
 
   it('keeps his pick of the unchanged parts across the update', () => {

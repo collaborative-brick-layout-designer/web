@@ -10,7 +10,7 @@
 import * as Y from 'yjs';
 import type { RectangleF } from '@cld/model';
 import { readSidecarCache, writeSidecarCache } from '@cld/ydoc';
-import { readPlacement, settleShared, sharedModulesIn, withShared, type PartLookup, type Placement, type SettlePart, type SettleSide } from '@cld/modules';
+import { readPlacement, settleRetired, settleShared, sharedModulesIn, withShared, type PartLookup, type Placement, type SettlePart, type SettleSide } from '@cld/modules';
 import type { SidecarModule } from '@cld/bbm';
 import { followedPlacement, partPoses, type PartPose } from './sharedPlacement';
 
@@ -55,15 +55,24 @@ function settlePart(id: string, at: { map: Y.Map<unknown>; sheet: string }): Set
   };
 }
 
-/** The layout's shared modules as they are now, by placed id; empty when it has none. */
-export function sharedBefore(doc: Y.Doc, partOf?: PartLookup): Map<string, Before> {
+/** The layout's shared modules as they are before a step (by placed id), the parts their updates took out, and every part on the map. */
+export interface SharedBefore {
+  modules: Map<string, Before>;
+  retired: Set<string>;
+  alive: Set<string>;
+}
+
+/** The layout's shared modules as they are now; `modules` is empty when it has none. */
+export function sharedBefore(doc: Y.Doc, partOf?: PartLookup): SharedBefore {
   const placed = sharedModulesIn(readSidecarCache(doc));
-  const out = new Map<string, Before>();
+  const out: SharedBefore = { modules: new Map(), retired: new Set(), alive: new Set() };
   if (placed.length === 0) return out;
   const parts = partsById(doc);
+  out.alive = new Set(parts.keys());
   for (const p of placed) {
     const list = p.members.flatMap((id) => (parts.has(id) ? [settlePart(id, parts.get(id)!)] : []));
-    out.set(p.placedId, { side: { record: true, parts: list }, poses: partPoses(doc, new Set(p.members), partOf), placement: p.placement });
+    out.modules.set(p.placedId, { side: { record: true, parts: list }, poses: partPoses(doc, new Set(p.members), partOf), placement: p.placement });
+    for (const id of p.retired ?? []) out.retired.add(id);
   }
   return out;
 }
@@ -73,19 +82,33 @@ export function sharedBefore(doc: Y.Doc, partOf?: PartLookup): Map<string, Befor
  * (settleShared): call it inside the step's own transaction. Returns
  * whether it changed anything.
  */
-export function finishShared(doc: Y.Doc, before: ReadonlyMap<string, Before>, partOf: PartLookup): boolean {
+export function finishShared(doc: Y.Doc, was: SharedBefore, partOf: PartLookup): boolean {
+  const before = was.modules;
   if (before.size === 0) return false;
   const records = new Map(((readSidecarCache(doc)?.modules as SidecarModule[] | undefined) ?? []).map((m) => [m.id, m] as const));
   let parts = partsById(doc);
   let changed = false;
+  // 0. Parts an update took out that the step brought back go again.
+  const back = settleRetired(was.retired, was.alive, parts.keys());
+  if (back.length > 0) {
+    const layerData = doc.getMap('layerData');
+    for (const id of back) {
+      const at = parts.get(id)!;
+      const bricks = (layerData.get(at.sheet) as Y.Map<unknown>).get('bricks') as Y.Array<unknown>;
+      const i = bricks.toArray().indexOf(at.map);
+      if (i >= 0) bricks.delete(i, 1);
+    }
+    parts = partsById(doc);
+    changed = true;
+  }
   const dropModules = new Set<string>();
   const placements = new Map<string, NonNullable<ReturnType<typeof followedPlacement>>>();
-  for (const [placedId, was] of before) {
+  for (const [placedId, mod] of before) {
     const after: SettleSide = {
       record: records.has(placedId),
-      parts: was.side.parts.flatMap((p) => (parts.has(p.id) ? [settlePart(p.id, parts.get(p.id)!)] : [])),
+      parts: mod.side.parts.flatMap((p) => (parts.has(p.id) ? [settlePart(p.id, parts.get(p.id)!)] : [])),
     };
-    const s = settleShared(was.side, after, partOf);
+    const s = settleShared(mod.side, after, partOf);
     if (s.remove.length > 0 || s.removeModule || s.move.length > 0) changed = true;
     const layerData = doc.getMap('layerData');
     for (const id of s.remove) {
@@ -119,8 +142,8 @@ export function finishShared(doc: Y.Doc, before: ReadonlyMap<string, Before>, pa
     if (s.move.length > 0) parts = partsById(doc);
     // Its placement follows its parts (an undo can't always put the placement back: the server rewrote it since).
     const record = records.get(placedId);
-    if (!record || s.removeModule || !was.placement) continue;
-    const next = followedPlacement(was.placement, was.poses, partPoses(doc, new Set(was.side.parts.map((p) => p.id)), partOf));
+    if (!record || s.removeModule || !mod.placement) continue;
+    const next = followedPlacement(mod.placement, mod.poses, partPoses(doc, new Set(mod.side.parts.map((p) => p.id)), partOf));
     const kept = readPlacement((record as { shared?: { placement?: unknown } }).shared?.placement);
     if (next && !samePlacement(next, kept)) {
       placements.set(placedId, next);

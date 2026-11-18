@@ -21,7 +21,9 @@ import {
   planKeep,
   planSheets,
   replaceModuleParts,
+  settleRetired,
   settleShared,
+  sharedPlaced,
   updateModuleParts,
   type KeepPlan,
   type ModuleBatch,
@@ -45,6 +47,13 @@ interface KeepVector {
   next: PlanBatch[];
   expect?: ReturnType<typeof flatPlan>;
 }
+interface RetiredVector {
+  name: string;
+  retired: string[];
+  before: string[];
+  after: string[];
+  expect?: string[];
+}
 interface SettleVector {
   name: string;
   before: SettleSide;
@@ -53,7 +62,7 @@ interface SettleVector {
 }
 
 const keepFile = JSON.parse(readFileSync(KEEP_FILE, 'utf8')) as { parts: Record<string, PartGeom>; keep: KeepVector[] };
-const settleFile = JSON.parse(readFileSync(SETTLE_FILE, 'utf8')) as { parts: Record<string, PartGeom>; settle: SettleVector[] };
+const settleFile = JSON.parse(readFileSync(SETTLE_FILE, 'utf8')) as { parts: Record<string, PartGeom>; settle: SettleVector[]; retired: RetiredVector[] };
 const lookup = (parts: Record<string, PartGeom>): PartLookup => (pn) => parts[pn.toLowerCase()];
 
 /** A plan as the vectors keep it: plain objects, keys sorted. */
@@ -82,6 +91,13 @@ describe('shared vectors (fixtures/contracts/shared-module-keep.json, shared-mod
   for (const v of settleFile.settle) {
     it(`settle: ${v.name}`, () => {
       const got = round(settleShared(v.before, v.after, settleParts)) as Settled;
+      if (WRITE) v.expect = got;
+      else expect(got).toEqual(v.expect);
+    });
+  }
+  for (const v of settleFile.retired) {
+    it(`settle, retired: ${v.name}`, () => {
+      const got = settleRetired(v.retired, new Set(v.before), v.after);
       if (WRITE) v.expect = got;
       else expect(got).toEqual(v.expect);
     });
@@ -135,6 +151,22 @@ const order = (doc: Y.Doc) => itemsInOrder((doc.getMap('layerData').get('brick-1
 const moduleOf = (doc: Y.Doc) => (readSidecarCache(doc)!.modules as SidecarModule[])[0]!;
 
 describe('updateModuleParts', () => {
+  it('a shared module remembers the parts its updates took out', () => {
+    const { doc, members } = layout(4);
+    doc.transact(() => {
+      const cache = readSidecarCache(doc)!;
+      writeSidecarCache(doc, { ...cache, modules: (cache.modules as SidecarModule[]).map((m) => ({ ...m, libraryModuleId: '5f0c0c0e-5d0e-4c55-9a43-1f3a2c9f7d10', shared: { by: 'Alice' } })) });
+    });
+    updateModuleParts(doc, 'm1', version(4, (b) => (b[2]!.displayArea = A(9, 9))), () => 'brick-1', none);
+    expect(sharedPlaced(moduleOf(doc))!.retired).toEqual([members[2]]);
+    // Back as it was, with another part moved: the part version 2 put in goes too.
+    updateModuleParts(doc, 'm1', version(4, (b) => (b[3]!.displayArea = A(9, 19))), () => 'brick-1', none);
+    const retired = sharedPlaced(moduleOf(doc))!.retired!;
+    expect(retired).toHaveLength(3);
+    expect(retired[0]).toBe(members[2]);
+    expect(retired).toContain(members[3]);
+  });
+
   it('a version with nothing changed touches no part', () => {
     const { doc, members, under, over } = layout(5);
     const before = order(doc);

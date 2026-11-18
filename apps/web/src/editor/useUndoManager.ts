@@ -97,7 +97,7 @@ export function undoAndPick(doc: Y.Doc, manager: Y.UndoManager, which: 'undo' | 
  */
 export function stepWhole(doc: Y.Doc, manager: Y.UndoManager, which: 'undo' | 'redo', partOf?: PartLookup): void {
   const before = sharedBefore(doc, partOf);
-  if (before.size === 0) {
+  if (before.modules.size === 0) {
     if (which === 'undo') manager.undo();
     else manager.redo();
     return;
