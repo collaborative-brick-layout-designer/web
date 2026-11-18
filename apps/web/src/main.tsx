@@ -2,7 +2,8 @@ import { lazy, StrictMode, Suspense } from 'react';
 import { createRoot } from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { LiveUpdates } from './live/LiveUpdates';
-import { NoticeBanner, NoticesPage } from './notices/Notices';
+import { WarningBanner } from './notices/Notices';
+import { NotificationsPage } from './notifications/NotificationsPage';
 import { RefusedCopies } from './editor/RefusedCopies';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { PARTS_SECTION } from './parts/CustomPartsSection';
@@ -87,7 +88,7 @@ createRoot(root).render(
       <BrowserRouter>
         <FileOpener />
         <SiteVersionBar />
-        <NoticeBanner />
+        <WarningBanner />
         <RefusedCopies />
         <DemoBanner />
         <DemoResetNotice />
@@ -127,7 +128,9 @@ createRoot(root).render(
           <Route path="/admin" element={<AdminPage />} />
           <Route path="/about" element={<AboutPage />} />
           <Route path="/settings" element={<SettingsPage />} />
-          <Route path="/notices" element={<NoticesPage />} />
+          <Route path="/notifications" element={<NotificationsPage />} />
+          {/* The old Notices page: the same list lives in Notifications now. */}
+          <Route path="/notices" element={<Navigate to="/notifications" replace />} />
           <Route path="/privacy" element={<PrivacyPage />} />
           <Route path="/p/:token" element={<PublicLayoutPage />} />
           <Route path="*" element={<NotFoundPage />} />

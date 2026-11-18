@@ -88,7 +88,7 @@ describe('the Clubs tour for someone in no club', () => {
   it('leaves out the step about their clubs’ things', () => {
     const tour = getTour('clubs')!;
     expect(tour.steps.map((s) => s.target)).toContain('owners.filter');
-    expect(forClubless(tour, false).steps.map((s) => s.target)).toEqual(['publish.owner', 'module.shared', 'clubs.page', 'clubs.join']);
+    expect(forClubless(tour, false).steps.map((s) => s.target)).toEqual(['publish.owner', 'module.shared', 'notifications.bell', 'clubs.page', 'clubs.join']);
     expect(forClubless(tour, true)).toBe(tour);
   });
 });

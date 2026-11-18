@@ -21,6 +21,7 @@ const none: PrivacyTickResult['retention'] = {
   erasures: 0,
   requests: 0,
   pictures: 0,
+  notifications: 0,
 };
 const result = (r: Partial<PrivacyTickResult>, retention: Partial<PrivacyTickResult['retention']> = {}): PrivacyTickResult => ({
   exportsPurged: 0,

@@ -43,6 +43,7 @@ import { sendNoticeEmail } from '../email/sendNotice.js';
 import { type ClubRole } from '../access/clubRoles.js';
 import { publicName } from '../utils/publicName.js';
 import { perPerson } from '../utils/rateLimits.js';
+import { notify, notifyClub, resolve } from '../notifications/notify.js';
 
 /** The longest note someone can send with a request. */
 export const JOIN_MESSAGE_MAX = 300;
@@ -250,12 +251,24 @@ export async function clubJoinRoutes(app: FastifyInstance): Promise<void> {
           message: `You’re waiting to hear from ${OPEN_REQUESTS_MAX} clubs already. Take some requests back, or wait for an answer.`,
         });
       }
+      const requestId = randomUUID();
       const made = db
         .insert(schema.orgJoinRequests)
-        .values({ id: randomUUID(), orgId: org.id, userId: user.id, message: message || null, createdAt: new Date() })
+        .values({ id: requestId, orgId: org.id, userId: user.id, message: message || null, createdAt: new Date() })
         .onConflictDoNothing()
         .run();
-      if (made.changes > 0) void emailJoinRequest(org, user, message);
+      if (made.changes > 0) {
+        void emailJoinRequest(org, user, message);
+        await notifyClub(org.id, 'join_request', {
+          type: 'club.join_request',
+          actor: user.id,
+          subject: { kind: 'join_request', id: requestId },
+          title: `${publicName(user.id, user.displayName)} asked to join ${org.name}`,
+          body: message ? `Their note: “${message}”` : '',
+          link: `/orgs/${org.slug}/admin?tab=people`,
+          groupKey: `join:${org.id}`,
+        });
+      }
       return { status: 'requested' as const, slug: org.slug };
     },
   );
@@ -268,9 +281,11 @@ export async function clubJoinRoutes(app: FastifyInstance): Promise<void> {
       const user = requireUser(req);
       const org = await loadOrgBySlug(req.params.slug);
       if (!org) return reply.code(404).send({ error: 'not_found' });
-      await db
+      const gone = await db
         .delete(schema.orgJoinRequests)
-        .where(and(eq(schema.orgJoinRequests.orgId, org.id), eq(schema.orgJoinRequests.userId, user.id)));
+        .where(and(eq(schema.orgJoinRequests.orgId, org.id), eq(schema.orgJoinRequests.userId, user.id)))
+        .returning({ id: schema.orgJoinRequests.id });
+      for (const g of gone) await resolve({ kind: 'join_request', id: g.id }, 'withdrawn', user.id);
       return { ok: true };
     },
   );
@@ -335,11 +350,22 @@ export async function clubJoinRoutes(app: FastifyInstance): Promise<void> {
         eventType: 'join_approve',
         payload: { targetUserId: request.userId },
       });
+      await resolve({ kind: 'join_request', id: request.id }, 'accepted', user.id);
+      await notify({
+        type: 'club.join_approved',
+        to: [request.userId],
+        actor: user.id,
+        club: org.id,
+        subject: { kind: 'org', id: org.id },
+        title: `You’re in ${org.name}`,
+        body: `Your request to join ${org.name} was approved. Welcome!`,
+        link: `/orgs/${org.slug}`,
+      });
       return { ok: true };
     },
   );
 
-  // ---- decline (admins); the person isn't told ---------------------------------
+  // ---- decline (admins); the person hears the club said no, not who ---------------------------------
   app.post<{ Params: { slug: string; id: string } }>(
     '/api/orgs/:slug/join-requests/:id/decline',
     { config: { rateLimit: perPerson(60, '1 minute') } },
@@ -360,6 +386,17 @@ export async function clubJoinRoutes(app: FastifyInstance): Promise<void> {
         userId: user.id,
         eventType: 'join_decline',
         payload: { targetUserId: request.userId },
+      });
+      await resolve({ kind: 'join_request', id: request.id }, 'declined', user.id);
+      // Who declined isn't named to them: the club answered.
+      await notify({
+        type: 'club.join_declined',
+        to: [request.userId],
+        club: org.id,
+        subject: { kind: 'org', id: org.id },
+        title: `${org.name} declined your request to join`,
+        body: 'You can ask again later, or ask one of its members for an invite.',
+        link: '/orgs',
       });
       return { ok: true };
     },

@@ -21,6 +21,7 @@ import { isDemoUser } from '../demo/demoAccount.js';
 import { hasAtLeast, resolveResourceRole } from '../access/resolveResourceRole.js';
 import { sendInviteEmailCapped } from '../email/inviteEmailCap.js';
 import { writeAuditEvent } from '../audit/writeAuditEvent.js';
+import { notifyInvitee, resolve } from '../notifications/notify.js';
 import { env } from '../env.js';
 import { ownsEmail } from '../auth/users.js';
 import { isValidEmail, normalizeEmail, sameEmail } from '../utils/validate.js';
@@ -82,9 +83,11 @@ export async function moduleInviteRoutes(app: FastifyInstance): Promise<void> {
       }
 
       // A new invite to the same address replaces the one still waiting.
-      await db
+      const replaced = await db
         .delete(schema.moduleInvites)
-        .where(and(eq(schema.moduleInvites.moduleId, req.params.id), eq(schema.moduleInvites.invitedEmail, email), isNull(schema.moduleInvites.acceptedAt)));
+        .where(and(eq(schema.moduleInvites.moduleId, req.params.id), eq(schema.moduleInvites.invitedEmail, email), isNull(schema.moduleInvites.acceptedAt)))
+        .returning({ id: schema.moduleInvites.id });
+      for (const r of replaced) await resolve({ kind: 'module_invite', id: r.id }, 'withdrawn', user.id);
       const token = randomBytes(24).toString('hex');
       const id = randomUUID();
       const now = new Date();
@@ -110,6 +113,15 @@ export async function moduleInviteRoutes(app: FastifyInstance): Promise<void> {
         eventType: 'share',
         payload: { invitedEmail: email, role: inviteRole, inviteId: id },
       });
+      const mod = await db.select({ title: schema.modules.title }).from(schema.modules).where(eq(schema.modules.id, req.params.id)).get();
+      await notifyInvitee(email, {
+        type: 'sharing.module_invite',
+        actor: user.id,
+        subject: { kind: 'module_invite', id },
+        title: `${publicName(user.id, user.displayName)} invited you to the module “${mod?.title ?? 'Untitled'}”`,
+        body: inviteRole === 'editor' ? 'You could change it with them.' : 'You could place it in your layouts.',
+        link: `/modules/${req.params.id}`,
+      });
       return { id, token, inviteUrl, ...mail, expiresAt: expiresAt.getTime() };
     },
   );
@@ -123,6 +135,7 @@ export async function moduleInviteRoutes(app: FastifyInstance): Promise<void> {
     await db
       .delete(schema.moduleInvites)
       .where(and(eq(schema.moduleInvites.id, req.params.inviteId), eq(schema.moduleInvites.moduleId, req.params.id)));
+    await resolve({ kind: 'module_invite', id: req.params.inviteId }, 'withdrawn', user.id);
     return { ok: true };
   });
 
@@ -168,6 +181,7 @@ export async function moduleInviteRoutes(app: FastifyInstance): Promise<void> {
       .where(and(eq(schema.moduleInvites.id, inv.id), isNull(schema.moduleInvites.acceptedAt)))
       .returning({ id: schema.moduleInvites.id });
     if (claimed.length === 0) return reply.code(410).send({ error: 'invite_already_accepted' });
+    await resolve({ kind: 'module_invite', id: inv.id }, 'accepted', user.id);
     await db
       .insert(schema.moduleCollaborators)
       .values({ moduleId: inv.moduleId, userId: user.id, role: inv.role, addedAt: now })

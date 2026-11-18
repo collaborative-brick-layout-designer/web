@@ -24,6 +24,7 @@ export const HINT_KINDS = [
   'limits',
   'parts-library',
   'warning',
+  'notification',
 ] as const;
 export type HintKind = (typeof HINT_KINDS)[number];
 
@@ -90,7 +91,9 @@ const KEYS: Record<HintKind, (h: Hint) => QueryKey[]> = {
   settings: () => [['admin-settings'], ['catalog-settings'], ['providers'], ['admin-alerts'], ['privacy-page'], ['admin-privacy-summary']],
   limits: () => [['admin-limits'], ['admin-usage'], ['admin-abuse'], ['admin-user-detail'], ['admin-org-detail']],
   'parts-library': () => [['parts-catalog'], ['custom-parts'], ['admin-global-parts'], ['admin-part-libraries'], ['org-part-libraries']],
-  warning: () => [['notices'], ['warnings'], ['admin-user-detail'], ['admin-org-detail'], ['org-warnings']],
+  warning: () => [['notices'], ['notifications'], ['notification-count'], ['warnings'], ['admin-user-detail'], ['admin-org-detail'], ['org-warnings']],
+  // The bell's count and list, in every tab (and the old per-feature counts it sits beside).
+  notification: () => [['notifications'], ['notification-count'], ['notices'], ['join-request-count'], ['club-request-count'], ['my-org-invites']],
 };
 
 export function isHintKind(v: unknown): v is HintKind {
@@ -135,7 +138,7 @@ export function deletedId(hint: Hint): string | null {
 export function focusKeys(): QueryKey[] {
   const seen = new Set<string>();
   const out: QueryKey[] = [];
-  for (const kind of ['layout', 'module', 'venue', 'custom-part', 'club', 'catalog', 'warning'] as const) {
+  for (const kind of ['layout', 'module', 'venue', 'custom-part', 'club', 'catalog', 'warning', 'notification'] as const) {
     for (const k of keysFor({ kind })) {
       const id = JSON.stringify(k);
       if (k[0] === 'parts-catalog' || seen.has(id)) continue;
@@ -154,7 +157,10 @@ export function focusKeys(): QueryKey[] {
  */
 const WRITE_RULES: Array<[RegExp, HintKind[]]> = [
   [/^\/api\/(metrics|auth\/password\/resend-verification|auth\/device\/(code|token|lookup))\b|^\/api\/layouts\/[^/]+\/compare$/, []],
-  [/^\/api\/(warnings|notices|admin\/warnings)\b|^\/api\/orgs\/[^/]+\/warnings\b/, ['warning']],
+  [/^\/api\/(warnings|notices|admin\/warnings)\b|^\/api\/orgs\/[^/]+\/warnings\b/, ['warning', 'notification']],
+  // An answer from a notification also changes what it answered (a club, a layout…).
+  [/^\/api\/notifications\/[^/]+\/act$/, ['notification', 'club', 'layout', 'module', 'custom-part', 'transfer']],
+  [/^\/api\/notifications\b/, ['notification', 'warning']],
   [/^\/api\/(auth|tokens|me)\b/, ['me']],
   // Taking back or giving back: the thing, the club's copy, and the note to the club's runners.
   [/^\/api\/[^/]+\/[^/]+\/(take|give)-back$/, ['layout', 'module', 'venue', 'custom-part', 'warning']],
@@ -169,7 +175,7 @@ const WRITE_RULES: Array<[RegExp, HintKind[]]> = [
   // Adding or updating a catalog item puts a module or a part in your things.
   [/^\/api\/catalog\/((items|collections)\/[^/]+\/add|copies)\b/, ['catalog', 'module', 'custom-part', 'layout', 'venue']],
   [/^\/api\/(catalog|moderation)\b/, ['catalog']],
-  [/^\/api\/(orgs|org-invites)\b/, ['club']],
+  [/^\/api\/(orgs|org-invites)\b/, ['club', 'notification']],
   [/^\/api\/admin\/(users|orgs)\/[^/]+\/limits$/, ['limits', 'admin']],
   [/^\/api\/admin\/limits\b/, ['limits']],
   [/^\/api\/admin\/orgs\b/, ['admin', 'club']],

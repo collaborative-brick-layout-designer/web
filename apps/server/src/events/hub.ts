@@ -24,6 +24,7 @@ export const HINT_KINDS = [
   'limits',
   'parts-library',
   'warning',
+  'notification',
 ] as const;
 export type HintKind = (typeof HINT_KINDS)[number];
 

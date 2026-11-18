@@ -2,7 +2,8 @@
 // editor, which has its own dense per-document toolbar).
 //
 // Top-left: app title (links to Layouts home).
-// Top-right: Home / Clubs / [Catalog] / About / [Notices], then one Menu ▾:
+// Top-right: Home / Clubs / [Catalog] / About, the notifications bell
+//            (always, with the unread count), then one Menu ▾:
 //            Help (tours, help topics), Account (profile, sign-in, devices,
 //            sign out), Look, and Admin settings for admins and moderators
 //            (see SettingsMenu.tsx). On a phone the page links move into it.
@@ -16,6 +17,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, type Me } from './api';
 import { forgetNamePromptSkip } from './auth/NamePrompt';
 import { SettingsMenu } from './SettingsMenu';
+import { NotificationBell } from './notifications/NotificationBell';
 
 interface Props {
   user: Me;
@@ -24,8 +26,6 @@ interface Props {
 export function AppHeader({ user }: Props) {
   // The Catalog link shows only while a public catalog is on.
   const catalog = useQuery({ queryKey: ['catalog-settings'], queryFn: api.catalog.settings, staleTime: 60_000 });
-  // Only shown once there's something in it (a warning or a note).
-  const notices = useQuery({ queryKey: ['notices'], queryFn: api.warnings.notices });
   const qc = useQueryClient();
   const navigate = useNavigate();
   const logout = useMutation({
@@ -59,7 +59,6 @@ export function AppHeader({ user }: Props) {
   // Any of the four catalogs (a site may share only layouts or venues).
   const c = catalog.data;
   const showCatalog = !!(c?.modules || c?.parts || c?.layouts || c?.venues);
-  const hasNotices = (notices.data?.notices?.length ?? 0) > 0;
   // On a phone the page links live in the menu.
   const pages = [
     { label: 'Home', to: '/' },
@@ -72,7 +71,6 @@ export function AppHeader({ user }: Props) {
     },
     ...(showCatalog ? [{ label: 'Catalog', to: '/catalog' }] : []),
     { label: 'About', to: '/about' },
-    ...(hasNotices ? [{ label: 'Notices', to: '/notices' }] : []),
   ];
   const linkBase = 'tap-target flex items-center rounded-control px-3 py-2 font-semibold hover:bg-soft hover:text-ink';
   // The page you're on is marked (aria-current="page" from NavLink).
@@ -86,7 +84,8 @@ export function AppHeader({ user }: Props) {
       </Link>
       {/* One menu for everything that isn't a page: Help, Account, Look and
           Admin settings; on a phone the page links go in it too. */}
-      <div className="flex shrink-0 items-center sm:order-last">
+      <div className="flex shrink-0 items-center gap-2 sm:order-last">
+        <NotificationBell />
         <SettingsMenu user={user} onSignOut={() => logout.mutate()} signingOut={logout.isPending} pages={pages} />
       </div>
       <nav
@@ -116,11 +115,6 @@ export function AppHeader({ user }: Props) {
         <NavLink to="/about" className={link}>
           About
         </NavLink>
-        {(notices.data?.notices?.length ?? 0) > 0 && (
-          <NavLink to="/notices" className={link}>
-            Notices
-          </NavLink>
-        )}
       </nav>
     </header>
     {user.restricted && (

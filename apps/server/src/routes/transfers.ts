@@ -37,6 +37,7 @@ import { can } from '../access/clubPermissions.js';
 import { publicName } from '../utils/publicName.js';
 import { clearPendingLayoutShares } from '../access/pendingShares.js';
 import { notifyAccessChanged } from '../ws/liveAccess.js';
+import { nameOf, notify, notifyInvitee, resolve } from '../notifications/notify.js';
 
 interface InitiateTransferBody {
   /** Recipient kind. Exactly one of `recipientEmail` / `recipientOrgSlug` set. */
@@ -187,6 +188,14 @@ export async function transferRoutes(app: FastifyInstance): Promise<void> {
         inviterName: publicName(user.id, user.displayName),
         what: 'transfer',
       });
+      await notifyInvitee(recipientEmail, {
+        type: 'sharing.transfer_offered',
+        actor: user.id,
+        subject: { kind: 'layout_transfer', id },
+        title: `${publicName(user.id, user.displayName)} wants to give you the layout “${layout?.title ?? 'Untitled'}”`,
+        body: 'If you accept, it becomes yours, and they keep editing it with you.',
+        link: `/editor/${req.params.id}`,
+      });
 
       return reply.send({
         id,
@@ -298,6 +307,16 @@ export async function transferRoutes(app: FastifyInstance): Promise<void> {
         .set({ acceptedAt: now })
         .where(eq(schema.layoutTransfers.id, transfer.id));
       await clearPendingLayoutShares(transfer.layoutId, transfer.id);
+      await resolve({ kind: 'layout_transfer', id: transfer.id }, 'accepted', user.id);
+      await notify({
+        type: 'sharing.transfer_accepted',
+        to: [transfer.initiatedBy],
+        actor: user.id,
+        subject: { kind: 'layout', id: transfer.layoutId },
+        title: `${await nameOf(user.id)} accepted your layout “${layout.title}”`,
+        body: 'It’s theirs now. You can still edit it with them.',
+        link: `/editor/${transfer.layoutId}`,
+      });
 
       // The previous owner (initiator) loses ownership but it's polite
       // to keep them as a collaborator so they don't lose access entirely.
@@ -348,6 +367,7 @@ export async function transferRoutes(app: FastifyInstance): Promise<void> {
             eq(schema.layoutTransfers.layoutId, req.params.id),
           ),
         );
+      await resolve({ kind: 'layout_transfer', id: req.params.transferId }, 'withdrawn', user.id);
       return { ok: true };
     },
   );

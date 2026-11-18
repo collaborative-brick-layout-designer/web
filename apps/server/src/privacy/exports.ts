@@ -298,7 +298,7 @@ async function tellRequester(id: string, ok: boolean): Promise<void> {
   const what = row.reason === 'self' ? 'Your data download' : 'The data download you asked for';
   const until = row.expiresAt ? row.expiresAt.toUTCString() : '';
   const text = ok ? `${what} is ready. You can download it until ${until}.` : `${what} could not be made. ${row.error ?? ''}`.trim();
-  await postPersonalNote(row.requestedBy, text, page);
+  await postPersonalNote(row.requestedBy, text, page, { kind: { type: 'account.export_ready', title: ok ? `${what} is ready` : `${what} could not be made` } });
   void publish({ kind: 'me', owner: { kind: 'user', id: row.requestedBy }, action: 'update:export' });
   if (row.reason === 'admin') void publish({ kind: 'admin', action: 'update:export' }, { ownerless: true });
   await sendNoticeEmail({

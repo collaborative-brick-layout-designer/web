@@ -259,6 +259,11 @@ export async function collectUserData(userId: string): Promise<DataSection[]> {
     await select(s.warnings, or(eq(s.warnings.subjectUserId, userId), eq(s.warnings.issuedBy, userId), eq(s.warnings.acknowledgedBy, userId))),
   );
   add(
+    'notifications',
+    'Your notifications: what the site told you, when you read it, and how you answered.',
+    await select(s.notifications, eq(s.notifications.userId, userId)),
+  );
+  add(
     'usage-limits',
     'Limits the site admins set for you, if any, and any you set as an admin.',
     await select(s.limitOverrides, or(and(eq(s.limitOverrides.subjectKind, 'user'), eq(s.limitOverrides.subjectId, userId)), eq(s.limitOverrides.updatedBy, userId))),
@@ -337,6 +342,7 @@ export const READ_TABLES = [
   'catalog_collection_covers',
   'catalog_item_covers',
   'warnings',
+  'notifications',
   'limit_overrides',
   'usage_daily',
   'audit_events',

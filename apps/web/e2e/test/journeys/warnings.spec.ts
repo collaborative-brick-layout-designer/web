@@ -2,11 +2,12 @@
 //
 //   1. The site admin warns a member from the member's admin page. The
 //      member, with Home open, gets a banner without a reload, follows it
-//      to the Notices page and says they've read it; the admin's history
-//      shows it acknowledged, also without a reload.
-//   2. A club admin warns a member from the club's Manage page. The member
-//      sees it as from the club; the club's "Warnings sent" shows when it
-//      was read. Someone outside the club never sees it.
+//      to the Notifications page and says "I understand" there; the
+//      admin's history shows it acknowledged, also without a reload.
+//   2. A club admin sends a member a note from the club's Manage page. The
+//      member's bell shows it as from the club; reading it there is all it
+//      asks, and the club's "Warnings sent" shows when it was read. Someone
+//      outside the club never sees it.
 
 import { test, expect, type Browser, type BrowserContext, type Page } from '@playwright/test';
 import { signIn, adminSection } from '../../helpers';
@@ -52,12 +53,16 @@ test('a site warning reaches the member live, and the admin sees it read', async
     // The member's open Home shows it, no reload.
     const banner = member.page.getByTestId('notice-banner');
     await expect(banner).toBeVisible({ timeout: 10000 });
-    await expect(banner).toContainText('Warning · From the site team');
+    await expect(banner).toContainText('Warning from the site team');
     await expect(banner).toContainText('Please keep layout names friendly.');
-    await banner.getByRole('link', { name: 'All notices' }).click();
-    await expect(member.page).toHaveURL(/\/notices$/);
-    await member.page.getByTestId('notice-row').getByRole('button', { name: 'I understand' }).click();
-    await expect(member.page.getByTestId('notice-row')).toContainText('Read');
+    await banner.getByRole('link', { name: 'All notifications' }).click();
+    await expect(member.page).toHaveURL(/\/notifications$/);
+    // No banner over the page that lists it.
+    await expect(banner).toHaveCount(0);
+    const item = member.page.getByTestId('notification-item').filter({ hasText: 'Please keep layout names friendly.' });
+    await item.getByRole('button', { name: 'I understand' }).click();
+    await expect(item.getByTestId('notification-outcome')).toHaveText('You understood');
+    await member.page.goto('/');
     await expect(banner).toHaveCount(0);
 
     // The admin's open page shows it read, no reload.
@@ -94,15 +99,19 @@ test('a club warning comes from the club, and only its people see it', async ({ 
     await expect(sent).toContainText('Not acknowledged yet', { timeout: 10000 });
     await streamOpen(ann.page);
 
-    // Bob sees it live, from the club, and reads it.
-    const banner = bob.page.getByTestId('notice-banner');
-    await expect(banner).toContainText(`Note · From Warn club ${ts}`, { timeout: 10000 });
-    await banner.getByRole('button', { name: 'Dismiss', exact: true }).click();
-    await expect(banner).toHaveCount(0);
+    // Bob sees it live in his bell, from the club (a note: no banner), and reads it.
+    await expect(bob.page.getByTestId('notification-badge')).toHaveText('1', { timeout: 10000 });
+    await expect(bob.page.getByTestId('notice-banner')).toHaveCount(0);
+    await bob.page.getByTestId('notification-bell').click();
+    const note = bob.page.getByTestId('notification-panel').getByTestId('notification-item').filter({ hasText: `Note from Warn club ${ts}` });
+    await expect(note).toContainText('Please ask before moving the goods yard.');
+    await note.getByRole('button', { name: /as read/ }).click();
+    await expect(bob.page.getByTestId('notification-badge')).toHaveCount(0);
     await expect(sent).toContainText('Acknowledged', { timeout: 10000 });
 
     // Cat, outside the club, never saw anything.
     await expect(cat.page.getByTestId('notice-banner')).toHaveCount(0);
+    await expect(cat.page.getByTestId('notification-badge')).toHaveCount(0);
     expect(((await (await cat.page.request.get('/api/notices')).json()) as { notices: unknown[] }).notices).toEqual([]);
   } finally {
     await ann.ctx.close();

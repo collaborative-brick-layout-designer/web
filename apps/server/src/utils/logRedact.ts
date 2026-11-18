@@ -5,7 +5,7 @@
 // and Cookie headers were never logged (Fastify's default serializer
 // leaves headers out) and still aren't.
 
-const SECRET_SEGMENT = /(\/(?:invites|org-invites|transfers|public-layouts|verify-email)\/)[^/?#]+/g;
+const SECRET_SEGMENT = /(\/(?:invites|org-invites|module-invites|part-invites|transfers|public-layouts|verify-email|reset)\/)[^/?#]+/g;
 const SECRET_QUERY = /([?&](?:code|state|token|key)=)[^&#]*/gi;
 
 export function redactUrl(url: string): string {

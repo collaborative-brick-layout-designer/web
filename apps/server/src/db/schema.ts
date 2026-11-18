@@ -1834,3 +1834,60 @@ export const moduleClubOffers = sqliteTable(
     decidedByIdx: index('module_club_offers_decided_by_idx').on(t.decidedBy),
   }),
 );
+
+// ---------------------------------------------------------------------------
+// Notifications (docs/notifications.md): one row per person who should see
+// something. Made on the server from what that person may see, so the title
+// and body are plain text ready to show. `type` is one of the stable strings
+// in notifications/types.ts. Warnings and notes stay in `warnings` (the
+// moderation record); each also makes a row here per recipient, with
+// subject_kind 'warning', so "I understand" is per person.
+//
+//   - read_at: the person opened it or marked it read (null: unread);
+//   - done_at: a request in it was answered (by them or, in a club, by
+//     someone else: outcome_by), or a warning was acknowledged;
+//   - needs_membership: club rows (club_org_id) that only a member of the
+//     club still sees; a removed member stops seeing them;
+//   - group_key: rows with the same key collapse into one in the lists
+//     ("3 requests to join Arklug").
+// Read rows older than 180 days are cleared by the privacy clean-up;
+// unread rows and warnings are never cleared.
+// ---------------------------------------------------------------------------
+export const notifications = sqliteTable(
+  'notifications',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    type: text('type').notNull(),
+    clubOrgId: text('club_org_id').references(() => orgs.id, { onDelete: 'cascade' }),
+    needsMembership: integer('needs_membership', { mode: 'boolean' }).notNull().default(false),
+    actorUserId: text('actor_user_id').references(() => users.id, { onDelete: 'set null' }),
+    /** What it is about: 'warning', 'join_request', 'partner_request', 'module_offer', 'org_invite', 'layout_invite', 'module_invite', 'part_invite', 'layout_transfer', 'module', 'layout', 'org', 'export', 'user'. */
+    subjectKind: text('subject_kind'),
+    subjectId: text('subject_id'),
+    title: text('title').notNull(),
+    body: text('body').notNull().default(''),
+    /** A path on this site, or null. */
+    link: text('link'),
+    groupKey: text('group_key'),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+    readAt: integer('read_at', { mode: 'timestamp_ms' }),
+    doneAt: integer('done_at', { mode: 'timestamp_ms' }),
+    /** How a request was answered: 'accepted', 'declined', 'withdrawn', 'gone', 'acknowledged'. */
+    outcome: text('outcome'),
+    outcomeBy: text('outcome_by').references(() => users.id, { onDelete: 'set null' }),
+  },
+  (t) => ({
+    // The list, newest first, and the unread count.
+    listIdx: index('notifications_user_created_idx').on(t.userId, t.createdAt),
+    unreadIdx: index('notifications_user_unread_idx').on(t.userId, t.readAt),
+    subjectIdx: index('notifications_subject_idx').on(t.subjectKind, t.subjectId),
+    clubIdx: index('notifications_club_idx').on(t.clubOrgId),
+    actorIdx: index('notifications_actor_idx').on(t.actorUserId),
+    outcomeByIdx: index('notifications_outcome_by_idx').on(t.outcomeBy),
+    readIdx: index('notifications_read_idx').on(t.readAt),
+  }),
+);
+export type Notification = typeof notifications.$inferSelect;

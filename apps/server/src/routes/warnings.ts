@@ -35,6 +35,9 @@ import { sendWarningEmail } from '../email/sendWarning.js';
 import { publicName } from '../utils/publicName.js';
 import { publish } from '../events/audience.js';
 import { perPerson } from '../utils/rateLimits.js';
+import { notify } from '../notifications/notify.js';
+import { warningType, type NotificationType } from '../notifications/types.js';
+import { acknowledgeWarningFor } from './notifications.js';
 
 export const SEVERITIES = ['note', 'warning', 'final'] as const;
 export type Severity = (typeof SEVERITIES)[number];
@@ -168,6 +171,7 @@ async function issue(args: {
     eventType: args.scope === 'site' ? 'warn' : 'club_warn',
     payload: { warningId: row.id, severity: row.severity, reason: row.reason, link: row.link, ...(args.clubOrgId ? { clubOrgId: args.clubOrgId } : {}) },
   });
+  await notifyWarning(row, args.fromName);
   // Email too, when the site can send it. Never fails the warning.
   try {
     const to = await emailsOf(await recipientsOf(row));
@@ -178,6 +182,49 @@ async function issue(args: {
   return row;
 }
 
+const SEVERITY_WORDS: Record<Severity, string> = { note: 'Note', warning: 'Warning', final: 'Final warning' };
+
+/** "Warning from the site team to your club Arklug": a warning's title, as its recipients read it. */
+async function warningTitle(w: schema.Warning, fromName: string): Promise<string> {
+  let to = '';
+  if (w.subjectOrgId && w.subjectOrgId !== w.clubOrgId) {
+    const o = await db.select({ n: schema.orgs.name }).from(schema.orgs).where(eq(schema.orgs.id, w.subjectOrgId)).get();
+    if (o) to = ` to your club ${o.n}`;
+  }
+  return `${SEVERITY_WORDS[w.severity]} from ${fromName}${to}`;
+}
+
+/**
+ * One notification per person who must see the warning (or note), each
+ * with its own "I understand". Who sent it is not named (it stays with the
+ * site team and the club's runners, as on the Notifications page before).
+ */
+async function notifyWarning(w: schema.Warning, fromName: string, opts: { type?: NotificationType; title?: string } = {}): Promise<void> {
+  await notify({
+    type: w.severity === 'note' ? (opts.type ?? 'moderation.note') : warningType(w.severity),
+    to: await recipientsOf(w),
+    club: w.subjectOrgId ?? w.clubOrgId,
+    needsMembership: !!w.subjectOrgId,
+    subject: { kind: 'warning', id: w.id },
+    title: opts.title ?? (await warningTitle(w, fromName)),
+    body: w.reason,
+    link: w.link,
+    at: w.createdAt,
+  });
+}
+
+/** The name a club's notes are "from". */
+async function clubName(orgId: string | null | undefined): Promise<string | null> {
+  if (!orgId) return null;
+  return (await db.select({ n: schema.orgs.name }).from(schema.orgs).where(eq(schema.orgs.id, orgId)).get())?.n ?? null;
+}
+
+/** What a note is, for the bell: its type, and a short title (the reason is the body). */
+export interface NoteKind {
+  type: NotificationType;
+  title: string;
+}
+
 /**
  * A note to the members who look after a club's things (delete club items,
  * and its Admins) about something that happened to
@@ -185,9 +232,9 @@ async function issue(args: {
  * their notices, to read and acknowledge; it's not a warning to anyone,
  * so no email. The caller audit-logs what happened.
  */
-export async function postClubNote(orgId: string, actorId: string | null, reason: string, link: string | null): Promise<string> {
+export async function postClubNote(orgId: string, actorId: string | null, reason: string, link: string | null, kind?: NoteKind): Promise<string> {
   const id = randomUUID();
-  await db.insert(schema.warnings).values({
+  const row: schema.Warning = {
     id,
     scope: 'club',
     clubOrgId: orgId,
@@ -200,7 +247,9 @@ export async function postClubNote(orgId: string, actorId: string | null, reason
     createdAt: new Date(),
     acknowledgedAt: null,
     acknowledgedBy: null,
-  });
+  };
+  await db.insert(schema.warnings).values(row);
+  await notifyWarning(row, (await clubName(orgId)) ?? 'your club', kind ?? {});
   return id;
 }
 
@@ -215,10 +264,10 @@ export async function postPersonalNote(
   userId: string,
   reason: string,
   link: string | null,
-  opts: { clubOrgId?: string | null; issuedBy?: string | null } = {},
+  opts: { clubOrgId?: string | null; issuedBy?: string | null; kind?: NoteKind } = {},
 ): Promise<string> {
   const id = randomUUID();
-  await db.insert(schema.warnings).values({
+  const row: schema.Warning = {
     id,
     scope: opts.clubOrgId ? 'club' : 'site',
     clubOrgId: opts.clubOrgId ?? null,
@@ -231,7 +280,9 @@ export async function postPersonalNote(
     createdAt: new Date(),
     acknowledgedAt: null,
     acknowledgedBy: null,
-  });
+  };
+  await db.insert(schema.warnings).values(row);
+  await notifyWarning(row, (await clubName(opts.clubOrgId)) ?? 'the site team', opts.kind ?? {});
   void publish({ kind: 'warning', id, action: 'create' }, { ownerless: true, users: [userId] });
   return id;
 }
@@ -322,10 +373,22 @@ export async function warningRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // ---- what I received ----------------------------------------------------
+  // The desktop 2.1.8 and older read these (the same JSON as before); the
+  // web and newer apps use /api/notifications. "Read" is per person now:
+  // `acknowledgedAt` is when *you* acknowledged it (your notification row),
+  // and only for a warning from before notifications, the shared one.
   app.get('/api/notices', { config: TOKEN_NOTICES }, async (req) => {
     const user = requireUser(req);
+    const rows = await noticesFor(user.id);
+    const mine = await myAcks(user.id, rows.map((r) => r.id));
     // Who sent it stays with the site team or the club's runners.
-    return { notices: await describe(await noticesFor(user.id), false) };
+    const out = await describe(rows, false);
+    return {
+      notices: out.map((o) => {
+        const m = mine.get(o.id);
+        return m === undefined ? o : { ...o, acknowledgedAt: m };
+      }),
+    };
   });
 
   // "Dismiss all": the notes (club deleted or restored, a download ready…)
@@ -333,10 +396,13 @@ export async function warningRoutes(app: FastifyInstance): Promise<void> {
   // "I understand".
   app.post('/api/notices/acknowledge-all', { config: { ...TOKEN_NOTICES, rateLimit: perPerson(10, '1 minute') } }, async (req) => {
     const user = requireUser(req);
-    const rows = (await noticesFor(user.id)).filter((r) => r.severity === 'note' && !r.acknowledgedAt);
+    const all = await noticesFor(user.id);
+    const mine = await myAcks(user.id, all.map((r) => r.id));
+    const rows = all.filter((r) => r.severity === 'note' && (mine.has(r.id) ? mine.get(r.id) === null : !r.acknowledgedAt));
     if (rows.length === 0) return { ok: true, acknowledged: [] as string[] };
     const now = new Date();
     const ids = rows.map((r) => r.id);
+    for (const id of ids) await acknowledgeWarningFor(user.id, id, now);
     await db
       .update(schema.warnings)
       .set({ acknowledgedAt: now, acknowledgedBy: user.id })
@@ -355,8 +421,12 @@ export async function warningRoutes(app: FastifyInstance): Promise<void> {
     const user = requireUser(req);
     const row = await db.select().from(schema.warnings).where(eq(schema.warnings.id, req.params.id)).get();
     if (!row || !(await recipientsOf(row)).includes(user.id)) return reply.code(404).send({ error: 'not_found' });
-    if (row.acknowledgedAt) return { ok: true, acknowledgedAt: row.acknowledgedAt.getTime() };
+    const mine = (await myAcks(user.id, [row.id])).get(row.id);
+    if (mine) return { ok: true, acknowledgedAt: mine };
+    if (mine === undefined && row.acknowledgedAt) return { ok: true, acknowledgedAt: row.acknowledgedAt.getTime() };
     const now = new Date();
+    await acknowledgeWarningFor(user.id, row.id, now);
+    // The admin pages' history keeps the first time anyone acknowledged it.
     await db
       .update(schema.warnings)
       .set({ acknowledgedAt: now, acknowledgedBy: user.id })
@@ -370,6 +440,24 @@ export async function warningRoutes(app: FastifyInstance): Promise<void> {
     });
     return { ok: true, acknowledgedAt: now.getTime() };
   });
+}
+
+/**
+ * When `userId` acknowledged each warning, from their own notification
+ * rows: a time, or null while it waits. Warnings with no row for them
+ * (older than notifications, or acknowledged before) are left out.
+ */
+async function myAcks(userId: string, warningIds: string[]): Promise<Map<string, number | null>> {
+  const out = new Map<string, number | null>();
+  if (warningIds.length === 0) return out;
+  const n = schema.notifications;
+  const rows = await db
+    .select({ id: n.subjectId, doneAt: n.doneAt })
+    .from(n)
+    .where(and(eq(n.userId, userId), eq(n.subjectKind, 'warning'), inArray(n.subjectId, warningIds)))
+    .all();
+  for (const r of rows) if (r.id) out.set(r.id, r.doneAt ? r.doneAt.getTime() : null);
+  return out;
 }
 
 /** What I received: my own, and those to a club where my roles hear them (newest first). */

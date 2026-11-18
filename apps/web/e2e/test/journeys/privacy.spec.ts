@@ -39,8 +39,12 @@ test('a person downloads their data, deletes their account, and keeps it by sign
   expect(body).toContain('README.txt');
   expect(body).toContain(`layouts/${LAYOUT}.bld-layout`);
   // A note says it was ready.
-  await expect(page.getByTestId('notice-banner')).toContainText('is ready');
-  await page.getByTestId('notice-banner').getByRole('button', { name: 'Dismiss', exact: true }).click();
+  await expect(page.getByTestId('notification-badge')).toHaveText('1', { timeout: 15000 });
+  await page.getByTestId('notification-bell').click();
+  await expect(page.getByTestId('notification-panel').getByTestId('notification-item').first()).toContainText('is ready');
+  await page.getByTestId('notification-panel').getByRole('button', { name: 'Mark all as read' }).click();
+  await expect(page.getByTestId('notification-badge')).toHaveCount(0);
+  await page.getByTestId('notification-panel').getByRole('button', { name: 'Close notifications' }).click();
 
   // ---- Delete my account ------------------------------------------------------
   await fromSettingsMenu(page, 'Delete my account');
@@ -65,7 +69,9 @@ test('a person downloads their data, deletes their account, and keeps it by sign
   await page.getByLabel('Password').fill(PASS);
   await page.getByRole('button', { name: /^Sign in$/ }).click();
   await expect(page).not.toHaveURL(/\/login/, { timeout: 15_000 });
-  await expect(page.getByTestId('notice-banner')).toContainText('your account will not be deleted');
+  await page.getByTestId('notification-bell').click();
+  await expect(page.getByTestId('notification-panel').getByTestId('notification-item').first()).toContainText('your account will not be deleted');
+  await page.getByTestId('notification-panel').getByRole('button', { name: 'Close notifications' }).click();
   await page.goto('/');
   await expect(page.getByText(LAYOUT).first()).toBeVisible();
   const summary = await (await page.request.get('/api/me/deletion')).json();

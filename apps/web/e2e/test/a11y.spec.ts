@@ -94,7 +94,7 @@ const PAGES: PageCase[] = [
   { name: 'help', signedIn: true, path: () => '/help' },
   { name: 'about', signedIn: true, path: () => '/about' },
   { name: 'catalog', signedIn: true, path: () => '/catalog' },
-  { name: 'notices', signedIn: true, path: () => '/notices' },
+  { name: 'notifications', signedIn: true, path: () => '/notifications' },
   { name: 'admin', signedIn: true, path: () => '/admin', ready: (p) => expect(p.getByRole('heading', { name: 'Needs attention' })).toBeVisible() },
   { name: 'admin heavy use', signedIn: true, path: () => '/admin', ready: adminTab('heavy') },
   { name: 'admin users', signedIn: true, path: () => '/admin', ready: adminTab('users') },
@@ -123,6 +123,7 @@ const more = (title: string, item: string) => async (page: Page) => {
 const editor = () => `/editor/${layoutId}`;
 const DIALOGS: DialogCase[] = [
   { name: 'new layout', path: () => '/', ready: homeReady, open: (p) => p.getByRole('button', { name: 'New layout' }).click(), dialog: 'New layout', focusBack: true },
+  { name: 'notifications panel', path: () => '/', ready: homeReady, open: (p) => p.getByTestId('notification-bell').click(), dialog: 'Notifications', focusBack: true, modeless: true },
   { name: 'layout share', path: () => '/', ready: homeReady, open: more('A11y Layout', 'Share…'), dialog: 'Share A11y Layout' },
   { name: 'layout move or copy', path: () => '/', ready: homeReady, open: more('A11y Layout', 'Move or copy…'), dialog: /Move or copy/ },
   { name: 'module share', path: () => '/', ready: homeReady, open: more('A11y Module', 'Share with people…'), dialog: 'Share A11y Module' },

@@ -3,6 +3,9 @@ import { env } from '../env.js';
 import { SESSION_COOKIE, validateSession } from './session.js';
 import { hasScope, validateApiToken, type ApiScope } from './apiTokens.js';
 import type { User } from '../db/schema.js';
+import { ACT_TICKET_HEADER, redeemActTicket } from '../notifications/actTicket.js';
+import { db, schema } from '../db/index.js';
+import { eq } from 'drizzle-orm';
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -62,6 +65,19 @@ export function isPublicPartFile(req: Pick<FastifyRequest, 'method' | 'url'>): b
  */
 export async function attachUser(req: FastifyRequest, reply: FastifyReply): Promise<unknown> {
   req.apiToken = null;
+  // An answer from a notification, run in-process (notifications/actTicket.ts):
+  // the caller's own account, exactly as if they had used the club or invite page.
+  const ticket = req.headers[ACT_TICKET_HEADER];
+  if (ticket !== undefined) {
+    const userId = typeof ticket === 'string' ? redeemActTicket(ticket) : null;
+    const user = userId ? await db.select().from(schema.users).where(eq(schema.users.id, userId)).get() : undefined;
+    if (!user) {
+      req.user = null;
+      return reply.code(401).send({ error: 'unauthorized' });
+    }
+    req.user = withoutDemoPowers(user);
+    return refuseIfRestricted(req, reply);
+  }
   const bearer = bearerToken(req);
   if (bearer !== null) {
     req.user = null;
@@ -130,6 +146,8 @@ function allowedWhileRestricted(url: string): boolean {
     url.startsWith('/api/auth/') ||
     url.startsWith('/api/metrics/') ||
     url.startsWith('/api/notices/') ||
+    // Reading and acknowledging notifications; answering a request is a change.
+    (url.startsWith('/api/notifications/') && !/\/act(\?|$)/.test(url)) ||
     url.startsWith('/api/me/privacy/') ||
     url.startsWith('/api/me/deletion')
   );

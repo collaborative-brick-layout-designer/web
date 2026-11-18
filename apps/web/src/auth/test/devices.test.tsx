@@ -56,7 +56,7 @@ describe('DevicePage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
 
     expect(await screen.findByText('Allow Brick Layout Designer 2.0?')).toBeTruthy();
-    expect(screen.getByText('See your layouts and modules, the catalog and your notices')).toBeTruthy();
+    expect(screen.getByText('See your layouts and modules, the catalog and your notifications')).toBeTruthy();
     expect(screen.getByText('Edit your layouts (live sync) and save modules')).toBeTruthy();
     expect(screen.getByText('BCDF-GHJK')).toBeTruthy();
     expect(calls.find((c) => c.path === '/api/auth/device/lookup')!.body).toEqual({ user_code: 'bcdf-ghjk' });

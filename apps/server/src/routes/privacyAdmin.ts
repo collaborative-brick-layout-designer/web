@@ -314,6 +314,7 @@ export async function privacyAdminRoutes(app: FastifyInstance): Promise<void> {
         ? 'Your account is on hold (read only) while a privacy request is looked at. You can still see and download your things. Ask the site admin if you have questions.'
         : 'Your account is no longer on hold. You can change things again.',
       '/privacy',
+      { kind: restricted ? { type: 'account.restriction_placed', title: 'Your account is on hold' } : { type: 'account.restriction_lifted', title: 'Your account is no longer on hold' } },
     );
     await addEvent(r.id, admin.id, restricted ? 'restrict' : 'unrestrict', restricted ? 'Restricted the account: read only, with what it owns.' : 'Lifted the restriction.');
     await audit(admin.id, r, restricted ? 'restrict' : 'unrestrict');

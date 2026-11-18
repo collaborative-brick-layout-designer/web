@@ -1569,6 +1569,30 @@ export const api = {
       post<{ id: string }>(`/api/orgs/${encodeURIComponent(slug)}/warnings`, { userId, ...input }),
   },
 
+  // Notifications: the bell, its panel and /notifications (docs/notifications.md).
+  notifications: {
+    list: (q: NotificationQuery = {}) => {
+      const p = new URLSearchParams();
+      if (q.unread) p.set('unread', '1');
+      if (q.type) p.set('type', q.type);
+      if (q.category) p.set('category', q.category);
+      if (q.q) p.set('q', q.q);
+      if (q.cursor) p.set('cursor', q.cursor);
+      if (q.limit) p.set('limit', String(q.limit));
+      const qs = p.toString();
+      return get<NotificationPage>(`/api/notifications${qs ? `?${qs}` : ''}`);
+    },
+    count: () => get<NotificationCounts>('/api/notifications/count'),
+    types: () => get<{ categories: NotificationCategory[]; types: NotificationTypeInfo[] }>('/api/notifications/types'),
+    read: (id: string) => post<{ ok: true; readAt: number }>(`/api/notifications/${encodeURIComponent(id)}/read`, {}),
+    unread: (id: string) => post<{ ok: true; readAt: null }>(`/api/notifications/${encodeURIComponent(id)}/unread`, {}),
+    /** Every unread one, or just `ids`. */
+    readAll: (ids?: string[]) => post<{ ok: true; read: number }>('/api/notifications/read-all', ids ? { ids } : {}),
+    acknowledge: (id: string) => post<{ ok: true; acknowledgedAt: number }>(`/api/notifications/${encodeURIComponent(id)}/acknowledge`, {}),
+    act: (id: string, action: 'accept' | 'decline') =>
+      post<{ ok: true; outcome: string; already?: boolean; notification: NotificationItem | null }>(`/api/notifications/${encodeURIComponent(id)}/act`, { action }),
+  },
+
   // Per-org part library management (org admin only).
   orgLibraries: {
     list: (slug: string) =>
@@ -1924,6 +1948,60 @@ export interface WarningSummary {
   /** Club warnings: the club it's from. */
   club: { id: string; name: string; slug: string } | null;
   to: { kind: 'user'; id: string; name: string } | { kind: 'org'; id: string; name: string; slug: string };
+}
+
+export type NotificationCategory = 'moderation' | 'clubs' | 'sharing' | 'shared_modules' | 'account';
+
+/** One notification (docs/notifications.md). */
+export interface NotificationItem {
+  id: string;
+  /** A stable type string, e.g. 'club.join_request'. */
+  type: string;
+  category: NotificationCategory | null;
+  title: string;
+  body: string;
+  link: string | null;
+  createdAt: number;
+  readAt: number | null;
+  /** Answered, acknowledged, or gone. */
+  doneAt: number | null;
+  outcome: 'accepted' | 'declined' | 'withdrawn' | 'gone' | 'acknowledged' | null;
+  outcomeBy: { id: string; name: string; you: boolean } | null;
+  club: { id: string; name: string; slug: string } | null;
+  actor: { id: string; name: string } | null;
+  subject: { kind: string; id: string } | null;
+  groupKey: string | null;
+  actions: ('accept' | 'decline' | 'acknowledge')[];
+}
+
+export interface NotificationCounts {
+  unread: number;
+  /** Requests waiting for your answer. */
+  waiting: number;
+  /** Warnings waiting for "I understand". */
+  warnings: number;
+}
+
+export interface NotificationPage extends NotificationCounts {
+  notifications: NotificationItem[];
+  nextCursor: string | null;
+}
+
+export interface NotificationQuery {
+  unread?: boolean;
+  type?: string;
+  category?: NotificationCategory;
+  q?: string;
+  cursor?: string;
+  limit?: number;
+}
+
+export interface NotificationTypeInfo {
+  type: string;
+  category: NotificationCategory;
+  label: string;
+  waits: boolean;
+  action: 'accept-decline' | 'acknowledge' | null;
 }
 
 export interface WarningInput {

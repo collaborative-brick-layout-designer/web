@@ -223,11 +223,15 @@ describe('GET /api/events', () => {
     const sc = await stream({ cookie: outsider.cookie });
     const res = await app.inject({ method: 'DELETE', url: `/api/orgs/${slug}/members/${b.id}`, headers: { cookie: a.cookie } });
     expect(res.statusCode).toBeLessThan(300);
-    await until(() => sb.hints().length > 0);
-    expect(sb.hints()[0]).toMatchObject({ kind: 'club', owner: { kind: 'org', id: orgId } });
+    // The club drops off their screens, and a notification says they were removed.
+    await until(() => sb.hints().some((h) => h.kind === 'club'));
+    expect(sb.hints().find((h) => h.kind === 'club')).toMatchObject({ kind: 'club', owner: { kind: 'org', id: orgId } });
+    await settle();
+    const before = sb.hints().length;
+    expect(sb.hints().filter((h) => h.kind !== 'club' && h.kind !== 'notification')).toEqual([]);
     await app.inject({ method: 'POST', url: '/api/modules', headers: { cookie: a.cookie }, payload: { title: 'After', orgSlug: slug } });
     await settle();
-    expect(sb.hints()).toHaveLength(1);
+    expect(sb.hints()).toHaveLength(before);
     expect(sc.hints()).toEqual([]);
   });
 

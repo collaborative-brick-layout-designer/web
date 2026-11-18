@@ -18,6 +18,7 @@ import { ownsEmail } from '../auth/users.js';
 import { sameEmail } from '../utils/validate.js';
 import { layoutInviteStillValid } from '../access/pendingShares.js';
 import { maskEmail } from '../utils/maskEmail.js';
+import { resolve } from '../notifications/notify.js';
 
 export async function inviteRoutes(app: FastifyInstance): Promise<void> {
   // ---- preview -------------------------------------------------------------
@@ -110,6 +111,7 @@ export async function inviteRoutes(app: FastifyInstance): Promise<void> {
         .update(schema.layoutInvites)
         .set({ acceptedAt: now })
         .where(eq(schema.layoutInvites.id, invite.id));
+      await resolve({ kind: 'layout_invite', id: invite.id }, 'accepted', user.id);
 
       await writeAuditEvent({
         layoutId: invite.layoutId,

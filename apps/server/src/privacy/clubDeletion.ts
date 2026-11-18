@@ -158,7 +158,7 @@ export async function requestClubDeletion(
       m.userId,
       `${by} deleted the club ${org.name} on ${day(now)}. It's hidden now, and will be gone for good on ${day(dueAt)}. Until then, any of the club's admins, or a site admin, can restore it with everything in it (Clubs › Being deleted).`,
       '/orgs#being-deleted',
-      { clubOrgId: org.id, issuedBy: actor.id },
+      { clubOrgId: org.id, issuedBy: actor.id, kind: { type: 'club.deleted', title: `${by} deleted the club ${org.name}` } },
     );
   }
   await writeAuditEvent({
@@ -221,6 +221,7 @@ export async function restoreClub(org: Org, actor: { id: string; displayName: st
     await postPersonalNote(m.userId, `${by} restored the club ${org.name}. It's back, with everything in it.`, `/orgs/${org.slug}`, {
       clubOrgId: org.id,
       issuedBy: actor.id,
+      kind: { type: 'club.restored', title: `${org.name} is back` },
     });
   }
   await writeAuditEvent({ resourceKind: 'org', resourceId: org.id, userId: actor.id, eventType: 'club_restore', payload: { name: org.name, members: back.length } });
