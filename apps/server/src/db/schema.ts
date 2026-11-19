@@ -345,6 +345,12 @@ export const platformSettings = sqliteTable('platform_settings', {
    * out use the built-in default; a SIGN_IN_* env var forces one.
    */
   signIn: text('sign_in'),
+  /**
+   * Admin › Model import (0058): a JSON object { enabled, limits: { key: number } }
+   * (imports/settings.ts). Keys left out use the built-in default;
+   * IMPORTS_ENABLED forces the switch.
+   */
+  imports: text('imports'),
   updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
   updatedBy: text('updated_by').references(() => users.id, { onDelete: 'set null' }),
 });

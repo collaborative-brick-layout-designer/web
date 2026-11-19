@@ -505,6 +505,12 @@ when they fall behind.
 | `VAPID_PUBLIC_KEY` | unset (the server makes a key pair and keeps it) | — | With `VAPID_PRIVATE_KEY`, the Web Push key pair to use instead of the one the server makes (for several servers serving one site). Both or neither. Never share the private key. |
 | `VAPID_PRIVATE_KEY` | unset | — | The private half of `VAPID_PUBLIC_KEY`. Kept out of logs and pages. |
 | `VAPID_SUBJECT` | unset (`PUBLIC_URL`) | — | The contact push services may use about this site's notifications: a `mailto:` address or an `https:` page. |
+| `IMPORTS_ENABLED` | unset (the switch decides; on) | Admin › Model import | When set, forces importing LDraw, Studio and LDD files on or off for the whole site. |
+| `IMPORT_CONVERTER` | `/opt/bld-import-server/bin/bld-import-server` | — | The desktop app’s converter that imports LDraw, Studio and LDD files (in the Docker image already). Missing or too old: import is off, and Admin › Model import says why. |
+| `IMPORT_LDRAW_DIR` | unset (Admin › Model import downloads it) | Admin › Model import | An LDraw library folder (with `LDConfig.ldr` and `parts/`) to use instead of the one the server downloads. Read only. |
+| `IMPORT_LDD_ASSETS` | unset (an admin uploads it) | Admin › Model import | LEGO Digital Designer’s `Assets.lif` (or `db.lif`, or the folder holding it) to use instead of an uploaded one. Read only; never served or backed up. |
+| `IMPORT_LDD_LDRAW_XML` | unset (an admin uploads it) | Admin › Model import | A newer LDD to LDraw mapping (`ldraw.xml`) than LDD’s own. Read only. |
+| `IMPORT_STUDIO_LDRAW_DIR` | unset (optional) | Admin › Model import | BrickLink Studio’s own LDraw library folder, for Studio-only parts. Read only. |
 | `DAILY_COMPACTION_ENABLED` | unset (the switch decides; on) | Admin › Site settings › Background jobs | When set, forces the daily compaction of layout histories on or off. |
 | `COLLECTION_COVER_MAX_BYTES` | unset (5 MB) | Admin › Site settings › Public catalogs | When set, forces the largest collection and catalog cover picture, in bytes (at most 7 MB). |
 | `LIMITS_ENFORCE` | unset (the switch decides; on) | Admin › Site settings › Usage limits | `on` or `off` forces whether usage limits are enforced. Read-only accounts and clubs stay read-only either way. |

@@ -7,6 +7,7 @@ import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
 import fastifyStatic from '@fastify/static';
 import fastifyMultipart from '@fastify/multipart';
+import { clearJobsAtStart } from './imports/jobs.js';
 import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
 import { db, sqlite } from './db/index.js';
 import { env, trustProxyWarning } from './env.js';
@@ -64,6 +65,8 @@ async function main() {
   // Data downloads that were building when the server stopped can be asked for again.
   await failInterruptedExports();
   await syncLibrariesFromDisk(env.partsDir, console);
+  // Import jobs a crash or restart cut short leave no files behind (imports/jobs.ts).
+  await clearJobsAtStart();
 
   // 10MB body limit — large `.bbm` imports (XML payload) routinely exceed
   // the default 1MB. Real desktop layouts run ~500KB; cap at 10MB to give

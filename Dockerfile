@@ -59,6 +59,15 @@ RUN pnpm --filter @cld/model        build \
 # Produce a pruned prod-only node_modules with native addons already compiled.
 RUN pnpm --filter @cld/server deploy --prod --legacy /app/server-deploy
 
+# ---- import converter --------------------------------------------------------
+# The desktop's bld-import-server (desktop docs/import-server.md), the
+# release compat/compat.json › importServer.pinned names, checked by its
+# SHA-256. Unpinned: an empty folder, and the site says import is off.
+FROM ${NODE_IMAGE} AS converter
+COPY compat/compat.json /tmp/compat.json
+COPY docker/fetch-import-server.mjs /tmp/fetch-import-server.mjs
+RUN node /tmp/fetch-import-server.mjs /tmp/compat.json /opt/bld-import-server
+
 # ---- runtime ---------------------------------------------------------------
 FROM ${NODE_IMAGE} AS runtime
 WORKDIR /app
@@ -71,9 +80,12 @@ ENV APP_VERSION=${APP_VERSION}
 ENV NODE_ENV=production
 ENV LEFTHOOK=0
 
-# Pick up Debian's security fixes (e.g. tzdata) on top of the base image.
+# Pick up Debian's security fixes (e.g. tzdata) on top of the base image. The
+# lib* packages are what the import converter needs beside its own Qt
+# (desktop scripts/ci/import-server-image-deps.txt).
 RUN apt-get update && apt-get upgrade -y \
     && apt-get install -y --no-install-recommends tini ca-certificates \
+       libgl1 libegl1 libfontconfig1 libfreetype6 libglib2.0-0 libdbus-1-3 libxkbcommon0 \
     && rm -rf /var/lib/apt/lists/*
 # The runtime only runs `node`: drop the npm / corepack the base image ships,
 # whose bundled dependencies (undici, ip-address, ...) the image scan flags.
@@ -95,6 +107,10 @@ COPY --from=builder /app/packages/modules/dist      ./packages/modules/dist
 COPY --from=builder /app/packages/bbm/tests/fixtures/tight-corner.bbm \
                     /app/packages/bbm/tests/fixtures/grand-lobby.bld-venue ./packages/bbm/tests/fixtures/
 COPY --from=builder /app/packages/bbm/tests/fixtures/oracle/flex-a.bbm ./packages/bbm/tests/fixtures/oracle/
+
+# Model import: the converter runs as this same unprivileged user, in its own
+# sandbox (docs/model-import.md); its libraries and jobs live under /data.
+COPY --from=converter /opt/bld-import-server /opt/bld-import-server
 
 # Run as the base image's unprivileged `node` user (uid 1000, gid 1000), not
 # root. The folders it writes to belong to it, so a new named volume starts

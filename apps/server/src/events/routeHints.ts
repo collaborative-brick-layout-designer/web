@@ -801,6 +801,17 @@ export const ROUTE_HINTS: Record<string, HintSpec> = {
   'DELETE /api/admin/part-libraries/:id': everyone('parts-library'),
   'POST /api/admin/reload-parts': everyone('parts-library'),
   'PATCH /api/admin/settings': everyone('settings'),
+  // Admin › Model import: what everyone can import changes.
+  'PATCH /api/admin/imports': everyone('settings'),
+  'POST /api/admin/imports/ldraw/download': everyone('settings'),
+  'DELETE /api/admin/imports/ldraw': everyone('settings'),
+  'POST /api/admin/imports/ldd/assets': everyone('settings'),
+  'DELETE /api/admin/imports/ldd/assets': everyone('settings'),
+  'POST /api/admin/imports/ldd/mapping': everyone('settings'),
+  'POST /api/admin/imports/ldd/mapping/community': everyone('settings'),
+  'DELETE /api/admin/imports/ldd/mapping': everyone('settings'),
+  'POST /api/admin/imports/studio': everyone('settings'),
+  'DELETE /api/admin/imports/studio': everyone('settings'),
   'PATCH /api/admin/limits': adminOnly('limits'),
   'PUT /api/admin/users/:id/limits': adminOnly('limits', param('id')),
   'PUT /api/admin/orgs/:id/limits': {
@@ -833,6 +844,9 @@ export const NO_HINT: Record<string, string> = {
   'POST /api/layouts/:id/compare': 'a read (compares two copies)',
   'POST /api/layouts/:id/shared-modules/away': 'a read: notes only when the caller had the layout open',
   'POST /api/metrics/client': 'anonymous client timing beacon',
+  'POST /api/imports': 'starts an import job; the job sends the hints for what it makes (imports/apply.ts)',
+  'POST /api/imports/:id/convert': 'queues the import; the job sends the hints for the part and layout it makes (imports/apply.ts)',
+  'DELETE /api/imports/:id': 'cancels your own import job: nothing anyone else sees',
   'POST /api/notifications/unsubscribe': 'no sign-in (a mail app); the route sends the account its own notification hint',
 };
 

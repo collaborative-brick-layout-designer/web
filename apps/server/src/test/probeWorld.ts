@@ -199,6 +199,7 @@ export function concreteUrl(pattern: string, w: ProbeWorld, override?: string): 
       ['/api/notifications/', i.notification!],
       ['/api/push/subscriptions/', i.pushSub!],
       ['/api/trash/', 'no-such-trash'],
+      ['/api/imports/', 'no-such-import'],
       ['/api/privacy/exports/', i.dataExport!],
       ['/api/orgs/olive-club/join-requests/', i.joinRequest!],
       ['/api/orgs/olive-club/partner-requests/', i.partnerRequest!],

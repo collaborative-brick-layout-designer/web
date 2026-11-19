@@ -101,6 +101,19 @@ export const env = {
   // by default); this env var, when set, forces it (images/covers.ts).
   collectionCoverMaxBytesForced: forcedInt(process.env.COLLECTION_COVER_MAX_BYTES),
 
+  // Importing LDraw, Studio and LDD files (imports/, docs/model-import.md):
+  // Admin › Model import switches it (on by default); IMPORTS_ENABLED, when
+  // set, forces it. The converter is the desktop's bld-import-server, in the
+  // image at /opt/bld-import-server; IMPORT_CONVERTER points elsewhere. The
+  // libraries are set up in Admin › Model import and kept under the data
+  // folder; each IMPORT_* path, when set, is used instead (read-only).
+  importsEnabledForced: forcedBool(process.env.IMPORTS_ENABLED),
+  importConverter: process.env.IMPORT_CONVERTER?.trim() || '/opt/bld-import-server/bin/bld-import-server',
+  importLdrawDir: process.env.IMPORT_LDRAW_DIR?.trim() || null,
+  importLddAssets: process.env.IMPORT_LDD_ASSETS?.trim() || null,
+  importLddLdrawXml: process.env.IMPORT_LDD_LDRAW_XML?.trim() || null,
+  importStudioLdrawDir: process.env.IMPORT_STUDIO_LDRAW_DIR?.trim() || null,
+
   // The key that saved secrets (the mail password) are encrypted with, used
   // instead of the key file beside the database (secrets/secretBox.ts).
   secretKey: process.env.CBLD_SECRET_KEY ?? '',

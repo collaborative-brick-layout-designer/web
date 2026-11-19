@@ -33,7 +33,7 @@ import { isImageOfType, MAX_SPRITE_SIDE, pngSize } from '../images/sniff.js';
 import { forgetSetShares, revokeSetParts, setPartsFor, setsBringing } from '../access/setShares.js';
 import { partIdsThroughModules } from '../access/moduleShares.js';
 
-interface CreatePartBody {
+export interface CreatePartBody {
   partNumber: string;
   displayName: string;
   /** Base64-encoded XML payload. Bodies stay in JSON for simplicity. */
@@ -51,6 +51,98 @@ interface CreatePartBody {
 // 4MB cap on a sprite + XML (combined) — generous for legitimate parts,
 // still bounded so a malicious user can't bloat the database.
 const MAX_PART_BLOB_BYTES = 4 * 1024 * 1024;
+
+/**
+ * A new custom part for `user` (or the club `body.orgSlug` names): the
+ * checks and writes of POST /api/custom-parts, shared with the website's
+ * model import (imports/apply.ts).
+ */
+export async function createCustomPart(
+  user: ReturnType<typeof requireUser>,
+  body: CreatePartBody,
+): Promise<{ status: number; body: Record<string, unknown> }> {
+  const out = (status: number, payload: Record<string, unknown>) => ({ status, body: payload });
+  if (isDemoUser(user)) return out(403, { error: 'demo_account_cannot_upload_parts' });
+
+  const parsed = parsePartBody(body);
+  if ('error' in parsed) return out(parsed.status, { error: parsed.error });
+  const { partNumber, displayName, xmlBlob, spriteBlob, spriteMime } = parsed;
+  if (parsed.namesItself) return out(400, { error: 'set_named_like_its_part' });
+
+  let ownerUserId: string | null = user.id;
+  let ownerOrgId: string | null = null;
+  if (body.orgSlug) {
+    const org = await db
+      .select({ id: schema.orgs.id })
+      .from(schema.orgs)
+      .where(eq(schema.orgs.slug, body.orgSlug.toLowerCase()))
+      .get();
+    if (!org) return out(404, { error: 'org_not_found' });
+    const membership = await clubAccess(user.id, org.id);
+    if (!membership) return out(403, { error: 'not_an_org_member' });
+    if (!membership.permissions.has('add_parts')) return out(403, { error: 'only_club_admins_can_add', permission: 'add_parts' });
+    ownerUserId = null;
+    ownerOrgId = org.id;
+  }
+
+  // Reject duplicate `partNumber` for the same owner. (No DB unique
+  // constraint because owner is split across two columns; we check
+  // explicitly here.)
+  const dupQuery = ownerOrgId
+    ? db
+        .select()
+        .from(schema.customParts)
+        .where(
+          and(
+            eq(schema.customParts.ownerOrgId, ownerOrgId),
+            eq(schema.customParts.partNumber, partNumber),
+          ),
+        )
+    : db
+        .select()
+        .from(schema.customParts)
+        .where(
+          and(
+            eq(schema.customParts.ownerUserId, user.id),
+            eq(schema.customParts.partNumber, partNumber),
+          ),
+        );
+  const dup = await dupQuery.get();
+  if (dup) return out(409, { error: 'part_number_taken' });
+
+  const owner: Subject = ownerOrgId ? { kind: 'org', id: ownerOrgId } : { kind: 'user', id: user.id };
+  const partBytes = xmlBlob.length + spriteBlob.length;
+  const refusal = await checkGrowth({ actor: user, owner, add: { customParts: 1, bytes: partBytes }, uploadBytes: partBytes });
+  if (refusal) return out(refusal.status, refusal.body as Record<string, unknown>);
+  recordUpload(user.id, owner, partBytes);
+
+  const id = randomUUID();
+  const now = new Date();
+  // Sets go in "My sets" whichever app made them (the website names it; a desktop may not).
+  const category = trimmed(body.category) || (spriteMime === '' ? 'My sets' : 'Custom');
+  await db.insert(schema.customParts).values({
+    id,
+    partNumber,
+    displayName,
+    category,
+    ownerUserId,
+    ownerOrgId,
+    createdBy: user.id,
+    xmlBlob,
+    spriteBlob,
+    spriteMime,
+    createdAt: now,
+    updatedAt: now,
+  });
+  await writeAuditEvent({
+    resourceKind: 'custom_part',
+    resourceId: id,
+    userId: user.id,
+    eventType: 'create',
+    payload: { partNumber, displayName, owner: ownerOrgId ? { kind: 'org', id: ownerOrgId } : { kind: 'user', id: user.id } },
+  });
+  return out(201, { id, partNumber, displayName });
+}
 
 export async function customPartRoutes(app: FastifyInstance): Promise<void> {
   // ---- list parts the user can see ---------------------------------------
@@ -191,87 +283,8 @@ export async function customPartRoutes(app: FastifyInstance): Promise<void> {
   // ---- create -------------------------------------------------------------
   app.post<{ Body: CreatePartBody }>('/api/custom-parts', { config: { apiToken: 'parts:write' } }, async (req, reply) => {
     const user = requireUser(req);
-    if (isDemoUser(user)) return reply.code(403).send({ error: 'demo_account_cannot_upload_parts' });
-    const body = req.body ?? ({} as CreatePartBody);
-
-    const parsed = parsePartBody(body);
-    if ('error' in parsed) return reply.code(parsed.status).send({ error: parsed.error });
-    const { partNumber, displayName, xmlBlob, spriteBlob, spriteMime } = parsed;
-    if (parsed.namesItself) return reply.code(400).send({ error: 'set_named_like_its_part' });
-
-    let ownerUserId: string | null = user.id;
-    let ownerOrgId: string | null = null;
-    if (body.orgSlug) {
-      const org = await db
-        .select({ id: schema.orgs.id })
-        .from(schema.orgs)
-        .where(eq(schema.orgs.slug, body.orgSlug.toLowerCase()))
-        .get();
-      if (!org) return reply.code(404).send({ error: 'org_not_found' });
-      const membership = await clubAccess(user.id, org.id);
-      if (!membership) return reply.code(403).send({ error: 'not_an_org_member' });
-      if (!membership.permissions.has('add_parts')) return reply.code(403).send({ error: 'only_club_admins_can_add', permission: 'add_parts' });
-      ownerUserId = null;
-      ownerOrgId = org.id;
-    }
-
-    // Reject duplicate `partNumber` for the same owner. (No DB unique
-    // constraint because owner is split across two columns; we check
-    // explicitly here.)
-    const dupQuery = ownerOrgId
-      ? db
-          .select()
-          .from(schema.customParts)
-          .where(
-            and(
-              eq(schema.customParts.ownerOrgId, ownerOrgId),
-              eq(schema.customParts.partNumber, partNumber),
-            ),
-          )
-      : db
-          .select()
-          .from(schema.customParts)
-          .where(
-            and(
-              eq(schema.customParts.ownerUserId, user.id),
-              eq(schema.customParts.partNumber, partNumber),
-            ),
-          );
-    const dup = await dupQuery.get();
-    if (dup) return reply.code(409).send({ error: 'part_number_taken' });
-
-    const owner: Subject = ownerOrgId ? { kind: 'org', id: ownerOrgId } : { kind: 'user', id: user.id };
-    const partBytes = xmlBlob.length + spriteBlob.length;
-    const refusal = await checkGrowth({ actor: user, owner, add: { customParts: 1, bytes: partBytes }, uploadBytes: partBytes });
-    if (refusal) return reply.code(refusal.status).send(refusal.body);
-    recordUpload(user.id, owner, partBytes);
-
-    const id = randomUUID();
-    const now = new Date();
-    // Sets go in "My sets" whichever app made them (the website names it; a desktop may not).
-    const category = trimmed(body.category) || (spriteMime === '' ? 'My sets' : 'Custom');
-    await db.insert(schema.customParts).values({
-      id,
-      partNumber,
-      displayName,
-      category,
-      ownerUserId,
-      ownerOrgId,
-      createdBy: user.id,
-      xmlBlob,
-      spriteBlob,
-      spriteMime,
-      createdAt: now,
-      updatedAt: now,
-    });
-    await writeAuditEvent({
-      resourceKind: 'custom_part',
-      resourceId: id,
-      userId: user.id,
-      eventType: 'create',
-      payload: { partNumber, displayName, owner: ownerOrgId ? { kind: 'org', id: ownerOrgId } : { kind: 'user', id: user.id } },
-    });
-    return reply.code(201).send({ id, partNumber, displayName });
+    const made = await createCustomPart(user, req.body ?? ({} as CreatePartBody));
+    return reply.code(made.status).send(made.body);
   });
 
   // ---- replace ------------------------------------------------------------
