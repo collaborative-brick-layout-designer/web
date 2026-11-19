@@ -85,7 +85,7 @@ ENV LEFTHOOK=0
 # (desktop scripts/ci/import-server-image-deps.txt).
 RUN apt-get update && apt-get upgrade -y \
     && apt-get install -y --no-install-recommends tini ca-certificates \
-       libgl1 libegl1 libfontconfig1 libfreetype6 libglib2.0-0 libdbus-1-3 libxkbcommon0 \
+       libfontconfig1 libfreetype6 libglib2.0-0 libdbus-1-3 libxkbcommon0 libx11-6 \
     && rm -rf /var/lib/apt/lists/*
 # The runtime only runs `node`: drop the npm / corepack the base image ships,
 # whose bundled dependencies (undici, ip-address, ...) the image scan flags.

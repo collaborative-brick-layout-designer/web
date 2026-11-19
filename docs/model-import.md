@@ -124,7 +124,8 @@ points at another converter; `IMPORTS_ENABLED` forces the switch.
 compat.json › `importServer.pinned` names the desktop release and the
 SHA-256 of its `bld-import-server-linux-x86_64.tar.gz`; a mismatch stops
 the build; no pinned version builds the image without it (import off).
-The runtime adds the system libraries Qt needs (`libgl1 libegl1
-libfontconfig1 libfreetype6 libglib2.0-0 libdbus-1-3 libxkbcommon0`).
+The runtime adds the system libraries Qt needs (`libfontconfig1
+libfreetype6 libglib2.0-0 libdbus-1-3 libxkbcommon0 libx11-6`; the bundle brings
+libglvnd's GL dispatch libraries itself, so no Mesa).
 `compat.json › importServer.minimum` is the oldest converter the server
 runs (`CONVERTER_MINIMUM` in `compat.ts`).
