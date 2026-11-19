@@ -73,9 +73,9 @@ describe('the tour catalogue', () => {
     const raw = JSON.parse(catalogueText) as { tours: { id: string; steps: { target: string; apps?: string[]; needsClub?: boolean; title: string; text: string }[] }[] };
     const stops = raw.tours.find((t) => t.id === 'clubs')!.steps.filter((s) => s.title === 'Partner clubs');
     expect(stops.map((s) => [s.target, s.apps])).toEqual([['club.partners', ['web']], ['club.moduleOffers', ['desktop']]]);
-    // Where the club's page is, the web's stop is for club members; the desktop's names the website's Accept and Decline.
+    // Where the club's page is, the web's stop is for club members; the desktop's says they're answered in the app.
     expect(stops[0]!.needsClub).toBe(true);
-    expect(stops[1]!.text).toContain('Open on the Website');
+    expect(stops[1]!.text).toContain('Accept or Decline');
     // Someone in no club doesn't get it; a club member does.
     expect(forClubless(getTour('clubs')!, false).steps.map((s) => s.title)).not.toContain('Partner clubs');
     expect(forClubless(getTour('clubs')!, true).steps.map((s) => s.title)).toContain('Partner clubs');

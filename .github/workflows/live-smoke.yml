@@ -5,7 +5,9 @@ name: Live smoke
 # one layout on a real server. Presence, a move each way, a drop and
 # reconnect on each side, a role change and a sign-out (liveSmoke.spec.ts),
 # the desktop/web merge spec (desktopLiveSync.spec.ts), and a shared module
-# with the web and the desktop in one layout (sharedModulesDesktop.spec.ts).
+# with the web and the desktop in one layout (sharedModulesDesktop.spec.ts),
+# and a request to join made on the web, counted live in the desktop's bell
+# and accepted there (notificationsDesktop.spec.ts).
 # Full review area 4, Idea 1.
 #
 # Building the driver takes Qt and Rust, so this runs on main and at night,
@@ -22,6 +24,7 @@ on:
       - apps/web/e2e/test/liveSmoke.spec.ts
       - apps/web/e2e/test/desktopLiveSync.spec.ts
       - apps/web/e2e/test/sharedModulesDesktop.spec.ts
+      - apps/web/e2e/test/notificationsDesktop.spec.ts
   schedule:
     - cron: '47 7 * * *'
   workflow_dispatch:
@@ -103,7 +106,7 @@ jobs:
         working-directory: apps/web
         env:
           QT_QPA_PLATFORM: offscreen
-        run: npx playwright test e2e/test/liveSmoke.spec.ts e2e/test/desktopLiveSync.spec.ts e2e/test/sharedModulesDesktop.spec.ts --workers=1 --retries=1 --reporter=list,html
+        run: npx playwright test e2e/test/liveSmoke.spec.ts e2e/test/desktopLiveSync.spec.ts e2e/test/sharedModulesDesktop.spec.ts e2e/test/notificationsDesktop.spec.ts --workers=1 --retries=1 --reporter=list,html
 
       - name: Upload the Playwright report and traces
         if: failure()
