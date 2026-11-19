@@ -238,7 +238,7 @@ export const PartsPanel = memo(function PartsPanel({
             )}
             {canUploadPart && onImportModel && (
               <span className="inline-flex items-center gap-1">
-                {/* Short, so the panel keeps its room for the parts (the hover text and the dialog's ⓘ say which files). */}
+                {/* Short, so the panel keeps its space for the parts (the hover text and the dialog's ⓘ say which files). */}
                 <button
                   type="button"
                   onClick={onImportModel}
