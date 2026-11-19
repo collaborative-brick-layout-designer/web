@@ -253,7 +253,9 @@ describe('elsewhere', () => {
         <PartsPanel onPlacePart={() => undefined} canUploadPart onImportModel={onImportModel} />
       </QueryClientProvider>,
     );
-    fireEvent.click(screen.getByRole('button', { name: 'Import from a model file (LDraw, Studio, LDD)…' }));
+    const fromModel = screen.getByRole('button', { name: 'From a model file…' });
+    expect(fromModel.getAttribute('title')).toBe('Import from a model file (LDraw, Studio, LDD)');
+    fireEvent.click(fromModel);
     expect(onImportModel).toHaveBeenCalledTimes(1);
     fireEvent.click(screen.getByRole('button', { name: 'Upload part…' }));
     const dialog = await screen.findByRole('dialog', { name: 'Upload custom part' });

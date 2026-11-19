@@ -238,10 +238,16 @@ export const PartsPanel = memo(function PartsPanel({
             )}
             {canUploadPart && onImportModel && (
               <span className="inline-flex items-center gap-1">
-                <button type="button" onClick={onImportModel} data-testid="parts-import-model" className="text-xs font-semibold text-accent-text hover:underline">
-                  Import from a model file (LDraw, Studio, LDD)…
+                {/* Short, so the panel keeps its room for the parts (the hover text and the dialog's ⓘ say which files). */}
+                <button
+                  type="button"
+                  onClick={onImportModel}
+                  data-testid="parts-import-model"
+                  title="Import from a model file (LDraw, Studio, LDD)"
+                  className="whitespace-nowrap text-xs font-semibold text-accent-text hover:underline"
+                >
+                  From a model file…
                 </button>
-                <HelpButton helpKey="import.asPart" />
               </span>
             )}
             {canUploadPart && catalogSettings.data?.parts && (
@@ -259,7 +265,8 @@ export const PartsPanel = memo(function PartsPanel({
           </div>
         )}
       </div>
-      <div ref={listRef} className="flex-1 min-h-0 overflow-y-auto touch-pan-y">
+      {/* Never squeezed to nothing: a row of parts stays in view however small the panel (the links above may wrap). */}
+      <div ref={listRef} className="flex-1 min-h-24 overflow-y-auto touch-pan-y">
         {isLoading && <p className="p-3 text-xs text-muted">Loading catalog…</p>}
         {!isLoading && visible.length === 0 && (
           <p className="p-3 text-xs text-muted">No parts match this filter.</p>
