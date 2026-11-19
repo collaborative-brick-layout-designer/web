@@ -63,6 +63,7 @@ export async function getPlatformSettings(): Promise<PlatformSettings> {
     privacyNotice: null,
     privacyContact: null,
     signIn: null,
+    imports: null,
     updatedAt: new Date(),
     updatedBy: null,
   };

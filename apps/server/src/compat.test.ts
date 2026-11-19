@@ -9,6 +9,7 @@ import { CURRENT_SCHEMA_VERSION as SIDECAR_SCHEMA_VERSION } from '@cld/bbm';
 import { DOC_BASE_SCHEMA, DOC_MIN_READABLE, DOC_SCHEMA_VERSION, canReadDoc } from '@cld/ydoc';
 import { PLATFORM_SETTINGS_ID, getPlatformSettings } from './auth/platformSettings.js';
 import {
+  CONVERTER_MINIMUM,
   DESKTOP_DOWNLOAD_URL,
   DESKTOP_MINIMUM,
   DESKTOP_RECOMMENDED,
@@ -29,6 +30,7 @@ interface Compat {
   doc: { schemaVersion: number; createdAs: number; minReadable: number };
   sidecar: { schemaVersion: number };
   layoutFile: { version: number };
+  importServer: { minimum: string; pinned: { version: string; sha256: string } };
   protocols: string[];
   features: { id: string; label: string }[];
   serverFeatures: string[];
@@ -56,6 +58,8 @@ describe('compat/compat.json', () => {
     expect(SIDECAR_SCHEMA_VERSION).toBe(compat.sidecar.schemaVersion);
     expect(LAYOUT_FILE_VERSION).toBe(compat.layoutFile.version);
     expect([...PROTOCOLS]).toEqual(compat.protocols);
+    // The import converter (desktop docs/import-server.md).
+    expect(CONVERTER_MINIMUM).toBe(compat.importServer.minimum);
   });
 
   it('lists every feature this server has, and the desktop needs none it lacks', () => {

@@ -11,6 +11,8 @@ import { isOwnSignOut } from './auth/cookie.js';
 export const DESKTOP_MINIMUM = '1.2.0';
 /** The desktop this server suggests; older ones are asked to update. */
 export const DESKTOP_RECOMMENDED = '2.1.10';
+/** The oldest bld-import-server (the desktop's converter) this server runs (compat.json importServer.minimum). */
+export const CONVERTER_MINIMUM = '2.1.11';
 /** Where a desktop that must update is sent: the desktop's GitHub releases. */
 export const DESKTOP_DOWNLOAD_URL = 'https://github.com/collaborative-brick-layout-designer/desktop/releases/latest';
 /**
