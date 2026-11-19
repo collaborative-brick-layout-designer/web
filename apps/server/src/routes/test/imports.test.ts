@@ -44,7 +44,7 @@ function fakeConverter(name: string, opts: { version?: string; sandbox?: Record<
     `#!${process.execPath}
 const fs = require('fs'), p = require('path');
 const args = process.argv.slice(2);
-if (args[0] === '--version') { console.log('bld-import-server ${opts.version ?? '2.1.10'}'); process.exit(0); }
+if (args[0] === '--version') { console.log('bld-import-server ${opts.version ?? '2.1.11'}'); process.exit(0); }
 if (args[0] === '--sandbox-check') { console.log(JSON.stringify({ ok: true, sandbox: ${sandbox} })); process.exit(0); }
 const req = JSON.parse(fs.readFileSync(args[args.length - 1], 'utf8'));
 const base = p.basename(req.input);
@@ -52,7 +52,7 @@ if (base.includes('slow')) setInterval(() => {}, 1000);
 else if (base.includes('crash')) process.exit(139);
 else if (base.includes('flood')) { process.stdout.write('x'.repeat(5 * 1024 * 1024)); process.exit(0); }
 else {
-  const out = { ok: true, version: '2.1.10', env: Object.keys(process.env).sort(), args, cwd: process.cwd(), sandbox: ${sandbox} };
+  const out = { ok: true, version: '2.1.11', env: Object.keys(process.env).sort(), args, cwd: process.cwd(), sandbox: ${sandbox} };
   const ldr = /\\.(ldr|mpd)$/i.test(base);
   if (req.command === 'analyse') {
     fs.writeFileSync(p.join(req.outDir, 'preview.png'), Buffer.from('89504e470d0a1a0a0000', 'hex'));
@@ -161,7 +161,7 @@ describe('model import', () => {
   it('a missing, old or unlocked converter turns import off, and says why', async () => {
     for (const [conv, reason] of [
       [join(tmp, 'nowhere'), 'missing'],
-      [fakeConverter('old', { version: '2.1.9' }), 'too_old'],
+      [fakeConverter('old', { version: '2.1.10' }), 'too_old'],
       [fakeConverter('open', { sandbox: { rlimits: true, socketBlocked: false, execBlocked: true, forkBlocked: true } }), 'unsandboxed'],
     ] as const) {
       env.importConverter = conv;
@@ -357,7 +357,7 @@ describe('model import', () => {
       expect((await upload(LDR, 'loop.ldr')).json()).toMatchObject({ error: 'import_unavailable', reason: 'off' });
       expect((await app.inject({ method: 'PATCH', url: '/api/admin/imports', headers: { cookie: a }, payload: { enabled: true, limits: { atOnce: 99 } } })).statusCode).toBe(400);
       const view = (await app.inject({ method: 'GET', url: '/api/admin/imports', headers: { cookie: a } })).json();
-      expect(view).toMatchObject({ available: false, reason: 'off', enabled: false, converter: { version: '2.1.10', minimum: '2.1.10', problem: null } });
+      expect(view).toMatchObject({ available: false, reason: 'off', enabled: false, converter: { version: '2.1.11', minimum: '2.1.11', problem: null } });
       expect(view.limits.map((l: { key: string }) => l.key)).toEqual(['maxUploadMb', 'perHour', 'perUserAtOnce', 'atOnce', 'timeoutSeconds', 'memoryMb']);
     });
 
