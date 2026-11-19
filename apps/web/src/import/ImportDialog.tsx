@@ -102,15 +102,17 @@ export function ImportDialog({ file, into, isAdmin = false, onClose, onDone }: P
 
   // The preview's starting values, once.
   const analysis = job?.analysis ?? null;
-  const seeded = useRef(false);
+  // The preview shows once its fields hold the model's own values (no
+  // frame with an empty name).
+  const [seeded, setSeeded] = useState(false);
   useEffect(() => {
-    if (!analysis || seeded.current) return;
-    seeded.current = true;
+    if (!analysis || seeded) return;
+    setSeeded(true);
     setName(analysis.suggestedName);
     setDesigner(analysis.designer);
     setTitle(analysis.suggestedName);
     if (!analysis.part && analysis.layout) setMode('parts');
-  }, [analysis]);
+  }, [analysis, seeded]);
 
   useEffect(() => {
     if (job?.state === 'done' && job.result && !finished.current) {
@@ -228,7 +230,7 @@ export function ImportDialog({ file, into, isAdmin = false, onClose, onDone }: P
               <DesktopHint />
             </div>
           )}
-          {state === 'ready' && analysis && (
+          {state === 'ready' && analysis && seeded && (
             <div className="grid gap-5 md:grid-cols-[3fr_2fr]" data-testid="import-preview">
               <div className="space-y-3">
                 {analysis.part && analysis.layout && (
@@ -443,7 +445,7 @@ export function ImportDialog({ file, into, isAdmin = false, onClose, onDone }: P
               <button type="button" className={btn} onClick={close} data-testid="import-cancel">
                 Cancel
               </button>
-              {state === 'ready' && (
+              {state === 'ready' && seeded && (
                 <button
                   type="button"
                   className={primary}
