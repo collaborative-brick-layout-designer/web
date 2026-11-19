@@ -4,11 +4,13 @@
 // (or both inside a .zip, as the editor's Download .bbm writes them), and
 // TrackDesigner / 4DBrix maps, like desktop's open (MainWindowFileIO.cpp).
 // Each one becomes a new layout and opens in the editor, which says what
-// came in. LDraw, Studio and LDD files get the desktop app's steps.
+// came in. LDraw, Studio and LDD files are imported (import/ImportDialog.tsx):
+// the server runs the desktop app's own importer. When this site can't
+// import, they get the desktop app's steps and the reason.
 
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api';
 import { layoutsFromFiles, type DroppedLayout } from '../bbmFiles';
 import { takeLayoutParts, type PartChoice, type PartDifference } from '../layoutParts';
@@ -16,6 +18,8 @@ import { PartDifferencesDialog } from '../layouts/PartDifferencesDialog';
 import { catalogMapConverter, type OpenedMapState } from '../mapFormats';
 import { HelpButton } from '../help/HelpButton';
 import { DesktopOnlySteps } from './DesktopOnly';
+import { ImportDialog } from '../import/ImportDialog';
+import { importApi } from '../import/importApi';
 import { OPEN_FORMATS_LINE, OPEN_PICKER_ACCEPT, sortFiles, titleFromFileName, type DesktopOnlyFormat } from './openFiles';
 
 let pickerInput: HTMLInputElement | null = null;
@@ -28,7 +32,7 @@ export function openFilePicker(): void {
 }
 
 type Message =
-  | { kind: 'desktop'; name: string; format: DesktopOnlyFormat }
+  | { kind: 'desktop'; name: string; format: DesktopOnlyFormat; reason: string | null }
   | { kind: 'unknown'; name: string }
   | { kind: 'failed'; name: string; error: string };
 
@@ -42,6 +46,9 @@ export function FileOpener() {
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<Message | null>(null);
   // Parts the opened layout defines differently from the server, waiting on the user.
+  // A model being imported (LDraw, Studio, LDD).
+  const [importing, setImporting] = useState<File | null>(null);
+  const me = useQuery({ queryKey: ['me'], queryFn: api.me, staleTime: 60_000 });
   const [asking, setAsking] = useState<{ differing: PartDifference[]; answer: (c: PartChoice[] | null) => void } | null>(null);
 
   useEffect(() => {
@@ -57,7 +64,12 @@ export function FileOpener() {
   async function open(all: readonly File[]) {
     const sorted = sortFiles(all);
     if (sorted.kind === 'none') return;
-    if (sorted.kind === 'desktop') return setMessage({ kind: 'desktop', name: sorted.file.name, format: sorted.format });
+    if (sorted.kind === 'desktop') {
+      // Imported here when this site can; else the desktop app's steps, and why.
+      const status = await qc.fetchQuery({ queryKey: ['imports-status'], queryFn: importApi.status, staleTime: 30_000 }).catch(() => null);
+      if (status?.available) return setImporting(sorted.file);
+      return setMessage({ kind: 'desktop', name: sorted.file.name, format: sorted.format, reason: status?.message ?? null });
+    }
     if (sorted.kind === 'unknown') return setMessage({ kind: 'unknown', name: sorted.file.name });
     const files = sorted.files;
     const first = files[0]!.name;
@@ -185,6 +197,14 @@ export function FileOpener() {
         </div>
       )}
       {message && <OpenMessage message={message} onClose={() => setMessage(null)} />}
+      {importing && (
+        <ImportDialog
+          file={importing}
+          isAdmin={!!me.data?.user?.isGlobalAdmin}
+          onClose={() => setImporting(null)}
+          onDone={() => setImporting(null)}
+        />
+      )}
       {asking && (
         <PartDifferencesDialog
           differences={asking.differing}
@@ -204,8 +224,8 @@ function OpenMessage({ message, onClose }: { message: Message; onClose: () => vo
   let title: string;
   let body: ReactNode;
   if (message.kind === 'desktop') {
-    title = 'Open this in the desktop app';
-    body = <DesktopOnlySteps name={message.name} format={message.format} />;
+    title = 'Import this in the desktop app';
+    body = <DesktopOnlySteps name={message.name} format={message.format} reason={message.reason} />;
   } else if (message.kind === 'unknown') {
     title = 'This isn’t a layout file';
     body = (

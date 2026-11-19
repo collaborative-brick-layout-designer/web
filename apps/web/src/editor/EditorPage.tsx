@@ -204,6 +204,7 @@ import { Menu } from '../ui/menu/Menu';
 import { resolveMenu } from '../ui/menu/menuModel';
 import { mapMenuEntries, modKey, phoneMapEntries, type MapMenuToggles } from './mapMenu';
 import { openFilePicker } from '../open/FileOpener';
+import { importApi, IMPORT_ACCEPT } from '../import/importApi';
 import { OpenedSummaryCard } from '../open/OpenedSummary';
 import { DemoBanner } from '../demo/DemoBanner';
 // Dialogs and infrequently-used panels — lazy-loaded so they don't bloat
@@ -222,6 +223,7 @@ const BackgroundColorDialog = lazyRetry(() => import('./BackgroundColorDialog').
 const BackgroundImageDialog = lazyRetry(() => import('./BackgroundImageDialog').then((m) => ({ default: m.BackgroundImageDialog })));
 const FindDialog = lazyRetry(() => import('./FindDialog').then((m) => ({ default: m.FindDialog })));
 const PreferencesDialog = lazyRetry(() => import('./PreferencesDialog').then((m) => ({ default: m.PreferencesDialog })));
+const ImportModelDialog = lazyRetry(() => import('../import/ImportDialog').then((m) => ({ default: m.ImportDialog })));
 const ImportBbmDialog = lazyRetry(() => import('./ImportBbmDialog').then((m) => ({ default: m.ImportBbmDialog })));
 const ExportImageDialog = lazyRetry(() => import('./ExportImageDialog').then((m) => ({ default: m.ExportImageDialog })));
 const AddAnchoredLabelDialog = lazyRetry(() => import('./AddAnchoredLabelDialog').then((m) => ({ default: m.AddAnchoredLabelDialog })));
@@ -505,6 +507,11 @@ function Editor({ layoutId, docState, moduleMode }: { layoutId: string; docState
   const [showExportImage, setShowExportImage] = useState(false);
   const [showPreferences, setShowPreferences] = useState(false);
   const [showImportBbm, setShowImportBbm] = useState(false);
+  // Import an LDraw, Studio or LDD model into this layout (import/ImportDialog.tsx).
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const importInput = useRef<HTMLInputElement>(null);
+  const importStatus = useQuery({ queryKey: ['imports-status'], queryFn: importApi.status, staleTime: 60_000, enabled: !docState.signedOut });
+  const importModel = importStatus.data?.available && role !== 'viewer' ? () => importInput.current?.click() : undefined;
   const [showSharedUpdates, setShowSharedUpdates] = useState(false);
   const [showAddLabel, setShowAddLabel] = useState(false);
   const [showSaveAsSet, setShowSaveAsSet] = useState(false);
@@ -1106,6 +1113,7 @@ function Editor({ layoutId, docState, moduleMode }: { layoutId: string; docState
                     phoneMapEntries(
                       {
                         openFile: openFilePicker,
+                        ...(importModel ? { importModel } : {}),
                         generalInfo: () => setShowGeneralInfo(true),
                         backgroundColor: () => setShowBackgroundColor(true),
                         backgroundImage: () => setShowBackgroundImage(true),
@@ -1296,6 +1304,7 @@ function Editor({ layoutId, docState, moduleMode }: { layoutId: string; docState
               onExportImage={onExportImage}
               onExportCsv={() => setShowPartList(true)}
               onImportBbm={() => setShowImportBbm(true)}
+              onImportModel={importModel}
               onSharedModuleUpdates={moduleMode ? undefined : () => setShowSharedUpdates(true)}
               onCreateModule={() => openMakeModule(doc)}
               onSaveAsSet={() => setShowSaveAsSet(true)}
@@ -1638,6 +1647,40 @@ function Editor({ layoutId, docState, moduleMode }: { layoutId: string; docState
       )}
       {showImportBbm && (
         <ImportBbmDialog doc={doc} onClose={() => setShowImportBbm(false)} />
+      )}
+      <input
+        ref={importInput}
+        type="file"
+        accept={IMPORT_ACCEPT}
+        aria-label="Import a model"
+        data-testid="import-model-input"
+        className="hidden"
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          e.target.value = '';
+          if (f) setImportFile(f);
+        }}
+      />
+      {importFile && (
+        <ImportModelDialog
+          file={importFile}
+          isAdmin={!!me.data?.user?.isGlobalAdmin}
+          into={{
+            layoutId,
+            sheets: (() => {
+              const sheets = (docMap?.layers ?? []).filter((l) => l.type === 'brick').map((l) => ({ id: l.id, name: sheetName(l) }));
+              const active = sheets.findIndex((l) => l.id === partsTarget?.id);
+              if (active > 0) sheets.unshift(...sheets.splice(active, 1));
+              return sheets;
+            })(),
+            at: canvasActionsRef.current?.viewCentre() ?? viewCentreStuds(viewport),
+          }}
+          onClose={() => setImportFile(null)}
+          onDone={(r) => {
+            setImportFile(null);
+            if (!r.newLayout) useEditorStore.getState().setSelection(r.brickIds);
+          }}
+        />
       )}
       {showSaveAsSet && doc && (
         <SaveAsSetDialog
@@ -6014,6 +6057,7 @@ function MapMenu({
   onExportImage,
   onExportCsv,
   onImportBbm,
+  onImportModel,
   onSharedModuleUpdates,
   onCreateModule,
   onSaveAsSet,
@@ -6043,6 +6087,7 @@ function MapMenu({
   onExportImage: () => void;
   onExportCsv: () => void;
   onImportBbm: () => void;
+  onImportModel?: (() => void) | undefined;
   onSharedModuleUpdates?: (() => void) | undefined;
   onCreateModule: () => void;
   onSaveAsSet: () => void;
@@ -6081,6 +6126,7 @@ function MapMenu({
         createModule: onCreateModule,
         saveAsSet: onSaveAsSet,
         importBbm: onImportBbm,
+        ...(onImportModel ? { importModel: onImportModel } : {}),
         ...(onSharedModuleUpdates ? { sharedModuleUpdates: onSharedModuleUpdates } : {}),
         venueDesigner: onVenueDesigner,
         venueDrawOutline: onVenueDrawOutline,
@@ -6105,7 +6151,12 @@ function MapMenu({
     ),
     { moduleMode },
   );
-  return <Menu label="Map" entries={entries} buttonClassName="rounded-lg border border-border px-2 py-1 text-xs hover:bg-soft" />;
+  // The editor tour's "Bring in a model" step points here.
+  return (
+    <span data-tour="editor.mapMenu" className="contents">
+      <Menu label="Map" entries={entries} buttonClassName="rounded-lg border border-border px-2 py-1 text-xs hover:bg-soft" />
+    </span>
+  );
 }
 
 /** The Map menu's View ▸ and Budget ▸ ticks, from the editor store (the Map menu and the phone's). */

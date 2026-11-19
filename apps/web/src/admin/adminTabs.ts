@@ -2,9 +2,9 @@
 // entry per tab) without loading the admin page itself. The tab is in
 // the address (/admin?tab=users) so links and back/forward work.
 
-export type AdminTab = 'dashboard' | 'heavy' | 'users' | 'orgs' | 'layouts' | 'parts' | 'libraries' | 'moderation' | 'privacy' | 'audit' | 'settings';
+export type AdminTab = 'dashboard' | 'heavy' | 'users' | 'orgs' | 'layouts' | 'parts' | 'libraries' | 'imports' | 'moderation' | 'privacy' | 'audit' | 'settings';
 
-export const ADMIN_TABS: readonly AdminTab[] = ['dashboard', 'heavy', 'users', 'orgs', 'layouts', 'parts', 'libraries', 'moderation', 'privacy', 'audit', 'settings'];
+export const ADMIN_TABS: readonly AdminTab[] = ['dashboard', 'heavy', 'users', 'orgs', 'layouts', 'parts', 'libraries', 'imports', 'moderation', 'privacy', 'audit', 'settings'];
 
 /** The Settings menu's words for each tab. */
 export const ADMIN_MENU_LABELS: Record<AdminTab, string> = {
@@ -15,6 +15,7 @@ export const ADMIN_MENU_LABELS: Record<AdminTab, string> = {
   layouts: 'Layouts',
   parts: 'Parts',
   libraries: 'Parts library',
+  imports: 'Model import',
   moderation: 'Moderation',
   privacy: 'Privacy requests',
   audit: 'Audit log',
@@ -25,7 +26,7 @@ export const ADMIN_MENU_LABELS: Record<AdminTab, string> = {
 export const ADMIN_GROUPS: readonly { label: string; tabs: readonly AdminTab[] }[] = [
   { label: 'Overview', tabs: ['dashboard', 'heavy'] },
   { label: 'People', tabs: ['users', 'orgs'] },
-  { label: 'Content', tabs: ['layouts', 'parts', 'libraries'] },
+  { label: 'Content', tabs: ['layouts', 'parts', 'libraries', 'imports'] },
   { label: 'Requests', tabs: ['moderation', 'privacy'] },
   { label: 'Site', tabs: ['audit', 'settings'] },
 ];

@@ -12,7 +12,11 @@ import { DESKTOP_URL } from '../../projectLinks';
 import { createDefaultLayoutDoc, docToBbm } from '@cld/ydoc';
 import { NEWER_SIDECAR_WARNING, writeBbm } from '@cld/bbm/browser';
 
-const apiMock = vi.hoisted(() => ({ create: vi.fn(), catalog: vi.fn() }));
+const apiMock = vi.hoisted(() => ({ create: vi.fn(), catalog: vi.fn(), importStatus: vi.fn(), upload: vi.fn() }));
+vi.mock('../../import/importApi', async (importOriginal) => {
+  const orig = await importOriginal<typeof import('../../import/importApi')>();
+  return { ...orig, importApi: { ...orig.importApi, status: apiMock.importStatus, cancel: vi.fn() }, uploadModel: apiMock.upload };
+});
 vi.mock('../../api', async (importOriginal) => {
   const orig = await importOriginal<typeof import('../../api')>();
   return {
@@ -53,6 +57,8 @@ function dragEvent(type: string, files: File[]): Event {
 beforeEach(() => {
   apiMock.create.mockReset().mockResolvedValue({ id: 'new-1' });
   apiMock.catalog.mockReset().mockResolvedValue({ parts: [] });
+  apiMock.importStatus.mockReset().mockResolvedValue({ available: false, reason: 'off', message: 'An admin has turned importing off on this site.' });
+  apiMock.upload.mockReset().mockReturnValue(new Promise(() => undefined));
 });
 afterEach(cleanup);
 
@@ -105,11 +111,12 @@ describe('FileOpener', () => {
     ['house.lxf', 'a LEGO Digital Designer (LDD) file', 'Upload to server…'],
     ['train.ldr', 'an LDraw file', 'File › Save to Server…'],
   ] as const) {
-    it(`explains that ${name} is imported in the desktop app, and opens nothing`, async () => {
+    it(`when this site can't import ${name}, says why and gives the desktop app's steps`, async () => {
       setup();
       act(() => void window.dispatchEvent(dragEvent('drop', [new File(['x'], name)])));
-      const dialog = await screen.findByRole('dialog', { name: 'Open this in the desktop app' });
+      const dialog = await screen.findByRole('dialog', { name: 'Import this in the desktop app' });
       expect(dialog.textContent).toContain(`${name} is ${what}`);
+      expect(screen.getByTestId('import-off-reason').textContent).toBe('An admin has turned importing off on this site.');
       expect(dialog.textContent).toContain(step);
       expect(screen.getByRole('link', { name: 'Get the desktop app' }).getAttribute('href')).toBe(DESKTOP_URL);
       expect(apiMock.create).not.toHaveBeenCalled();
@@ -117,6 +124,16 @@ describe('FileOpener', () => {
       expect(screen.queryByRole('dialog')).toBeNull();
     });
   }
+
+  it('imports a dropped model when this site can', async () => {
+    apiMock.importStatus.mockResolvedValue({ available: true, reason: null, message: null });
+    setup();
+    act(() => void window.dispatchEvent(dragEvent('drop', [new File(['0 x'], 'train.ldr')])));
+    expect(await screen.findByRole('dialog', { name: 'Import a model' })).toBeTruthy();
+    expect(apiMock.upload).toHaveBeenCalledTimes(1);
+    expect((apiMock.upload.mock.calls[0]![0] as File).name).toBe('train.ldr');
+    expect(apiMock.create).not.toHaveBeenCalled();
+  });
 
   it('says what it opens when a file is something else', async () => {
     setup();

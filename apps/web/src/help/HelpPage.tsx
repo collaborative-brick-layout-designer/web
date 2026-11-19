@@ -51,7 +51,16 @@ const TOPICS: { id: string; title: string; body: string[] }[] = [
     title: 'Opening a file',
     body: [
       'Choose Open a file… on Home or in the editor’s Map menu, or drop a file anywhere on the page. The website opens this app’s layout files (.bld-layout), BlueBrick maps (.bbm), TrackDesigner (.tdl) and 4DBrix (.ncp). After opening, it says how many parts came in and lists any that aren’t in the parts library.',
-      'LDraw (.ldr, .mpd), BrickLink Studio (.io) and LEGO Digital Designer (.lxf) models are imported in the desktop app, which matches their parts or turns a model into a custom part. Then choose File › Save to Server… there, and it shows up here.',
+      'LDraw (.ldr, .mpd, .dat), BrickLink Studio (.io) and LEGO Digital Designer (.lxf, .lxfml) models are imported: see Importing a model.',
+    ],
+  },
+  {
+    id: 'importing',
+    title: 'Importing a model',
+    body: [
+      'Open or drop an LDraw, BrickLink Studio or LDD file, or choose Map › File › Import a model… in the editor. The site reads it with the desktop app’s own importer, so the result is what the desktop app makes. The file is deleted from the server as soon as it’s read.',
+      'The preview shows the model from above on the stud grid. Turn it, line it up with the studs, uncheck snap points you don’t want, then name it and say who built it. Save as Custom Part makes it one part; for an LDraw layout, Place the parts puts each piece in as a part of its own.',
+      'Parts the site’s libraries don’t have are left out and counted. A site admin adds libraries in Admin › Model import. When a site can’t import, the desktop app can, and its File › Save to Server… brings the result here.',
     ],
   },
   {

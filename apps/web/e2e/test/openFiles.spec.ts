@@ -1,8 +1,8 @@
 // E2E: opening a file is easy to find. Home's "Open a file…" button and a
 // file dropped on the page (with its overlay) open a layout and say what
 // came in; the editor's Map › File › Open a file… shows the same picker;
-// LDraw, Studio and LDD files get the desktop app's steps, never a dead
-// end; a cut-off .bbm is refused in the browser, saying where. No step may
+// LDraw, Studio and LDD files open the import (importModels.spec.ts has the
+// rest); a cut-off .bbm is refused in the browser, saying where. No step may
 // 4xx (the WAF bans bursts of them).
 
 import { test, expect, type Page } from '@playwright/test';
@@ -53,7 +53,7 @@ test.describe('Open a file', () => {
     const vanillaBricks = bricks(readFileSync(join(FIXTURES, 'oracle/tight-corner.from-tdl.bbm'), 'utf-8'));
     await page.goto('/');
     await expect(page.getByTestId('open-formats')).toContainText('BlueBrick (.bbm)');
-    await expect(page.getByTestId('open-formats')).toContainText('LDraw, BrickLink Studio and LDD models are imported in the desktop app');
+    await expect(page.getByTestId('open-formats')).toContainText('imports LDraw (.ldr, .mpd, .dat), BrickLink Studio (.io) and LDD (.lxf, .lxfml) models');
 
     net.stage('button: .bbm');
     await pickFromHome(page, 'Corner.bbm', BBM);
@@ -129,29 +129,18 @@ test.describe('Open a file', () => {
     net.expectQuiet();
   });
 
-  test('Studio, LDD and LDraw files explain the desktop app, picked or dropped', async ({ page }) => {
+  test('Studio, LDD and LDraw files open the import, picked or dropped, and Cancel makes nothing', async ({ page }) => {
     const net = watch4xx(page);
     await page.goto('/');
-    const message = page.getByRole('dialog', { name: 'Open this in the desktop app' });
-
-    await dropFile(page, 'ninjago.io', Buffer.from('PK\x03\x04'));
-    await expect(message).toContainText('ninjago.io is a BrickLink Studio file');
-    await expect(message).toContainText('Tools › Import › Studio');
-    await expect(message.getByRole('link', { name: 'Get the desktop app' })).toHaveAttribute('href', /github\.com/);
-    await message.getByRole('button', { name: 'OK' }).click();
-    await expect(message).toHaveCount(0);
-
-    await pickFromHome(page, 'house.lxf', Buffer.from('PK\x03\x04'));
-    await expect(message).toContainText('house.lxf is a LEGO Digital Designer (LDD) file');
-    await expect(message).toContainText('Upload to server…');
-    await page.keyboard.press('Escape');
-    await expect(message).toHaveCount(0);
-
-    await dropFile(page, 'train.ldr', Buffer.from('0 train\r\n'));
-    await expect(message).toContainText('train.ldr is an LDraw file');
-    await expect(message).toContainText('File › Save to Server…');
-    await message.getByRole('button', { name: 'OK' }).click();
-
+    const dialog = page.getByRole('dialog', { name: 'Import a model' });
+    for (const [name, how] of [['ninjago.io', 'drop'], ['house.lxf', 'pick'], ['train.ldr', 'drop']] as const) {
+      net.stage(name);
+      if (how === 'drop') await dropFile(page, name, Buffer.from('PK\x03\x04'));
+      else await pickFromHome(page, name, Buffer.from('PK\x03\x04'));
+      await expect(dialog.getByTestId('import-preview')).toBeVisible({ timeout: 30000 });
+      await dialog.getByTestId('import-cancel').click();
+      await expect(dialog).toHaveCount(0);
+    }
     // Nothing was made.
     await expect(page).toHaveURL(/\/$/);
     const list = (await (await page.request.get('/api/layouts')).json()) as { layouts: { title: string }[] };

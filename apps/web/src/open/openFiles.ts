@@ -1,9 +1,9 @@
 // What "Open a file…" takes, in plain words, and what it says about the
 // rest. The website opens layouts (.bld-layout, .bbm with its sidecar or
 // in a .zip) and TrackDesigner / 4DBrix maps. Models from LDraw,
-// BrickLink Studio and LEGO Digital Designer are imported in the desktop
-// app, which then saves them to this site: those files get a kind
-// explanation instead of nothing.
+// BrickLink Studio and LEGO Digital Designer are imported: the server runs
+// the desktop app's importer (import/). When it can't, they get the
+// desktop app's steps instead of nothing.
 
 import type { BbmMap } from '@cld/model';
 import type { PartWire } from '../api';
@@ -16,8 +16,8 @@ export const COMES_ALONG = /\.bbm\.(bld|cld)$/i;
 
 /** The formats, in the words the open controls show. */
 export const OPEN_FORMATS_LINE =
-  'Opens this app’s layouts (.bld-layout), BlueBrick (.bbm), TrackDesigner (.tdl) and 4DBrix (.ncp). ' +
-  'LDraw, BrickLink Studio and LDD models are imported in the desktop app.';
+  'Opens this app’s layouts (.bld-layout), BlueBrick (.bbm), TrackDesigner (.tdl) and 4DBrix (.ncp), ' +
+  'and imports LDraw (.ldr, .mpd, .dat), BrickLink Studio (.io) and LDD (.lxf, .lxfml) models.';
 
 /** A file only the desktop app reads, and how to bring it here. */
 export interface DesktopOnlyFormat {
