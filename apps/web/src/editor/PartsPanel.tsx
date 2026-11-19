@@ -37,6 +37,7 @@ export const PartsPanel = memo(function PartsPanel({
   budgetLimits,
   map,
   canUploadPart = false,
+  onImportModel,
   mapEmpty = false,
 }: {
   onPlacePart: (part: PartWire) => void;
@@ -44,6 +45,8 @@ export const PartsPanel = memo(function PartsPanel({
   mapEmpty?: boolean;
   /** Offer "Upload part…" (signed in, not a demo account). */
   canUploadPart?: boolean;
+  /** Make a custom part from an LDraw, Studio or LDD model (the site can import, and I may edit here). */
+  onImportModel?: (() => void) | undefined;
   /** The layout's budget; without limits there is no budget to show or filter by. */
   budgetLimits?: ReadonlyMap<string, number>;
   map?: BbmMap | null;
@@ -233,6 +236,14 @@ export const PartsPanel = memo(function PartsPanel({
                 Upload part…
               </button>
             )}
+            {canUploadPart && onImportModel && (
+              <span className="inline-flex items-center gap-1">
+                <button type="button" onClick={onImportModel} data-testid="parts-import-model" className="text-xs font-semibold text-accent-text hover:underline">
+                  Import from a model file (LDraw, Studio, LDD)…
+                </button>
+                <HelpButton helpKey="import.asPart" />
+              </span>
+            )}
             {canUploadPart && catalogSettings.data?.parts && (
               <button type="button" onClick={() => setFromCatalog(true)} className="text-xs font-semibold text-accent-text hover:underline">
                 From the catalog…
@@ -339,7 +350,19 @@ export const PartsPanel = memo(function PartsPanel({
           })}
         </ul>
       </div>
-      {uploading && <UploadPartDialog onClose={() => setUploading(false)} />}
+      {uploading && (
+        <UploadPartDialog
+          onClose={() => setUploading(false)}
+          onImportModel={
+            onImportModel
+              ? () => {
+                  setUploading(false);
+                  onImportModel();
+                }
+              : undefined
+          }
+        />
+      )}
       {fromCatalog && <CatalogPartsDialog onClose={() => setFromCatalog(false)} />}
       {ctxMenu && (
         <PartContextMenuPopup

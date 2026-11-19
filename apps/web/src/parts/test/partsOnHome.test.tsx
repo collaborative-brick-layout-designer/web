@@ -35,11 +35,13 @@ const PARTS = [
 ];
 
 let calls: string[];
+let routes: Record<string, unknown>;
+const IMPORT_ON = { available: true, reason: null, message: null, extensions: ['ldr', 'mpd', 'dat', 'io', 'lxf', 'lxfml'], maxUploadBytes: 1, perHour: 30, libraries: { ldraw: true, ldd: false, lddMapping: false, studio: false } };
 beforeEach(() => {
   localStorage.clear();
   sessionStorage.clear();
   calls = [];
-  const routes: Record<string, unknown> = {
+  routes = {
     'GET /api/auth/me': { user: { id: 'u1', email: 'me@x.com', displayName: 'Me', isDemoAccount: false } },
     'GET /api/orgs': { orgs: [CLUB] },
     'GET /api/layouts': { layouts: [] },
@@ -152,6 +154,39 @@ describe('Custom parts on the home page', () => {
     await waitFor(() => expect((within(dialog).getByLabelText('Save to') as HTMLSelectElement).value).toBe('arklug'));
   });
 
+  it('makes a part from a model file when this site can import: from the section and from Upload part', async () => {
+    routes['GET /api/imports/status'] = IMPORT_ON;
+    const picked = vi.spyOn(HTMLInputElement.prototype, 'click').mockImplementation(() => undefined);
+    try {
+      renderAt('/');
+      await screen.findByText('My Arch');
+      fireEvent.click(await screen.findByRole('button', { name: 'Import from a model file (LDraw, Studio, LDD)' }));
+      expect(picked).toHaveBeenCalledTimes(1);
+      expect(screen.getByTestId('import-part-input').getAttribute('accept')).toBe('.ldr,.mpd,.dat,.io,.lxf,.lxfml');
+      // Upload part points to it instead of the desktop app.
+      fireEvent.click(screen.getByRole('button', { name: 'Upload part' }));
+      const dialog = await screen.findByRole('dialog', { name: 'Upload custom part' });
+      const hint = await within(dialog).findByTestId('upload-part-import');
+      expect(within(dialog).queryByText('Making a part from an LDraw, Studio or LDD model?')).toBeNull();
+      fireEvent.click(within(hint).getByRole('button', { name: 'Import from a model file (LDraw, Studio, LDD)' }));
+      expect(picked).toHaveBeenCalledTimes(2);
+      await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Upload custom part' })).toBeNull());
+    } finally {
+      picked.mockRestore();
+    }
+  });
+
+  it('keeps the desktop app’s steps where this site can’t import', async () => {
+    routes['GET /api/imports/status'] = { ...IMPORT_ON, available: false, reason: 'missing', message: 'This server doesn’t have the import converter installed.' };
+    renderAt('/');
+    await screen.findByText('My Arch');
+    fireEvent.click(screen.getByRole('button', { name: 'Upload part' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Upload custom part' });
+    expect(within(dialog).getByText('Making a part from an LDraw, Studio or LDD model?')).toBeTruthy();
+    expect(within(dialog).queryByTestId('upload-part-import')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Import from a model file (LDraw, Studio, LDD)' })).toBeNull();
+  });
+
   it('/library lands on the parts section', async () => {
     const scroll = vi.fn();
     Element.prototype.scrollIntoView = scroll;
@@ -207,6 +242,24 @@ describe('elsewhere', () => {
     );
     fireEvent.click(screen.getByRole('button', { name: 'Upload part…' }));
     expect(await screen.findByRole('dialog', { name: 'Upload custom part' })).toBeTruthy();
+  });
+
+  it('the editor’s Parts panel imports a part from a model file, also from Upload part…', async () => {
+    routes['GET /api/imports/status'] = IMPORT_ON;
+    const onImportModel = vi.fn();
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={qc}>
+        <PartsPanel onPlacePart={() => undefined} canUploadPart onImportModel={onImportModel} />
+      </QueryClientProvider>,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Import from a model file (LDraw, Studio, LDD)…' }));
+    expect(onImportModel).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole('button', { name: 'Upload part…' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Upload custom part' });
+    fireEvent.click(await within(dialog).findByRole('button', { name: 'Import from a model file (LDraw, Studio, LDD)' }));
+    expect(onImportModel).toHaveBeenCalledTimes(2);
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Upload custom part' })).toBeNull());
   });
 
   it('the top nav no longer has Library', () => {

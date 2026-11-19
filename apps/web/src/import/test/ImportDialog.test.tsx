@@ -3,7 +3,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { createElement as h } from 'react';
+import { createElement as h, StrictMode } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
 import type { ImportJob } from '../importApi';
@@ -12,6 +12,15 @@ const m = vi.hoisted(() => ({ upload: vi.fn(), job: vi.fn(), convert: vi.fn(), c
 vi.mock('../importApi', async (importOriginal) => {
   const orig = await importOriginal<typeof import('../importApi')>();
   return { ...orig, uploadModel: m.upload, importApi: { ...orig.importApi, job: m.job, convert: m.convert, cancel: m.cancel } };
+});
+
+const apiMock = vi.hoisted(() => ({ catalog: vi.fn(), me: vi.fn(), orgs: vi.fn() }));
+vi.mock('../../api', async (importOriginal) => {
+  const orig = await importOriginal<typeof import('../../api')>();
+  return {
+    ...orig,
+    api: { ...orig.api, me: apiMock.me, orgs: { ...orig.api.orgs, list: apiMock.orgs }, parts: { ...orig.api.parts, catalog: apiMock.catalog } },
+  };
 });
 
 import { ImportDialog, siteWords } from '../ImportDialog';
@@ -63,7 +72,27 @@ beforeEach(() => {
   m.job.mockReset().mockResolvedValue(job({ state: 'ready', analysis }));
   m.convert.mockReset().mockResolvedValue(job({ state: 'converting', step: 'convert', analysis }));
   m.cancel.mockReset();
+  apiMock.catalog.mockReset().mockResolvedValue({ parts: [] });
+  apiMock.me.mockReset().mockResolvedValue({ user: { id: 'u1' } });
+  apiMock.orgs.mockReset().mockResolvedValue({ orgs: [{ id: 'o1', slug: 'train', name: 'Train Club', permissions: ['view_items', 'add_parts'] }] });
 });
+
+const partResult = {
+  mode: 'part' as const,
+  layoutId: null,
+  newLayout: false,
+  part: { id: 'p1', partNumber: 'Loop', displayName: 'Loop' },
+  placed: 0,
+  sheetId: null,
+  brickIds: [],
+  toPlace: null,
+  stats: { ldrawResolved: 2, lddRendered: 0, unresolved: 0 },
+  warnings: [],
+  widthStuds: 8,
+  heightStuds: 2,
+  connections: 2,
+  sheets: null,
+};
 afterEach(cleanup);
 
 describe('ImportDialog', () => {
@@ -121,22 +150,106 @@ describe('ImportDialog', () => {
     m.job.mockResolvedValue(
       job({ state: 'done', step: 'convert', analysis, result: { mode: 'parts', layoutId: 'L1', newLayout: false, part: null, placed: 2, sheetId: 's1', brickIds: ['a', 'b'], stats: { ldrawResolved: 2, lddRendered: 0, unresolved: 3 }, warnings: [], widthStuds: null, heightStuds: null, connections: null, sheets: 1 } }),
     );
-    const { onDone } = setup({ isAdmin: true, into: { layoutId: 'L1', sheets: [{ id: 's1', name: 'Track' }], at: { x: 0, y: 0 } } });
+    const { onDone } = setup({ isAdmin: true, into: { layoutId: 'L1', sheets: [{ id: 's1', name: 'Track' }], at: { x: 0, y: 0 }, place: vi.fn(() => []) } });
     const link = await screen.findByRole('link', { name: 'Admin › Model import' });
     expect(link.getAttribute('href')).toBe('/admin?tab=imports');
     fireEvent.click(screen.getByRole('button', { name: 'Done' }));
     expect(onDone).toHaveBeenCalledWith(expect.objectContaining({ brickIds: ['a', 'b'] }));
   });
 
-  it('an LDraw layout can have its parts placed one by one, into this layout on the sheet picked', async () => {
-    setup({ into: { layoutId: 'L1', sheets: [{ id: 's1', name: 'Track' }, { id: 's2', name: 'Town' }], at: { x: 10, y: 20 } } });
+  it('an LDraw layout can have its parts placed one by one, into this layout on the sheet picked, by the editor itself', async () => {
+    const place = vi.fn(() => ['n1', 'n2']);
+    const { onDone } = setup({ into: { layoutId: 'L1', sheets: [{ id: 's1', name: 'Track' }, { id: 's2', name: 'Town' }], at: { x: 10, y: 20 }, place } });
     await screen.findByTestId('import-preview');
     fireEvent.click(screen.getByLabelText(/Its parts, one by one/));
     expect(screen.getByTestId('import-layout-summary').textContent).toContain('2 parts on 1 sheet');
     fireEvent.change(screen.getByLabelText('Sheet'), { target: { value: 's2' } });
+    const toPlace = { bricks: [{ partNumber: '3001.8', displayArea: { x: 0, y: 0, width: 2, height: 4 } }, { partNumber: '3001.8', displayArea: { x: 4, y: 0, width: 2, height: 4 } }], groups: [] };
+    m.job.mockResolvedValue(
+      job({ state: 'done', step: 'convert', analysis, result: { ...partResult, mode: 'parts', part: null, layoutId: 'L1', sheetId: 's2', toPlace, widthStuds: null, heightStuds: null, connections: null, sheets: 1 } }),
+    );
     fireEvent.click(screen.getByRole('button', { name: 'Place the parts' }));
     await waitFor(() => expect(m.convert).toHaveBeenCalled());
-    expect(m.convert.mock.calls[0]![1]).toMatchObject({ mode: 'parts', target: { kind: 'layout', layoutId: 'L1', sheetId: 's2', at: { x: 10, y: 20 } } });
+    // The server only reads the parts: the editor puts them down, in its own undo.
+    expect(m.convert.mock.calls[0]![1]).toMatchObject({ mode: 'parts', target: { kind: 'layout', layoutId: 'L1', sheetId: 's2', at: { x: 10, y: 20 }, clientPlaces: true } });
+    const summary = await screen.findByTestId('import-summary');
+    expect(place).toHaveBeenCalledWith('s2', toPlace);
+    expect(summary.textContent).toContain('Placed 2 parts in this layout.');
+    expect(screen.getByTestId('import-undo-hint').textContent).toContain('Edit › Undo takes the whole import back');
+    // Done with it on the server.
+    expect(m.cancel).toHaveBeenCalledWith('j1');
+    fireEvent.click(screen.getByRole('button', { name: 'Done' }));
+    expect(onDone).toHaveBeenCalledWith(expect.objectContaining({ placed: 2, brickIds: ['n1', 'n2'] }));
+  });
+
+  it('one custom part into this layout: saved by the server, put down by the editor once the catalog has it', async () => {
+    const place = vi.fn(() => ['n1']);
+    setup({ into: { layoutId: 'L1', sheets: [{ id: 's1', name: 'Track' }], at: { x: 0, y: 0 }, place } });
+    await screen.findByTestId('import-preview');
+    m.job.mockResolvedValue(
+      job({ state: 'done', step: 'convert', analysis, result: { ...partResult, layoutId: 'L1', sheetId: 's1', toPlace: { bricks: [{ partNumber: 'custom:p1', displayArea: { x: -4, y: -1, width: 8, height: 2 }, orientation: 0 }], groups: [] } } }),
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Save as Custom Part' }));
+    const summary = await screen.findByTestId('import-summary');
+    expect(apiMock.catalog).toHaveBeenCalled();
+    expect(place).toHaveBeenCalledWith('s1', expect.objectContaining({ bricks: [expect.objectContaining({ partNumber: 'custom:p1' })] }));
+    expect(summary.textContent).toContain('and put it in the middle of your view.');
+  });
+
+  it('a layout with no parts sheet left says so, and the part stays saved', async () => {
+    setup({ into: { layoutId: 'L1', sheets: [{ id: 's1', name: 'Track' }], at: { x: 0, y: 0 }, place: vi.fn(() => []) } });
+    await screen.findByTestId('import-preview');
+    m.job.mockResolvedValue(job({ state: 'done', step: 'convert', analysis, result: { ...partResult, layoutId: 'L1', toPlace: { bricks: [{ partNumber: 'custom:p1', displayArea: { x: -4, y: -1, width: 8, height: 2 } }], groups: [] } } }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save as Custom Part' }));
+    expect((await screen.findByTestId('import-place-error')).textContent).toContain('no parts sheet');
+    expect(screen.getByTestId('import-summary').textContent).toContain('saved it to your custom parts');
+  });
+
+  describe('a custom part from a model (Custom parts, the Parts panel)', () => {
+    it('only makes the part, saved to the club picked: no layout, nothing placed', async () => {
+      const { onDone } = setup({ purpose: 'part' });
+      await screen.findByTestId('import-preview');
+      // No choice of placing its parts, and no layout.
+      expect(screen.queryByLabelText(/Its parts, one by one/)).toBeNull();
+      expect(screen.queryByLabelText('A new layout')).toBeNull();
+      const saveTo = (await screen.findByRole('combobox', { name: 'Save to' })) as HTMLSelectElement;
+      fireEvent.change(saveTo, { target: { value: 'train' } });
+      m.job.mockResolvedValue(job({ state: 'done', step: 'convert', analysis, result: partResult }));
+      fireEvent.click(screen.getByRole('button', { name: 'Save as Custom Part' }));
+      await waitFor(() => expect(m.convert).toHaveBeenCalled());
+      expect(m.convert.mock.calls[0]![1]).toMatchObject({ mode: 'part', target: { kind: 'library', orgSlug: 'train' } });
+      const summary = await screen.findByTestId('import-summary');
+      expect(summary.textContent).toContain('and saved it to Train Club’s custom parts.');
+      expect(summary.textContent).toContain('It’s in your Parts panel and under Custom parts');
+      expect(screen.queryByTestId('import-open-layout')).toBeNull();
+      fireEvent.click(screen.getByRole('button', { name: 'Done' }));
+      expect(onDone).toHaveBeenCalled();
+    });
+
+    it('from the editor: Save to my parts, or Save and place it here (the editor puts it down)', async () => {
+      const place = vi.fn(() => ['n1']);
+      setup({ purpose: 'part', into: { layoutId: 'L1', sheets: [{ id: 's1', name: 'Track' }, { id: 's2', name: 'Town' }], at: { x: 0, y: 0 }, place } });
+      await screen.findByTestId('import-preview');
+      expect((screen.getByLabelText('Save to my parts') as HTMLInputElement).checked).toBe(true);
+      expect(screen.getByRole('button', { name: 'Save as Custom Part' })).toBeTruthy();
+      fireEvent.click(screen.getByLabelText(/Save and place it here/));
+      fireEvent.change(screen.getByLabelText('Sheet'), { target: { value: 's2' } });
+      m.job.mockResolvedValue(job({ state: 'done', step: 'convert', analysis, result: partResult }));
+      fireEvent.click(screen.getByRole('button', { name: 'Save and place it' }));
+      await waitFor(() => expect(m.convert).toHaveBeenCalled());
+      expect(m.convert.mock.calls[0]![1]).toMatchObject({ mode: 'part', target: { kind: 'library' } });
+      await screen.findByTestId('import-summary');
+      expect(place).toHaveBeenCalledWith('s2', { bricks: [{ partNumber: 'custom:p1', displayArea: { x: -4, y: -1, width: 8, height: 2 }, orientation: 0 }], groups: [] });
+      expect(screen.getByTestId('import-summary').textContent).toContain('put it in the middle of your view');
+    });
+  });
+
+  it('sends the file once, even with React’s development double effects', async () => {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(h(StrictMode, null, h(QueryClientProvider, { client: qc }, h(MemoryRouter, null, h(ImportDialog, { file: new File(['0 x'], 'loop.ldr'), onClose: vi.fn() })))));
+    await screen.findByTestId('import-preview');
+    expect(m.upload).toHaveBeenCalledTimes(1);
+    expect(m.cancel).not.toHaveBeenCalled();
   });
 
   it('Cancel stops it and deletes the file on the server', async () => {

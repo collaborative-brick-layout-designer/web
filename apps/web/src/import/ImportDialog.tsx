@@ -8,14 +8,24 @@
 //   upload (progress) → waiting / reading (place in line) → preview
 //   → making it → what came in, with a way to fix what's missing
 // Cancel works at every step and deletes the file on the server.
+//
+// Into the layout open in the editor, the server only makes the part (or
+// reads the parts) and the editor puts them down itself (`into.place`), so
+// one Undo takes the whole import back. `purpose: 'part'` (Custom parts and
+// the Parts panel) only makes a custom part: saved to you or a club, and,
+// from the editor, put down here too when asked.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { api } from '../api';
 import { HelpButton } from '../help/HelpButton';
+import { defaultSaveTo, readOwnerFilter, type OwnerFilter } from '../owners/owners';
+import { SaveToPicker } from '../owners/OwnerControls';
 import { useTours } from '../tours/TourProvider';
 import { DESKTOP_URL } from '../projectLinks';
-import { importApi, importErrorText, uploadModel, type ConvertChoices, type ImportJob, type ImportResult, type ImportTarget } from './importApi';
+import { importApi, importErrorText, uploadModel, type ConvertChoices, type ImportJob, type ImportResult, type ImportTarget, type ToPlace } from './importApi';
+import { partToPlace } from './placeImport';
 import { aligned, connectionTypeName, rotated, type Align } from './previewMath';
 
 export interface ImportInto {
@@ -24,6 +34,11 @@ export interface ImportInto {
   sheets: { id: string; name: string }[];
   /** Where new parts go: the middle of the view, in studs. */
   at: { x: number; y: number };
+  /**
+   * Put the parts down as the editor's own change (one Undo step, synced to
+   * everyone in the layout): import/placeImport.ts. Returns the new ids.
+   */
+  place: (sheetId: string, toPlace: ToPlace) => string[];
 }
 
 interface Props {
@@ -35,7 +50,17 @@ interface Props {
   onClose: () => void;
   /** The import finished: open the new layout, or select what came in. */
   onDone?: (result: ImportResult) => void;
+  /** 'part': only make a custom part (Custom parts, the Parts panel), saved to you or a club. */
+  purpose?: 'any' | 'part';
+  /** Home's owner filter, for where the part is saved to (purpose 'part'). */
+  filter?: OwnerFilter | undefined;
 }
+
+type Where = 'here' | 'new' | 'library';
+
+/** The upload under way for each picked file (see "Upload once" below). */
+const uploads = new WeakMap<File, { ac: AbortController; job: Promise<ImportJob>; cancelled?: boolean }>();
+const sentTo = new WeakMap<File, (sent: number) => void>();
 
 const STEPS = [
   { label: '½ stud', value: 0.5 },
@@ -48,7 +73,8 @@ const btn = 'tap-target rounded-lg border border-line bg-panel px-3 py-1.5 text-
 const primary = 'tap-target rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-accent-ink hover:bg-accent-hover disabled:opacity-50';
 const field = 'w-full rounded-lg border border-line bg-panel px-2 py-1.5 text-sm text-ink';
 
-export function ImportDialog({ file, into, isAdmin = false, onClose, onDone }: Props) {
+export function ImportDialog({ file, into, isAdmin = false, onClose, onDone, purpose = 'any', filter }: Props) {
+  const partOnly = purpose === 'part';
   const qc = useQueryClient();
   const tours = useTours();
   const [sent, setSent] = useState(0);
@@ -69,23 +95,56 @@ export function ImportDialog({ file, into, isAdmin = false, onClose, onDone }: P
   const [category, setCategory] = useState('Imported');
   const [designer, setDesigner] = useState('');
   const [designerUrl, setDesignerUrl] = useState('');
-  const [where, setWhere] = useState<'here' | 'new'>(into ? 'here' : 'new');
+  const [where, setWhere] = useState<Where>(partOnly ? 'library' : into ? 'here' : 'new');
   const [sheetId, setSheetId] = useState(into?.sheets[0]?.id ?? '');
   const [title, setTitle] = useState('');
-
-  // Upload once.
+  // Purpose 'part': who it's saved to ('' = you), as Upload part asks.
+  const me = useQuery({ queryKey: ['me'], queryFn: api.me, enabled: partOnly });
+  const orgs = useQuery({ queryKey: ['orgs'], queryFn: api.orgs.list, enabled: partOnly });
+  const [saveTo, setSaveTo] = useState(() => (partOnly ? defaultSaveTo(filter ?? readOwnerFilter(me.data?.user?.id)) : ''));
+  // A remembered club you've since left: save to you.
   useEffect(() => {
-    const ac = new AbortController();
-    upload.current = ac;
-    uploadModel(file, setSent, ac.signal)
+    if (saveTo && orgs.data && !orgs.data.orgs.some((o) => o.slug === saveTo)) setSaveTo('');
+  }, [orgs.data, saveTo]);
+  // Where the editor puts it down once it's made (asked when Make was clicked).
+  const placing = useRef<{ sheetId: string } | null>(null);
+  const [placed, setPlaced] = useState<ImportResult | null>(null);
+  const [placeError, setPlaceError] = useState<string | null>(null);
+
+  // Upload once per file: React's development double effect must not send it
+  // twice (the first copy became a job nobody closed, and three of them
+  // refused the next import). Close aborts it; leaving any other way cancels
+  // the job once it's known.
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    let sending = uploads.get(file);
+    if (!sending) {
+      const ac = new AbortController();
+      sending = { ac, job: uploadModel(file, (n) => sentTo.get(file)?.(n), ac.signal) };
+      uploads.set(file, sending);
+    }
+    sentTo.set(file, setSent);
+    upload.current = sending.ac;
+    const s = sending;
+    s.job
       .then((j) => {
+        if (!mounted.current) {
+          // Gone before the upload finished: nothing stays on the server (once).
+          if (!s.cancelled) void importApi.cancel(j.id);
+          s.cancelled = true;
+          return;
+        }
+        if (jobId.current === j.id) return;
         jobId.current = j.id;
         setJob(j);
       })
       .catch((e: Error) => {
-        if (e.name !== 'AbortError') setError(e.message);
+        if (mounted.current && e.name !== 'AbortError') setError(e.message);
       });
-    return () => ac.abort();
+    return () => {
+      mounted.current = false;
+    };
   }, [file]);
 
   // Follow the job while the server works on it.
@@ -117,20 +176,37 @@ export function ImportDialog({ file, into, isAdmin = false, onClose, onDone }: P
   useEffect(() => {
     if (job?.state === 'done' && job.result && !finished.current) {
       finished.current = true;
+      const result = job.result;
       void qc.invalidateQueries({ queryKey: ['custom-parts'] });
-      void qc.invalidateQueries({ queryKey: ['parts-catalog'] });
       void qc.invalidateQueries({ queryKey: ['layouts'] });
+      // Fetched past the browser's cache, so the new part draws as soon as it's put down.
+      const catalog = qc.fetchQuery({ queryKey: ['parts-catalog'], queryFn: api.parts.catalog, staleTime: 0 }).catch(() => undefined);
+      const at = placing.current;
+      const toPlace = result.toPlace ?? (at && result.part ? partToPlace(result) : null);
+      if (!at || !into || !toPlace) {
+        setPlaced(result);
+        return;
+      }
+      void (async () => {
+        if (result.part) await catalog;
+        const ids = into.place(at.sheetId, toPlace);
+        if (ids.length === 0) setPlaceError(result.part ? 'This layout has no parts sheet to put it on. Add one, then place the part from the Parts panel.' : 'This layout has no parts sheet to put them on. Add one, then import the model again.');
+        setPlaced({ ...result, toPlace: null, placed: ids.length, brickIds: ids });
+        // The server needn't keep the parts any longer.
+        void importApi.cancel(job.id);
+      })();
     }
-  }, [job, qc]);
+  }, [job, qc, into]);
 
   // Leaving before it's done cancels it: nothing stays on the server.
   const close = useCallback(() => {
     upload.current?.abort();
+    uploads.delete(file);
     if (jobId.current && !finished.current) void importApi.cancel(jobId.current);
     // Once: the unmount below must not ask again (a 404).
     jobId.current = null;
     onClose();
-  }, [onClose]);
+  }, [onClose, file]);
   useEffect(
     () => () => {
       if (jobId.current && !finished.current) void importApi.cancel(jobId.current);
@@ -144,10 +220,14 @@ export function ImportDialog({ file, into, isAdmin = false, onClose, onDone }: P
   async function make() {
     if (!job) return;
     setError(null);
-    const target: ImportTarget =
-      into && where === 'here' ? { kind: 'layout', layoutId: into.layoutId, sheetId, at: into.at } : { kind: 'new', title: title.trim() || name.trim() };
+    const target: ImportTarget = partOnly
+      ? { kind: 'library', ...(saveTo ? { orgSlug: saveTo } : {}) }
+      : into && where === 'here'
+        ? { kind: 'layout', layoutId: into.layoutId, sheetId, at: into.at, clientPlaces: true }
+        : { kind: 'new', title: title.trim() || name.trim() };
+    placing.current = into && where === 'here' ? { sheetId } : null;
     const choices: ConvertChoices = {
-      mode,
+      mode: partOnly ? 'part' : mode,
       quarterTurns: turns,
       align,
       nudge: [nudge.x, nudge.y],
@@ -165,7 +245,9 @@ export function ImportDialog({ file, into, isAdmin = false, onClose, onDone }: P
     }
   }
 
-  const state = error ? 'error' : !job ? 'uploading' : job.state;
+  // Done once the editor has put it down (or there was nothing to put down).
+  const state = error ? 'error' : !job ? 'uploading' : job.state === 'done' && !placed ? 'converting' : job.state;
+  const savedTo = partOnly && saveTo ? (orgs.data?.orgs.find((o) => o.slug === saveTo)?.name ?? null) : null;
   const working = state === 'uploading' || state === 'queued' || state === 'analysing' || state === 'converting';
 
   return (
@@ -190,7 +272,7 @@ export function ImportDialog({ file, into, isAdmin = false, onClose, onDone }: P
       >
         <header className="flex items-center gap-2 border-b border-line px-5 py-3">
           <h2 className="text-lg font-semibold">
-            {analysis ? `Preview: ${analysis.kindLabel}` : 'Import a model'}
+            {analysis ? `Preview: ${analysis.kindLabel}` : partOnly ? 'Make a custom part from a model' : 'Import a model'}
           </h2>
           <HelpButton helpKey="import.model" />
           {state === 'ready' && (
@@ -214,7 +296,7 @@ export function ImportDialog({ file, into, isAdmin = false, onClose, onDone }: P
             />
           )}
           {(state === 'queued' || state === 'converting') && job?.step === 'convert' && (
-            <Progress label={mode === 'part' ? 'Making the custom part…' : 'Placing the parts…'} testId="import-making" />
+            <Progress label={partOnly || mode === 'part' ? 'Making the custom part…' : 'Placing the parts…'} testId="import-making" />
           )}
           {state === 'error' && (
             <div data-testid="import-error" className="space-y-2">
@@ -233,7 +315,7 @@ export function ImportDialog({ file, into, isAdmin = false, onClose, onDone }: P
           {state === 'ready' && analysis && seeded && (
             <div className="grid gap-5 md:grid-cols-[3fr_2fr]" data-testid="import-preview">
               <div className="space-y-3">
-                {analysis.part && analysis.layout && (
+                {!partOnly && analysis.part && analysis.layout && (
                   <fieldset className="space-y-1 rounded-lg border border-line p-3">
                     <legend className="flex items-center gap-1 px-1 font-semibold">
                       Bring it in as <HelpButton helpKey="import.mode" />
@@ -397,45 +479,75 @@ export function ImportDialog({ file, into, isAdmin = false, onClose, onDone }: P
                     </label>
                   </>
                 )}
-                <fieldset className="space-y-1 rounded-lg border border-line p-3">
-                  <legend className="flex items-center gap-1 px-1 font-semibold">
-                    Put it in <HelpButton helpKey="import.where" />
-                  </legend>
-                  {into && (
+                {partOnly ? (
+                  <fieldset className="space-y-2 rounded-lg border border-line p-3" data-testid="import-save-to">
+                    <legend className="flex items-center gap-1 px-1 font-semibold">
+                      Save it <HelpButton helpKey="import.saveTo" />
+                    </legend>
+                    <SaveToPicker value={saveTo} onChange={setSaveTo} orgs={orgs.data?.orgs} kind="part" />
+                    {into && (
+                      <>
+                        <label className="flex items-center gap-2">
+                          <input type="radio" name="import-where" checked={where === 'library'} onChange={() => setWhere('library')} />
+                          Save to my parts
+                        </label>
+                        <label className="flex flex-wrap items-center gap-2">
+                          <input type="radio" name="import-where" checked={where === 'here'} onChange={() => setWhere('here')} />
+                          Save and place it here, on
+                          <select aria-label="Sheet" className={field + ' w-auto'} value={sheetId} disabled={where !== 'here'} onChange={(e) => setSheetId(e.target.value)}>
+                            {into.sheets.map((s) => (
+                              <option key={s.id} value={s.id}>
+                                {s.name || 'Sheet'}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                      </>
+                    )}
+                  </fieldset>
+                ) : (
+                  <fieldset className="space-y-1 rounded-lg border border-line p-3">
+                    <legend className="flex items-center gap-1 px-1 font-semibold">
+                      Put it in <HelpButton helpKey="import.where" />
+                    </legend>
+                    {into && (
+                      <label className="flex items-center gap-2">
+                        <input type="radio" name="import-where" checked={where === 'here'} onChange={() => setWhere('here')} />
+                        This layout, on
+                        <select aria-label="Sheet" className={field + ' w-auto'} value={sheetId} disabled={where !== 'here'} onChange={(e) => setSheetId(e.target.value)}>
+                          {into.sheets.map((s) => (
+                            <option key={s.id} value={s.id}>
+                              {s.name || 'Sheet'}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    )}
                     <label className="flex items-center gap-2">
-                      <input type="radio" name="import-where" checked={where === 'here'} onChange={() => setWhere('here')} />
-                      This layout, on
-                      <select aria-label="Sheet" className={field + ' w-auto'} value={sheetId} disabled={where !== 'here'} onChange={(e) => setSheetId(e.target.value)}>
-                        {into.sheets.map((s) => (
-                          <option key={s.id} value={s.id}>
-                            {s.name || 'Sheet'}
-                          </option>
-                        ))}
-                      </select>
+                      <input type="radio" name="import-where" checked={where === 'new'} onChange={() => setWhere('new')} />A new layout
                     </label>
-                  )}
-                  <label className="flex items-center gap-2">
-                    <input type="radio" name="import-where" checked={where === 'new'} onChange={() => setWhere('new')} />A new layout
-                  </label>
-                  {where === 'new' && (
-                    <input aria-label="New layout’s name" className={field} value={title} onChange={(e) => setTitle(e.target.value)} maxLength={200} />
-                  )}
-                </fieldset>
+                    {where === 'new' && (
+                      <input aria-label="New layout’s name" className={field} value={title} onChange={(e) => setTitle(e.target.value)} maxLength={200} />
+                    )}
+                  </fieldset>
+                )}
               </div>
             </div>
           )}
-          {state === 'done' && job?.result && <Summary result={job.result} isAdmin={isAdmin} newLayout={job.result.newLayout} />}
+          {state === 'done' && placed && (
+            <Summary result={placed} isAdmin={isAdmin} newLayout={placed.newLayout} savedOnly={!placed.newLayout && placed.placed === 0 && !placeError} savedTo={savedTo} placeError={placeError} />
+          )}
         </div>
 
         <footer className="flex flex-wrap items-center justify-end gap-2 border-t border-line px-5 py-3">
-          {state === 'done' && job?.result ? (
+          {state === 'done' && placed ? (
             <>
-              {job.result.newLayout ? (
-                <Link to={`/editor/${job.result.layoutId}`} className={primary} onClick={() => onDone?.(job.result!)} data-testid="import-open-layout">
+              {placed.newLayout ? (
+                <Link to={`/editor/${placed.layoutId}`} className={primary} onClick={() => onDone?.(placed)} data-testid="import-open-layout">
                   Open the layout
                 </Link>
               ) : (
-                <button type="button" className={primary} onClick={() => (onDone ? onDone(job.result!) : onClose())}>
+                <button type="button" className={primary} onClick={() => (onDone ? onDone(placed) : onClose())}>
                   Done
                 </button>
               )}
@@ -450,10 +562,10 @@ export function ImportDialog({ file, into, isAdmin = false, onClose, onDone }: P
                   type="button"
                   className={primary}
                   data-testid="import-make"
-                  disabled={(mode === 'part' && (!part || !name.trim() || !category.trim())) || (mode === 'parts' && !analysis?.layout)}
+                  disabled={((partOnly || mode === 'part') && (!part || !name.trim() || !category.trim())) || (!partOnly && mode === 'parts' && !analysis?.layout)}
                   onClick={() => void make()}
                 >
-                  {mode === 'part' ? 'Save as Custom Part' : 'Place the parts'}
+                  {partOnly && where === 'here' ? 'Save and place it' : partOnly || mode === 'part' ? 'Save as Custom Part' : 'Place the parts'}
                 </button>
               )}
             </>
@@ -582,18 +694,47 @@ function PreviewPicture({
   );
 }
 
-function Summary({ result, isAdmin, newLayout }: { result: ImportResult; isAdmin: boolean; newLayout: boolean }) {
+function Summary({
+  result,
+  isAdmin,
+  newLayout,
+  savedOnly,
+  savedTo,
+  placeError,
+}: {
+  result: ImportResult;
+  isAdmin: boolean;
+  newLayout: boolean;
+  /** Only saved to the library: nothing was placed. */
+  savedOnly: boolean;
+  /** The club it was saved to; null for you. */
+  savedTo: string | null;
+  placeError: string | null;
+}) {
   const missing = result.stats?.unresolved ?? 0;
+  const saved = savedTo ? `saved it to ${savedTo}’s custom parts` : 'saved it to your custom parts';
+  const where = newLayout ? 'put it in a new layout' : result.placed > 0 ? (savedTo ? `${saved} and put it in the middle of your view` : 'put it in the middle of your view') : saved;
   return (
     <div className="space-y-3" data-testid="import-summary">
       {result.mode === 'part' && result.part ? (
         <p>
           Made the custom part <span className="font-semibold">“{result.part.displayName}”</span> ({result.widthStuds} × {result.heightStuds} studs,{' '}
-          {result.connections} connection point{result.connections === 1 ? '' : 's'}) and put it {newLayout ? 'in a new layout' : 'in the middle of your view'}.
+          {result.connections} connection point{result.connections === 1 ? '' : 's'}) and {where}.
         </p>
       ) : (
         <p>
           Placed <span className="font-semibold">{result.placed}</span> part{result.placed === 1 ? '' : 's'} {newLayout ? 'in a new layout' : 'in this layout'}.
+        </p>
+      )}
+      {savedOnly && <p className="text-muted">It’s in your Parts panel and under Custom parts, ready to place.</p>}
+      {!newLayout && !savedOnly && result.placed > 0 && (
+        <p className="text-muted" data-testid="import-undo-hint">
+          Changed your mind? Edit › Undo takes the whole import back in one step.
+        </p>
+      )}
+      {placeError && (
+        <p className="text-danger" role="alert" data-testid="import-place-error">
+          {placeError}
         </p>
       )}
       {result.stats && <Stats stats={result.stats} />}

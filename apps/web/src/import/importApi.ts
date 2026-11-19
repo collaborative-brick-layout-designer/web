@@ -49,14 +49,29 @@ export interface ImportAnalysis {
   layoutError: string | null;
 }
 
+/** What the editor puts down itself (target "layout" with clientPlaces), as the model's .bbm has it. */
+export interface ToPlace {
+  bricks: {
+    partNumber: string;
+    displayArea: { x: number; y: number; width: number; height: number };
+    orientation?: number;
+    altitude?: number;
+    myGroup?: string;
+  }[];
+  groups: { id: string; partNumber?: string; myGroup?: string }[];
+}
+
 export interface ImportResult {
   mode: 'part' | 'parts';
-  layoutId: string;
+  /** Null when the part was only saved to the library. */
+  layoutId: string | null;
   newLayout: boolean;
   part: { id: string; partNumber: string; displayName: string } | null;
   placed: number;
   sheetId: string | null;
   brickIds: string[];
+  /** Into the open layout: the editor puts these down itself, in its own undo. */
+  toPlace?: ToPlace | null;
   stats: ImportStats | null;
   warnings: string[];
   widthStuds: number | null;
@@ -78,7 +93,11 @@ export interface ImportJob {
 
 export type ImportTarget =
   | { kind: 'new'; title?: string; orgSlug?: string }
-  | { kind: 'layout'; layoutId: string; sheetId?: string; at?: { x: number; y: number } };
+  // clientPlaces: the server answers with the parts (toPlace) and the editor puts them down,
+  // so Undo takes them back. Without it (pages from before 2026-11-19) the server placed them.
+  | { kind: 'layout'; layoutId: string; sheetId?: string; at?: { x: number; y: number }; clientPlaces: true }
+  /** Only save the custom part, to you ('' / none) or a club; nothing is placed. */
+  | { kind: 'library'; orgSlug?: string };
 
 export interface ConvertChoices {
   mode: 'part' | 'parts';

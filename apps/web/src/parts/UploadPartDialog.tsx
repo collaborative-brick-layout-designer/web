@@ -1,6 +1,8 @@
 // Upload a custom part: its BlueBrick XML, a sprite, a name and category,
 // and where it's saved (you or one of your clubs). Opened from the home
-// page's Custom parts section and from the editor's Parts panel.
+// page's Custom parts section and from the editor's Parts panel. A part made
+// from an LDraw, Studio or LDD model goes through the site's own import
+// (`onImportModel`) when this site can import; else the desktop app's steps.
 
 import { useEffect, useState, type ChangeEvent, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -10,11 +12,18 @@ import { SaveToPicker } from '../owners/OwnerControls';
 import { CategoryPicker } from './CategoryPicker';
 import { DesktopOnlySteps } from '../open/DesktopOnly';
 import { useEscape } from '../editor/useEscape';
+import { importApi } from '../import/importApi';
+import { HelpButton } from '../help/HelpButton';
 
-/** `filter`: the owner filter being shown (home page); otherwise the last one picked there. */
-export function UploadPartDialog({ onClose, filter }: { onClose: () => void; filter?: OwnerFilter }) {
+/**
+ * `filter`: the owner filter being shown (home page); otherwise the last one picked there.
+ * `onImportModel`: open the site's model import instead (from a click: it opens the file picker).
+ */
+export function UploadPartDialog({ onClose, filter, onImportModel }: { onClose: () => void; filter?: OwnerFilter; onImportModel?: (() => void) | undefined }) {
   useEscape(onClose);
   const qc = useQueryClient();
+  const importStatus = useQuery({ queryKey: ['imports-status'], queryFn: importApi.status, staleTime: 60_000 });
+  const canImport = !!onImportModel && importStatus.data?.available === true;
   const orgs = useQuery({ queryKey: ['orgs'], queryFn: api.orgs.list });
   const catalog = useQuery({ queryKey: ['parts-catalog'], queryFn: api.parts.catalog, staleTime: 5 * 60 * 1000 });
   const [partNumber, setPartNumber] = useState('');
@@ -90,12 +99,25 @@ export function UploadPartDialog({ onClose, filter }: { onClose: () => void; fil
       >
         <h3 className="text-lg font-semibold">Upload custom part</h3>
 
-        <details className="rounded-lg border border-line bg-soft px-3 py-2 text-xs text-muted">
-          <summary className="cursor-pointer font-semibold text-ink">Making a part from an LDraw, Studio or LDD model?</summary>
-          <div className="mt-2">
-            <DesktopOnlySteps part />
+        {canImport ? (
+          <div className="flex items-start gap-1 rounded-lg border border-line bg-soft px-3 py-2 text-xs text-muted" data-testid="upload-part-import">
+            <p>
+              Making a part from an LDraw, Studio or LDD model?{' '}
+              <button type="button" onClick={onImportModel} className="font-semibold text-accent-text hover:underline">
+                Import from a model file (LDraw, Studio, LDD)
+              </button>{' '}
+              and this site makes the part for you.
+            </p>
+            <HelpButton helpKey="import.asPart" />
           </div>
-        </details>
+        ) : (
+          <details className="rounded-lg border border-line bg-soft px-3 py-2 text-xs text-muted">
+            <summary className="cursor-pointer font-semibold text-ink">Making a part from an LDraw, Studio or LDD model?</summary>
+            <div className="mt-2">
+              <DesktopOnlySteps part />
+            </div>
+          </details>
+        )}
 
         <label className="block">
           <span className="mb-1 block text-muted">Part number</span>

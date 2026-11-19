@@ -6,7 +6,8 @@
 //   POST   /api/imports                   multipart `file`: upload, start the preview
 //   GET    /api/imports/:id               the job: where it is, the preview, the result
 //   GET    /api/imports/:id/preview.png   the preview's picture
-//   POST   /api/imports/:id/convert       the preview's choices and where it goes
+//   POST   /api/imports/:id/convert       the preview's choices and where it goes:
+//                                         target { kind: "new" | "layout" (+ clientPlaces) | "library" }
 //   DELETE /api/imports/:id               cancel, and delete its files
 //
 // Admin › Model import:
@@ -168,6 +169,7 @@ const s = (v: unknown, max: number) => (typeof v === 'string' ? v.slice(0, max) 
 function readTarget(v: unknown): ImportTarget | null {
   if (!v || typeof v !== 'object') return null;
   const t = v as Record<string, unknown>;
+  if (t.kind === 'library') return { kind: 'library', ...(typeof t.orgSlug === 'string' && t.orgSlug ? { orgSlug: t.orgSlug.slice(0, 100) } : {}) };
   if (t.kind === 'new') return { kind: 'new', ...(typeof t.title === 'string' ? { title: t.title.slice(0, 200) } : {}), ...(typeof t.orgSlug === 'string' && t.orgSlug ? { orgSlug: t.orgSlug } : {}) };
   if (t.kind === 'layout' && typeof t.layoutId === 'string') {
     const at = t.at as { x?: unknown; y?: unknown } | undefined;
@@ -177,6 +179,7 @@ function readTarget(v: unknown): ImportTarget | null {
       layoutId: t.layoutId,
       ...(typeof t.sheetId === 'string' && t.sheetId ? { sheetId: t.sheetId.slice(0, 100) } : {}),
       ...(ok ? { at: { x: at.x as number, y: at.y as number } } : {}),
+      ...(t.clientPlaces === true ? { clientPlaces: true } : {}),
     };
   }
   return null;
@@ -304,6 +307,8 @@ export async function importRoutes(app: FastifyInstance): Promise<void> {
     if (mode === 'part' && !job.analysis?.part) return reply.code(400).send({ error: 'mode_unavailable' });
     const target = readTarget(body.target);
     if (!target) return reply.code(400).send({ error: 'invalid_target' });
+    // Only a part can be saved to the library: placed parts need a layout.
+    if (target.kind === 'library' && mode !== 'part') return reply.code(400).send({ error: 'invalid_target' });
     const allowed = await checkTarget(user, target);
     if (!allowed.ok) return reply.code(allowed.status).send({ error: allowed.error, ...(allowed.permission ? { permission: allowed.permission } : {}) });
     const align = body.align === 'bottom' || body.align === 'box' ? body.align : '';
@@ -338,6 +343,8 @@ export async function importRoutes(app: FastifyInstance): Promise<void> {
         placed: applied.placed,
         sheetId: applied.sheetId,
         brickIds: applied.brickIds,
+        // The editor puts these down itself, in its own undo (target "layout" with clientPlaces).
+        toPlace: applied.toPlace ?? null,
         stats: r.stats ?? null,
         warnings: r.warnings ?? [],
         widthStuds: r.widthStuds ?? null,
