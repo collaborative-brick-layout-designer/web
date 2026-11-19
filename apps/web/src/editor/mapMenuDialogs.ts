@@ -9,6 +9,7 @@ import { resolveMenu, type ResolvedEntry } from '../ui/menu/menuModel';
 /** Map menu entries that open no dialog of their own, and what they do instead. */
 export const MAP_MENU_NOT_DIALOGS: Readonly<Record<string, string>> = {
   'open-file': 'the browser’s file picker',
+  'import-model': 'the browser’s file picker (the import dialog it opens has its own case in a11y.spec.ts)',
   'file-download-as': 'the same dialog as Download & export › Download as…',
   'make-module': 'needs parts picked first',
   'save-set': 'needs parts picked first',
