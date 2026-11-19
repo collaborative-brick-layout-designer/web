@@ -170,7 +170,7 @@ describe('model import', () => {
       expect(s).toMatchObject({ available: false, reason });
       expect(s.message).toBeTruthy();
       const up = await upload(LDR, 'loop.ldr');
-      expect(up.statusCode).toBe(503);
+      expect(up.statusCode).toBe(409);
       expect(up.json()).toMatchObject({ error: 'import_unavailable', reason });
     }
   });

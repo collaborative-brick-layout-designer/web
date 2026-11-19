@@ -18,7 +18,7 @@ on its own). Bodies are JSON unless marked multipart.
 | Route | Body | Answer |
 |---|---|---|
 | `GET /api/imports/status` | | `{ available, reason, message, extensions, maxUploadBytes, perHour, libraries: { ldraw, ldd, lddMapping, studio } }` |
-| `POST /api/imports` | **multipart**, one part `file` (the model, filename with its extension), no other fields | 202 job; 415 `unsupported_type`; 413 `file_too_large`; 429 `import_rate_limited` (Retry-After) or `too_many_open_imports`; 503 `import_unavailable`; 403 for the demo account |
+| `POST /api/imports` | **multipart**, one part `file` (the model, filename with its extension), no other fields | 202 job; 415 `unsupported_type`; 413 `file_too_large`; 429 `import_rate_limited` (Retry-After) or `too_many_open_imports`; 409 `import_unavailable` (import off here, with `reason` and `message`); 415 `not_multipart`; 403 for the demo account |
 | `GET /api/imports/:id` | | the job: `{ id, fileName, state, step, position, error, analysis, result }` |
 | `GET /api/imports/:id/preview.png` | | the preview picture (PNG), while the job is `ready` |
 | `POST /api/imports/:id/convert` | `{ mode: "part"\|"parts", quarterTurns, align: ""\|"bottom"\|"box", nudge: [x, y], drop: [indices], name, designer, designerUrl, category, target }` with `target` `{ kind: "new", title?, orgSlug? }` or `{ kind: "layout", layoutId, sheetId?, at?: { x, y } }` | 202 job |
@@ -34,6 +34,8 @@ on its own). Bodies are JSON unless marked multipart.
 | `DELETE /api/admin/imports/ldd/mapping` | | |
 | `POST /api/admin/imports/studio` | **multipart** `file`: a zip of Studio's `ldraw` folder, up to 1 GB | |
 | `DELETE /api/admin/imports/studio` | | |
+
+Admin library routes answer 422 (`library_failed`, `not_that_kind_of_file`) when a download or file doesn't work out, 409 (`forced_by_env`) when an env var names that library, 413 when a file is too big. No import route answers 5xx.
 
 Every route is in the security route probes
 (`apps/server/src/security/routeProbes.test.ts`). The upload routes'

@@ -237,8 +237,10 @@ export async function importRoutes(app: FastifyInstance): Promise<void> {
   app.post('/api/imports', { config: { rateLimit: perPerson(30, '1 minute') } }, async (req, reply) => {
     const user = requireUser(req);
     if (isDemoUser(user)) return reply.code(403).send({ error: 'demo_account_cannot_import' });
+    if (!req.isMultipart()) return reply.code(415).send({ error: 'not_multipart' });
+    // A 4xx, not a 503: the site works, this feature is off (and nothing here answers 5xx).
     const a = await availability();
-    if (!a.available) return reply.code(503).send({ error: 'import_unavailable', reason: a.reason, message: a.message });
+    if (!a.available) return reply.code(409).send({ error: 'import_unavailable', reason: a.reason, message: a.message });
     if (openJobsOf(user.id).length >= MAX_OPEN_PER_USER) return reply.code(429).send({ error: 'too_many_open_imports', max: MAX_OPEN_PER_USER });
     const { limits } = await importSettings();
     const maxBytes = limits.maxUploadMb * 1024 * 1024;
@@ -381,7 +383,8 @@ export async function importRoutes(app: FastifyInstance): Promise<void> {
         await work(req);
       } catch (e) {
         if (e instanceof ForcedByEnv || e instanceof UploadTooBig || e instanceof NotThatKindOfFile || e instanceof ZipRefused) return refusedFile(reply, e);
-        return reply.code(502).send({ error: 'library_failed', message: e instanceof Error ? e.message : 'failed' });
+        // A 4xx: the download or file didn't work out (nothing here answers 5xx).
+        return reply.code(422).send({ error: 'library_failed', message: e instanceof Error ? e.message : 'failed' });
       }
       await writeAuditEvent({ resourceKind: 'platform_settings', resourceId: 'imports', userId: me.id, eventType: 'admin_import_library', payload: { what: event } });
       return adminView();
@@ -394,6 +397,7 @@ export async function importRoutes(app: FastifyInstance): Promise<void> {
   };
 
   const uploadTo = async (req: FastifyRequest, max: number, save: (f: NodeJS.ReadableStream) => Promise<unknown>) => {
+    if (!req.isMultipart()) throw new NotThatKindOfFile('Send the file as a form upload (multipart).');
     const data = await req.file({ limits: { fileSize: max + 1, files: 1, fields: 0, parts: 1 } });
     if (!data) throw new NotThatKindOfFile('No file was sent.');
     await save(data.file as unknown as NodeJS.ReadableStream);
