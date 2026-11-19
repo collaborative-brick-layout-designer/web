@@ -204,7 +204,8 @@ import { Menu } from '../ui/menu/Menu';
 import { resolveMenu } from '../ui/menu/menuModel';
 import { mapMenuEntries, modKey, phoneMapEntries, type MapMenuToggles } from './mapMenu';
 import { openFilePicker } from '../open/FileOpener';
-import { importApi, IMPORT_ACCEPT } from '../import/importApi';
+import { importApi, IMPORT_ACCEPT, type ToPlace } from '../import/importApi';
+import { placeImported } from '../import/placeImport';
 import { OpenedSummaryCard } from '../open/OpenedSummary';
 import { DemoBanner } from '../demo/DemoBanner';
 // Dialogs and infrequently-used panels — lazy-loaded so they don't bloat
@@ -509,9 +510,35 @@ function Editor({ layoutId, docState, moduleMode }: { layoutId: string; docState
   const [showImportBbm, setShowImportBbm] = useState(false);
   // Import an LDraw, Studio or LDD model into this layout (import/ImportDialog.tsx).
   const [importFile, setImportFile] = useState<File | null>(null);
+  // From the Parts panel: only make a custom part (saved, and placed here if asked).
+  const [importAsPart, setImportAsPart] = useState(false);
   const importInput = useRef<HTMLInputElement>(null);
   const importStatus = useQuery({ queryKey: ['imports-status'], queryFn: importApi.status, staleTime: 60_000, enabled: !docState.signedOut });
-  const importModel = importStatus.data?.available && role !== 'viewer' ? () => importInput.current?.click() : undefined;
+  const importModel =
+    importStatus.data?.available && role !== 'viewer'
+      ? () => {
+          setImportAsPart(false);
+          importInput.current?.click();
+        }
+      : undefined;
+  const importModelAsPart =
+    importStatus.data?.available && role !== 'viewer'
+      ? () => {
+          setImportAsPart(true);
+          importInput.current?.click();
+        }
+      : undefined;
+  // The import's parts go down as this editor's own change: one Undo step, synced to everyone.
+  const placeImport = useCallback(
+    (sheetId: string, toPlace: ToPlace) => {
+      if (!doc) return [];
+      undo.manager?.stopCapturing();
+      const { ids } = placeImported(doc, sheetId, canvasActionsRef.current?.viewCentre() ?? viewCentreStuds(viewport), toPlace);
+      undo.manager?.stopCapturing();
+      return ids;
+    },
+    [doc, undo.manager, viewport],
+  );
   const [showSharedUpdates, setShowSharedUpdates] = useState(false);
   const [showAddLabel, setShowAddLabel] = useState(false);
   const [showSaveAsSet, setShowSaveAsSet] = useState(false);
@@ -788,7 +815,7 @@ function Editor({ layoutId, docState, moduleMode }: { layoutId: string; docState
   function panelBody(panelId: string): React.ReactNode {
     if (!doc) return null;
     if (moduleMode && NOT_IN_MODULES.has(panelId)) return null;
-    if (panelId === 'parts') return <PartsPanel onPlacePart={onPlacePart} budgetLimits={budgetLimits} map={budgetLimits.size > 0 ? docMap : null} canUploadPart={!!me.data?.user && !me.data.user.isDemoAccount} mapEmpty={!isViewer && mapHasNoParts(docMap)} />;
+    if (panelId === 'parts') return <PartsPanel onPlacePart={onPlacePart} budgetLimits={budgetLimits} map={budgetLimits.size > 0 ? docMap : null} canUploadPart={!!me.data?.user && !me.data.user.isDemoAccount} onImportModel={me.data?.user && !me.data.user.isDemoAccount ? importModelAsPart : undefined} mapEmpty={!isViewer && mapHasNoParts(docMap)} />;
     if (panelId === 'layers') return <LayersPanelHost doc={doc} isViewer={isViewer} />;
     if (panelId === 'usedparts') return <UsedPartsPanel doc={doc} budgetLimits={budgetLimits} />;
     if (panelId === 'modules') return <Suspense fallback={null}><ModulesPanel doc={doc} isViewer={isViewer} layoutId={moduleMode ? null : layoutId} /></Suspense>;
@@ -1665,6 +1692,7 @@ function Editor({ layoutId, docState, moduleMode }: { layoutId: string; docState
         <ImportModelDialog
           file={importFile}
           isAdmin={!!me.data?.user?.isGlobalAdmin}
+          purpose={importAsPart ? 'part' : 'any'}
           into={{
             layoutId,
             sheets: (() => {
@@ -1674,11 +1702,12 @@ function Editor({ layoutId, docState, moduleMode }: { layoutId: string; docState
               return sheets;
             })(),
             at: canvasActionsRef.current?.viewCentre() ?? viewCentreStuds(viewport),
+            place: placeImport,
           }}
           onClose={() => setImportFile(null)}
           onDone={(r) => {
             setImportFile(null);
-            if (!r.newLayout) useEditorStore.getState().setSelection(r.brickIds);
+            if (!r.newLayout && r.brickIds.length > 0) useEditorStore.getState().setSelection(r.brickIds);
           }}
         />
       )}

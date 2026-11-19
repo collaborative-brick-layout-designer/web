@@ -21,6 +21,18 @@ export const WEB_ONLY_HELP_TEXTS = {
     short: 'How big a file can be, how often each person can import, and how much the server works on at once.',
     more: 'Each preview and each import counts toward the hourly limit. Imports beyond the ones running wait in line, and people see their place. An import that takes longer than the time limit is stopped and the person is told.',
   },
+  'import.asPart': {
+    title: 'A custom part from a model',
+    short: 'Turn an LDraw, BrickLink Studio or LDD model into one custom part, read by the desktop app’s own importer.',
+    more: 'Pick the model file, line it up with the studs in the preview, and save it to your parts or a club’s. It shows up in Custom parts and the Parts panel at once. In the editor you can also place it in the middle of your view.',
+    learnMoreUrl: '/help#importing',
+  },
+  'import.saveTo': {
+    title: 'Where the part is saved',
+    short: 'Save the new part to your own parts or to a club you add parts to.',
+    more: 'Save to my parts only adds it to your parts, ready to place later. Save and place it here also puts it in the middle of your view, on the sheet you pick; Edit › Undo takes it back off the map, and the part stays saved.',
+    learnMoreUrl: '/help#importing',
+  },
   'catalog.sharedModules': {
     title: 'Shared modules in a published layout',
     short: 'A published layout carries the parts of the shared modules placed in it.',

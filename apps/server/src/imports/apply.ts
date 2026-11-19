@@ -4,9 +4,19 @@
 //     placed once;
 //   - mode "parts": the parts of an .ldr / .mpd placed one by one, as the
 //     desktop's File › Open places them (the converter's .bbm).
-// Either goes into a new layout, or into a layout the person may edit, as
-// the server's own change in its room (like a shared module's update):
-// everyone in it sees it at once.
+// Where it goes (the convert body's `target`):
+//   - "new": a new layout, made here (nothing is open, so there is nothing
+//     to undo: Home and a dropped file);
+//   - "layout" with `clientPlaces: true`: the layout open in the editor. The
+//     server makes the part (mode "part") and answers with the parts to put
+//     down (`toPlace`); the editor puts them down itself, as its own change,
+//     so one Undo takes the whole import back and collaborators see it at
+//     once through the editor's sync;
+//   - "library" (mode "part" only): the part is saved to you or a club, and
+//     nothing is placed (Custom parts and the Parts panel's "Save to my parts").
+// Deprecated: "layout" without `clientPlaces` (the editor before 2026-11-19)
+// still puts the parts in as the server's change in the layout's room, out of
+// anyone's undo. It stays for one release, for a page loaded before then.
 
 import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
@@ -34,17 +44,27 @@ type User = ReturnType<typeof requireUser>;
 
 export type ImportTarget =
   | { kind: 'new'; title?: string; orgSlug?: string }
-  | { kind: 'layout'; layoutId: string; sheetId?: string; at?: { x: number; y: number } };
+  | { kind: 'layout'; layoutId: string; sheetId?: string; at?: { x: number; y: number }; clientPlaces?: boolean }
+  | { kind: 'library'; orgSlug?: string };
+
+/** The parts the editor puts down itself (target "layout" with `clientPlaces`), as the .bbm has them. */
+export interface ToPlace {
+  bricks: BatchBrick[];
+  groups: Parameters<typeof cloneGroups>[0][number][];
+}
 
 export interface ApplyOk {
   ok: true;
-  layoutId: string;
+  /** Null for target "library": no layout is made or changed. */
+  layoutId: string | null;
   /** The new custom part, in part mode. */
   part?: { id: string; partNumber: string; displayName: string };
   placed: number;
   sheetId: string | null;
   /** The new parts' ids in the layout, so the editor can select them. */
   brickIds: string[];
+  /** Target "layout" with `clientPlaces`: what the editor puts down. */
+  toPlace?: ToPlace;
 }
 export type ApplyResult = ApplyOk | { ok: false; status: number; error: string; permission?: string };
 
@@ -57,6 +77,16 @@ export async function checkTarget(user: User, target: ImportTarget): Promise<{ o
     if (!dest.ok) return { ok: false, status: dest.code, error: dest.error, ...(dest.permission ? { permission: dest.permission } : {}) };
     return { ok: true };
   }
+  if (target.kind === 'library') {
+    // The same checks as Upload part (createCustomPart), before anything runs.
+    if (!target.orgSlug) return { ok: true };
+    const org = await db.select({ id: schema.orgs.id }).from(schema.orgs).where(eq(schema.orgs.slug, target.orgSlug.toLowerCase())).get();
+    if (!org) return { ok: false, status: 404, error: 'org_not_found' };
+    const access = await clubAccess(user.id, org.id);
+    if (!access) return { ok: false, status: 403, error: 'not_an_org_member' };
+    if (!access.permissions.has('add_parts')) return { ok: false, status: 403, error: 'only_club_admins_can_add', permission: 'add_parts' };
+    return { ok: true };
+  }
   if (!UUID.test(target.layoutId)) return { ok: false, status: 400, error: 'invalid_layout' };
   const role = await resolveResourceRole(user.id, 'layout', target.layoutId);
   if (!hasAtLeast(role.role, 'editor')) return { ok: false, status: 403, error: 'forbidden' };
@@ -66,6 +96,8 @@ export async function checkTarget(user: User, target: ImportTarget): Promise<{ o
 /** The club a new part goes to: the layout's club when the person may add parts there, else their own. */
 async function partOrgSlug(user: User, target: ImportTarget): Promise<string | undefined> {
   let orgId: string | null;
+  // Checked before the converter ran (checkTarget); createCustomPart checks it again.
+  if (target.kind === 'library') return target.orgSlug?.toLowerCase() || undefined;
   if (target.kind === 'new') {
     if (!target.orgSlug) return undefined;
     const org = await db.select({ id: schema.orgs.id }).from(schema.orgs).where(eq(schema.orgs.slug, target.orgSlug.toLowerCase())).get();
@@ -97,7 +129,7 @@ async function freePartNumber(base: string, owner: { userId: string | null; orgI
   return key;
 }
 
-async function newLayout(user: User, target: Extract<ImportTarget, { kind: 'new' }>, doc: Y.Doc, fallbackTitle: string): Promise<ApplyResult & { ok: true } | ApplyResult> {
+async function newLayout(user: User, target: Extract<ImportTarget, { kind: 'new' }>, doc: Y.Doc, fallbackTitle: string): Promise<(ApplyOk & { layoutId: string }) | Extract<ApplyResult, { ok: false }>> {
   const dest = await destinationOrg(user.id, target.orgSlug);
   if (!dest.ok) return { ok: false, status: dest.code, error: dest.error, ...(dest.permission ? { permission: dest.permission } : {}) };
   const owner: Subject = dest.orgId ? { kind: 'org', id: dest.orgId } : { kind: 'user', id: user.id };
@@ -204,6 +236,8 @@ export async function applyPart(
     await hintLayout(made2.layoutId, 'create');
     return { ...made2, part, placed: ids.length, sheetId: sheet, brickIds: ids };
   }
+  if (target.kind === 'library') return { ok: true, layoutId: null, part, placed: 0, sheetId: null, brickIds: [] };
+  if (target.clientPlaces) return { ok: true, layoutId: target.layoutId, part, placed: 0, sheetId: target.sheetId ?? null, brickIds: [], toPlace: { bricks: [brick], groups: [] } };
   const placed = await intoLayout(target.layoutId, target.sheetId, [brick], [], target.at ?? { x: 0, y: 0 });
   if (!placed) return { ok: false, status: 409, error: 'no_sheet' };
   return { ok: true, layoutId: target.layoutId, part, placed: placed.ids.length, sheetId: placed.sheetId, brickIds: placed.ids };
@@ -219,6 +253,7 @@ export async function applyLayout(user: User, outDir: string, bbmFile: string, t
     const bricks = parsed.map.layers.reduce((n, l) => n + (l.type === 'brick' ? l.bricks.length : 0), 0);
     return { ...made, placed: bricks };
   }
+  if (target.kind === 'library') return { ok: false, status: 400, error: 'invalid_target' };
   const bricks: BatchBrick[] = [];
   const groupsIn: Parameters<typeof cloneGroups>[0][number][] = [];
   for (const b of moduleBatchesFromMap(parsed.map)) {
@@ -226,6 +261,8 @@ export async function applyLayout(user: User, outDir: string, bbmFile: string, t
     groupsIn.push(...(b.groups ?? []));
   }
   if (bricks.length === 0) return { ok: false, status: 422, error: 'nothing_to_place' };
+  // The editor gives them new ids and sets as it puts them down.
+  if (target.clientPlaces) return { ok: true, layoutId: target.layoutId, placed: 0, sheetId: target.sheetId ?? null, brickIds: [], toPlace: { bricks, groups: groupsIn } };
   const copied = cloneGroups(groupsIn, bricks, makeId);
   const placed = await intoLayout(target.layoutId, target.sheetId, copied.bricks, copied.groups, target.at ?? { x: 0, y: 0 });
   if (!placed) return { ok: false, status: 409, error: 'no_sheet' };

@@ -37,6 +37,7 @@ export const PartsPanel = memo(function PartsPanel({
   budgetLimits,
   map,
   canUploadPart = false,
+  onImportModel,
   mapEmpty = false,
 }: {
   onPlacePart: (part: PartWire) => void;
@@ -44,6 +45,8 @@ export const PartsPanel = memo(function PartsPanel({
   mapEmpty?: boolean;
   /** Offer "Upload part…" (signed in, not a demo account). */
   canUploadPart?: boolean;
+  /** Make a custom part from an LDraw, Studio or LDD model (the site can import, and I may edit here). */
+  onImportModel?: (() => void) | undefined;
   /** The layout's budget; without limits there is no budget to show or filter by. */
   budgetLimits?: ReadonlyMap<string, number>;
   map?: BbmMap | null;
@@ -233,6 +236,20 @@ export const PartsPanel = memo(function PartsPanel({
                 Upload part…
               </button>
             )}
+            {canUploadPart && onImportModel && (
+              <span className="inline-flex items-center gap-1">
+                {/* Short, so the panel keeps its space for the parts (the hover text and the dialog's ⓘ say which files). */}
+                <button
+                  type="button"
+                  onClick={onImportModel}
+                  data-testid="parts-import-model"
+                  title="Import from a model file (LDraw, Studio, LDD)"
+                  className="whitespace-nowrap text-xs font-semibold text-accent-text hover:underline"
+                >
+                  From a model file…
+                </button>
+              </span>
+            )}
             {canUploadPart && catalogSettings.data?.parts && (
               <button type="button" onClick={() => setFromCatalog(true)} className="text-xs font-semibold text-accent-text hover:underline">
                 From the catalog…
@@ -248,7 +265,8 @@ export const PartsPanel = memo(function PartsPanel({
           </div>
         )}
       </div>
-      <div ref={listRef} className="flex-1 min-h-0 overflow-y-auto touch-pan-y">
+      {/* Never squeezed to nothing: a row of parts stays in view however small the panel (the links above may wrap). */}
+      <div ref={listRef} className="flex-1 min-h-24 overflow-y-auto touch-pan-y">
         {isLoading && <p className="p-3 text-xs text-muted">Loading catalog…</p>}
         {!isLoading && visible.length === 0 && (
           <p className="p-3 text-xs text-muted">No parts match this filter.</p>
@@ -339,7 +357,19 @@ export const PartsPanel = memo(function PartsPanel({
           })}
         </ul>
       </div>
-      {uploading && <UploadPartDialog onClose={() => setUploading(false)} />}
+      {uploading && (
+        <UploadPartDialog
+          onClose={() => setUploading(false)}
+          onImportModel={
+            onImportModel
+              ? () => {
+                  setUploading(false);
+                  onImportModel();
+                }
+              : undefined
+          }
+        />
+      )}
       {fromCatalog && <CatalogPartsDialog onClose={() => setFromCatalog(false)} />}
       {ctxMenu && (
         <PartContextMenuPopup

@@ -12,6 +12,8 @@ import { CreditLine, MoveCopyDialog, OwnerChip, ReturnMenuItems } from '../owner
 import { MoreMenu, MORE_ITEM } from '../ui/MoreMenu';
 import { CatalogBadge, ShareToCatalogDialog, UpdateAvailable, useCatalogStatus } from '../catalog/ShareToCatalog';
 import { UploadPartDialog } from './UploadPartDialog';
+import { useModelPartImport } from '../import/useModelPartImport';
+import { HelpButton } from '../help/HelpButton';
 import { AddToCollectionDialog } from '../catalog/AddToCollection';
 import { atLeast } from '../orgs/clubRoles';
 import { askConfirm, confirmDelete, showToast, toastDeleted } from '../ui/ConfirmDialog';
@@ -47,6 +49,8 @@ export function CustomPartsSection({
   const qc = useQueryClient();
   const parts = useQuery({ queryKey: ['custom-parts'], queryFn: api.customParts.list });
   const [uploading, setUploading] = useState(false);
+  // Make one from an LDraw, Studio or LDD model, when this site can import.
+  const fromModel = useModelPartImport({ enabled: canUpload, filter });
   const [sharing, setSharing] = useState<CustomPartSummary | null>(null);
   const [toCollection, setToCollection] = useState<CustomPartSummary | null>(null);
   const [moving, setMoving] = useState<CustomPartSummary | null>(null);
@@ -88,14 +92,30 @@ export function CustomPartsSection({
           Custom parts
         </h2>
         {canUpload && (
-          <button
-            type="button"
-            onClick={() => setUploading(true)}
-            className="tap-target rounded-lg border border-border px-3 py-1.5 text-sm font-semibold hover:bg-soft"
-          >
-            Upload part
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            {fromModel.pick && (
+              <span className="inline-flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={fromModel.pick}
+                  data-testid="parts-import-model"
+                  className="tap-target rounded-lg border border-border px-3 py-1.5 text-sm font-semibold hover:bg-soft"
+                >
+                  Import from a model file (LDraw, Studio, LDD)
+                </button>
+                <HelpButton helpKey="import.asPart" />
+              </span>
+            )}
+            <button
+              type="button"
+              onClick={() => setUploading(true)}
+              className="tap-target rounded-lg border border-border px-3 py-1.5 text-sm font-semibold hover:bg-soft"
+            >
+              Upload part
+            </button>
+          </div>
         )}
+        {fromModel.element}
       </div>
       {parts.isLoading ? (
         <p className="text-sm text-muted">Loading…</p>
@@ -224,7 +244,20 @@ export function CustomPartsSection({
           onClose={() => setRenamingSet(null)}
         />
       )}
-      {uploading && <UploadPartDialog filter={filter} onClose={() => setUploading(false)} />}
+      {uploading && (
+        <UploadPartDialog
+          filter={filter}
+          onClose={() => setUploading(false)}
+          onImportModel={
+            fromModel.pick
+              ? () => {
+                  setUploading(false);
+                  fromModel.pick?.();
+                }
+              : undefined
+          }
+        />
+      )}
       {moving && orgs && (
         <MoveCopyDialog
           kind="part"

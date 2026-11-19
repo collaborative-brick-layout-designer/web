@@ -4,7 +4,12 @@
 //   - a model dropped on Home: preview with the desktop's choices, a custom
 //     part and a new layout with it, what was missing and where to fix it;
 //   - the editor's Map › File › Import a model…: an LDraw layout's parts
-//     placed in the open layout, on the sheet picked, and selected;
+//     placed in the open layout by the editor itself, on the sheet picked,
+//     and selected; a collaborator sees them at once; one Undo takes the
+//     whole import back and Redo brings it back;
+//   - a custom part from a model where parts are managed: Home's Custom
+//     parts (saved only, listed at once) and the Parts panel (saved and
+//     placed here, undoable);
 //   - Cancel deletes it; with import off, the desktop app's steps and why;
 //   - Admin › Model import: the switch, the libraries, the limits.
 // No step may 4xx (the WAF bans bursts of them).
@@ -72,10 +77,21 @@ test.describe('Import a model', () => {
     net.expectQuiet();
   });
 
-  test('the editor: an LDraw layout’s parts go into the open layout, on the sheet picked', async ({ page }) => {
+  test('the editor: an LDraw layout’s parts go into the open layout, live for others, and one Undo takes them back', async ({ page, context }) => {
     const net = watch4xx(page);
     const created = (await (await page.request.post('/api/layouts', { data: { title: 'Import host' } })).json()) as { id: string };
     await page.goto(`/editor/${created.id}`);
+    await expect(page.locator('canvas').first()).toBeVisible({ timeout: 15000 });
+    // Someone else with the layout open (the same account, another tab).
+    const other = await context.newPage();
+    await other.goto(`/editor/${created.id}`);
+    await expect(other.locator('canvas').first()).toBeVisible({ timeout: 15000 });
+    const piecesOther = other.getByTestId('piece-count').first();
+    const pieces = page.getByTestId('piece-count').first();
+    await expect(pieces).toHaveText('0 pieces');
+    const undoButton = page.getByRole('button', { name: 'Undo', exact: true });
+    const redoButton = page.getByRole('button', { name: 'Redo', exact: true });
+    await expect(undoButton).toBeDisabled();
     const chooser = page.waitForEvent('filechooser');
     await mapMenu(page, 'File', 'Import a model (LDraw, Studio, LDD)…');
     await (await chooser).setFiles({ name: 'Yard.mpd', mimeType: 'application/octet-stream', buffer: LDR });
@@ -86,8 +102,90 @@ test.describe('Import a model', () => {
     await expect(dialog.getByLabel('This layout, on')).toBeChecked();
     await dialog.getByRole('button', { name: 'Place the parts' }).click();
     await expect(dialog.getByTestId('import-summary')).toContainText('in this layout', { timeout: 30000 });
+    await expect(dialog.getByTestId('import-undo-hint')).toContainText('Edit › Undo takes the whole import back in one step.');
     await dialog.getByRole('button', { name: 'Done' }).click();
     await expect(dialog).toHaveCount(0);
+    // Selected, as placed.
+    const footer = page.locator('footer');
+    await expect(footer).toContainText(/selected: [1-9]\d*/);
+    const placed = /selected: (\d+)/.exec(await footer.innerText())![1]!;
+    await expect(pieces).toHaveText(`${placed} pieces`);
+    // The collaborator has them already, without reloading.
+    await expect(piecesOther).toHaveText(`${placed} pieces`, { timeout: 15000 });
+
+    // One Undo step: the whole import, and nothing before it.
+    await expect(undoButton).toBeEnabled();
+    await undoButton.click();
+    await expect(undoButton).toBeDisabled();
+    await expect(pieces).toHaveText('0 pieces');
+    await expect(piecesOther).toHaveText('0 pieces', { timeout: 15000 });
+    await expect(redoButton).toBeEnabled();
+    await redoButton.click();
+    await expect(pieces).toHaveText(`${placed} pieces`);
+    await expect(piecesOther).toHaveText(`${placed} pieces`, { timeout: 15000 });
+    await expect(undoButton).toBeEnabled();
+    await other.close();
+    net.expectQuiet();
+  });
+
+  test('Home’s Custom parts: Import from a model file saves a part, listed at once, with no layout', async ({ page }) => {
+    const net = watch4xx(page);
+    await page.goto('/');
+    const layoutsBefore = ((await (await page.request.get('/api/layouts')).json()) as { layouts: unknown[] }).layouts.length;
+    const section = page.locator('#parts');
+    const chooser = page.waitForEvent('filechooser');
+    await section.getByRole('button', { name: 'Import from a model file (LDraw, Studio, LDD)' }).click();
+    await (await chooser).setFiles({ name: 'Bridge.ldr', mimeType: 'application/octet-stream', buffer: LDR });
+    const dialog = page.getByRole('dialog', { name: 'Import a model' });
+    await expect(dialog.getByTestId('import-preview')).toBeVisible({ timeout: 30000 });
+    // One part only: no placing its parts, no new layout.
+    await expect(dialog.getByLabel(/Its parts, one by one/)).toHaveCount(0);
+    await expect(dialog.getByLabel('A new layout')).toHaveCount(0);
+    await dialog.getByLabel('Save as').fill('E2E Home Bridge');
+    await dialog.getByRole('button', { name: 'Save as Custom Part' }).click();
+    await expect(dialog.getByTestId('import-summary')).toContainText('and saved it to your custom parts.', { timeout: 30000 });
+    await dialog.getByRole('button', { name: 'Done' }).click();
+    await expect(dialog).toHaveCount(0);
+    // Listed without a reload, and no layout was made.
+    await expect(section.getByText('E2E Home Bridge')).toBeVisible({ timeout: 15000 });
+    expect(((await (await page.request.get('/api/layouts')).json()) as { layouts: unknown[] }).layouts.length).toBe(layoutsBefore);
+    // Upload part points to the import, not the desktop app.
+    await section.getByRole('button', { name: 'Upload part' }).click();
+    const upload = page.getByRole('dialog', { name: 'Upload custom part' });
+    await expect(upload.getByTestId('upload-part-import')).toBeVisible();
+    await expect(upload.getByText('Making a part from an LDraw, Studio or LDD model?', { exact: true })).toHaveCount(0);
+    await upload.getByRole('button', { name: 'Cancel' }).click();
+    net.expectQuiet();
+  });
+
+  test('the Parts panel: Save and place it here puts the new part down, and Undo takes it off', async ({ page }) => {
+    const net = watch4xx(page);
+    const created = (await (await page.request.post('/api/layouts', { data: { title: 'Part host' } })).json()) as { id: string };
+    await page.goto(`/editor/${created.id}`);
+    await expect(page.locator('canvas').first()).toBeVisible({ timeout: 15000 });
+    const chooser = page.waitForEvent('filechooser');
+    await page.getByTestId('parts-import-model').click();
+    await (await chooser).setFiles({ name: 'Station.ldr', mimeType: 'application/octet-stream', buffer: LDR });
+    const dialog = page.getByRole('dialog', { name: 'Import a model' });
+    await expect(dialog.getByTestId('import-preview')).toBeVisible({ timeout: 30000 });
+    await expect(dialog.getByLabel('Save to my parts')).toBeChecked();
+    await dialog.getByLabel(/Save and place it here/).check();
+    await dialog.getByLabel('Save as').fill('E2E Panel Station');
+    await dialog.getByRole('button', { name: 'Save and place it' }).click();
+    await expect(dialog.getByTestId('import-summary')).toContainText('and put it in the middle of your view.', { timeout: 30000 });
+    await dialog.getByRole('button', { name: 'Done' }).click();
+    await expect(page.locator('footer')).toContainText('selected: 1');
+    await expect(page.getByTestId('piece-count').first()).toHaveText('1 piece');
+    // In the Parts panel at once.
+    await page.getByPlaceholder('Search parts (name or number)').fill('E2E_Panel_Station');
+    await expect(page.locator('aside li button[draggable="true"]').filter({ hasText: /E2E.Panel.Station/ }).first()).toBeVisible({ timeout: 15000 });
+    // Off the map with one Undo; the part stays saved.
+    const undo = page.getByRole('button', { name: 'Undo', exact: true });
+    await undo.click();
+    await expect(undo).toBeDisabled();
+    await expect(page.getByTestId('piece-count').first()).toHaveText('0 pieces');
+    const parts = (await (await page.request.get('/api/custom-parts')).json()) as { parts: { partNumber: string }[] };
+    expect(parts.parts.map((p) => p.partNumber)).toContain('E2E_Panel_Station');
     net.expectQuiet();
   });
 

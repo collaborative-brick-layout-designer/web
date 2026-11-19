@@ -21,7 +21,7 @@ on its own). Bodies are JSON unless marked multipart.
 | `POST /api/imports` | **multipart**, one part `file` (the model, filename with its extension), no other fields | 202 job; 415 `unsupported_type`; 413 `file_too_large`; 429 `import_rate_limited` (Retry-After) or `too_many_open_imports`; 409 `import_unavailable` (import off here, with `reason` and `message`); 415 `not_multipart`; 403 for the demo account |
 | `GET /api/imports/:id` | | the job: `{ id, fileName, state, step, position, error, analysis, result }` |
 | `GET /api/imports/:id/preview.png` | | the preview picture (PNG), while the job is `ready` |
-| `POST /api/imports/:id/convert` | `{ mode: "part"\|"parts", quarterTurns, align: ""\|"bottom"\|"box", nudge: [x, y], drop: [indices], name, designer, designerUrl, category, target }` with `target` `{ kind: "new", title?, orgSlug? }` or `{ kind: "layout", layoutId, sheetId?, at?: { x, y } }` | 202 job |
+| `POST /api/imports/:id/convert` | `{ mode: "part"\|"parts", quarterTurns, align: ""\|"bottom"\|"box", nudge: [x, y], drop: [indices], name, designer, designerUrl, category, target }` with `target` `{ kind: "new", title?, orgSlug? }`, `{ kind: "layout", layoutId, sheetId?, at?: { x, y }, clientPlaces?: true }` or `{ kind: "library", orgSlug? }` (mode `"part"` only) | 202 job; 400 `invalid_target`; 403 / 404 as Upload part for a club the person can't add parts to |
 | `DELETE /api/imports/:id` | | 204: cancelled, its files deleted |
 | `GET /api/admin/imports` | | converter, libraries, settings, queue (site admins) |
 | `PATCH /api/admin/imports` | `{ enabled?: boolean, limits?: { maxUploadMb?, perHour?, perUserAtOnce?, atOnce?, timeoutSeconds?, memoryMb? } }` | the same view |
@@ -42,6 +42,34 @@ Every route is in the security route probes
 JSON body limit stays at the server's 10 MB; their multipart file limit is
 the route's own (above). A WAF in front must let these multipart bodies
 through at those sizes.
+
+## Where it goes
+
+The convert body's `target` (`apps/server/src/imports/apply.ts`):
+
+- **`new`**: a new layout, made on the server (Home, a dropped file: no
+  layout is open, so there's nothing to undo).
+- **`layout` with `clientPlaces: true`**: the layout open in the editor.
+  The server makes the custom part (mode `part`) and answers with the parts
+  to put down in the job's `result.toPlace` (`{ bricks, groups }`, as the
+  .bbm or the new part has them). The editor puts them down itself
+  (`apps/web/src/import/placeImport.ts`) in one transaction with its own
+  origin, so **one Undo takes the whole import back and Redo brings it
+  back**, and everyone in the layout gets it through the editor's sync. The
+  editor deletes the job once it has placed them.
+- **`library`** (mode `part` only): the part is saved to the person, or to
+  the club `orgSlug` names (the same checks as Upload part: a member whose
+  roles add parts there, checked before the converter runs). Nothing is
+  placed and no layout is made: Home's Custom parts and the Parts panel's
+  "Import from a model file", and Upload part's link to it. From the Parts
+  panel, "Save and place it here" saves it this way and then the editor
+  places it as above (undoable).
+- **Deprecated:** `layout` without `clientPlaces` still places the parts as
+  the server's change in the layout's room, outside anyone's undo, for an
+  editor page loaded before 2026-11-19. Remove it in the release after.
+
+The part's owner for `layout` is the layout's club when the person may add
+parts there, else the person; for `new`, `orgSlug`'s club likewise.
 
 ## Jobs
 

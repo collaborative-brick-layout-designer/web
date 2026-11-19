@@ -228,7 +228,7 @@ describe('model import', () => {
     }
   });
 
-  it('places the parts of an .ldr in a new layout, or in an open one as the server’s change', async () => {
+  it('places the parts of an .ldr in a new layout, or (an editor page from before 2026-11-19) in an open one as the server’s change', async () => {
     const id = (await upload(LDR, 'yard.mpd')).json().id as string;
     await settle(id, ['ready']);
     await app.inject({ method: 'POST', url: `/api/imports/${id}/convert`, headers: { cookie: c }, payload: { mode: 'parts', target: { kind: 'new', title: 'Yard' } } });
@@ -247,6 +247,75 @@ describe('model import', () => {
     const bricks = ((session.doc.getMap('layerData').get('brick-1') as Y.Map<unknown>).get('bricks') as Y.Array<Y.Map<unknown>>).toArray();
     expect(bricks.length).toBe(into.result.placed);
     expect(new Set(bricks.map((b) => b.get('id')))).toEqual(new Set(into.result.brickIds));
+  });
+
+  it('into the open layout, the editor puts the parts down itself: the server only answers with them', async () => {
+    const host = (await app.inject({ method: 'POST', url: '/api/layouts', headers: { cookie: c }, payload: { title: 'Host' } })).json().id as string;
+    const bricksIn = async () => ((await docHub.getOrCreate(host)).doc.getMap('layerData').get('brick-1') as Y.Map<unknown>).get('bricks') as Y.Array<unknown>;
+    const before = (await bricksIn()).length;
+
+    // Its parts, one by one: the .bbm's bricks and sets, nothing written to the layout.
+    const id = (await upload(LDR, 'yard.mpd')).json().id as string;
+    await settle(id, ['ready']);
+    const conv = await app.inject({
+      method: 'POST',
+      url: `/api/imports/${id}/convert`,
+      headers: { cookie: c },
+      payload: { mode: 'parts', target: { kind: 'layout', layoutId: host, sheetId: 'brick-1', at: { x: 100, y: 50 }, clientPlaces: true } },
+    });
+    expect(conv.statusCode).toBe(202);
+    const done = await settle(id, ['done', 'failed']);
+    expect(done.result).toMatchObject({ mode: 'parts', newLayout: false, layoutId: host, placed: 0, brickIds: [] });
+    expect(done.result.toPlace.bricks.length).toBeGreaterThan(0);
+    expect(done.result.toPlace.bricks[0]).toMatchObject({ partNumber: expect.any(String), displayArea: { width: expect.any(Number) } });
+    expect(Array.isArray(done.result.toPlace.groups)).toBe(true);
+    expect((await bricksIn()).length).toBe(before);
+
+    // One custom part: made and saved, its one brick to put down.
+    const id2 = (await upload(LDR, 'loop.ldr')).json().id as string;
+    await settle(id2, ['ready']);
+    await app.inject({ method: 'POST', url: `/api/imports/${id2}/convert`, headers: { cookie: c }, payload: { name: 'Loop', target: { kind: 'layout', layoutId: host, clientPlaces: true } } });
+    const part = await settle(id2, ['done', 'failed']);
+    expect(part.result).toMatchObject({ mode: 'part', layoutId: host, placed: 0, part: { partNumber: 'Loop' } });
+    expect(part.result.toPlace).toEqual({
+      bricks: [{ partNumber: `custom:${part.result.part.id}`, displayArea: { x: -4, y: -1, width: 8, height: 2 }, orientation: 0 }],
+      groups: [],
+    });
+    expect((await bricksIn()).length).toBe(before);
+  });
+
+  it('saves a part to your parts or a club’s, placing nothing and making no layout', async () => {
+    const layoutsBefore = (await db.select().from(schema.layouts).all()).length;
+    const id = (await upload(LDR, 'loop.ldr')).json().id as string;
+    await settle(id, ['ready']);
+    expect((await app.inject({ method: 'POST', url: `/api/imports/${id}/convert`, headers: { cookie: c }, payload: { mode: 'part', name: 'Mine', category: 'Track', target: { kind: 'library' } } })).statusCode).toBe(202);
+    const done = await settle(id, ['done', 'failed']);
+    expect(done.result).toMatchObject({ mode: 'part', layoutId: null, newLayout: false, placed: 0, toPlace: null, part: { partNumber: 'Mine' } });
+    expect(await db.select().from(schema.customParts).where(eq(schema.customParts.id, done.result.part.id)).get()).toMatchObject({ ownerUserId: userId, ownerOrgId: null, category: 'Track' });
+    expect((await db.select().from(schema.layouts).all()).length).toBe(layoutsBefore);
+
+    // A club: only where my role adds parts, and refused before the converter runs.
+    const orgId = crypto.randomUUID();
+    await db.insert(schema.orgs).values({ id: orgId, name: 'Train Club', slug: 'train-club', createdAt: new Date() });
+    await db.insert(schema.orgMembers).values({ orgId, userId, role: 'member', joinedAt: new Date() });
+    // This club's members don't add parts.
+    const memberRole = crypto.randomUUID();
+    await db.insert(schema.clubRoles).values({ id: memberRole, orgId, key: 'member', name: 'Member', permissions: JSON.stringify(['view_items']), position: 0, createdAt: new Date() });
+    const id2 = (await upload(LDR, 'loop.ldr')).json().id as string;
+    await settle(id2, ['ready']);
+    const refused = await app.inject({ method: 'POST', url: `/api/imports/${id2}/convert`, headers: { cookie: c }, payload: { name: 'Club', target: { kind: 'library', orgSlug: 'train-club' } } });
+    expect(refused.statusCode).toBe(403);
+    expect(refused.json()).toMatchObject({ error: 'only_club_admins_can_add', permission: 'add_parts' });
+    expect((await job(id2)).json().state).toBe('ready');
+    expect((await app.inject({ method: 'POST', url: `/api/imports/${id2}/convert`, headers: { cookie: c }, payload: { name: 'Club', target: { kind: 'library', orgSlug: 'nobody' } } })).statusCode).toBe(404);
+    // Placed parts need a layout.
+    expect((await app.inject({ method: 'POST', url: `/api/imports/${id2}/convert`, headers: { cookie: c }, payload: { mode: 'parts', target: { kind: 'library' } } })).json()).toMatchObject({ error: 'invalid_target' });
+
+    await db.update(schema.clubRoles).set({ permissions: JSON.stringify(['view_items', 'add_parts']) }).where(eq(schema.clubRoles.id, memberRole));
+    expect((await app.inject({ method: 'POST', url: `/api/imports/${id2}/convert`, headers: { cookie: c }, payload: { name: 'Club', target: { kind: 'library', orgSlug: 'Train-Club' } } })).statusCode).toBe(202);
+    const club = await settle(id2, ['done', 'failed']);
+    expect(club.state).toBe('done');
+    expect(await db.select().from(schema.customParts).where(eq(schema.customParts.id, club.result.part.id)).get()).toMatchObject({ ownerUserId: null, ownerOrgId: orgId });
   });
 
   it('only into a layout the person may edit', async () => {
