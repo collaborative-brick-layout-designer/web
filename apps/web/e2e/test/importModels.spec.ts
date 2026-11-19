@@ -10,6 +10,8 @@
 //   - a custom part from a model where parts are managed: Home's Custom
 //     parts (saved only, listed at once) and the Parts panel (saved and
 //     placed here, undoable);
+//   - the preview: most of the window (all of a phone), zoom and pan, the
+//     grid sliding under the model as it's nudged;
 //   - Cancel deletes it; with import off, the desktop app's steps and why;
 //   - Admin › Model import: the switch, the libraries, the limits.
 // No step may 4xx (the WAF bans bursts of them).
@@ -74,6 +76,72 @@ test.describe('Import a model', () => {
     // The part is the user's, and the layout holds it.
     const parts = (await (await page.request.get('/api/custom-parts')).json()) as { parts: { partNumber: string }[] };
     expect(parts.parts.map((p) => p.partNumber)).toContain('E2E_Loop');
+    net.expectQuiet();
+  });
+
+  test('the preview fills most of the window, zooms and pans, and the grid slides as the model is nudged', async ({ page }) => {
+    const net = watch4xx(page);
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto('/');
+    await dropFile(page, 'Zoom.ldr', LDR);
+    const dialog = page.getByRole('dialog', { name: 'Import a model' });
+    await expect(dialog.getByTestId('import-preview')).toBeVisible({ timeout: 30000 });
+    // About 90% of the window, the picture taking the room beside the choices.
+    const d = (await dialog.boundingBox())!;
+    expect(d.width).toBeGreaterThan(1280 * 0.85);
+    expect(d.height).toBeGreaterThan(800 * 0.85);
+    const pic = dialog.getByTestId('import-picture');
+    const p = (await pic.boundingBox())!;
+    const c = (await dialog.getByTestId('import-choices').boundingBox())!;
+    expect(p.x + p.width).toBeLessThanOrEqual(c.x + 1);
+    expect(p.height).toBeGreaterThan(400);
+
+    const zoom = async () => Number(await pic.getAttribute('data-zoom'));
+    const left = async () => Number(await pic.getAttribute('data-grid-left'));
+    const fitted = await zoom();
+    // The wheel over the picture zooms in; so does +.
+    await pic.hover();
+    await page.mouse.wheel(0, -300);
+    await expect.poll(zoom).toBeGreaterThan(fitted);
+    await dialog.getByRole('button', { name: 'Zoom in' }).click();
+    const zoomed = await zoom();
+    // Nudging while zoomed: the zoom stays, the grid moves a quarter stud left under the model.
+    const k = Number(await pic.getAttribute('data-px-per-stud'));
+    const at = await left();
+    await dialog.getByRole('button', { name: 'Right', exact: true }).click();
+    await expect(dialog.getByTestId('import-size')).toHaveText('9 × 2 studs, 2 connection points');
+    expect(await zoom()).toBe(zoomed);
+    expect((await left()) - at).toBeCloseTo(-0.25 * k, 0);
+    // A drag pans; Fit shows it all again.
+    const before = await left();
+    await page.mouse.move(p.x + p.width / 2, p.y + p.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(p.x + p.width / 2 + 60, p.y + p.height / 2, { steps: 4 });
+    await page.mouse.up();
+    expect((await left()) - before).toBeCloseTo(60, 0);
+    await dialog.getByRole('button', { name: 'Fit' }).click();
+    expect(await zoom()).toBeLessThan(zoomed);
+    await dialog.getByTestId('import-cancel').click();
+    await expect(dialog).toBeHidden();
+    net.expectQuiet();
+  });
+
+  test('on a phone the import dialog takes the whole screen, the choices under the picture', async ({ page }) => {
+    const net = watch4xx(page);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto('/');
+    await dropFile(page, 'Phone.ldr', LDR);
+    const dialog = page.getByRole('dialog', { name: 'Import a model' });
+    await expect(dialog.getByTestId('import-preview')).toBeVisible({ timeout: 30000 });
+    const d = (await dialog.boundingBox())!;
+    expect(d.width).toBeCloseTo(390, 0);
+    expect(d.height).toBeCloseTo(844, 0);
+    const p = (await dialog.getByTestId('import-picture').boundingBox())!;
+    const c = (await dialog.getByTestId('import-choices').boundingBox())!;
+    expect(c.y).toBeGreaterThan(p.y + p.height - 1);
+    await dialog.getByRole('button', { name: 'Zoom in' }).click();
+    await dialog.getByTestId('import-cancel').click();
+    await expect(dialog).toBeHidden();
     net.expectQuiet();
   });
 

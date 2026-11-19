@@ -27,6 +27,7 @@ import { DESKTOP_URL } from '../projectLinks';
 import { importApi, importErrorText, uploadModel, type ConvertChoices, type ImportJob, type ImportResult, type ImportTarget, type ToPlace } from './importApi';
 import { partToPlace } from './placeImport';
 import { aligned, connectionTypeName, rotated, type Align } from './previewMath';
+import { PreviewCanvas } from './PreviewCanvas';
 
 export interface ImportInto {
   layoutId: string;
@@ -254,7 +255,7 @@ export function ImportDialog({ file, into, isAdmin = false, onClose, onDone, pur
 
   return (
     <div
-      className="fixed inset-0 z-[75] flex items-end justify-center bg-black/60 sm:items-center sm:p-4"
+      className="fixed inset-0 z-[75] flex items-stretch justify-center bg-black/60 sm:items-center sm:p-4"
       onPointerDown={(e) => {
         if (e.target === e.currentTarget && !working) close();
       }}
@@ -270,7 +271,8 @@ export function ImportDialog({ file, into, isAdmin = false, onClose, onDone, pur
             close();
           }
         }}
-        className="flex max-h-[95vh] w-full flex-col overflow-hidden rounded-t-section border border-line bg-panel text-sm text-ink shadow-pop sm:max-w-4xl sm:rounded-section"
+        // About 90% of the window (all of a phone's), so the preview has room.
+        className="flex h-full w-full flex-col overflow-hidden bg-panel text-sm text-ink shadow-pop sm:h-[90vh] sm:w-[90vw] sm:rounded-section sm:border sm:border-line"
       >
         <header className="flex items-center gap-2 border-b border-line px-5 py-3">
           <h2 className="text-lg font-semibold">
@@ -315,8 +317,38 @@ export function ImportDialog({ file, into, isAdmin = false, onClose, onDone, pur
             </div>
           )}
           {state === 'ready' && analysis && seeded && (
-            <div className="grid gap-5 md:grid-cols-[3fr_2fr]" data-testid="import-preview">
-              <div className="space-y-3">
+            <div className="flex flex-col gap-5 md:grid md:h-full md:min-h-0 md:grid-cols-[minmax(0,1fr)_24rem]" data-testid="import-preview">
+              <div className="flex min-h-0 flex-col gap-2">
+                {mode === 'part' && part && frame ? (
+                  <>
+                    <PreviewCanvas
+                      src={part.preview}
+                      frame={frame}
+                      turns={turns}
+                      pxPerStud={part.pxPerStud}
+                      dropped={dropped}
+                      step={step}
+                      onNudge={(x, y) => setNudge((n) => ({ x: n.x + x, y: n.y + y }))}
+                    />
+                    <p data-testid="import-size" className="text-muted">
+                      {frame.widthStuds} × {frame.heightStuds} studs, {frame.connections.length - dropped.size} connection point
+                      {frame.connections.length - dropped.size === 1 ? '' : 's'}
+                    </p>
+                  </>
+                ) : mode === 'parts' && analysis.layout ? (
+                  <div className="rounded-lg border border-line p-3" data-testid="import-layout-summary">
+                    <p>
+                      {analysis.layout.bricks} parts on {analysis.layout.sheets} sheet{analysis.layout.sheets === 1 ? '' : 's'}, placed as the desktop
+                      app’s File › Open places them.
+                    </p>
+                    <Warnings list={analysis.layout.warnings} />
+                  </div>
+                ) : (
+                  <p className="text-muted">{analysis.partError}</p>
+                )}
+              </div>
+
+              <div className="space-y-3 md:min-h-0 md:overflow-y-auto md:pr-1" data-testid="import-choices">
                 {!partOnly && analysis.part && analysis.layout && (
                   <fieldset className="space-y-1 rounded-lg border border-line p-3">
                     <legend className="flex items-center gap-1 px-1 font-semibold">
@@ -332,13 +364,8 @@ export function ImportDialog({ file, into, isAdmin = false, onClose, onDone, pur
                     </label>
                   </fieldset>
                 )}
-                {mode === 'part' && part && frame ? (
+                {mode === 'part' && part && frame && (
                   <>
-                    <PreviewPicture src={part.preview} frame={frame} turns={turns} pxPerStud={part.pxPerStud} dropped={dropped} />
-                    <p data-testid="import-size" className="text-muted">
-                      {frame.widthStuds} × {frame.heightStuds} studs, {frame.connections.length - dropped.size} connection point
-                      {frame.connections.length - dropped.size === 1 ? '' : 's'}
-                    </p>
                     <div className="flex flex-wrap items-center gap-2">
                       <button type="button" className={btn} title="Turn the part 90° left" onClick={() => setTurns((t) => (t + 3) % 4)}>
                         Turn ⟲
@@ -404,20 +431,7 @@ export function ImportDialog({ file, into, isAdmin = false, onClose, onDone, pur
                       </button>
                     </div>
                   </>
-                ) : mode === 'parts' && analysis.layout ? (
-                  <div className="rounded-lg border border-line p-3" data-testid="import-layout-summary">
-                    <p>
-                      {analysis.layout.bricks} parts on {analysis.layout.sheets} sheet{analysis.layout.sheets === 1 ? '' : 's'}, placed as the desktop
-                      app’s File › Open places them.
-                    </p>
-                    <Warnings list={analysis.layout.warnings} />
-                  </div>
-                ) : (
-                  <p className="text-muted">{analysis.partError}</p>
                 )}
-              </div>
-
-              <div className="space-y-3">
                 {mode === 'part' && part && frame && (
                   <>
                     <div>
@@ -636,62 +650,6 @@ function Warnings({ list }: { list: string[] }) {
           <li key={i}>{siteWords(w)}</li>
         ))}
       </ul>
-    </div>
-  );
-}
-
-function PreviewPicture({
-  src,
-  frame,
-  turns,
-  pxPerStud,
-  dropped,
-}: {
-  src: string;
-  frame: ReturnType<typeof aligned>;
-  turns: number;
-  pxPerStud: number;
-  dropped: Set<number>;
-}) {
-  const s = Math.max(1, pxPerStud);
-  const W = frame.widthStuds * s;
-  const H = frame.heightStuds * s;
-  // The picture as drawn (before turning) is imageStuds turned back.
-  const odd = turns % 2 === 1;
-  const iw = (odd ? frame.imageStuds.height : frame.imageStuds.width) * s;
-  const ih = (odd ? frame.imageStuds.width : frame.imageStuds.height) * s;
-  const turn =
-    turns === 1 ? `translate(${ih} 0) rotate(90)` : turns === 2 ? `translate(${iw} ${ih}) rotate(180)` : turns === 3 ? `translate(0 ${iw}) rotate(270)` : '';
-  const grid: React.ReactNode[] = [];
-  for (let i = 0; i <= frame.widthStuds; i++) grid.push(<line key={`x${i}`} x1={i * s} y1={0} x2={i * s} y2={H} />);
-  for (let j = 0; j <= frame.heightStuds; j++) grid.push(<line key={`y${j}`} x1={0} y1={j * s} x2={W} y2={j * s} />);
-  return (
-    <div
-      className="flex max-h-[50vh] justify-center overflow-auto rounded-lg border border-line"
-      // A checkerboard behind the picture, so its see-through parts show (as the desktop's preview).
-      style={{ background: 'repeating-conic-gradient(#dcdcdc 0% 25%, #ffffff 0% 50%) 0 0 / 16px 16px' }}
-      data-testid="import-picture"
-    >
-      <svg viewBox={`0 0 ${W} ${H}`} className="h-auto max-h-[50vh] w-full" role="img" aria-label="The part, over the stud grid">
-        <g transform={`translate(${frame.imageAt.x * s} ${frame.imageAt.y * s})`}>
-          <image href={src} width={iw} height={ih} transform={turn} preserveAspectRatio="none" />
-        </g>
-        <g stroke="rgba(0,120,255,0.35)" strokeWidth={1} vectorEffect="non-scaling-stroke">
-          {grid}
-        </g>
-        {frame.connections.map((c, i) => {
-          const x = (c.x + frame.widthStuds / 2) * s;
-          const y = (c.y + frame.heightStuds / 2) * s;
-          const a = (c.angle * Math.PI) / 180;
-          const on = !dropped.has(i);
-          return (
-            <g key={i} stroke={on ? 'rgb(220,30,30)' : 'rgb(140,140,140)'} strokeWidth={2} fill="none" strokeDasharray={on ? undefined : '4 3'} vectorEffect="non-scaling-stroke">
-              <circle cx={x} cy={y} r={0.6 * s} />
-              <line x1={x} y1={y} x2={x + Math.cos(a) * 2 * s} y2={y + Math.sin(a) * 2 * s} />
-            </g>
-          );
-        })}
-      </svg>
     </div>
   );
 }

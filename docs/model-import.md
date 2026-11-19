@@ -71,6 +71,20 @@ The convert body's `target` (`apps/server/src/imports/apply.ts`):
 The part's owner for `layout` is the layout's club when the person may add
 parts there, else the person; for `new`, `orgSlug`'s club likewise.
 
+## The preview
+
+`apps/web/src/import/ImportDialog.tsx` takes about 90% of the window (all of
+a phone's): the picture fills the room, the choices sit in a column beside it
+(under it on a narrow screen). `PreviewCanvas.tsx` and `previewView.ts` zoom
+and pan it as the desktop's `ImportPreviewDialog` does: fitted until you zoom,
+the wheel or a trackpad pinch zooms towards the pointer, a drag pans, two
+fingers pinch on a touch screen, and −, +, Fit and 100% (one picture pixel to
+one screen pixel) sit above it, between 5% and 3200%. Only the picture is
+scaled; the stud grid, the part's middle and the connection points are drawn
+in screen pixels, so they stay sharp. The view is held in the picture's own
+studs, so a nudge keeps the zoom and slides the grid under the model. The
+arrow keys over the picture nudge it, as the desktop's do.
+
 ## Jobs
 
 `apps/server/src/imports/jobs.ts`. Each upload is a job, in memory:

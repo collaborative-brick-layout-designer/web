@@ -27,6 +27,12 @@ export const WEB_ONLY_HELP_TEXTS = {
     more: 'Pick the model file, line it up with the studs in the preview, and save it to your parts or a club’s. It shows up in Custom parts and the Parts panel at once. In the editor you can also place it in the middle of your view.',
     learnMoreUrl: '/help#importing',
   },
+  'import.zoom': {
+    title: 'Zooming the preview',
+    short: 'Zoom in to check the studs sit on the grid: scroll or pinch over the picture, or use − and +.',
+    more: 'Drag the picture to look around. Fit shows the whole model again, and 100% shows one pixel of the picture for each pixel of your screen. The grid and the snap points stay sharp at every zoom, and the arrow keys move the model against the grid.',
+    learnMoreUrl: '/help#importing',
+  },
   'import.saveTo': {
     title: 'Where the part is saved',
     short: 'Save the new part to your own parts or to a club you add parts to.',
