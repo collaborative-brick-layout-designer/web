@@ -189,6 +189,8 @@ export function ImportDialog({ file, into, isAdmin = false, onClose, onDone, pur
       }
       void (async () => {
         if (result.part) await catalog;
+        // Closed meanwhile: put nothing down (the part, if any, stays saved).
+        if (!mounted.current) return;
         const ids = into.place(at.sheetId, toPlace);
         if (ids.length === 0) setPlaceError(result.part ? 'This layout has no parts sheet to put it on. Add one, then place the part from the Parts panel.' : 'This layout has no parts sheet to put them on. Add one, then import the model again.');
         setPlaced({ ...result, toPlace: null, placed: ids.length, brickIds: ids });
