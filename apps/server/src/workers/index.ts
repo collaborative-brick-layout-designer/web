@@ -35,6 +35,7 @@ import { demoResetDue } from '../demo/demoAccount.js';
 import { runDemoReset, sweepDemoSpaces } from '../demo/reset.js';
 import { privacyTick, privacyTickSummary } from '../privacy/tick.js';
 import { notificationsTick } from '../notifications/delivery.js';
+import { pushSetting, vapidKeys } from '../notifications/push.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -55,6 +56,10 @@ export function startWorkers(): void {
   demoTimer = setInterval(() => void safeRun('demoReset', async () => void (await demoTick())), DEMO_CHECK_MS);
   // Demo spaces whose time ran out while the server was down go at once.
   void safeRun('demoSweep', async () => void (await sweepDemoSpaces()));
+  // Browser push: make the site's keys now (once), so they're there before the first browser asks.
+  void safeRun('pushKeys', async () => {
+    if ((await pushSetting()).value) await vapidKeys();
+  });
   privacyTimer = setInterval(() => void safeRun('privacy', runPrivacyTick), PRIVACY_CHECK_MS);
   // Notification emails: the ones held for quiet hours, and the daily and weekly summaries (notifications/delivery.ts).
   notificationsTimer = setInterval(() => void safeRun('notifications', async () => void (await notificationsTick())), NOTIFICATIONS_CHECK_MS);

@@ -22,7 +22,7 @@ import { lookup as dnsLookup, type LookupAddress } from 'node:dns';
 import { Agent } from 'node:https';
 import { isIP } from 'node:net';
 import webpush from 'web-push';
-import { and, asc, eq, lte } from 'drizzle-orm';
+import { and, asc, eq, isNull, lte } from 'drizzle-orm';
 import { db, schema } from '../db/index.js';
 import { env } from '../env.js';
 import { getPlatformSettings } from '../auth/platformSettings.js';
@@ -137,15 +137,29 @@ export interface VapidKeys {
 }
 
 let cachedKeys: VapidKeys | null = null;
+let making: Promise<VapidKeys | null> | null = null;
 /** Tests: forget the cached keys. */
 export function forgetVapidKeys(): void {
   cachedKeys = null;
+  making = null;
 }
 
-/** The site's VAPID keys: from the environment (both set), else stored, else made now and stored. Null without a secret key to store them under. */
+/**
+ * The site's VAPID keys: from the environment (both set), else stored, else
+ * made now and stored. Null without a secret key to store them under. The
+ * server makes them at start (workers/index.ts), so they're there before the
+ * first browser asks. Calls at the same time share one pair.
+ */
 export async function vapidKeys(): Promise<VapidKeys | null> {
   if (env.vapidPublicKey && env.vapidPrivateKey) return { publicKey: env.vapidPublicKey, privateKey: env.vapidPrivateKey, source: 'env' };
   if (cachedKeys) return cachedKeys;
+  making ??= loadOrMakeKeys().finally(() => {
+    making = null;
+  });
+  return making;
+}
+
+async function loadOrMakeKeys(): Promise<VapidKeys | null> {
   const s = await getPlatformSettings();
   if (s.vapidPublicKey && s.vapidPrivateKey) {
     const priv = readSecret(s.vapidPrivateKey);
@@ -155,7 +169,17 @@ export async function vapidKeys(): Promise<VapidKeys | null> {
   const made = webpush.generateVAPIDKeys();
   const enc = encryptSecret(made.privateKey);
   if (!enc) return null;
-  await db.update(schema.platformSettings).set({ vapidPublicKey: made.publicKey, vapidPrivateKey: enc }).where(eq(schema.platformSettings.id, s.id));
+  const ps = schema.platformSettings;
+  // Write only over the pair this read saw, so a pair stored meanwhile (another process) wins.
+  const seen = s.vapidPublicKey ? eq(ps.vapidPublicKey, s.vapidPublicKey) : isNull(ps.vapidPublicKey);
+  const res = await db.update(ps).set({ vapidPublicKey: made.publicKey, vapidPrivateKey: enc }).where(and(eq(ps.id, s.id), seen)).run();
+  if (res.changes === 0) {
+    // Someone else stored a pair first: use theirs.
+    const now = await getPlatformSettings();
+    const priv = now.vapidPublicKey && now.vapidPrivateKey ? readSecret(now.vapidPrivateKey) : null;
+    if (now.vapidPublicKey && priv?.state === 'ok') return (cachedKeys = { publicKey: now.vapidPublicKey, privateKey: priv.value, source: 'stored' });
+    return null;
+  }
   // Browsers signed up with the old key can't be reached with the new one.
   if (s.vapidPublicKey) await db.delete(schema.pushSubscriptions);
   return (cachedKeys = { publicKey: made.publicKey, privateKey: made.privateKey, source: 'stored' });
