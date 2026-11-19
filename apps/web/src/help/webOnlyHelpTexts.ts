@@ -6,6 +6,21 @@
 import type { HelpEntry } from './helpTexts';
 
 export const WEB_ONLY_HELP_TEXTS = {
+  'admin.imports': {
+    title: 'Model import',
+    short: 'Lets people import LDraw, BrickLink Studio and LDD files, read on this server by the desktop app’s own importer.',
+    more: 'The importer runs locked down: no network, its own folder, limits on time and memory, and the file is deleted once it’s read. Turn it off here, or with IMPORTS_ENABLED on the server. If the importer is missing or too old, this page says so.',
+  },
+  'admin.importLibraries': {
+    title: 'Import libraries',
+    short: 'The parts libraries the importer draws models with; without them, parts are left out of the picture and counted.',
+    more: 'The LDraw library draws LDraw and Studio models; LDD’s brick database draws LDD models; the mapping links LDD bricks to LDraw parts; Studio’s library adds Studio-only parts. They are kept beside the database, never served to anyone and never in a backup or a data download.',
+  },
+  'admin.importLimits': {
+    title: 'Import limits',
+    short: 'How big a file can be, how often each person can import, and how much the server works on at once.',
+    more: 'Each preview and each import counts toward the hourly limit. Imports beyond the ones running wait in line, and people see their place. An import that takes longer than the time limit is stopped and the person is told.',
+  },
   'catalog.sharedModules': {
     title: 'Shared modules in a published layout',
     short: 'A published layout carries the parts of the shared modules placed in it.',

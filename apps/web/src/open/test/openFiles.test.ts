@@ -79,7 +79,7 @@ describe('sorting picked or dropped files', () => {
     expect(OPEN_FORMATS_LINE).toContain('(.bld-layout)');
     expect(OPEN_FORMATS_LINE).toContain('TrackDesigner (.tdl)');
     expect(OPEN_FORMATS_LINE).toContain('4DBrix (.ncp)');
-    expect(OPEN_FORMATS_LINE).toContain('LDraw, BrickLink Studio and LDD models are imported in the desktop app');
+    expect(OPEN_FORMATS_LINE).toContain('imports LDraw (.ldr, .mpd, .dat), BrickLink Studio (.io) and LDD (.lxf, .lxfml) models');
   });
 
   it('titles a layout after its file', () => {

@@ -27,6 +27,7 @@ import { OrgsTab } from './tabs/ClubsTab';
 import { LayoutsTab } from './tabs/LayoutsTab';
 import { GlobalPartsTab } from './tabs/PartsTab';
 import { PartLibrariesTab, PartsSetupCard } from './tabs/LibrariesTab';
+import { ImportsTab } from './tabs/ImportsTab';
 import { AuditTab } from './tabs/AuditTab';
 import { SettingsTab } from './tabs/SettingsTab';
 
@@ -87,6 +88,7 @@ export function AdminPage() {
           {tab === 'layouts' && <LayoutsTab />}
           {tab === 'parts' && <GlobalPartsTab />}
           {tab === 'libraries' && <PartLibrariesTab />}
+          {tab === 'imports' && <ImportsTab />}
           {tab === 'moderation' && <ModerationTab />}
           {tab === 'audit' && <AuditTab />}
           {tab === 'settings' && <SettingsTab />}

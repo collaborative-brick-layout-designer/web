@@ -45,9 +45,12 @@ export function forClubless(tour: Tour, inAClub: boolean): Tour {
   return inAClub ? tour : { ...tour, steps: tour.steps.filter((s) => !s.needsClub) };
 }
 
+/** Tours started from their own dialog (Show me around), never from the Help menu. */
+export const DIALOG_TOURS: readonly string[] = ['import'];
+
 /** The tours offered on this screen size. */
 export function toursFor(phone: boolean): Tour[] {
-  return TOURS.filter((t) => t.devices === 'all' || t.devices === (phone ? 'phone' : 'large'));
+  return TOURS.filter((t) => !DIALOG_TOURS.includes(t.id) && (t.devices === 'all' || t.devices === (phone ? 'phone' : 'large')));
 }
 
 /** "2 of 5". */

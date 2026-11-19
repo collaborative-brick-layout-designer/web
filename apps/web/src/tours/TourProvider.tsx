@@ -12,7 +12,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { api } from '../api';
 import { isPhoneWindow } from '../editor/useViewportSize';
 import { usePreferences } from '../theme/PrefsProvider';
-import { forClubless, forDevice, getTour, markSeen, stepCount, TOUR_BUTTONS, type Tour } from './tours';
+import { DIALOG_TOURS, forClubless, forDevice, getTour, markSeen, stepCount, TOUR_BUTTONS, type Tour } from './tours';
 import { LAST_LAYOUT_KEY } from '../layouts/reopenLast';
 
 /** Phones get the shorter tours (same breakpoint as the editor's phone viewer). */
@@ -40,7 +40,9 @@ async function goWhereTourIs(
   layouts: () => Promise<{ id: string }[]>,
   createLayout: () => Promise<{ id: string }>,
 ): Promise<void> {
-  if (tour.id === 'rooms') {
+  if (DIALOG_TOURS.includes(tour.id)) {
+    // On the dialog it's about, which is open already.
+  } else if (tour.id === 'rooms') {
     if (!path.startsWith('/venues/')) navigate('/venues/new');
   } else if (tour.id === 'clubs') {
     if (path !== '/') navigate('/');

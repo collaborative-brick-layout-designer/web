@@ -32,9 +32,12 @@ const SOURCES = import.meta.glob(['../../**/*.{ts,tsx}', '!../../**/*.test.{ts,t
 const CENTRED = new Set(['clubs.join', 'club.partners']);
 
 describe('the tour catalogue', () => {
-  it('has the welcome card and the four tours, with ids the server accepts', () => {
+  it('has the welcome card and the five tours, with ids the server accepts', () => {
     expect(WELCOME_ID).toBe('welcome');
-    expect(TOURS.map((t) => t.id)).toEqual(['editor', 'rooms', 'clubs', 'view']);
+    expect(TOURS.map((t) => t.id)).toEqual(['editor', 'rooms', 'clubs', 'view', 'import']);
+    // The import dialog starts its own tour (Show me around); the Help menu doesn't list it.
+    expect(toursFor(false).map((t) => t.id)).not.toContain('import');
+    expect(toursFor(true).map((t) => t.id)).not.toContain('import');
     for (const id of [WELCOME_ID, ...TOURS.map((t) => t.id)]) expect(id).toMatch(/^[A-Za-z0-9._-]{1,64}$/);
   });
 

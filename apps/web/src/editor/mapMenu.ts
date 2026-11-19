@@ -16,6 +16,8 @@ export interface MapMenuContext {
 export interface MapMenuActions {
   /** Open a file as a new layout (open/FileOpener.tsx). */
   openFile: () => void;
+  /** Import an LDraw, Studio or LDD model into this layout (import/ImportDialog.tsx); absent where the site can't. */
+  importModel?: () => void;
   generalInfo: () => void;
   backgroundColor: () => void;
   backgroundImage: () => void;
@@ -103,6 +105,7 @@ export function mapMenuEntries(a: MapMenuActions, t: MapMenuToggles, mod = modKe
     {
       kind: 'submenu', id: 'file', label: 'File', items: [
         { kind: 'item', id: 'open-file', label: 'Open a file…', onSelect: a.openFile },
+        { kind: 'item', id: 'import-model', label: 'Import a model (LDraw, Studio, LDD)…', hidden: () => !a.importModel, onSelect: () => a.importModel?.() },
         { kind: 'item', id: 'file-download-as', label: 'Download as…', onSelect: a.downloadAs },
       ],
     },
@@ -188,6 +191,7 @@ export function mapMenuEntries(a: MapMenuActions, t: MapMenuToggles, mod = modKe
 export type PhoneMapActions = Pick<
   MapMenuActions,
   | 'openFile'
+  | 'importModel'
   | 'generalInfo'
   | 'backgroundColor'
   | 'backgroundImage'
@@ -229,6 +233,7 @@ export function phoneMapEntries(a: PhoneMapActions, t: PhoneMapToggles, editing:
   const sep: MenuEntry<MapMenuContext> = { kind: 'separator' };
   return [
     { kind: 'item', id: 'open-file', label: 'Open a file…', onSelect: a.openFile },
+    { kind: 'item', id: 'import-model', label: 'Import a model (LDraw, Studio, LDD)…', hidden: () => viewing() || !a.importModel, onSelect: () => a.importModel?.() },
     sep,
     { kind: 'item', id: 'general-info', label: 'General info…', hidden: viewing, onSelect: a.generalInfo },
     { kind: 'item', id: 'background-color', label: 'Background color…', hidden: viewing, onSelect: a.backgroundColor },

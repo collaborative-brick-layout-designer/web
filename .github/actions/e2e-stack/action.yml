@@ -89,6 +89,14 @@ runs:
       working-directory: apps/server
       run: |
         mkdir -p "$BACKUPS_DIR"
+        # Model import: a stand-in for the desktop's converter
+        # (apps/web/e2e/fakeImportServer.mjs), unless the job names a real one.
+        if [ -z "${IMPORT_CONVERTER:-}" ]; then
+          fake="$GITHUB_WORKSPACE/.e2e/bld-import-server"
+          { printf '#!%s\n' "$(command -v node)"; sed "s#__BBM__#$GITHUB_WORKSPACE/packages/bbm/tests/fixtures/tight-corner.bbm#" "$GITHUB_WORKSPACE/apps/web/e2e/fakeImportServer.mjs"; } > "$fake"
+          chmod +x "$fake"
+          export IMPORT_CONVERTER="$fake"
+        fi
         npx tsx src/db/migrate.ts
         nohup npx tsx src/index.ts > "$GITHUB_WORKSPACE/.e2e/server.log" 2>&1 &
         for i in $(seq 60); do
