@@ -188,7 +188,7 @@ jobs:
         with:
           tag_name: latest
           target_commitish: ${{ github.sha }}
-          name: Latest Build
+          name: Canary
           body: |
             Automated build from the latest commit on `main`.
 
