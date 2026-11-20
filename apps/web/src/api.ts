@@ -4,6 +4,7 @@ import type { FourDBrixRemap, LDrawRemap, TrackDesignerRemap } from '@cld/parts-
 import type { ClubRole } from './orgs/clubRoles';
 import { askForPermission, isClubPermission, type ClubPermission } from './orgs/clubPermissions';
 import type { Venue } from '@cld/bbm';
+import type { ModuleSetup } from '@cld/modules';
 
 export type ProviderId = 'google' | 'github' | 'oidc';
 
@@ -1145,6 +1146,9 @@ export const api = {
       put<{ ok: true; thumbnailAt: number }>(`/api/modules/${encodeURIComponent(id)}/thumbnail`, thumb),
     rename: (id: string, title: string) =>
       patch<{ ok: true }>(`/api/modules/${id}`, { title }),
+    /** Its table and power (@cld/modules setup.ts); null clears them. */
+    setSetup: (id: string, setup: ModuleSetup | null) =>
+      patch<{ ok: true }>(`/api/modules/${encodeURIComponent(id)}`, { setup }),
     /** To Recently deleted for 30 days (`trashId` restores it). */
     remove: (id: string) => delJson<{ ok: true; trashId?: string | null }>(`/api/modules/${id}`),
     /** Who has it, and (for its owners) the invites still waiting. */
@@ -2291,6 +2295,8 @@ export interface ModuleSummary {
   thumbnailSide?: number | null;
   /** The newest saved version's number; 0 or missing: no history yet. */
   latestVersion?: number;
+  /** Its table and power; null or missing (older servers): not set. */
+  setup?: ModuleSetup | null;
   createdAt: number;
   updatedAt: number;
   credit?: Credit | null;

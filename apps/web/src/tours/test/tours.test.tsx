@@ -32,9 +32,9 @@ const SOURCES = import.meta.glob(['../../**/*.{ts,tsx}', '!../../**/*.test.{ts,t
 const CENTRED = new Set(['clubs.join', 'club.partners']);
 
 describe('the tour catalogue', () => {
-  it('has the welcome card and the five tours, with ids the server accepts', () => {
+  it('has the welcome card and the six tours, with ids the server accepts', () => {
     expect(WELCOME_ID).toBe('welcome');
-    expect(TOURS.map((t) => t.id)).toEqual(['editor', 'rooms', 'clubs', 'view', 'import']);
+    expect(TOURS.map((t) => t.id)).toEqual(['editor', 'rooms', 'clubs', 'modules', 'view', 'import']);
     // The import dialog starts its own tour (Show me around); the Help menu doesn't list it.
     expect(toursFor(false).map((t) => t.id)).not.toContain('import');
     expect(toursFor(true).map((t) => t.id)).not.toContain('import');
@@ -87,6 +87,14 @@ describe('the tour catalogue', () => {
     for (const s of stops) expect(Object.keys(help.entries ?? help), s.target).toContain(s.target);
   });
 
+  it('the Modules tour ends at the layout\'s tables and power, a real help entry', () => {
+    const steps = getTour('modules')!.steps;
+    expect(steps.map((s) => s.target)).toEqual(['panel.modules', 'module.make', 'modules.more', 'module.setupSummary']);
+    expect(steps[2]!.text).toContain('Table and power');
+    const help = JSON.parse(helpText) as { entries: Record<string, unknown> };
+    expect(Object.keys(help.entries)).toContain('module.setupSummary');
+  });
+
   it('names where the desktop copy lives, so the two stay identical', () => {
     const about = (JSON.parse(catalogueText) as { _about: string })._about;
     expect(about).toContain('apps/web/src/tours/tours.json');
@@ -106,7 +114,7 @@ describe('the tour catalogue', () => {
 
   it('offers phones the View tour instead of the editor tour', () => {
     expect(toursFor(true).map((t) => t.id)).toEqual(['rooms', 'clubs', 'view']);
-    expect(toursFor(false).map((t) => t.id)).toEqual(['editor', 'rooms', 'clubs']);
+    expect(toursFor(false).map((t) => t.id)).toEqual(['editor', 'rooms', 'clubs', 'modules']);
     expect(forDevice('editor', true)).toBe('view');
     expect(forDevice('view', false)).toBe('editor');
     expect(forDevice('clubs', true)).toBe('clubs');

@@ -215,6 +215,7 @@ const SharePictureDialog = lazyRetry(() => import('./SharePictureDialog').then((
 const ShareDialog = lazyRetry(() => import('../layouts/ShareDialog').then((m) => ({ default: m.ShareDialog })));
 const InsertModuleDialog = lazyRetry(() => import('./InsertModuleDialog').then((m) => ({ default: m.InsertModuleDialog })));
 const ModuleLookDialog = lazyRetry(() => import('./ModuleLookDialog').then((m) => ({ default: m.ModuleLookDialog })));
+const PlacedModuleSetupDialog = lazyRetry(() => import('./ModuleSetupDialog').then((m) => ({ default: m.PlacedModuleSetupDialog })));
 const ModuleDialogHost = lazyRetry(() => import('./ModuleDialogs').then((m) => ({ default: m.ModuleDialogHost })));
 const EditBrickDialog = lazyRetry(() => import('./EditBrickDialog').then((m) => ({ default: m.EditBrickDialog })));
 const EditRulerDialog = lazyRetry(() => import('./EditRulerDialog').then((m) => ({ default: m.EditRulerDialog })));
@@ -2255,6 +2256,7 @@ function Canvas({
   // landed on a brick (drives the selection-aware entry list).
   // The Module look window, opened from the map's right-click menu.
   const [lookModuleId, setLookModuleId] = useState<string | null>(null);
+  const [setupModuleId, setSetupModuleId] = useState<string | null>(null);
   const [ctxMenu, setCtxMenu] = useState<{
     x: number;
     y: number;
@@ -5049,6 +5051,11 @@ function Canvas({
           <ModuleLookDialog doc={doc} moduleId={lookModuleId} onClose={() => setLookModuleId(null)} />
         </Suspense>
       )}
+      {setupModuleId && (
+        <Suspense fallback={null}>
+          <PlacedModuleSetupDialog doc={doc} moduleId={setupModuleId} onClose={() => setSetupModuleId(null)} />
+        </Suspense>
+      )}
       <MapLoadingCard catalogLoading={catalog.isPending} />
       <Suspense fallback={null}>
       {editing && (
@@ -5190,6 +5197,7 @@ function Canvas({
           onPinModule={(id, pinned) => setModulePinned(doc, id, pinned)}
           onModuleShowName={(id, show) => updateSidecarModule(doc, id, (m) => withShowName(m, show))}
           onModuleLook={(id) => setLookModuleId(id)}
+          onModuleSetup={(id) => setSetupModuleId(id)}
         />
       )}
       {!isViewer && mapHasNoParts(map) && <EmptyMapHint touch={coarsePointer()} />}
@@ -5271,7 +5279,7 @@ function CanvasContextMenu({
   onRotateCCW, onRotateCW, onBringToFront, onSendToBack, onMoveToSheet,
   onGroup, onUngroup, ungroup, onSelectConnected, onAddTextHere, onProperties, onMakeModule,
   setUpdate,
-  module, editingModuleId, onEditModule, onDoneEditing, onPinModule, onModuleShowName, onModuleLook,
+  module, editingModuleId, onEditModule, onDoneEditing, onPinModule, onModuleShowName, onModuleLook, onModuleSetup,
 }: {
   module: import('@cld/bbm').SidecarModule | null;
   editingModuleId: string | null;
@@ -5280,6 +5288,7 @@ function CanvasContextMenu({
   onPinModule: (id: string, pinned: boolean) => void;
   onModuleShowName: (id: string, show: boolean) => void;
   onModuleLook: (id: string) => void;
+  onModuleSetup: (id: string) => void;
   x: number; y: number; studX: number; studY: number; onBrick: boolean;
   selection: string[]; map: import('@cld/model').BbmMap | null;
   doc: import('yjs').Doc; activeLayerId: string | null;
@@ -5364,6 +5373,7 @@ function CanvasContextMenu({
     entries.push(item(module.pinned ? 'Unpin' : 'Pin in place', () => onPinModule(module.id, !module.pinned)));
     entries.push(item(module.showName === false ? 'Show name' : 'Hide name', () => onModuleShowName(module.id, module.showName === false)));
     entries.push(item('Colors…', () => onModuleLook(module.id)));
+    entries.push(item('Table and power…', () => onModuleSetup(module.id)));
     entries.push(sep('sm1'));
     for (const e of libraryEntries(module)) entries.push(item(e.label, e.onSelect, !!e.disabled));
     entries.push(sep('sm2'));

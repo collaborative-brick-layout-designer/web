@@ -21,7 +21,10 @@ import {
   matchesVersion as sameAsVersion,
   moduleBatchesFromBytes,
   placeVersion as placeAt,
+  setupOf,
+  withLibrarySetup,
   type AlignedPlacement,
+  type ModuleSetup,
   type PartLookup,
   type Placement,
 } from '@cld/modules';
@@ -102,6 +105,20 @@ export function libraryNote(state: LibraryState): string | null {
 }
 
 // ---- Saving ---------------------------------------------------------------
+
+/**
+ * The placed module's table and power go to the Module library with its
+ * parts. One with none set leaves the library's as they are.
+ */
+async function sendSetup(id: string, mod: SidecarModule): Promise<void> {
+  const setup = setupOf(mod);
+  if (!setup) return;
+  try {
+    await api.modules.setSetup(id, setup);
+  } catch {
+    // The parts are saved; the table and power can be set again from the Module library.
+  }
+}
 
 type Thumb = { mime: 'image/png' | 'image/webp'; data: string };
 export type MakeThumbnail = (region: { x: number; y: number; width: number; height: number }) => Promise<Thumb | null>;
@@ -192,6 +209,7 @@ export async function saveModuleToLibrary(
     }
   }
   await picture(id, contents.region, o.makeThumbnail);
+  await sendSetup(id, mod);
   patchSidecarModule(doc, moduleId, { libraryModuleId: id, ...(version ? { libraryVersion: version } : {}) });
   return { id, title, version };
 }
@@ -210,6 +228,7 @@ export async function publishModuleVersion(
   if (!contents) throw new Error('This module has no parts to save.');
   const version = await versionOf(link.id, await api.modules.saveSnapshot(link.id, contents.bytes, o.note));
   await picture(link.id, contents.region, o.makeThumbnail);
+  await sendSetup(link.id, mod);
   patchSidecarModule(doc, moduleId, { libraryModuleId: link.id, ...(version ? { libraryVersion: version } : {}) });
   return { id: link.id, version };
 }
@@ -226,12 +245,15 @@ export function batchesFromBytes(bytes: Uint8Array): ModuleBatch[] {
 }
 
 /** The Module library's newest version of a module (`version` absent), or one version. */
-export async function fetchLibraryVersion(id: string, version?: number): Promise<{ batches: ModuleBatch[]; version: number }> {
+export async function fetchLibraryVersion(
+  id: string,
+  version?: number,
+): Promise<{ batches: ModuleBatch[]; version: number; setup?: ModuleSetup | null }> {
   if (!UUID_RE.test(id)) throw new Error('invalid module id');
   if (version) return { batches: batchesFromBytes(await api.modules.versionSnapshot(id, version)), version };
   // The number first: a version saved in between makes this one look older, never newer.
-  const latest = (await api.modules.get(id)).module.latestVersion ?? 0;
-  return { batches: batchesFromBytes(await api.modules.snapshot(id)), version: latest };
+  const { latestVersion, setup } = (await api.modules.get(id)).module;
+  return { batches: batchesFromBytes(await api.modules.snapshot(id)), version: latestVersion ?? 0, setup: setup ?? null };
 }
 
 // ---- Where a library version goes on the map --------------------------------
@@ -349,9 +371,9 @@ export async function pullFromLibrary(
   // The map may have changed while the Module library answered.
   const now = projectDoc(doc) ?? map;
   const current = findModule(doc, moduleId);
-  replaceModuleParts(doc, moduleId, batches, sheetForUpdate(now, current.members, o.activeLayerId), {
-    libraryModuleId: link.id,
-    ...(latest.version ? { libraryVersion: latest.version } : {}),
-  });
+  // Its table and power come with the version, when the Module library has them.
+  replaceModuleParts(doc, moduleId, batches, sheetForUpdate(now, current.members, o.activeLayerId), (m) =>
+    withLibrarySetup({ ...m, libraryModuleId: link.id, ...(latest.version ? { libraryVersion: latest.version } : {}) }, latest.setup),
+  );
   return 'updated';
 }

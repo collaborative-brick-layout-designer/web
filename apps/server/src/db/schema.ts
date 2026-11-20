@@ -879,6 +879,12 @@ export const modules = sqliteTable(
   copiedFromId: text('copied_from_id'),
   /** See custom_parts.deletedAuthorId (0024). */
   deletedAuthorId: text('deleted_author_id'),
+  /**
+   * Its table and power (0059): JSON { table?, power? } as @cld/modules
+   * setup.ts keeps them, or null when neither is set. Copied onto a placed
+   * copy when it is added to a layout or updated from the library.
+   */
+  setup: text('setup'),
   createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
   updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
   },
@@ -1382,7 +1388,9 @@ export const catalogItemVersions = sqliteTable(
     thumbnailMime: text('thumbnail_mime'),
     /**
      * A layout or venue: what its public page shows without opening it, as
-     * JSON (size in studs, a layout's parts list). Null for modules and parts.
+     * JSON (size in studs, a layout's parts list). A module: { setup } (its
+     * table and power, @cld/modules setup.ts) when it has one, for the
+     * copies made from it. Null for parts.
      */
     summary: text('summary'),
     /**

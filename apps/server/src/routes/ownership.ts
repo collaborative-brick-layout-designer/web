@@ -180,6 +180,7 @@ export async function returnToAuthor(
           docSnapshot: src.docSnapshot,
           docVersion: 0,
           sidecarSnapshot: src.sidecarSnapshot,
+          setup: src.setup,
           thumbnail: src.thumbnail,
           thumbnailMime: src.thumbnailMime,
           thumbnailAt: src.thumbnailAt,

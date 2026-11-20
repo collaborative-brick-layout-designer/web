@@ -1,6 +1,6 @@
 // A picked module's menu on a phone or tablet (the touch bar's Module
 import { lazyRetry } from '../ui/lazyRetry';
-// button): Edit module, Pin in place, Show / Hide name, Colors… and the
+// button): Edit module, Pin in place, Show / Hide name, Colors…, Table and power… and the
 // Module library entries (Save to library…, Update Module library version…,
 // Update from Module library), as the map's right-click menu has them.
 
@@ -13,6 +13,7 @@ import { updateSidecarModule } from './mutations';
 import { withShowName } from './moduleLook';
 
 const ModuleLookDialog = lazyRetry(() => import('./ModuleLookDialog').then((m) => ({ default: m.ModuleLookDialog })));
+const PlacedModuleSetupDialog = lazyRetry(() => import('./ModuleSetupDialog').then((m) => ({ default: m.PlacedModuleSetupDialog })));
 
 export function TouchModuleSheet({ doc, moduleId, onClose }: { doc: Y.Doc; moduleId: string; onClose: () => void }) {
   const mod = readSidecarFromDoc(doc)?.modules?.find((m) => m.id === moduleId);
@@ -20,6 +21,8 @@ export function TouchModuleSheet({ doc, moduleId, onClose }: { doc: Y.Doc; modul
   const [open, setOpen] = useState(false);
   // Colors… replaces the sheet with the colors dialog; closing it closes both.
   const [look, setLook] = useState(false);
+  // Table and power… does the same.
+  const [setup, setSetup] = useState(false);
   useEffect(() => {
     const id = requestAnimationFrame(() => setOpen(true));
     return () => cancelAnimationFrame(id);
@@ -39,12 +42,20 @@ export function TouchModuleSheet({ doc, moduleId, onClose }: { doc: Y.Doc; modul
       </Suspense>
     );
   }
+  if (setup) {
+    return (
+      <Suspense fallback={null}>
+        <PlacedModuleSetupDialog doc={doc} moduleId={mod.id} onClose={onClose} />
+      </Suspense>
+    );
+  }
   const hidden = mod.showName === false;
   const entries: (ModuleMenuEntry & { keepOpen?: boolean })[] = [
     { id: 'edit', label: 'Edit module', onSelect: () => enterModuleEdit(doc, mod.id) },
     { id: 'pin', label: mod.pinned ? 'Unpin' : 'Pin in place', onSelect: () => setModulePinned(doc, mod.id, !mod.pinned) },
     { id: 'name', label: hidden ? 'Show name' : 'Hide name', onSelect: () => updateSidecarModule(doc, mod.id, (m) => withShowName(m, hidden)) },
     { id: 'look', label: 'Colors…', keepOpen: true, onSelect: () => setLook(true) },
+    { id: 'setup', label: 'Table and power…', keepOpen: true, onSelect: () => setSetup(true) },
     ...library(mod),
   ];
   return (

@@ -15,7 +15,7 @@ import { api } from '../api';
 import { ModuleThumb } from '../modules/ModuleThumb';
 import { useEditorStore } from './editorStore';
 import { placeModuleAsking } from './SheetChoiceDialog';
-import { fetchModuleBatches, libraryVersionOf } from './moduleSnapshot';
+import { fetchModuleBatches } from './moduleSnapshot';
 import { libraryPlacement } from './sharedModules';
 import { useEscape } from './useEscape';
 
@@ -43,9 +43,13 @@ export function InsertModuleDialog({ doc, onClose }: Props) {
     mutationFn: async (item: { id: string; title: string }) => {
       const copy = await api.catalog.add(item.id);
       void qc.invalidateQueries({ queryKey: ['modules'] });
-      const [batches, version] = await Promise.all([fetchModuleBatches(copy.id), libraryVersionOf(copy.id)]);
-      // Linked to your copy: Update from Module library follows it.
-      const res = await placeModuleAsking(doc, batches, { name: item.title, library: { id: copy.id, ...(version ? { version } : {}) } });
+      const [batches, info] = await Promise.all([fetchModuleBatches(copy.id), api.modules.get(copy.id).then((r) => r.module).catch(() => null)]);
+      const version = info?.latestVersion || undefined;
+      // Linked to your copy: Update from Module library follows it. Its table and power come along.
+      const res = await placeModuleAsking(doc, batches, {
+        name: item.title,
+        library: { id: copy.id, ...(version ? { version } : {}), ...(info?.setup ? { setup: info.setup } : {}) },
+      });
       if (res) useEditorStore.getState().setSelection(res.ids);
       return !!res;
     },
