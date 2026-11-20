@@ -14,6 +14,7 @@ export const HINT_KINDS = [
   'layout',
   'module',
   'venue',
+  'rolling-stock',
   'custom-part',
   'catalog',
   'club',

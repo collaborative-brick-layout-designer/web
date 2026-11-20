@@ -20,7 +20,7 @@ import { clubShareMemberIds } from '../access/moduleShares.js';
 import { peopleWithPlacedCopies } from '../sharedModules/placed.js';
 import { slugFrom } from '../clubPartners/slug.js';
 
-type ResourceKind = 'layout' | 'module' | 'venue' | 'custom-part';
+type ResourceKind = 'layout' | 'module' | 'venue' | 'custom-part' | 'rolling-stock';
 
 export interface HintCtx {
   req: FastifyRequest;
@@ -44,7 +44,7 @@ function action(req: FastifyRequest): string {
   const url = req.routeOptions.url ?? '';
   const last = url.split('/').filter((s) => s && !s.startsWith(':')).pop() ?? '';
   const verb = req.method === 'POST' ? 'create' : req.method === 'DELETE' ? 'delete' : 'update';
-  return last && !['layouts', 'modules', 'venues', 'custom-parts', 'orgs'].includes(last) ? `${verb}:${last}` : verb;
+  return last && !['layouts', 'modules', 'venues', 'custom-parts', 'rolling-stock', 'orgs'].includes(last) ? `${verb}:${last}` : verb;
 }
 
 function sameOwner(a?: HintOwner, b?: HintOwner): boolean {
@@ -573,6 +573,10 @@ export const ROUTE_HINTS: Record<string, HintSpec> = {
 
   // ---- venues
   'POST /api/venues': resource('venue', { reply: 'id' }),
+  // ---- rolling stock rosters
+  'POST /api/rolling-stock': resource('rolling-stock', { reply: 'id' }),
+  'PATCH /api/rolling-stock/:id': resource('rolling-stock'),
+  'DELETE /api/rolling-stock/:id': resource('rolling-stock'),
   'PATCH /api/venues/:id': resource('venue'),
   'DELETE /api/venues/:id': resource('venue'),
   // Recently deleted: a restored thing shows again wherever it's listed; the list itself is the person's own.

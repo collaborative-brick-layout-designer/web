@@ -32,9 +32,9 @@ const SOURCES = import.meta.glob(['../../**/*.{ts,tsx}', '!../../**/*.test.{ts,t
 const CENTRED = new Set(['clubs.join', 'club.partners']);
 
 describe('the tour catalogue', () => {
-  it('has the welcome card and the seven tours, with ids the server accepts', () => {
+  it('has the welcome card and the eight tours, with ids the server accepts', () => {
     expect(WELCOME_ID).toBe('welcome');
-    expect(TOURS.map((t) => t.id)).toEqual(['editor', 'rooms', 'clubs', 'modules', 'routes', 'view', 'import']);
+    expect(TOURS.map((t) => t.id)).toEqual(['editor', 'rooms', 'clubs', 'modules', 'routes', 'trains', 'view', 'import']);
     // The import dialog starts its own tour (Show me around); the Help menu doesn't list it.
     expect(toursFor(false).map((t) => t.id)).not.toContain('import');
     expect(toursFor(true).map((t) => t.id)).not.toContain('import');
@@ -114,7 +114,7 @@ describe('the tour catalogue', () => {
 
   it('offers phones the View tour instead of the editor tour', () => {
     expect(toursFor(true).map((t) => t.id)).toEqual(['rooms', 'clubs', 'view']);
-    expect(toursFor(false).map((t) => t.id)).toEqual(['editor', 'rooms', 'clubs', 'modules', 'routes']);
+    expect(toursFor(false).map((t) => t.id)).toEqual(['editor', 'rooms', 'clubs', 'modules', 'routes', 'trains']);
     expect(forDevice('editor', true)).toBe('view');
     expect(forDevice('view', false)).toBe('editor');
     expect(forDevice('clubs', true)).toBe('clubs');

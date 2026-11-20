@@ -14,6 +14,7 @@ export const HINT_KINDS = [
   'layout',
   'module',
   'venue',
+  'rolling-stock',
   'custom-part',
   'catalog',
   'club',
@@ -51,6 +52,7 @@ const KEYS: Record<HintKind, (h: Hint) => QueryKey[]> = {
   // A module's new version is an update waiting in the layouts that place it (their list badge).
   module: () => [['trash'], ['modules'], ['modules-shared'], ['module-shares'], ['module-club-targets'], ['club-partners'], ['layout-shared-modules'], ['layouts'], ['module'], ['module-versions'], ['module-collaborators'], ['catalog-copies'], ['club-summary'], ...COLLECTIONS, ...ADMIN_LISTS],
   venue: () => [['trash'], ['venues'], ['venue'], ['venue-library'], ['club-summary']],
+  'rolling-stock': () => [['rolling-stock']],
   'custom-part': () => [['custom-parts'], ['custom-part-collaborators'], ['set-move-plan'], ['parts-catalog'], ['catalog-copies'], ['club-summary'], ...COLLECTIONS],
   catalog: () => [
     ['catalog-items'], ['catalog-mine'], ['catalog-copies'], ['moderation'], ['modules'], ['custom-parts'],
@@ -138,7 +140,7 @@ export function deletedId(hint: Hint): string | null {
 export function focusKeys(): QueryKey[] {
   const seen = new Set<string>();
   const out: QueryKey[] = [];
-  for (const kind of ['layout', 'module', 'venue', 'custom-part', 'club', 'catalog', 'warning', 'notification'] as const) {
+  for (const kind of ['layout', 'module', 'venue', 'rolling-stock', 'custom-part', 'club', 'catalog', 'warning', 'notification'] as const) {
     for (const k of keysFor({ kind })) {
       const id = JSON.stringify(k);
       if (k[0] === 'parts-catalog' || seen.has(id)) continue;
@@ -170,6 +172,7 @@ const WRITE_RULES: Array<[RegExp, HintKind[]]> = [
   [/^\/api\/modules\/[^/]+\/transfer\b/, ['module', 'transfer']],
   [/^\/api\/(modules|module-invites)\b/, ['module']],
   [/^\/api\/venues\b/, ['venue']],
+  [/^\/api\/rolling-stock\b/, ['rolling-stock']],
   // Recently deleted: a restore brings a layout, module or venue back; erasing empties the list.
   [/^\/api\/trash\b/, ['layout', 'module', 'venue']],
   [/^\/api\/(custom-parts|part-invites)\b/, ['custom-part']],

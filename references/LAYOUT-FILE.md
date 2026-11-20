@@ -77,6 +77,21 @@ different routes, and different fields of one, merge. Whether a route
 shows on the map is each person's own (this browser's storage), never in
 the file. Never in a `.bbm`.
 
+And its rolling stock and trains, as `rollingStock` and `trains` (trains
+design 2.3, 2.4): a car is `{ id, number, name, kind, type, owner, tags,
+trackKind, length, width, bodyLength, trucks: [{ at, swivelMax }],
+couplers: { front, rear }, powered, maxSpeed, look: { mode, color,
+partKey? }, model?, libraryId?, libraryVersion?, notes }` (lengths in
+studs; a truck's `at` is studs from the car's middle, + towards its front),
+and a train `{ id, name, trackKind, units: [{ stock, reversed }], position,
+color, speed }`, where `position` is the head car's front truck as a place
+on the track plus `facing` (`to` or `from`), or null when it isn't on the
+map. A car copied from a roster keeps `libraryId` (the roster entry) and
+`libraryVersion`, so the layout still opens anywhere and can be brought up
+to date. In the live doc they are Y.Maps at `meta.rollingStock` and
+`meta.trains`, one Y.Map of fields a record. Fields the app doesn't know
+are kept. Never in a `.bbm`.
+
 ## Saved views
 
 `sidecar.json` (and the `.bbm.bld` sidecar, and the live doc's `meta.cache`)
