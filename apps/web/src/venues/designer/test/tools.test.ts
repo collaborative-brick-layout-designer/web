@@ -130,13 +130,31 @@ describe('units', () => {
     expect(initialState({ ...emptyVenue(), lengthUnit: 'furlongs' as never }).unit).toBe('ftin');
   });
 
-  it('feet and inches is the default and is not written; undo and redo take the unit with them', () => {
+  it('a venue without a unit of its own starts in, and follows, the account unit', () => {
+    let s = initialState(emptyVenue(), 'm');
+    expect(s.unit).toBe('m');
+    expect(venueOf(s).lengthUnit).toBeUndefined();
+    s = run(s, { type: 'accountUnit', unit: 'studs' });
+    expect(s.unit).toBe('studs');
+    expect(venueOf(s).lengthUnit).toBeUndefined(); // not an edit
+    // Once picked, the venue keeps its own whatever the account says.
+    s = run(s, { type: 'unit', unit: 'ftin' });
+    expect(venueOf(s).lengthUnit).toBe('ftin');
+    s = run(s, { type: 'accountUnit', unit: 'm' });
+    expect(s.unit).toBe('ftin');
+    expect(initialState({ ...emptyVenue(), lengthUnit: 'studs' }, 'm').unit).toBe('studs');
+    // Undo back to no unit of its own: the account's again.
+    s = run(s, { type: 'undo' });
+    expect(s.unit).toBe('m');
+  });
+
+  it('a picked unit is written, feet and inches too; undo and redo take the unit with them', () => {
     let s = run(initialState(emptyVenue()), { type: 'unit', unit: 'studs' });
     const studs = venueOf(s);
     s = run(s, { type: 'unit', unit: 'studs' });
     expect(venueOf(s)).toBe(studs); // the same pick again changes nothing
     s = run(s, { type: 'unit', unit: 'ftin' });
-    expect('lengthUnit' in venueOf(s)).toBe(false);
+    expect(venueOf(s).lengthUnit).toBe('ftin');
     s = run(s, { type: 'undo' });
     expect(s.unit).toBe('studs');
     expect(venueOf(s).lengthUnit).toBe('studs');

@@ -1,5 +1,5 @@
 // Account preferences: the appearance and help settings (and the editor
-// lists' picture size and the connection Snap strength) that follow a person between browsers and, through an API token, the desktop app.
+// lists' picture size, the connection Snap strength and the length unit) that follow a person between browsers and, through an API token, the desktop app.
 //
 //   GET /api/me/preferences  -> { prefs, updatedAt }
 //   PUT /api/me/preferences  { prefs: {...some keys} } -> { prefs, updatedAt }
@@ -27,6 +27,8 @@ export const PARTS_ICON_MAX = 160;
 export const CONNECTION_SNAP = ['off', 'gentle', 'strong'] as const;
 /** How far the color reaches: just the highlights (the original look) or the whole app (the default). */
 export const COLOR_STYLES = ['original', 'full'] as const;
+/** The unit lengths are shown in: feet and inches, metric, or studs (1 stud = 8 mm). */
+export const LENGTH_UNITS = ['ftin', 'm', 'studs'] as const;
 const TOUR_ID = /^[A-Za-z0-9._-]{1,64}$/;
 
 export interface Preferences {
@@ -63,6 +65,12 @@ export interface Preferences {
    */
   connectionSnap: (typeof CONNECTION_SNAP)[number];
   /**
+   * The unit lengths are shown in across the app (a venue without a unit
+   * of its own, and later train and route lengths). Always returned
+   * (default "ftin"), so the desktop knows it can save it.
+   */
+  lengthUnit: (typeof LENGTH_UNITS)[number];
+  /**
    * Whether the people who run your clubs see roughly when you were last
    * active (today, this week, this month) in the club's members list.
    */
@@ -87,6 +95,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   helpIcons: true,
   toursSeen: [],
   connectionSnap: 'gentle',
+  lengthUnit: 'ftin',
   shareLastActive: true,
   emailJoinRequests: true,
 };
@@ -144,6 +153,12 @@ export function validatePreferences(input: unknown): { ok: Partial<Preferences> 
           return { error: `connectionSnap must be one of ${CONNECTION_SNAP.join(', ')}` };
         }
         out.connectionSnap = value as (typeof CONNECTION_SNAP)[number];
+        break;
+      case 'lengthUnit':
+        if (!(LENGTH_UNITS as readonly unknown[]).includes(value)) {
+          return { error: `lengthUnit must be one of ${LENGTH_UNITS.join(', ')}` };
+        }
+        out.lengthUnit = value as (typeof LENGTH_UNITS)[number];
         break;
       default:
         return { error: `unknown preference: ${key}` };

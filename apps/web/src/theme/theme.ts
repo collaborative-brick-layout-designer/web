@@ -6,6 +6,7 @@
 import { ACCENTS, ACCENT_IDS, LARGE_TEXT_SCALE, NEUTRALS, type AccentId, type Mode } from './tokens';
 import { isSnapStrength, type SnapStrength } from '../editor/snapFeel';
 import { isLegoColorId, legoColor } from '@cld/model';
+import type { VenueLengthUnit as LengthUnit } from '@cld/bbm';
 import { chromeTheme, colorTheme } from './colorTheme';
 
 export type ThemeChoice = 'light' | 'dark' | 'system';
@@ -40,11 +41,16 @@ export interface Preferences {
   partsIconSize?: number;
   /** Connection Snap strength (off / gentle / strong); absent until set, which means gentle. */
   connectionSnap?: SnapStrength;
+  /** The unit lengths are shown in (feet and inches, metric or studs); absent until set, which means feet and inches. */
+  lengthUnit?: LengthUnit;
   /** Whether the people who run your clubs see roughly when you were last active; absent means yes. */
   shareLastActive?: boolean;
   /** Whether to email you when someone asks to join a club where your roles answer requests; absent means yes. */
   emailJoinRequests?: boolean;
 }
+
+/** The units lengths can be shown in: feet and inches, metric, studs (1 stud = 8 mm). */
+export const LENGTH_UNITS: readonly LengthUnit[] = ['ftin', 'm', 'studs'];
 
 export const PARTS_ICON_MIN = 32;
 export const PARTS_ICON_MAX = 160;
@@ -179,6 +185,7 @@ export function sanitizePreferences(input: unknown): Preferences {
     out.partsIconSize = Math.round(Math.min(PARTS_ICON_MAX, Math.max(PARTS_ICON_MIN, o.partsIconSize)));
   }
   if (isSnapStrength(o.connectionSnap)) out.connectionSnap = o.connectionSnap;
+  if ((LENGTH_UNITS as readonly unknown[]).includes(o.lengthUnit)) out.lengthUnit = o.lengthUnit as LengthUnit;
   if (typeof o.shareLastActive === 'boolean') out.shareLastActive = o.shareLastActive;
   if (typeof o.emailJoinRequests === 'boolean') out.emailJoinRequests = o.emailJoinRequests;
   if (o.legoColor === null || isLegoColorId(o.legoColor)) out.legoColor = o.legoColor;

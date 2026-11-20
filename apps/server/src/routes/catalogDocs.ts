@@ -24,7 +24,7 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { and, eq, inArray } from 'drizzle-orm';
 import sharp from 'sharp';
-import { venueLengthUnit, writeBbm, type Sidecar, type Venue } from '@cld/bbm';
+import { venueOwnLengthUnit, writeBbm, type Sidecar, type Venue } from '@cld/bbm';
 import type { BbmMap } from '@cld/model';
 import { BUDGET_LIMITS_KEY, decodeDoc, encodeDoc, exportBbmFromDoc, exportSidecarFromDoc, importSidecarIntoDoc, seedFromBbm } from '@cld/ydoc';
 import { db, schema } from '../db/index.js';
@@ -64,7 +64,8 @@ export function publicVenue(v: Venue): Venue {
   };
   if (Array.isArray(v.power) && v.power.length) out.power = v.power.map((p) => pick(p, ['x', 'y', 'kind', 'label', 'amps', 'volts']) as NonNullable<Venue['power']>[number]);
   // The unit its lengths show in, so the public page reads as its owner drew it.
-  if (venueLengthUnit(v) !== 'ftin') out.lengthUnit = venueLengthUnit(v);
+  const own = venueOwnLengthUnit(v);
+  if (own) out.lengthUnit = own;
   if (Array.isArray(v.dimensions) && v.dimensions.length) out.dimensions = v.dimensions.map((d) => pick(d, ['from', 'to', 'label', 'estimated']) as NonNullable<Venue['dimensions']>[number]);
   return out;
 }

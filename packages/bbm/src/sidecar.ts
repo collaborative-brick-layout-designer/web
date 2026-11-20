@@ -144,17 +144,28 @@ export interface VenueDimension {
 /** The unit a venue's lengths are shown in: feet and inches, meters or studs. */
 export type VenueLengthUnit = 'ftin' | 'm' | 'studs';
 
-/** The unit `venue`'s lengths are shown in; feet and inches when it names none (or one we don't know). */
-export function venueLengthUnit(venue: object | null | undefined): VenueLengthUnit {
+/** The unit `venue` names for its own lengths (the Venue Designer's Units pick), or null when it names none (or one we don't know). */
+export function venueOwnLengthUnit(venue: object | null | undefined): VenueLengthUnit | null {
   const u = (venue as { lengthUnit?: unknown } | null | undefined)?.lengthUnit;
-  return u === 'm' || u === 'studs' ? u : 'ftin';
+  return u === 'ftin' || u === 'm' || u === 'studs' ? u : null;
 }
 
-/** `venue` showing its lengths in `unit`. Feet and inches is the default, and isn't written. */
+/**
+ * The unit `venue`'s lengths are shown in: its own, or `fallback` (the
+ * account's length unit; feet and inches when not given) when it names none.
+ */
+export function venueLengthUnit(venue: object | null | undefined, fallback: VenueLengthUnit = 'ftin'): VenueLengthUnit {
+  return venueOwnLengthUnit(venue) ?? fallback;
+}
+
+/**
+ * `venue` showing its lengths in `unit`, picked in the Venue Designer, so it
+ * is written even for feet and inches: a venue without one follows each
+ * viewer's account unit.
+ */
 export function withVenueLengthUnit<V extends object>(venue: V, unit: VenueLengthUnit): V {
-  const { lengthUnit: was, ...rest } = venue as V & { lengthUnit?: unknown };
-  if (unit === 'ftin' ? was === undefined : was === unit) return venue;
-  return (unit === 'ftin' ? rest : { ...rest, lengthUnit: unit }) as V;
+  if ((venue as { lengthUnit?: unknown }).lengthUnit === unit) return venue;
+  return { ...venue, lengthUnit: unit } as V;
 }
 
 export interface Venue {
@@ -171,8 +182,8 @@ export interface Venue {
   dimensions?: VenueDimension[];
   /**
    * The unit lengths are shown in (the Venue Designer's Units pick), so the
-   * wall lengths read the same wherever the venue is drawn. Absent: feet
-   * and inches. Read it with `venueLengthUnit`.
+   * wall lengths read the same wherever the venue is drawn. Absent: the
+   * viewer's account unit. Read it with `venueLengthUnit`.
    */
   lengthUnit?: VenueLengthUnit;
   [extra: string]: unknown;
