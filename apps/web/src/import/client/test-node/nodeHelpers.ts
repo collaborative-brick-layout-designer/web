@@ -3,11 +3,12 @@
 // the desktop's converter (bld-import-server) run on a file.
 
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, fstatSync, mkdtempSync, openSync, readdirSync, readFileSync, readSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { inflateSync } from 'node:zlib';
 import type { LibrarySource } from '../library';
+import type { LddSource } from '../lddSource';
 
 /** The server's lookup (libraryFiles.ts resolvePart) over a folder. */
 export class FolderLibrary implements LibrarySource {
@@ -156,7 +157,14 @@ export function runConverter(converter: string, request: Record<string, unknown>
     execFileSync('mkdir', ['-p', out]);
     const req = join(work, 'req.json');
     writeFileSync(req, JSON.stringify({ ...request, input, outDir: out }));
-    const stdout = execFileSync(converter, [req], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+    let stdout: string;
+    try {
+      stdout = execFileSync(converter, [req], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, stdio: ['ignore', 'pipe', 'ignore'] });
+    } catch (e) {
+      // It exits non-zero when nothing can be imported, with its JSON all the same.
+      stdout = String((e as { stdout?: string }).stdout ?? '');
+      if (!stdout.trim()) throw e;
+    }
     const json = JSON.parse(stdout) as Record<string, unknown>;
     const files = new Map<string, Buffer>();
     const walk = (dir: string, rel: string) => {
@@ -195,4 +203,94 @@ export function compareImages(a: { width: number; height: number; rgba: Uint8Arr
     }
   }
   return { sameSize: true, iou: union ? inter / union : 1, meanRgb: count ? sum / count : 0, maxRgb: max };
+}
+
+/** LDD's database in Assets.lif (or db.lif) for the tests: the server's lifIndex, read synchronously. */
+export class FolderLdd implements LddSource {
+  readonly hasAssets: boolean;
+  private readonly fd: number | null;
+  private readonly index = new Map<string, { offset: number; size: number }>();
+  fetched = 0;
+
+  constructor(
+    assetsLif: string | null,
+    private readonly ldrawXml: string | null,
+  ) {
+    this.fd = assetsLif && existsSync(assetsLif) ? openSync(assetsLif, 'r') : null;
+    this.hasAssets = this.fd !== null;
+    if (this.fd !== null) {
+      const size = fstatSync(this.fd).size;
+      let idx = this.lif(0, size);
+      const nested = idx.get('/db.lif');
+      if (nested) idx = this.lif(nested.offset, nested.size);
+      for (const [k, v] of idx) this.index.set(k, v);
+    }
+  }
+
+  private read(at: number, n: number): Buffer {
+    const b = Buffer.alloc(n);
+    const got = readSync(this.fd!, b, 0, n, at);
+    return b.subarray(0, got);
+  }
+
+  private lif(base: number, length: number): Map<string, { offset: number; size: number }> {
+    const out = new Map<string, { offset: number; size: number }>();
+    const header = this.read(base, 84);
+    const tocStart = header.readUInt32BE(72) + 64;
+    const toc = this.read(base + tocStart, length - tocStart);
+    const u32 = (o: number) => (o - tocStart >= 0 && o - tocStart + 4 <= toc.length ? toc.readUInt32BE(o - tocStart) : 0);
+    const u16 = (o: number) => (o - tocStart >= 0 && o - tocStart + 2 <= toc.length ? toc.readUInt16BE(o - tocStart) : 0);
+    let packed = 84;
+    const walk = (prefix: string, offset: number): number => {
+      offset += prefix ? 4 : 36;
+      const count = u32(offset);
+      for (let i = 0; i < count; i++) {
+        offset += 4;
+        const type = u16(offset);
+        offset += 6;
+        let name = '';
+        while (offset + 1 - tocStart < toc.length && toc[offset + 1 - tocStart] !== 0) {
+          name += String.fromCharCode(toc[offset + 1 - tocStart]!);
+          offset += 2;
+        }
+        offset += 6;
+        if (type === 1) {
+          packed += 20;
+          offset = walk(`${prefix}/${name}`, offset);
+        } else if (type === 2) {
+          packed += 20;
+          const size = u32(offset) - 20;
+          out.set(`${prefix}/${name}`, { offset: base + packed, size });
+          packed += size;
+          offset += 24;
+        } else return offset;
+      }
+      return offset;
+    };
+    walk('', tocStart);
+    return out;
+  }
+
+  private entry(rel: string): Uint8Array | null {
+    const e = this.index.get(`/${rel}`) ?? this.index.get(`/db/${rel}`);
+    return e ? new Uint8Array(this.read(e.offset, e.size)) : null;
+  }
+
+  async shapes(ids: string[]): Promise<Map<string, Uint8Array | null>> {
+    const out = new Map<string, Uint8Array | null>();
+    for (const id of ids) {
+      out.set(id, this.entry(`Primitives/LOD0/${id}.g`));
+      this.fetched++;
+    }
+    return out;
+  }
+
+  async materials(): Promise<string | null> {
+    const b = this.entry('Materials.xml');
+    return b ? new TextDecoder().decode(b) : null;
+  }
+
+  async mapping(): Promise<string | null> {
+    return this.ldrawXml && existsSync(this.ldrawXml) ? readFileSync(this.ldrawXml, 'utf8') : null;
+  }
 }

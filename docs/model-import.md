@@ -29,8 +29,12 @@ on its own). Bodies are JSON unless marked multipart.
 | `POST /api/import-library/:lib/:version/files` | `{ names: string[] }` (1 to 256) | `{ version, files: { [name]: text \| null }, more: [names that didn't fit in 16 MB] }` |
 | `GET /api/import-library/:lib/:version/ldconfig` | | LDConfig.ldr |
 | `GET /api/import-library/:lib/:version/moved` | | `{ [newName]: [earlier names] }` from the `0 ~Moved to` stubs |
+| `GET /api/import-library/ldd/:version/geometry?id=<designID>` | | one LDD brick's shape (binary); 204 when there's none |
+| `POST /api/import-library/ldd/:version/geometry` | `{ ids: [designID] }` (1 to 256, digits) | `{ version, files: { [id]: base64 \| null }, more }` |
+| `GET /api/import-library/ldd/:version/materials` | | LDD's Materials.xml |
+| `GET /api/import-library/ldd-mapping/:version/ldraw-xml` | | the LDD → LDraw mapping |
 | `GET /api/admin/imports` | | converter, libraries, settings, queue (site admins) |
-| `PATCH /api/admin/imports` | `{ enabled?: boolean, limits?: { maxUploadMb?, perHour?, perUserAtOnce?, atOnce?, timeoutSeconds?, memoryMb? } }` | the same view |
+| `PATCH /api/admin/imports` | `{ enabled?: boolean, serverBackup?: boolean, limits?: { maxUploadMb?, perHour?, perUserAtOnce?, atOnce?, timeoutSeconds?, memoryMb? } }` | the same view |
 | `POST /api/admin/imports/ldraw/download` | none | downloads `https://library.ldraw.org/library/updates/complete.zip` |
 | `DELETE /api/admin/imports/ldraw` | | |
 | `POST /api/admin/imports/ldd/assets` | **multipart** `file`: LDD's `Assets.lif` (up to 1.5 GB) | 422 if it isn't a LIF archive |
@@ -93,11 +97,34 @@ arrow keys over the picture nudge it, as the desktop's do.
 
 ## In the browser
 
-The browser's own importer reads and draws LDraw models (`.ldr`, `.mpd`,
-`.dat`) and BrickLink Studio models (`.io`) itself, in a Web Worker, so the
-server only hands it library files and saves the result. LDD files still go
-to the server's converter for now, as does any model the browser can't
-manage.
+The browser's own importer reads and draws LDraw (`.ldr`, `.mpd`, `.dat`),
+BrickLink Studio (`.io`) and LDD (`.lxf`, `.lxfml`) models itself, in a Web
+Worker, so the server only hands it library files and saves the result. The
+server's converter reads a model the browser can't manage, while Admin ›
+Model import › **Server import as a backup** is on (the default;
+`IMPORTS_SERVER_BACKUP` forces it, and the page says so). Off, the server
+reads nothing (`/api/imports/status` says `reason: "backup_off"`, uploads to
+`POST /api/imports` are refused) and such a model isn't imported: the dialog
+says so in a line.
+
+**LDD files** (`lddReader.ts`, `lddMapping.ts`, `lddGeom.ts`,
+`lddSource.ts`): the desktop's readLDD, LDDLDrawMapping, readLDDGeom and
+LDDMeshBuilder. As the desktop's prepareImport: with LDD's brick database on
+the site, every brick is drawn from LDD's own shape (`Primitives/LOD0/<designID>.g`,
+painted from `Materials.xml`), and the model is placed as LDraw parts through
+`ldraw.xml` (its built-in train track even without one) only to find where
+track snaps on, each part's real centre checked against the LDraw library
+when there is one. Without the database, the LDraw model `ldraw.xml` makes of
+it is drawn from the LDraw library; without either, only the server can
+compose it from BlueBrick's sprites, so it goes to the server.
+
+**LDD's database on the server** (`apps/server/src/imports/lddFiles.ts`): the
+table of contents of the uploaded `Assets.lif` (and the `db.lif` nested in
+it) is read once per install (11,394 entries in 9 ms for LDD 4.3) into an
+index of entry → offset and size; each brick is one seek and one read. A
+request names a design ID (digits only), never a path: the shape of that
+brick, or `Materials.xml`. Never the file, never a listing (Aaron,
+2026-11-19: one brick at a time to signed-in people).
 
 **Studio files** (`studioReader.ts`, `zip.ts`): the desktop's readStudioIo and
 SafeZip. An `.io` is a ZIP; Studio 2.1 and later encrypt every entry with
@@ -188,6 +215,9 @@ models the pictures came out identical but for a level or two on a few
 pixels, and 4 of 5 outlines point for point.
 Studio files are compared the same way: the fixtures packed as Studio packs
 them (ZipCrypto), and one with its own custom part on the tiny library.
+LDD models (`BLD_LDD_ROOT`: a folder with LDD's `Assets.lif` and `ldraw.xml`)
+are compared three ways each: from LDD's shapes, with and without the LDraw
+library, and as the LDraw model `ldraw.xml` makes of them; the `.lxf` too.
 
 The v2.1.11 converter bundle has no Qt image-format plugins, so it can't
 read BlueBrick's GIF sprites: parts placed one by one get a 2 × 2 stud
@@ -210,6 +240,10 @@ custom part through `createCustomPart`'s checks and limits, a layout through
 | GET | `/api/import-library/(ldraw\|studio)/[0-9a-f]{16}/ldconfig` | none |
 | GET | `/api/import-library/(ldraw\|studio)/[0-9a-f]{16}/moved` | none |
 | POST | `/api/imports/client` | JSON, up to 96 MB (base64 PNG and XML, or a .bbm's text) |
+| GET | `/api/import-library/ldd/[0-9a-f]{16}/geometry?id=[0-9]{1,10}` | none |
+| POST | `/api/import-library/ldd/[0-9a-f]{16}/geometry` | JSON `{ "ids": [...] }`, ≤ 256 design IDs |
+| GET | `/api/import-library/ldd/[0-9a-f]{16}/materials` | none |
+| GET | `/api/import-library/ldd-mapping/[0-9a-f]{16}/ldraw-xml` | none |
 
 Part names hold `\` and `/` (`s\3001s01.dat`), so the `name` query
 carries `%5C` / `%2F`; that is expected, not traversal.

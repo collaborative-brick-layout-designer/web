@@ -4,14 +4,14 @@ import { apiGet, apiSend, friendlyErrorMessage, noteWrite } from '../api';
 
 export interface ImportStatus {
   available: boolean;
-  reason: 'off' | 'missing' | 'too_old' | 'broken' | 'unsandboxed' | null;
+  reason: 'off' | 'backup_off' | 'missing' | 'too_old' | 'broken' | 'unsandboxed' | null;
   message: string | null;
   extensions: string[];
   maxUploadBytes: number;
   perHour: number;
   libraries: { ldraw: boolean; ldd: boolean; lddMapping: boolean; studio: boolean };
   /** The browser's own importer: the files it reads here, and the libraries' versions. */
-  browser?: { available: boolean; extensions: string[]; ldraw: string | null; studio: string | null };
+  browser?: { available: boolean; extensions: string[]; ldraw: string | null; studio: string | null; ldd?: string | null; lddMapping?: string | null };
 }
 
 export interface ImportConnection {

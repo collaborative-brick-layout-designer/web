@@ -301,6 +301,35 @@ test.describe('Import a model', () => {
     net.expectQuiet();
   });
 
+  test('Admin › Model import › Server import as a backup: off, a model the browser can’t read isn’t sent to the server', async ({ page }) => {
+    makeGlobalAdmin(EMAIL);
+    const net = watch4xx(page);
+    await page.goto('/admin');
+    await adminSection(page, 'imports');
+    const tab = page.getByTestId('admin-imports');
+    const backup = tab.getByTestId('admin-imports-backup');
+    await expect(backup).toBeChecked();
+    try {
+      // Saved, then shown (the box waits for the server).
+      await backup.click();
+      await expect(backup).not.toBeChecked();
+      await expect(tab.getByTestId('admin-imports-state')).toContainText('their browsers read them');
+      // A browser that can't run the importer's worker: nothing goes to the server, and it says why.
+      const jobs = serverJobs(page);
+      await page.route(/worker[^/]*\.(ts|js)(\?|$)/, (route) => route.abort());
+      await page.goto('/');
+      await dropFile(page, 'No backup.ldr', MINI);
+      const dialog = page.getByRole('dialog', { name: 'Import a model' });
+      await expect(dialog.getByTestId('import-error')).toContainText('Your browser couldn’t read this one, and this site reads models only in your browser', { timeout: 30000 });
+      expect(jobs).toEqual([]);
+      await dialog.getByTestId('import-cancel').click();
+    } finally {
+      const res = await page.request.patch('/api/admin/imports', { data: { serverBackup: true } });
+      expect(res.ok()).toBe(true);
+    }
+    net.expectQuiet();
+  });
+
   test('Admin › Model import: the switch, the libraries and the limits', async ({ page }) => {
     makeGlobalAdmin(EMAIL);
     const net = watch4xx(page);
@@ -310,7 +339,7 @@ test.describe('Import a model', () => {
     await expect(tab.getByTestId('admin-imports-state')).toHaveText('People can import LDraw, BrickLink Studio and LDD files on this site.');
     await expect(tab).toContainText('version 2.1.11');
     for (const id of ['lib-ldraw', 'lib-ldd', 'lib-mapping', 'lib-studio']) await expect(tab.getByTestId(id)).toBeVisible();
-    await expect(tab.getByTestId('lib-ldd')).toContainText('never served to anyone');
+    await expect(tab.getByTestId('lib-ldd')).toContainText('one brick at a time, never the file');
     // A limit, saved and put back.
     const perHour = tab.getByLabel('Imports per person per hour');
     const save = perHour.locator('xpath=..').getByRole('button', { name: 'Save' });
@@ -399,6 +428,29 @@ test.describe('Import a model in the browser', () => {
     await dialog.getByLabel('Save as').fill('Browser Studio');
     await dialog.getByRole('button', { name: 'Save as Custom Part' }).click();
     await expect(dialog.getByTestId('import-summary')).toContainText('Made the custom part “Browser Studio” (4 × 2 studs, 0 connection points)', { timeout: 30000 });
+    expect(jobs).toEqual([]);
+    net.expectQuiet();
+  });
+
+  test('an LDD model is drawn here from the site’s LDD bricks, one brick at a time, with no server job', async ({ page }) => {
+    const net = watch4xx(page);
+    const jobs = serverJobs(page);
+    const bricks: string[] = [];
+    page.on('request', (r) => {
+      if (/\/api\/import-library\/ldd\/[0-9a-f]{16}\/geometry$/.test(new URL(r.url()).pathname)) bricks.push(r.postData() ?? '');
+    });
+    const lxf = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '../fixtures/ldd-house.lxf'));
+    await page.goto('/');
+    await dropFile(page, 'LDD house.lxf', lxf);
+    const dialog = page.getByRole('dialog', { name: 'Import a model' });
+    await expect(dialog.getByTestId('import-preview')).toBeVisible({ timeout: 30000 });
+    await expect(dialog).toContainText('Preview: LDD import');
+    await expect(dialog.getByTestId('import-size')).toHaveText('4 × 4 studs, 0 connection points');
+    // Only the model's two bricks were asked for, by their design IDs.
+    expect(bricks.map((b) => JSON.parse(b) as { ids: string[] }).flatMap((b) => b.ids).sort()).toEqual(['3001', '3022']);
+    await dialog.getByLabel('Save as').fill('Browser LDD');
+    await dialog.getByRole('button', { name: 'Save as Custom Part' }).click();
+    await expect(dialog.getByTestId('import-summary')).toContainText('Made the custom part “Browser LDD”', { timeout: 30000 });
     expect(jobs).toEqual([]);
     net.expectQuiet();
   });

@@ -30,7 +30,7 @@ import { SaveToPicker } from '../owners/OwnerControls';
 import { useTours } from '../tours/TourProvider';
 import { DESKTOP_URL } from '../projectLinks';
 import { importApi, importErrorText, uploadModel, type ConvertChoices, type ImportJob, type ImportResult, type ImportTarget, type ToPlace } from './importApi';
-import { base64Of, BrowserImport, canImportInBrowser, FallBack, libraryFor, utf8Base64, type BrowserProgress } from './browserImport';
+import { base64Of, BrowserImport, canImportInBrowser, FallBack, libraryVersions, utf8Base64, type BrowserProgress } from './browserImport';
 import { partToPlace } from './placeImport';
 import { aligned, connectionTypeName, rotated, type Align } from './previewMath';
 import { PreviewCanvas } from './PreviewCanvas';
@@ -140,7 +140,12 @@ export function ImportDialog({ file, into, isAdmin = false, onClose, onDone, pur
   useEffect(() => {
     if (route !== 'deciding' || status.isPending) return;
     if (canImportInBrowser(file.name, status.data)) setRoute('browser');
-    else if (status.data && !status.data.available) setError(status.data.message ?? 'This site can’t import this kind of file right now.');
+    else if (status.data && !status.data.available)
+      setError(
+        status.data.reason === 'backup_off' && status.data.browser?.available
+          ? 'Your browser couldn’t read this one, and this site reads models only in your browser, so it can’t be imported here.'
+          : (status.data.message ?? 'This site can’t import this kind of file right now.'),
+      );
     else setRoute('server');
   }, [route, status.isPending, status.data, file.name]);
 
@@ -155,7 +160,7 @@ export function ImportDialog({ file, into, isAdmin = false, onClose, onDone, pur
         const catalog = await qc.fetchQuery({ queryKey: ['parts-catalog'], queryFn: api.parts.catalog, staleTime: 5 * 60 * 1000 });
         // The converter has the site's own parts library, not people's custom parts.
         const bundled = catalog.parts.filter((p) => p.source === 'bundled');
-        const analysis = await b.analyse(file, libraryFor(file.name, status.data)!, bundled);
+        const analysis = await b.analyse(file, libraryVersions(status.data), bundled);
         if (!live) return;
         setProgress(null);
         setJob({ id: '', fileName: file.name, state: 'ready', step: 'analyse', position: 0, error: null, analysis, result: null });
@@ -180,6 +185,15 @@ export function ImportDialog({ file, into, isAdmin = false, onClose, onDone, pur
       setFellBack(true);
       setJob(null);
       setRoute('server');
+      return;
+    }
+    if (e instanceof FallBack) {
+      // No server to take over: an admin turned it off, or there isn't one.
+      setError(
+        status.data?.reason === 'backup_off'
+          ? 'Your browser couldn’t read this one, and this site reads models only in your browser, so it can’t be imported here.'
+          : `Your browser couldn’t read this one, and this site can’t read it either. ${status.data?.message ?? ''}`.trim(),
+      );
       return;
     }
     setError(e.message);

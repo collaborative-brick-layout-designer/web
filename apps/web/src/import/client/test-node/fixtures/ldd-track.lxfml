@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no" ?>
+<LXFML versionMajor="5" versionMinor="0" name="">
+  <Bricks cameraRef="0">
+    <Brick refID="0" designID="2865">
+      <Part refID="0" designID="2865" materials="26">
+        <Bone refID="0" transformation="1,0,0,0,1,0,0,0,1,0,0,0"/>
+      </Part>
+    </Brick>
+    <Brick refID="1" designID="2865">
+      <Part refID="1" designID="2865" materials="26">
+        <Bone refID="1" transformation="1,0,0,0,1,0,0,0,1,12.8,0,0"/>
+      </Part>
+    </Brick>
+  </Bricks>
+</LXFML>

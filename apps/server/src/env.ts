@@ -108,6 +108,9 @@ export const env = {
   // libraries are set up in Admin › Model import and kept under the data
   // folder; each IMPORT_* path, when set, is used instead (read-only).
   importsEnabledForced: forcedBool(process.env.IMPORTS_ENABLED),
+  // Admin › Model import › Server import as a backup (on by default): the
+  // server's converter reads what a browser can't. IMPORTS_SERVER_BACKUP forces it.
+  importsServerBackupForced: forcedBool(process.env.IMPORTS_SERVER_BACKUP),
   importConverter: process.env.IMPORT_CONVERTER?.trim() || '/opt/bld-import-server/bin/bld-import-server',
   importLdrawDir: process.env.IMPORT_LDRAW_DIR?.trim() || null,
   importLddAssets: process.env.IMPORT_LDD_ASSETS?.trim() || null,

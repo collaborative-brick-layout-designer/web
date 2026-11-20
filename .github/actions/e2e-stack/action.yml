@@ -102,6 +102,10 @@ runs:
         if [ -z "${IMPORT_LDRAW_DIR:-}" ]; then
           export IMPORT_LDRAW_DIR="$GITHUB_WORKSPACE/apps/web/src/import/client/test-node/fixtures/minilib"
         fi
+        # And a tiny LDD-style brick database (apps/web/e2e/fixtures/ldd: not LDD's own).
+        if [ -z "${IMPORT_LDD_ASSETS:-}" ]; then
+          export IMPORT_LDD_ASSETS="$GITHUB_WORKSPACE/apps/web/e2e/fixtures/ldd"
+        fi
         npx tsx src/db/migrate.ts
         nohup npx tsx src/index.ts > "$GITHUB_WORKSPACE/.e2e/server.log" 2>&1 &
         for i in $(seq 60); do

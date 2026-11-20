@@ -7,7 +7,7 @@
 
 import type { PartWire } from '../api';
 import type { ConvertChoices } from './client/convert';
-import type { FromWorker, ToWorker } from './client/protocol';
+import type { FromWorker, LibraryVersions, ToWorker } from './client/protocol';
 import type { ImportAnalysis, ImportStatus } from './importApi';
 
 export type BrowserProgress = { phase: 'reading' | 'fetching' | 'drawing'; done?: number; total?: number };
@@ -18,20 +18,16 @@ export class FallBack extends Error {}
 /** Whether this browser can import `fileName` itself here. */
 export function canImportInBrowser(fileName: string, status: Pick<ImportStatus, 'browser'> | null | undefined): boolean {
   const b = status?.browser;
-  if (!b?.available || !libraryFor(fileName, status)) return false;
+  if (!b?.available) return false;
   const ext = /\.([A-Za-z]+)$/.exec(fileName)?.[1]?.toLowerCase() ?? '';
   if (!b.extensions.includes(ext)) return false;
   return typeof Worker !== 'undefined' && typeof OffscreenCanvas !== 'undefined';
 }
 
-/**
- * The library a model is drawn from, as the desktop's prepareImport picks it:
- * Studio's own for an .io when the site has it, else the LDraw library.
- */
-export function libraryFor(fileName: string, status: Pick<ImportStatus, 'browser'> | null | undefined): { name: 'ldraw' | 'studio'; version: string } | null {
+/** The site's libraries' versions, from the status (the worker picks what each file needs). */
+export function libraryVersions(status: Pick<ImportStatus, 'browser'> | null | undefined): LibraryVersions {
   const b = status?.browser;
-  if (/\.io$/i.test(fileName) && b?.studio) return { name: 'studio', version: b.studio };
-  return b?.ldraw ? { name: 'ldraw', version: b.ldraw } : null;
+  return { ldraw: b?.ldraw ?? null, studio: b?.studio ?? null, ldd: b?.ldd ?? null, lddMapping: b?.lddMapping ?? null };
 }
 
 export type MadePart = Extract<FromWorker, { type: 'made-part' }>;
@@ -83,8 +79,8 @@ export class BrowserImport {
   }
 
   /** The analysis as the server's job has it, its preview a blob: URL (freed on cancel). */
-  async analyse(file: File, library: { name: 'ldraw' | 'studio'; version: string }, parts: PartWire[]): Promise<ImportAnalysis> {
-    const m = await this.ask({ type: 'analyse', file, library, parts });
+  async analyse(file: File, libraries: LibraryVersions, parts: PartWire[]): Promise<ImportAnalysis> {
+    const m = await this.ask({ type: 'analyse', file, libraries, parts });
     if (m.type !== 'analysed') throw new FallBack('Unexpected answer from the import worker.');
     const a = m.analysis;
     if (a.part) this.preview = URL.createObjectURL(a.part.preview);

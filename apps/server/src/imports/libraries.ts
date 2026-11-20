@@ -1,7 +1,8 @@
 // The libraries the converter reads (docs/model-import.md), all under
 // <data>/import-libraries/, never in a backup or a data download. Only
 // single LDraw / Studio part files go out, to signed-in people's browsers
-// (imports/libraryFiles.ts); a library is never served whole or listed:
+// (imports/libraryFiles.ts), and LDD's brick shapes one at a time
+// (imports/lddFiles.ts); a library is never served whole or listed:
 //   ldraw/        the official LDraw library (complete.zip, CC BY 2.0),
 //                 downloaded on the admin's click; ldraw.json says which
 //   ldd/          LEGO Digital Designer's Assets.lif (proprietary: an admin
