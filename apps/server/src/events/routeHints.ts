@@ -846,6 +846,8 @@ export const NO_HINT: Record<string, string> = {
   'POST /api/metrics/client': 'anonymous client timing beacon',
   'POST /api/imports': 'starts an import job; the job sends the hints for what it makes (imports/apply.ts)',
   'POST /api/imports/:id/convert': 'queues the import; the job sends the hints for the part and layout it makes (imports/apply.ts)',
+  'POST /api/imports/client': 'saves what the browser’s importer made; apply.ts sends the hints for the part and layout it makes',
+  'POST /api/import-library/:lib/:version/files': 'reads library files; changes nothing',
   'DELETE /api/imports/:id': 'cancels your own import job: nothing anyone else sees',
   'POST /api/notifications/unsubscribe': 'no sign-in (a mail app); the route sends the account its own notification hint',
 };

@@ -9,5 +9,7 @@
     "noEmit": true,
     "types": ["vite/client"]
   },
-  "include": ["src/**/*"]
+  "include": ["src/**/*"],
+  // Node-only tests (the importer against files and the desktop converter): tsconfig.node-tests.json.
+  "exclude": ["src/**/test-node/**"]
 }

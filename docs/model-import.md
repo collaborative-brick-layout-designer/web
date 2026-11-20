@@ -23,6 +23,12 @@ on its own). Bodies are JSON unless marked multipart.
 | `GET /api/imports/:id/preview.png` | | the preview picture (PNG), while the job is `ready` |
 | `POST /api/imports/:id/convert` | `{ mode: "part"\|"parts", quarterTurns, align: ""\|"bottom"\|"box", nudge: [x, y], drop: [indices], name, designer, designerUrl, category, target }` with `target` `{ kind: "new", title?, orgSlug? }`, `{ kind: "layout", layoutId, sheetId?, at?: { x, y }, clientPlaces?: true }` or `{ kind: "library", orgSlug? }` (mode `"part"` only) | 202 job; 400 `invalid_target`; 403 / 404 as Upload part for a club the person can't add parts to |
 | `DELETE /api/imports/:id` | | 204: cancelled, its files deleted |
+| `POST /api/imports/client` | JSON (up to 96 MB): what the browser's importer made. Mode `"part"`: `{ partKey, displayName, xmlBase64, spriteBase64 (PNG), widthStuds, heightStuds, category, connections?, stats?, warnings?, target }`; mode `"parts"`: `{ bbm (the .bbm's text), title?, sheets?, stats?, warnings?, target }` | 200 with the same `result` a job ends with; 400 `invalid_mode` / `invalid_target` / `missing_files` / `invalid_size`; 422 `damaged_layout`; the part's own checks as Upload part; 409 `import_unavailable` when import is off; 403 for the demo account |
+| `GET /api/import-library` | | `{ enabled, ldraw: version \| null, studio: version \| null }` |
+| `GET /api/import-library/:lib/:version/file?name=…` | | one LDraw part file as text, looked up in the desktop's search order; 204 when there's none |
+| `POST /api/import-library/:lib/:version/files` | `{ names: string[] }` (1 to 256) | `{ version, files: { [name]: text \| null }, more: [names that didn't fit in 16 MB] }` |
+| `GET /api/import-library/:lib/:version/ldconfig` | | LDConfig.ldr |
+| `GET /api/import-library/:lib/:version/moved` | | `{ [newName]: [earlier names] }` from the `0 ~Moved to` stubs |
 | `GET /api/admin/imports` | | converter, libraries, settings, queue (site admins) |
 | `PATCH /api/admin/imports` | `{ enabled?: boolean, limits?: { maxUploadMb?, perHour?, perUserAtOnce?, atOnce?, timeoutSeconds?, memoryMb? } }` | the same view |
 | `POST /api/admin/imports/ldraw/download` | none | downloads `https://library.ldraw.org/library/updates/complete.zip` |
@@ -84,6 +90,113 @@ scaled; the stud grid, the part's middle and the connection points are drawn
 in screen pixels, so they stay sharp. The view is held in the picture's own
 studs, so a nudge keeps the zoom and slides the grid under the model. The
 arrow keys over the picture nudge it, as the desktop's do.
+
+## In the browser
+
+The browser's own importer reads and draws an LDraw model (`.ldr`, `.mpd`,
+`.dat`) itself, in a Web Worker, so the server only hands it library files
+and saves the result. Studio and LDD files still go to the server's
+converter for now, as does any model the browser can't manage.
+
+**The library files** (`apps/server/src/imports/libraryFiles.ts`,
+`apps/server/src/routes/importLibraries.ts`), for signed-in people while
+import is on:
+
+- `:lib` is `ldraw` or `studio`. `:version` is the library install's id: a
+  hash of its path, install time, LDConfig's release line and file time.
+  `GET /api/import-library` gives the current one; an update changes it.
+- A name is looked up the way the desktop's `LDrawLibrary::resolve` does:
+  any case, a folder hint (`s/`, `48/`) first, then `parts`, `p`, `p/48`,
+  `p/8`, `parts/s`, the same under `Unofficial/`, then the root. Each folder
+  is indexed once (lower-case names). The name only picks an index entry:
+  `..`, absolute paths, more than two folders, characters outside LDraw's,
+  and anything but `.dat`/`.ldr` are refused (400), and a folder hint must
+  be plain letters and digits that stay inside the library.
+- Files over 8 MB aren't served. A batch answers at most 16 MB and lists
+  the rest in `more`, for the next batch.
+- Answers under the current version are `private, max-age=31536000,
+  immutable` with an ETag; under an older version they're still answered
+  (a page open across an update keeps working) but `no-store`. A missing
+  file is a 204 or a `null`, never a 4xx: the browser asks for names it
+  can't know exist, and bursts of 4xx get people banned by the WAF.
+- Never a listing and never a whole library. Rate limit: 600 a minute per
+  person.
+
+**The importer** (`apps/web/src/import/client/`) is a TypeScript port of the
+desktop's converter, step for step, with the desktop file it follows named
+at the top of each module: `ldrawReader.ts` (readLDraw, MPD flattening),
+`library.ts` and `remoteSource.ts` (the files a model uses, fetched a round
+at a time: the model's parts, then what they use; kept in Cache Storage
+under their versioned URLs), `meshLoader.ts` and `bake.ts`
+(LDrawMeshLoader, bakeMeshFromLDraw), `rasterize.ts` (rasterizeMeshTopDown
+and baseLattice: 32 px a stud, 4× supersampled z-buffer, outlines,
+see-through parts), `connections.ts` (toBlueBrickMap, externalConnections),
+`prepare.ts` (prepareImport, the warnings, the suggested name),
+`align.ts` (rotatePart, alignPart, finishPreview), `pickShape.ts`,
+`partXml.ts` (the part XML as QXmlStreamWriter writes it), `convert.ts`, and
+`layout.ts` (parts placed one by one: the shared `readLDrawMap` and
+`writeBbm`). The 8 px/stud GIF isn't made: the site never kept it.
+
+It runs in a Web Worker (`worker.ts`; the page's side is
+`apps/web/src/import/browserImport.ts`): progress ("Fetching 213 parts…
+120/213", "Drawing…"), and Cancel ends the worker at once. The dialog
+(`ImportDialog.tsx`) uses it for the files the status's `browser` names,
+when the browser has workers and off-screen canvases. When the browser
+can't (no workers, the worker crashes or runs out of memory, the library
+can't be reached), the server's converter takes over and the dialog says so
+in a line ("Your browser couldn't read this one, so the server is reading it
+instead."). A model's own problem (no part has geometry, parts that refer to
+each other without end) is shown, not handed on: the server would say the
+same. `canImport` (importApi.ts) opens the import for a file when either can.
+
+**Parity with the converter** (`apps/web/src/import/client/test-node/`):
+`importer.test.ts` runs in CI on a tiny library written for the tests
+(`fixtures/minilib`, also the e2e stack's library). `parity.test.ts` runs
+the real converter on the same files and compares, opt-in:
+
+| Env var | |
+|---|---|
+| `BLD_IMPORT_SERVER` | `bld-import-server` (a release asset, with `plugins/imageformats/libqgif.so`: see below) |
+| `BLD_LDRAW_LIBRARY` | library.ldraw.org's `complete.zip`, unpacked (without it only the tiny library is compared) |
+| `BLD_PARTS_DIR` | BlueBrick parts (default: the repo's `parts-library/parts`) |
+| `BLD_PARITY_MODELS` | more folders of `.ldr` / `.mpd` models, colon-separated |
+
+Exact: the footprint, the model's bounds (±1e-6), whether its base is on the
+grid, the snap margin, the connection points (±1e-4), the counts, the
+warnings, the title, designer, suggested name and key; the part XML line for
+line but for the date, the source path and time; the parts placed one by one
+(part, place, size, angle, height, links). With tolerance: the picture is the
+same size, its see-through masks (alpha > 127) overlap with an IoU of at
+least 0.995, and where both show, colors differ by at most 2/255 on average;
+the `<PickShape>` has as many rings covering the same area within 2% (Qt
+simplifies the outline its own way). On the fixtures and the library's
+models the pictures came out identical but for a level or two on a few
+pixels, and 4 of 5 outlines point for point.
+
+The v2.1.11 converter bundle has no Qt image-format plugins, so it can't
+read BlueBrick's GIF sprites: parts placed one by one get a 2 × 2 stud
+placeholder size instead of their own (the 32 × 32 baseplate, say). The
+browser's result is the desktop app's; compare against a bundle with
+`plugins/imageformats/libqgif.so` added (all cases then match).
+
+**The result** goes to `POST /api/imports/client` and is saved exactly as a
+job's result is (`applyPartFiles` / `applyLayoutText` in `apply.ts`): the
+custom part through `createCustomPart`'s checks and limits, a layout through
+`readBbm` and the growth limits.
+
+**WAF** (new in this release):
+
+| Method | Path shape | Body |
+|---|---|---|
+| GET | `/api/import-library` | none |
+| GET | `/api/import-library/(ldraw\|studio)/[0-9a-f]{16}/file?name=<part name>` | none |
+| POST | `/api/import-library/(ldraw\|studio)/[0-9a-f]{16}/files` | JSON `{ "names": [...] }`, small (≤ 256 names) |
+| GET | `/api/import-library/(ldraw\|studio)/[0-9a-f]{16}/ldconfig` | none |
+| GET | `/api/import-library/(ldraw\|studio)/[0-9a-f]{16}/moved` | none |
+| POST | `/api/imports/client` | JSON, up to 96 MB (base64 PNG and XML, or a .bbm's text) |
+
+Part names hold `\` and `/` (`s\3001s01.dat`), so the `name` query
+carries `%5C` / `%2F`; that is expected, not traversal.
 
 ## Jobs
 

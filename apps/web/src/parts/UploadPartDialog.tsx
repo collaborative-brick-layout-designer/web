@@ -12,7 +12,7 @@ import { SaveToPicker } from '../owners/OwnerControls';
 import { CategoryPicker } from './CategoryPicker';
 import { DesktopOnlySteps } from '../open/DesktopOnly';
 import { useEscape } from '../editor/useEscape';
-import { importApi } from '../import/importApi';
+import { canImport as importOpen, importApi } from '../import/importApi';
 import { HelpButton } from '../help/HelpButton';
 
 /**
@@ -23,7 +23,7 @@ export function UploadPartDialog({ onClose, filter, onImportModel }: { onClose: 
   useEscape(onClose);
   const qc = useQueryClient();
   const importStatus = useQuery({ queryKey: ['imports-status'], queryFn: importApi.status, staleTime: 60_000 });
-  const canImport = !!onImportModel && importStatus.data?.available === true;
+  const canImport = !!onImportModel && importOpen(importStatus.data);
   const orgs = useQuery({ queryKey: ['orgs'], queryFn: api.orgs.list });
   const catalog = useQuery({ queryKey: ['parts-catalog'], queryFn: api.parts.catalog, staleTime: 5 * 60 * 1000 });
   const [partNumber, setPartNumber] = useState('');

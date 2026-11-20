@@ -204,7 +204,7 @@ import { Menu } from '../ui/menu/Menu';
 import { resolveMenu } from '../ui/menu/menuModel';
 import { mapMenuEntries, modKey, phoneMapEntries, type MapMenuToggles } from './mapMenu';
 import { openFilePicker } from '../open/FileOpener';
-import { importApi, IMPORT_ACCEPT, type ToPlace } from '../import/importApi';
+import { canImport, importApi, IMPORT_ACCEPT, type ToPlace } from '../import/importApi';
 import { placeImported } from '../import/placeImport';
 import { OpenedSummaryCard } from '../open/OpenedSummary';
 import { DemoBanner } from '../demo/DemoBanner';
@@ -515,14 +515,14 @@ function Editor({ layoutId, docState, moduleMode }: { layoutId: string; docState
   const importInput = useRef<HTMLInputElement>(null);
   const importStatus = useQuery({ queryKey: ['imports-status'], queryFn: importApi.status, staleTime: 60_000, enabled: !docState.signedOut });
   const importModel =
-    importStatus.data?.available && role !== 'viewer'
+    canImport(importStatus.data) && role !== 'viewer'
       ? () => {
           setImportAsPart(false);
           importInput.current?.click();
         }
       : undefined;
   const importModelAsPart =
-    importStatus.data?.available && role !== 'viewer'
+    canImport(importStatus.data) && role !== 'viewer'
       ? () => {
           setImportAsPart(true);
           importInput.current?.click();

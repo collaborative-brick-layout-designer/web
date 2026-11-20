@@ -202,11 +202,23 @@ export async function applyPart(
   target: ImportTarget,
   category: string,
 ): Promise<ApplyResult> {
+  const [xml, sprite] = await Promise.all([readFile(join(outDir, result.xml)), readFile(join(outDir, result.sprite))]);
+  return applyPartFiles(user, xml, sprite, result, target, category);
+}
+
+/** Mode "part" from the part's files: the converter's, or the browser's own (POST /api/imports/client). */
+export async function applyPartFiles(
+  user: User,
+  xml: Buffer,
+  sprite: Buffer,
+  result: { partKey: string; displayName: string; spriteMime: string; widthStuds: number; heightStuds: number },
+  target: ImportTarget,
+  category: string,
+): Promise<ApplyResult> {
   const orgSlug = await partOrgSlug(user, target);
   let orgId: string | null = null;
   if (orgSlug) orgId = (await db.select({ id: schema.orgs.id }).from(schema.orgs).where(eq(schema.orgs.slug, orgSlug)).get())?.id ?? null;
   const partNumber = await freePartNumber(result.partKey, { userId: orgId ? null : user.id, orgId });
-  const [xml, sprite] = await Promise.all([readFile(join(outDir, result.xml)), readFile(join(outDir, result.sprite))]);
   const made = await createCustomPart(user, {
     partNumber,
     displayName: result.displayName || partNumber,
@@ -245,7 +257,17 @@ export async function applyPart(
 
 /** Mode "parts": the converter's .bbm. */
 export async function applyLayout(user: User, outDir: string, bbmFile: string, target: ImportTarget, fallbackTitle: string): Promise<ApplyResult> {
-  const parsed = readBbm(await readFile(join(outDir, bbmFile), 'utf8'));
+  return applyLayoutText(user, await readFile(join(outDir, bbmFile), 'utf8'), target, fallbackTitle);
+}
+
+/** Mode "parts" from the .bbm's text: the converter's, or the browser's own. */
+export async function applyLayoutText(user: User, bbm: string, target: ImportTarget, fallbackTitle: string): Promise<ApplyResult> {
+  let parsed: ReturnType<typeof readBbm>;
+  try {
+    parsed = readBbm(bbm);
+  } catch {
+    return { ok: false, status: 422, error: 'damaged_layout' };
+  }
   if (target.kind === 'new') {
     const made = await newLayout(user, target, seedFromBbm(parsed.map), fallbackTitle);
     if (!made.ok) return made;

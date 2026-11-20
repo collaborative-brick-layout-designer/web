@@ -345,7 +345,7 @@ export function readLDrawMap(text: string, lib: MapLibrary, opts: LDrawReadOptio
 
   for (const l of map.layers) if (hiddenLayers.includes(l.name)) l.visible = false;
   rebuildConnectivity(map, lib.catalog);
-  const warnings = skippedUnknown > 0 ? [`${skippedUnknown} part(s) are not in the parts library`] : [];
+  const warnings = skippedUnknown > 0 ? [`${skippedUnknown} part(s) aren't in your parts library, so they were left out.`] : [];
   return { map, warnings };
 }
 

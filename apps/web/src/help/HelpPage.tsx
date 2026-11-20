@@ -58,7 +58,7 @@ const TOPICS: { id: string; title: string; body: string[] }[] = [
     id: 'importing',
     title: 'Importing a model',
     body: [
-      'Open or drop an LDraw, BrickLink Studio or LDD file, or choose Map › File › Import a model… in the editor. The site reads it with the desktop app’s own importer, so the result is what the desktop app makes. The file is deleted from the server as soon as it’s read.',
+      'Open or drop an LDraw, BrickLink Studio or LDD file, or choose Map › File › Import a model… in the editor. Your browser reads an LDraw model itself, as the desktop app does, fetching only the parts it uses from the site; Studio and LDD files, and any model your browser can’t manage, are read by the site with the desktop app’s own importer, which deletes the file as soon as it’s read. Either way the result is what the desktop app makes.',
       'The preview shows the model from above on the stud grid. Scroll, pinch or use − and + to zoom in and check the studs sit on the grid, and drag to look around. Turn it, line it up with the studs, uncheck snap points you don’t want, then name it and say who built it. Save as Custom Part makes it one part; for an LDraw layout, Place the parts puts each piece in as a part of its own.',
       'Imported into the layout you have open, it goes in the middle of your view as one change: Edit › Undo takes the whole import back, and Redo brings it back. To make a part without placing it, choose Import from a model file under Custom parts on Home or in the Parts panel.',
       'Parts the site’s libraries don’t have are left out and counted. A site admin adds libraries in Admin › Model import. When a site can’t import, the desktop app can, and its File › Save to Server… brings the result here.',

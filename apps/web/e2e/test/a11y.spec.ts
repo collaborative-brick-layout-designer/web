@@ -140,13 +140,13 @@ const DIALOGS: DialogCase[] = [
   },
   { name: 'add a custom part', path: () => '/#parts', ready: (p) => expect(p.getByRole('button', { name: `More for ${SET}` })).toBeVisible(), open: (p) => p.getByRole('button', { name: 'Upload part', exact: true }).click(), dialog: 'Upload custom part', focusBack: true },
   { name: 'editor share', path: editor, ready: editorReady, open: (p) => p.getByRole('button', { name: 'Share', exact: true }).click(), dialog: 'Share A11y Layout', focusBack: true },
-  // Import a model: the file picker, then the import dialog's preview (the e2e stack's stand-in converter).
+  // Import a model: the file picker, then the import dialog's preview (read in the browser, from the e2e stack's tiny library).
   {
     name: 'editor import a model', path: editor, ready: editorReady,
     open: async (p) => {
       const chooser = p.waitForEvent('filechooser');
       await mapMenu(p, 'File', 'Import a model (LDraw, Studio, LDD)…');
-      await (await chooser).setFiles({ name: 'Loop.ldr', mimeType: 'application/octet-stream', buffer: Buffer.from('0 Loop\n1 4 0 0 0 1 0 0 0 1 0 0 0 1 3001.dat\n') });
+      await (await chooser).setFiles({ name: 'Loop.ldr', mimeType: 'application/octet-stream', buffer: Buffer.from('0 Loop\n1 4 0 0 0 1 0 0 0 1 0 0 0 1 box2.dat\n') });
       await expect(p.getByTestId('import-preview')).toBeVisible({ timeout: 30_000 });
     },
     dialog: 'Import a model',

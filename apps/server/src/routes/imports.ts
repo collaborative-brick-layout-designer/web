@@ -9,6 +9,11 @@
 //   POST   /api/imports/:id/convert       the preview's choices and where it goes:
 //                                         target { kind: "new" | "layout" (+ clientPlaces) | "library" }
 //   DELETE /api/imports/:id               cancel, and delete its files
+//   POST   /api/imports/client            what the browser's own importer made (JSON):
+//                                         mode "part": { partKey, displayName, xmlBase64, spriteBase64 (PNG),
+//                                         widthStuds, heightStuds, category, target, stats?, warnings?, connections? };
+//                                         mode "parts": { bbm (the .bbm's text), title, target, sheets?, bricks?, warnings? }
+//                                         → the same result a server job ends with
 //
 // Admin › Model import:
 //   GET    /api/admin/imports                       converter, libraries, settings, queue
@@ -35,7 +40,7 @@ import { isDemoUser } from '../demo/demoAccount.js';
 import { writeAuditEvent } from '../audit/writeAuditEvent.js';
 import { perPerson } from '../utils/rateLimits.js';
 import { converterState, forgetConverterState, type ConverterState } from '../imports/converter.js';
-import { applyLayout, applyPart, checkTarget, type ImportTarget } from '../imports/apply.js';
+import { applyLayout, applyLayoutText, applyPart, applyPartFiles, checkTarget, type ImportTarget } from '../imports/apply.js';
 import {
   cancelJob,
   enqueue,
@@ -69,6 +74,7 @@ import {
   ZipRefused,
 } from '../imports/libraries.js';
 import { IMPORT_SETTINGS, importSettings, saveImportSettings } from '../imports/settings.js';
+import { library } from '../imports/libraryFiles.js';
 
 /** The file types the site imports. */
 export const IMPORT_EXTENSIONS = ['ldr', 'mpd', 'dat', 'io', 'lxf', 'lxfml'] as const;
@@ -185,10 +191,65 @@ function readTarget(v: unknown): ImportTarget | null {
   return null;
 }
 
+interface ClientBody {
+  mode?: unknown;
+  partKey?: unknown;
+  displayName?: unknown;
+  xmlBase64?: unknown;
+  spriteBase64?: unknown;
+  widthStuds?: unknown;
+  heightStuds?: unknown;
+  connections?: unknown;
+  category?: unknown;
+  bbm?: unknown;
+  title?: unknown;
+  sheets?: unknown;
+  stats?: unknown;
+  warnings?: unknown;
+  target?: unknown;
+}
+
+/** A browser import's files: a 4 MB part (custom parts' cap) or a layout, in base64 or text. */
+const CLIENT_BODY_LIMIT = 96 * 1024 * 1024;
+
+function readStats(v: unknown): { ldrawResolved: number; lddRendered: number; unresolved: number } | null {
+  if (!v || typeof v !== 'object') return null;
+  const o = v as Record<string, unknown>;
+  const n = (x: unknown) => (Number.isInteger(x) && (x as number) >= 0 ? Math.min(x as number, 10_000_000) : 0);
+  return { ldrawResolved: n(o.ldrawResolved), lddRendered: n(o.lddRendered), unresolved: n(o.unresolved) };
+}
+
+/** What a finished import tells the page (a job's `result`). */
+function resultOf(
+  mode: 'part' | 'parts',
+  applied: Extract<Awaited<ReturnType<typeof applyPartFiles>>, { ok: true }>,
+  target: ImportTarget,
+  extra: { stats: unknown; warnings: string[]; widthStuds: number | null; heightStuds: number | null; connections: number | null; sheets: number | null },
+) {
+  return {
+    mode,
+    layoutId: applied.layoutId,
+    newLayout: target.kind === 'new',
+    part: applied.part ?? null,
+    placed: applied.placed,
+    sheetId: applied.sheetId,
+    brickIds: applied.brickIds,
+    toPlace: applied.toPlace ?? null,
+    ...extra,
+  };
+}
+
 async function saveUpload(file: NodeJS.ReadableStream & { truncated?: boolean }, dest: string): Promise<boolean> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   await pipeline(file as any, createWriteStream(dest));
   return !file.truncated;
+}
+
+/** What the browser's importer can do here: on, with an LDraw library, for LDraw files. */
+async function browserImport(enabled: boolean) {
+  const [ldraw, studio] = await Promise.all([library('ldraw'), library('studio')]);
+  const available = enabled && !!ldraw;
+  return { available, extensions: available ? ['ldr', 'mpd', 'dat'] : [], ldraw: ldraw?.version ?? null, studio: studio?.version ?? null };
 }
 
 async function adminView() {
@@ -234,6 +295,9 @@ export async function importRoutes(app: FastifyInstance): Promise<void> {
       maxUploadBytes: settings.limits.maxUploadMb * 1024 * 1024,
       perHour: settings.limits.perHour,
       libraries: { ldraw: ldraw.present, ldd: ldd.present, lddMapping: ldd.mapping.present, studio: studio.present },
+      // The browser's own importer (docs/model-import.md, "In the browser"):
+      // the file types it reads, with the libraries' versions for its URLs.
+      browser: await browserImport(settings.enabled),
     };
   });
 
@@ -356,6 +420,60 @@ export async function importRoutes(app: FastifyInstance): Promise<void> {
     enqueue(job, 'convert');
     return reply.code(202).send(jobView(job));
   });
+
+  // What the browser's own importer made (docs/model-import.md, "In the
+  // browser"): saved exactly as a server job's result is, through the same
+  // checks (createCustomPart for a part, readBbm and the growth limits for a
+  // layout). The server doesn't run anything for it.
+  app.post<{ Body: ClientBody }>(
+    '/api/imports/client',
+    { bodyLimit: CLIENT_BODY_LIMIT, config: { rateLimit: perPerson(30, '1 minute') } },
+    async (req, reply) => {
+      const user = requireUser(req);
+      if (isDemoUser(user)) return reply.code(403).send({ error: 'demo_account_cannot_import' });
+      const settings = await importSettings();
+      if (!settings.enabled) return reply.code(409).send({ error: 'import_unavailable', reason: 'off', message: REASONS.off });
+      const body = req.body ?? {};
+      const mode = body.mode === 'parts' ? 'parts' : body.mode === 'part' ? 'part' : null;
+      if (!mode) return reply.code(400).send({ error: 'invalid_mode' });
+      const target = readTarget(body.target);
+      if (!target) return reply.code(400).send({ error: 'invalid_target' });
+      if (target.kind === 'library' && mode !== 'part') return reply.code(400).send({ error: 'invalid_target' });
+      const allowed = await checkTarget(user, target);
+      if (!allowed.ok) return reply.code(allowed.status).send({ error: allowed.error, ...(allowed.permission ? { permission: allowed.permission } : {}) });
+      const stats = readStats(body.stats);
+      const warnings = Array.isArray(body.warnings) ? body.warnings.filter((w): w is string => typeof w === 'string').slice(0, 50).map((w) => w.slice(0, 500)) : [];
+      if (mode === 'part') {
+        const partKey = s(body.partKey, 120).replace(/[^A-Za-z0-9_\-.]/g, '_') || 'ImportedModel';
+        const xml = typeof body.xmlBase64 === 'string' ? Buffer.from(body.xmlBase64, 'base64') : null;
+        const sprite = typeof body.spriteBase64 === 'string' ? Buffer.from(body.spriteBase64, 'base64') : null;
+        const w = body.widthStuds;
+        const h = body.heightStuds;
+        if (!xml?.length || !sprite?.length) return reply.code(400).send({ error: 'missing_files' });
+        if (!Number.isInteger(w) || !Number.isInteger(h) || (w as number) < 1 || (h as number) < 1 || (w as number) > 4096 || (h as number) > 4096) {
+          return reply.code(400).send({ error: 'invalid_size' });
+        }
+        const applied = await applyPartFiles(
+          user,
+          xml,
+          sprite,
+          { partKey, displayName: s(body.displayName, 200).trim(), spriteMime: 'image/png', widthStuds: w as number, heightStuds: h as number },
+          target,
+          s(body.category, 60),
+        );
+        if (!applied.ok) return reply.code(applied.status).send({ error: applied.error, ...(applied.permission ? { permission: applied.permission } : {}) });
+        const connections = Number.isInteger(body.connections) ? (body.connections as number) : null;
+        return resultOf('part', applied, target, { stats, warnings, widthStuds: w as number, heightStuds: h as number, connections, sheets: null });
+      }
+      const bbm = typeof body.bbm === 'string' ? body.bbm : '';
+      if (!bbm) return reply.code(400).send({ error: 'missing_files' });
+      if (Buffer.byteLength(bbm) > settings.limits.maxUploadMb * 1024 * 1024) return reply.code(413).send({ error: 'file_too_large' });
+      const applied = await applyLayoutText(user, bbm, target, s(body.title, 200) || 'Imported model');
+      if (!applied.ok) return reply.code(applied.status).send({ error: applied.error, ...(applied.permission ? { permission: applied.permission } : {}) });
+      const sheets = Number.isInteger(body.sheets) ? (body.sheets as number) : null;
+      return resultOf('parts', applied, target, { stats, warnings, widthStuds: null, heightStuds: null, connections: null, sheets });
+    },
+  );
 
   app.delete<{ Params: { id: string } }>('/api/imports/:id', { config: { rateLimit: perPerson(60, '1 minute') } }, async (req, reply) => {
     const user = requireUser(req);

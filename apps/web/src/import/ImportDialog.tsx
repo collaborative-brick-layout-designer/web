@@ -9,6 +9,11 @@
 //   → making it → what came in, with a way to fix what's missing
 // Cancel works at every step and deletes the file on the server.
 //
+// The browser imports LDraw files itself (browserImport.ts, a Web Worker
+// that reads and draws the model as the desktop's converter does, fetching
+// only the library files it uses); the server's converter takes over when
+// the browser can't, and the person is told in a line.
+//
 // Into the layout open in the editor, the server only makes the part (or
 // reads the parts) and the editor puts them down itself (`into.place`), so
 // one Undo takes the whole import back. `purpose: 'part'` (Custom parts and
@@ -25,6 +30,7 @@ import { SaveToPicker } from '../owners/OwnerControls';
 import { useTours } from '../tours/TourProvider';
 import { DESKTOP_URL } from '../projectLinks';
 import { importApi, importErrorText, uploadModel, type ConvertChoices, type ImportJob, type ImportResult, type ImportTarget, type ToPlace } from './importApi';
+import { base64Of, BrowserImport, canImportInBrowser, FallBack, utf8Base64, type BrowserProgress } from './browserImport';
 import { partToPlace } from './placeImport';
 import { aligned, connectionTypeName, rotated, type Align } from './previewMath';
 import { PreviewCanvas } from './PreviewCanvas';
@@ -84,6 +90,13 @@ export function ImportDialog({ file, into, isAdmin = false, onClose, onDone, pur
   const jobId = useRef<string | null>(null);
   const finished = useRef(false);
   const upload = useRef<AbortController | null>(null);
+  // Who reads it: this browser, or the server's converter (the backup).
+  const status = useQuery({ queryKey: ['imports-status'], queryFn: importApi.status, staleTime: 30_000 });
+  const [route, setRoute] = useState<'deciding' | 'browser' | 'server'>('deciding');
+  const [fellBack, setFellBack] = useState(false);
+  const [progress, setProgress] = useState<BrowserProgress | null>(null);
+  const browser = useRef<BrowserImport | null>(null);
+  const me2 = useQuery({ queryKey: ['me'], queryFn: api.me });
 
   // Preview choices.
   const [mode, setMode] = useState<'part' | 'parts'>('part');
@@ -119,6 +132,61 @@ export function ImportDialog({ file, into, isAdmin = false, onClose, onDone, pur
   const mounted = useRef(true);
   useEffect(() => {
     mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  // This browser, when it can; else the server.
+  useEffect(() => {
+    if (route !== 'deciding' || status.isPending) return;
+    if (canImportInBrowser(file.name, status.data)) setRoute('browser');
+    else if (status.data && !status.data.available) setError(status.data.message ?? 'This site can’t import this kind of file right now.');
+    else setRoute('server');
+  }, [route, status.isPending, status.data, file.name]);
+
+  // The browser's importer: read and draw it here, the server only hands out library files.
+  useEffect(() => {
+    if (route !== 'browser') return;
+    const b = new BrowserImport(setProgress);
+    browser.current = b;
+    let live = true;
+    void (async () => {
+      try {
+        const catalog = await qc.fetchQuery({ queryKey: ['parts-catalog'], queryFn: api.parts.catalog, staleTime: 5 * 60 * 1000 });
+        // The converter has the site's own parts library, not people's custom parts.
+        const bundled = catalog.parts.filter((p) => p.source === 'bundled');
+        const analysis = await b.analyse(file, status.data!.browser!.ldraw!, bundled);
+        if (!live) return;
+        setProgress(null);
+        setJob({ id: '', fileName: file.name, state: 'ready', step: 'analyse', position: 0, error: null, analysis, result: null });
+      } catch (e) {
+        if (!live) return;
+        setProgress(null);
+        fallBackOr(e as Error);
+      }
+    })();
+    return () => {
+      live = false;
+      b.cancel();
+      if (browser.current === b) browser.current = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once per file, when the browser takes it
+  }, [route, file]);
+
+  /** The server takes over when the browser couldn't (and the server can); else the error. */
+  function fallBackOr(e: Error) {
+    if (e.message === 'cancelled') return;
+    if (e instanceof FallBack && status.data?.available) {
+      setFellBack(true);
+      setJob(null);
+      setRoute('server');
+      return;
+    }
+    setError(e.message);
+  }
+
+  useEffect(() => {
+    if (route !== 'server') return;
     let sending = uploads.get(file);
     if (!sending) {
       const ac = new AbortController();
@@ -143,14 +211,11 @@ export function ImportDialog({ file, into, isAdmin = false, onClose, onDone, pur
       .catch((e: Error) => {
         if (mounted.current && e.name !== 'AbortError') setError(e.message);
       });
-    return () => {
-      mounted.current = false;
-    };
-  }, [file]);
+  }, [file, route]);
 
   // Follow the job while the server works on it.
   useEffect(() => {
-    if (!job || !['queued', 'analysing', 'converting'].includes(job.state)) return;
+    if (route !== 'server' || !job || !['queued', 'analysing', 'converting'].includes(job.state)) return;
     const t = setTimeout(() => {
       importApi
         .job(job.id)
@@ -158,7 +223,7 @@ export function ImportDialog({ file, into, isAdmin = false, onClose, onDone, pur
         .catch((e: Error) => setError(e.message));
     }, 600);
     return () => clearTimeout(t);
-  }, [job]);
+  }, [job, route]);
 
   // The preview's starting values, once.
   const analysis = job?.analysis ?? null;
@@ -196,13 +261,14 @@ export function ImportDialog({ file, into, isAdmin = false, onClose, onDone, pur
         if (ids.length === 0) setPlaceError(result.part ? 'This layout has no parts sheet to put it on. Add one, then place the part from the Parts panel.' : 'This layout has no parts sheet to put them on. Add one, then import the model again.');
         setPlaced({ ...result, toPlace: null, placed: ids.length, brickIds: ids });
         // The server needn't keep the parts any longer.
-        void importApi.cancel(job.id);
+        if (job.id) void importApi.cancel(job.id);
       })();
     }
   }, [job, qc, into]);
 
   // Leaving before it's done cancels it: nothing stays on the server.
   const close = useCallback(() => {
+    browser.current?.cancel();
     upload.current?.abort();
     uploads.delete(file);
     if (jobId.current && !finished.current) void importApi.cancel(jobId.current);
@@ -241,6 +307,10 @@ export function ImportDialog({ file, into, isAdmin = false, onClose, onDone, pur
       category: category.trim(),
       target,
     };
+    if (route === 'browser') {
+      await makeHere(choices);
+      return;
+    }
     try {
       setJob(await importApi.convert(job.id, choices));
     } catch (e) {
@@ -248,10 +318,75 @@ export function ImportDialog({ file, into, isAdmin = false, onClose, onDone, pur
     }
   }
 
+  /** Make it in the worker, then save what it made (POST /api/imports/client). */
+  async function makeHere(choices: ConvertChoices) {
+    const b = browser.current;
+    const started = job;
+    if (!b || !started?.analysis) return;
+    setJob({ ...started, state: 'converting', step: 'convert' });
+    try {
+      const a = started.analysis;
+      let result: ImportResult;
+      if (choices.mode === 'part') {
+        const made = await b.makePart({
+          quarterTurns: choices.quarterTurns,
+          align: choices.align,
+          nudge: choices.nudge,
+          drop: choices.drop,
+          name: choices.name,
+          designer: choices.designer,
+          designerUrl: choices.designerUrl,
+          author: me2.data?.user?.displayName ?? '',
+        });
+        result = await importApi.client({
+          mode: 'part',
+          partKey: made.partKey,
+          displayName: made.displayName,
+          xmlBase64: utf8Base64(made.xml),
+          spriteBase64: await base64Of(made.png),
+          widthStuds: made.widthStuds,
+          heightStuds: made.heightStuds,
+          connections: made.connections,
+          category: choices.category,
+          stats: a.part?.stats ?? { ldrawResolved: 0, lddRendered: 0, unresolved: 0 },
+          warnings: a.part?.warnings ?? [],
+          target: choices.target,
+        });
+      } else {
+        const made = await b.makeLayout();
+        result = await importApi.client({
+          mode: 'parts',
+          bbm: made.bbm,
+          title: a.suggestedName,
+          sheets: made.sheets,
+          stats: null,
+          warnings: a.layout?.warnings ?? [],
+          target: choices.target,
+        });
+      }
+      if (!mounted.current) return;
+      setJob({ ...started, state: 'done', step: 'convert', result });
+    } catch (e) {
+      if (!mounted.current) return;
+      setJob(started);
+      setError((e as Error).message);
+    }
+  }
+
   // Done once the editor has put it down (or there was nothing to put down).
-  const state = error ? 'error' : !job ? 'uploading' : job.state === 'done' && !placed ? 'converting' : job.state;
+  const state = error
+    ? 'error'
+    : !job
+      ? route === 'browser'
+        ? 'reading-here'
+        : route === 'deciding'
+          ? 'deciding'
+          : 'uploading'
+      : job.state === 'done' && !placed
+        ? 'converting'
+        : job.state;
   const savedTo = partOnly && saveTo ? (orgs.data?.orgs.find((o) => o.slug === saveTo)?.name ?? null) : null;
-  const working = state === 'uploading' || state === 'queued' || state === 'analysing' || state === 'converting';
+  const working = state === 'uploading' || state === 'queued' || state === 'analysing' || state === 'converting' || state === 'reading-here' || state === 'deciding';
 
   return (
     <div
@@ -290,6 +425,32 @@ export function ImportDialog({ file, into, isAdmin = false, onClose, onDone, pur
         </header>
 
         <div className="min-h-0 flex-1 overflow-y-auto p-5">
+          {fellBack && state !== 'done' && (
+            <p role="status" className="mb-3 rounded-lg border border-line bg-soft px-3 py-2" data-testid="import-fell-back">
+              Your browser couldn’t read this one, so the server is reading it instead. <HelpButton helpKey="import.inBrowser" />
+            </p>
+          )}
+          {state === 'deciding' && <Progress label="Getting ready…" testId="import-deciding" />}
+          {state === 'reading-here' && (
+            <Progress
+              label={
+                progress?.phase === 'fetching'
+                  ? progress.total
+                    ? `Fetching ${progress.total} part${progress.total === 1 ? '' : 's'}… ${progress.done ?? 0}/${progress.total}`
+                    : 'Fetching parts…'
+                  : progress?.phase === 'drawing'
+                    ? 'Drawing…'
+                    : 'Reading the model…'
+              }
+              {...(progress?.phase === 'fetching' && progress.total ? { value: (progress.done ?? 0) / progress.total } : {})}
+              testId="import-reading-here"
+            />
+          )}
+          {state === 'reading-here' && (
+            <p className="flex items-center justify-center gap-1 text-muted">
+              Read in your browser <HelpButton helpKey="import.inBrowser" />
+            </p>
+          )}
           {state === 'uploading' && (
             <Progress label={`Sending ${file.name}…`} value={sent} testId="import-uploading" />
           )}
@@ -598,7 +759,7 @@ function Progress({ label, value, testId }: { label: string; value?: number; tes
       {value === undefined ? (
         <span aria-hidden className="size-6 animate-spin rounded-full border-2 border-accent border-t-transparent" />
       ) : (
-        <progress className="w-64" max={1} value={value} aria-label="Sent" />
+        <progress className="w-64" max={1} value={value} aria-label={label} />
       )}
       <p>{label}</p>
     </div>

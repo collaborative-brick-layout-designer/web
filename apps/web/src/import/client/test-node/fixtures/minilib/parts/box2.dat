@@ -1,0 +1,6 @@
+0 Test box 2 x 2 (one stud 20 LDU, 8 LDU tall)
+0 Name: box2.dat
+1 16 0 0 0 1 0 0 0 1 0 0 0 1 s\box2s01.dat
+1 16 -10 -8 -10 1 0 0 0 1 0 0 0 1 stud.dat
+1 16 10 -8 10 1 0 0 0 1 0 0 0 1 stud.dat
+4 16 -20 0 -20 20 0 -20 20 0 20 -20 0 20
