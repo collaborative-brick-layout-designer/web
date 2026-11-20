@@ -23,7 +23,7 @@ export function FitChecksList({ checks, names, allClear, title = 'Checks' }: Pro
       <div className="flex items-center gap-1 text-xs font-semibold">
         {title}
         {checks.length > 0 && (
-          <span data-testid="fit-checks-count" className="rounded-full bg-amber-100 px-1.5 text-[11px] text-amber-900 dark:bg-amber-950 dark:text-amber-200">
+          <span data-testid="fit-checks-count" className="rounded-full px-1.5 text-[11px] font-bold" style={{ background: '#FDE68A', color: '#78350F' }}>
             {checks.length}
           </span>
         )}
