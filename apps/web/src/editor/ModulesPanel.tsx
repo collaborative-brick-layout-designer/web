@@ -95,7 +95,9 @@ export function ModulesPanel({ doc, isViewer, layoutId = null }: Props) {
           <span className="text-neutral-600">{modules.length}</span>
         </span>
       </div>
-      <ul className="flex-1 min-h-0 overflow-y-auto">
+      {/* The list and the summary scroll together, so a short panel still shows its modules first. */}
+      <div className="flex-1 min-h-0 overflow-y-auto">
+      <ul>
         {modules.map((mod) => (
           <ModuleRow
             key={mod.id}
@@ -122,6 +124,7 @@ export function ModulesPanel({ doc, isViewer, layoutId = null }: Props) {
         ))}
       </ul>
       <SetupSummaryBox modules={modules} unit={unit} />
+      </div>
     </aside>
   );
 }
