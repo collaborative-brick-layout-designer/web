@@ -6,3 +6,4 @@ export * from './partTrack.js';
 export * from './network.js';
 export * from './fromMap.js';
 export * from './routes.js';
+export * from './trains.js';

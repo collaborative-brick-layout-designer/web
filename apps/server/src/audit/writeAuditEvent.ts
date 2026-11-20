@@ -190,6 +190,7 @@ export type AuditResourceKind =
   | 'custom_part'
   | 'module'
   | 'venue'
+  | 'rolling_stock'
   | 'org'
   | 'user'
   | 'part_library'

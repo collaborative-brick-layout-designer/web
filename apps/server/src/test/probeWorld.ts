@@ -36,7 +36,7 @@ export async function seedProbeWorld(app: FastifyInstance): Promise<ProbeWorld> 
     DELETE FROM catalog_collection_items; DELETE FROM catalog_collection_modules; DELETE FROM catalog_collection_parts;
     DELETE FROM catalog_collection_covers; DELETE FROM catalog_item_covers; DELETE FROM catalog_copies;
     DELETE FROM catalog_item_versions; DELETE FROM catalog_collections; DELETE FROM catalog_items;
-    DELETE FROM venue_library; DELETE FROM module_versions;
+    DELETE FROM venue_library; DELETE FROM rolling_stock; DELETE FROM module_versions;
   `);
   const olive = await loginAs(app, 'olive@example.com');
   const stranger = await loginAs(app, 'sid@example.com');
@@ -84,6 +84,8 @@ export async function seedProbeWorld(app: FastifyInstance): Promise<ProbeWorld> 
   await db.insert(schema.customPartCollaborators).values({ customPartId: part, userId: viewer.id, role: 'viewer', addedAt: now });
   const venue = randomUUID();
   await db.insert(schema.venueLibrary).values({ id: venue, ownerUserId: olive.id, name: 'Olive hall', data: JSON.stringify({ name: 'Olive hall', enabled: true, edges: [], obstacles: [] }), createdBy: olive.id, createdAt: now });
+  const stock = randomUUID();
+  await db.insert(schema.rollingStock).values({ id: stock, ownerUserId: olive.id, number: '1', name: 'Olive boxcar', data: JSON.stringify({ length: 32 }), createdBy: olive.id, createdAt: now, updatedAt: now });
   // A catalog item of the club's in review, and its version; a collection of Olive's.
   const item = randomUUID();
   await db.insert(schema.catalogItems).values({ id: item, kind: 'module', sourceId: mod1, ownerOrgId: club, title: 'Olive item', status: 'in_review', createdAt: now, updatedAt: now });
@@ -136,7 +138,7 @@ export async function seedProbeWorld(app: FastifyInstance): Promise<ProbeWorld> 
     mod,
     demoCookie,
     prefsOnlyToken,
-    ids: { club, layout, module: mod1, part, venue, item, publicItem, version, collection, notice, notification, pushSub, dataExport, request, invite, moduleInvite, partInvite, orgInvite, transfer, joinRequest, oliveToken, pine, partnerRequest, moduleOffer },
+    ids: { club, layout, module: mod1, part, venue, stock, item, publicItem, version, collection, notice, notification, pushSub, dataExport, request, invite, moduleInvite, partInvite, orgInvite, transfer, joinRequest, oliveToken, pine, partnerRequest, moduleOffer },
   };
 }
 
@@ -183,6 +185,7 @@ export function concreteUrl(pattern: string, w: ProbeWorld, override?: string): 
       ['/api/modules/', i.module!],
       ['/api/custom-parts/', i.part!],
       ['/api/venues/', i.venue!],
+      ['/api/rolling-stock/', i.stock!],
       ['/api/catalog/items/', i.publicItem!],
       ['/api/catalog/collections/', i.collection!],
       ['/api/moderation/items/', i.item!],

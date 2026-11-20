@@ -280,6 +280,14 @@ export interface Sidecar {
    * live doc keeps them in `meta.routes`, one Y.Map a route. Never in a .bbm.
    */
   routes?: SidecarRoute[];
+  /**
+   * Rolling stock (trains design 2.3): each engine or car a record `{ id,
+   * number, name, kind, length, width, trucks, couplers, look, ... }`, kept
+   * as written. The live doc keeps them in `meta.rollingStock`. Never in a .bbm.
+   */
+  rollingStock?: SidecarRecord[];
+  /** Trains (consists, trains design 2.4): `{ id, name, units, position, color, ... }`. Live: `meta.trains`. */
+  trains?: SidecarRecord[];
   /** Unknown top-level fields preserved verbatim across round-trip. */
   extras?: Record<string, unknown>;
 }
@@ -299,6 +307,19 @@ export interface SidecarRoute {
   id: string;
   name: string;
   [field: string]: unknown;
+}
+
+/** A record kept by id (rolling stock, trains), as written. */
+export interface SidecarRecord {
+  id: string;
+  [field: string]: unknown;
+}
+
+/** A sidecar's list of records: the entries with a string id, as they are; undefined when none. */
+export function readRecordsField(v: unknown): SidecarRecord[] | undefined {
+  if (!Array.isArray(v)) return undefined;
+  const out = v.filter((r): r is SidecarRecord => !!r && typeof r === 'object' && typeof (r as SidecarRecord).id === 'string' && (r as SidecarRecord).id !== '');
+  return out.length > 0 ? out : undefined;
 }
 
 /** A sidecar's `routes`: the entries with a string id (and name), as they are; undefined when none. */
@@ -357,6 +378,10 @@ export function readSidecar(raw: string): Sidecar {
   if (switches) sidecar.switchStates = switches;
   const routes = readRoutesField(parsed.routes);
   if (routes) sidecar.routes = routes;
+  const rollingStock = readRecordsField(parsed.rollingStock);
+  if (rollingStock) sidecar.rollingStock = rollingStock;
+  const trains = readRecordsField(parsed.trains);
+  if (trains) sidecar.trains = trains;
 
   const knownKeys = new Set([
     'schemaVersion',
@@ -370,6 +395,8 @@ export function readSidecar(raw: string): Sidecar {
     'budgetLimits',
     'switchStates',
     'routes',
+    'rollingStock',
+    'trains',
   ]);
   const extras: Record<string, unknown> = {};
   for (const key of Object.keys(parsed)) {
@@ -418,6 +445,8 @@ export function writeSidecar(sidecar: Sidecar, opts: WriteSidecarOptions = {}): 
   if (sidecar.budgetLimits) out.budgetLimits = sidecar.budgetLimits;
   if (sidecar.switchStates && Object.keys(sidecar.switchStates).length > 0) out.switchStates = sidecar.switchStates;
   if (sidecar.routes && sidecar.routes.length > 0) out.routes = sidecar.routes;
+  if (sidecar.rollingStock && sidecar.rollingStock.length > 0) out.rollingStock = sidecar.rollingStock;
+  if (sidecar.trains && sidecar.trains.length > 0) out.trains = sidecar.trains;
   if (sidecar.extras) {
     for (const [k, v] of Object.entries(sidecar.extras)) out[k] = v;
   }

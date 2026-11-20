@@ -67,6 +67,7 @@ host's to keep or not.
 | `custom_part_invites` | who invited which email to a custom part, and the role | yes (no token) | Pending ones go when the part changes hands. |
 | `custom_part_set_shares` | which custom parts someone has only because a set of them was shared with them | yes | Go with the set's share: taking the set back, leaving it or deleting it removes them, and the parts too. |
 | `venue_library` | owner, creator, the venue | yes, own venues as JSON | |
+| `rolling_stock` | owner, creator, the engine or car (number, name, size, look, notes) | yes | |
 | `trash_items` | a layout, module or venue its owner deleted (all of it, gzipped), who deleted it, when, and when it goes for good | yes (what, when and when it goes; the owner's own also as files, in `recently-deleted/`) | Recently deleted: kept 30 days so it can be restored, then erased by the hourly privacy clean-up. Erasing an account or a club erases its trash with it. Deleting from Recently deleted erases it at once, its background picture too, and leaves an audit event (who, what kind, its title). A layout's public link isn't kept: a restored layout is private until it's shared again. Restoring something whose maker's account was erased meanwhile credits it "Builder #…", as the account's other club things were. |
 | `part_libraries` | none | no | Installed by site admins. |
 
@@ -155,7 +156,7 @@ When the account is erased (`privacy/accountDeletion.ts`):
 |---|---|
 | `users`, `sessions`, `api_tokens`, `device_codes`, `oauth_accounts`, `email_verifications`, `password_resets`, `user_preferences` | deleted |
 | `org_members`, `org_join_requests` | deleted. A club they were the **last admin** of gets a new admin, chosen by what their roles may do: someone who may manage members and roles, else someone who may invite people, else the longest-standing member (longest-standing first within each); they get a note. A club with **nobody else** in it is deleted. |
-| `layouts`, `modules`, `custom_parts`, `venue_library`, `catalog_items`, personal `catalog_collections` they own alone | deleted (with their background pictures and data downloads on disk). Copies other people added from the catalog are theirs and stay. |
+| `layouts`, `modules`, `custom_parts`, `venue_library`, `rolling_stock`, `catalog_items`, personal `catalog_collections` they own alone | deleted (with their background pictures and data downloads on disk). Copies other people added from the catalog are theirs and stay. |
 | Club things they made | stay with the club: `created_by` moves to a club admin, chosen the same way (it must name an account), `deleted_author_id` keeps the credit "Builder #…". A club collection they curate moves to them too. |
 | `layout_collaborators`, `module_collaborators`, `custom_part_collaborators` | deleted: they leave share lists. Their edits to other people's layouts stay. |
 | `module_club_shares`, `module_share_parts` | deleted with their modules and parts; a share of someone else's module that they made (`shared_by`) stays, with `shared_by` empty |
@@ -245,7 +246,7 @@ The club then **waits** (the same `deletionGraceDays` as accounts):
 
 After the wait (or a site admin's **Erase now**, behind the typed name)
 the catalog choice is applied and the club goes with everything it owns
-(`layouts`, `modules`, `custom_parts`, `venue_library`, members-only
+(`layouts`, `modules`, `custom_parts`, `venue_library`, `rolling_stock`, members-only
 collections, invites, join requests, notices), its background pictures and
 club data downloads, leaving an `erasures` row ("Deleted club #…", counts).
 `orgs.deleted_by` holds the id of whoever deleted it, without a foreign key.
