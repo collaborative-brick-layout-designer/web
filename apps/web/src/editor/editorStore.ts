@@ -1,3 +1,4 @@
+import type { TrackPosition } from '@cld/parts-catalog/browser';
 // Local-only editor state. Selection, current tool, viewport pan/zoom.
 // Phase 4 will project a slim subset of this to Yjs awareness so other
 // users can see "alice is hovering on this brick"; in Phase 3 it stays
@@ -102,6 +103,13 @@ export function shapeSelectionIds(ids: string[]): string[] {
 }
 
 export type ModuleDialog = { kind: 'make' } | { kind: 'save' | 'publish'; moduleId: string };
+
+/** A route being drawn: what has been clicked so far (studs on the track). */
+export interface RouteDraft {
+  from: TrackPosition | null;
+  via: TrackPosition[];
+  to: TrackPosition | null;
+}
 
 export interface EditorState {
   tool: Tool;
@@ -258,6 +266,13 @@ export interface EditorState {
   showSwitches: boolean;
   /** Run mode (trains design 6.3): a click on a switch flips it, and parts can't be moved. Not kept. */
   runMode: boolean;
+  /**
+   * Drawing a new route (trains design 6.2): its start, stops and end as
+   * clicked on the track so far. A click on the map picks the next place
+   * (Shift-click adds a stop), and nothing else is picked or moved. Null
+   * when not drawing.
+   */
+  routeDraft: RouteDraft | null;
   /** Stamp export watermark on canvas export (`export/watermark`). */
   showExportWatermark: boolean;
   /** Module label font size percent (`view/moduleLabelPercent`). */
@@ -354,6 +369,7 @@ export interface EditorState {
   setShowElectricCircuits: (v: boolean) => void;
   setShowSwitches: (v: boolean) => void;
   setRunMode: (v: boolean) => void;
+  setRouteDraft: (d: RouteDraft | null) => void;
   setShowExportWatermark: (v: boolean) => void;
   setModuleLabelPercent: (v: number) => void;
   setVenueLabelPx: (v: number) => void;
@@ -475,6 +491,7 @@ export const useEditorStore = create<EditorState>((set) => ({
   showElectricCircuits: localStorage.getItem('cld:showElectricCircuits') === 'true',
   showSwitches: localStorage.getItem('cld:showSwitches') === 'true',
   runMode: false,
+  routeDraft: null,
   showExportWatermark: localStorage.getItem('cld:showExportWatermark') === 'true',
   // Desktop `view/moduleLabelPercent`: % of the module's long axis,
   // 5..100, default 35. New storage key — the old one held a different,
@@ -585,7 +602,8 @@ export const useEditorStore = create<EditorState>((set) => ({
     set({ showSwitches: v });
   },
   // Run mode starts with nothing picked, so no edit key acts on parts.
-  setRunMode: (v) => set(v ? { runMode: true, selection: [], tool: 'select' } : { runMode: false }),
+  setRunMode: (v) => set(v ? { runMode: true, routeDraft: null, selection: [], tool: 'select' } : { runMode: false }),
+  setRouteDraft: (d) => set(d ? { routeDraft: d, runMode: false, selection: [], tool: 'select' } : { routeDraft: null }),
   setShowExportWatermark: (v) => {
     localStorage.setItem('cld:showExportWatermark', String(v));
     set({ showExportWatermark: v });

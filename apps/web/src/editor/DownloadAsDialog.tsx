@@ -50,6 +50,7 @@ export function blueBrickLeavesOut(sidecar: Sidecar | null | undefined): string[
   if (sidecar?.venue) lost.push('the venue');
   if (sidecar?.backgroundImage) lost.push('the background image');
   if (sidecar?.switchStates && Object.keys(sidecar.switchStates).length > 0) lost.push('switch settings');
+  if (sidecar?.routes?.length) lost.push('routes');
   return lost;
 }
 

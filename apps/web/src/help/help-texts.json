@@ -103,6 +103,26 @@
       "short": "A switch sends a train one way or the other; the arrow shows which.",
       "more": "Right-click a switch to set it, or turn on Run mode and click it. A green arrow is the usual way; an orange one means it is set the other way. Turn on View › Switches to see them while you build."
     },
+    "panel.routes": {
+      "title": "Routes",
+      "short": "Named ways along the track, from one place to another.",
+      "more": "Each route shows its length and whether the track still fits it. The eye shows or hides a route on your map only; everyone else keeps their own view. Routes are saved with the layout and shared with everyone editing it."
+    },
+    "routes.new": {
+      "title": "New route",
+      "short": "Click where the route starts on the track, then where it ends.",
+      "more": "The shortest way along the track is found for you, through switches in either direction. Shift-click adds a stop on the way, to pick another line. Name it and press Save route; Esc or Cancel stops."
+    },
+    "routes.broken": {
+      "title": "Broken route",
+      "short": "A part this route runs over was moved or removed.",
+      "more": "The route keeps its name, color, start and end, and is drawn dashed red as far as it still goes. Find a new way searches again from its start through its stops to its end."
+    },
+    "routes.setSwitches": {
+      "title": "Set switches",
+      "short": "Sets every switch on the route so a train follows it.",
+      "more": "Switches set the other way show an orange ring on the map, and the route says how many there are. Setting them is one change you can undo, and everyone sees it at once."
+    },
     "status.sheet": {
       "title": "Current sheet",
       "short": "New parts go on this sheet.",

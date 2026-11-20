@@ -69,10 +69,17 @@ change in one repo fails until the other has the same copy.
   network.ts, desktop src/track/PartTrack.cpp and TrackNetwork.cpp). The
   web's `BLD_WRITE_CONTRACTS=1 pnpm --filter @cld/parts-catalog test`
   writes `ports` and `lengths`.
+- `route-search.json`: route search on a small made-up network (trains
+  design 4): the way found, its length, the switches it needs and where it
+  turns the train round, or why there is none; and each route checked again
+  with a part taken out (web packages/parts-catalog/src/track/routes.ts,
+  desktop src/track/Routes.cpp). The web's
+  `BLD_WRITE_CONTRACTS=1 pnpm --filter @cld/parts-catalog test` writes the
+  `expect` and `status` values.
 
 To change them: edit (or, for the imported part, run the desktop's
 `bld_sync_tests --gtest_filter='Contracts.*'` with `BLD_WRITE_CONTRACTS=1`),
-then `sha256sum doc-shape.json imported-part.json imported-part.xml module-members.json module-setup.json part-naming.json presence-colors.json shared-module-keep.json shared-module-placement.json shared-module-settle.json sidecar-hash.json track-kinds.json track-network.json track-paths.json update-guard.json > MANIFEST.sha256`
+then `sha256sum doc-shape.json imported-part.json imported-part.xml module-members.json module-setup.json part-naming.json presence-colors.json route-search.json shared-module-keep.json shared-module-placement.json shared-module-settle.json sidecar-hash.json track-kinds.json track-network.json track-paths.json update-guard.json > MANIFEST.sha256`
 and copy the folder to the other repo.
 - `presence-colors.json`: each person's first-choice presence color on a
   layout, and the colors a group of people here get (web

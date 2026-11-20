@@ -69,6 +69,14 @@ It also carries how the layout's switches are set, as `switchStates`
   not part of `meta.cache`, so flips of different switches merge. A sidecar
   coming in lands there; one going out carries it. Never in a `.bbm`.
 
+And its named routes, as `routes` (trains design 2.5): each `{ id, name,
+train, from, to, via, steps, color }`, where a place on the track is
+`{ brick, from, to, s }` and a step `{ brick, from, to }`. In the live doc
+they are a Y.Map at `meta.routes`, one Y.Map of fields a route, so
+different routes, and different fields of one, merge. Whether a route
+shows on the map is each person's own (this browser's storage), never in
+the file. Never in a `.bbm`.
+
 ## Saved views
 
 `sidecar.json` (and the `.bbm.bld` sidecar, and the live doc's `meta.cache`)
