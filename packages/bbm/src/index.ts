@@ -16,6 +16,7 @@ export {
   writeSidecar,
   readView,
   venueLengthUnit,
+  venueOwnLengthUnit,
   withVenueLengthUnit,
   type VenueLengthUnit,
   type AnchoredLabel,

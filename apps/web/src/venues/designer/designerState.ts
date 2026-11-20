@@ -84,6 +84,8 @@ export interface DesignerState {
   pointer: Pt | null;
   snapKind: SnapKind;
   unit: LengthUnit;
+  /** The account's length unit: what a venue without a unit of its own shows in. */
+  accountUnit: LengthUnit;
   snap: boolean;
   show: Record<Layer, boolean>;
   /** Moving a part or a corner with the Select tool. */
@@ -94,7 +96,7 @@ export interface DesignerState {
   message: string;
 }
 
-export function initialState(venue: Venue): DesignerState {
+export function initialState(venue: Venue, accountUnit: LengthUnit = 'ftin'): DesignerState {
   return {
     history: startHistory(venue),
     selection: null,
@@ -104,8 +106,9 @@ export function initialState(venue: Venue): DesignerState {
     typed: '',
     pointer: null,
     snapKind: 'none',
-    // The venue remembers the unit it was drawn in.
-    unit: venueLengthUnit(venue),
+    // The venue remembers the unit it was drawn in; one without starts in the account's.
+    unit: venueLengthUnit(venue, accountUnit),
+    accountUnit,
     snap: true,
     show: { plan: true, obstacles: true, power: true, dimensions: true, notes: true, estimates: true },
     drag: null,
@@ -131,6 +134,8 @@ export type Action =
   | { type: 'select'; selection: Selection | null }
   | { type: 'edit'; venue: Venue }
   | { type: 'unit'; unit: LengthUnit }
+  /** The account's length unit changed (Settings, here or on another device). */
+  | { type: 'accountUnit'; unit: LengthUnit }
   | { type: 'snap'; on: boolean }
   | { type: 'show'; layer: Layer; on: boolean };
 
@@ -346,11 +351,11 @@ export function reducer(s: DesignerState, a: Action): DesignerState {
 
     case 'undo': {
       const history = undo(s.history);
-      return { ...s, history, unit: venueLengthUnit(history.present), selection: null, draft: [], cut: null };
+      return { ...s, history, unit: venueLengthUnit(history.present, s.accountUnit), selection: null, draft: [], cut: null };
     }
     case 'redo': {
       const history = redo(s.history);
-      return { ...s, history, unit: venueLengthUnit(history.present), selection: null, draft: [], cut: null };
+      return { ...s, history, unit: venueLengthUnit(history.present, s.accountUnit), selection: null, draft: [], cut: null };
     }
     case 'select':
       return { ...s, selection: a.selection };
@@ -360,6 +365,9 @@ export function reducer(s: DesignerState, a: Action): DesignerState {
       // Kept with the venue (an edit like any other: saved, and undone with
       // Undo), so its lengths show in this unit wherever it is drawn.
       return a.unit === s.unit ? s : edit(s, withVenueLengthUnit(v, a.unit), { unit: a.unit });
+    case 'accountUnit':
+      if (a.unit === s.accountUnit) return s;
+      return { ...s, accountUnit: a.unit, unit: venueLengthUnit(v, a.unit) };
     case 'snap':
       return { ...s, snap: a.on };
     case 'show':

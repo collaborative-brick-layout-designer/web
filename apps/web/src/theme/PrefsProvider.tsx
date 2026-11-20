@@ -19,6 +19,7 @@ import {
   type Preferences,
 } from './theme';
 import type { Mode } from './tokens';
+import type { VenueLengthUnit as LengthUnit } from '@cld/bbm';
 
 export interface PrefsContextValue {
   prefs: Preferences;
@@ -146,4 +147,9 @@ export function PrefsProvider({ children }: { children: ReactNode }) {
 export function usePreferences(): PrefsContextValue {
   // Outside the provider (isolated component tests) the defaults apply.
   return useContext(PrefsContext) ?? FALLBACK;
+}
+
+/** The account's length unit (Settings › Units): feet and inches until set. */
+export function useLengthUnit(): LengthUnit {
+  return usePreferences().prefs.lengthUnit ?? 'ftin';
 }

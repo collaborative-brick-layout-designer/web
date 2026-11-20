@@ -230,4 +230,12 @@ describe('cached preferences', () => {
     expect('connectionSnap' in sanitizePreferences({ connectionSnap: 'medium' })).toBe(false);
     expect('connectionSnap' in sanitizePreferences({})).toBe(false);
   });
+
+  it('keeps a known length unit and drops anything else', () => {
+    expect(sanitizePreferences({ lengthUnit: 'm' }).lengthUnit).toBe('m');
+    expect(sanitizePreferences({ lengthUnit: 'studs' }).lengthUnit).toBe('studs');
+    expect(sanitizePreferences({ lengthUnit: 'ftin' }).lengthUnit).toBe('ftin');
+    expect('lengthUnit' in sanitizePreferences({ lengthUnit: 'metric' })).toBe(false);
+    expect('lengthUnit' in sanitizePreferences({})).toBe(false);
+  });
 });

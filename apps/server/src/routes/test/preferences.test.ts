@@ -105,6 +105,21 @@ describe('account preferences', () => {
     expect(got.json().prefs.largeText).toBe(true);
   });
 
+  it('keeps the length unit: feet and inches until set, then ftin, m or studs', async () => {
+    const before = await app.inject({ method: 'GET', url: URL, headers: { cookie: user.cookie } });
+    // Always returned, so the desktop knows this server can store it.
+    expect((before.json() as { prefs: { lengthUnit: string } }).prefs.lengthUnit).toBe('ftin');
+    for (const v of ['m', 'studs', 'ftin', 'm']) {
+      const res = await put({ cookie: user.cookie }, { lengthUnit: v });
+      expect(res.statusCode).toBe(200);
+      expect(res.json().prefs.lengthUnit).toBe(v);
+    }
+    await put({ cookie: user.cookie }, { connectionSnap: 'strong' });
+    const got = await app.inject({ method: 'GET', url: URL, headers: { cookie: user.cookie } });
+    expect(got.json().prefs.lengthUnit).toBe('m');
+    expect(got.json().prefs.connectionSnap).toBe('strong');
+  });
+
   it('keeps a LEGO color and how far the color reaches, and clears the LEGO color with null', async () => {
     let got = await app.inject({ method: 'GET', url: URL, headers: { cookie: user.cookie } });
     // Always returned, so the desktop knows this server can store them.
@@ -174,6 +189,9 @@ describe('account preferences', () => {
       { connectionSnap: 'medium' },
       { connectionSnap: true },
       { connectionSnap: 'Gentle' },
+      { lengthUnit: 'metric' },
+      { lengthUnit: 'cubits' },
+      { lengthUnit: null },
       { legoColor: 99999 },
       { legoColor: '24' },
       { legoColor: 24.5 },

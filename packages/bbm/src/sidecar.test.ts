@@ -4,6 +4,7 @@ import {
   NEWER_SIDECAR_WARNING,
   readSidecar,
   venueLengthUnit,
+  venueOwnLengthUnit,
   withVenueLengthUnit,
   sidecarWarnings,
   readView,
@@ -291,20 +292,24 @@ describe('budget limits', () => {
 describe('a venue’s length unit', () => {
   const venue = { name: 'Hall', enabled: true, minWalkwayStuds: 30, bounds: { x: 0, y: 0, w: 0, h: 0 }, edges: [], obstacles: [] };
 
-  it('reads feet and inches when the venue names none, or one this version does not know', () => {
+  it('reads its own unit, or the fallback (the account unit) when it names none or one this version does not know', () => {
     expect(venueLengthUnit(venue)).toBe('ftin');
+    expect(venueLengthUnit(venue, 'm')).toBe('m');
     expect(venueLengthUnit({ ...venue, lengthUnit: 'm' })).toBe('m');
-    expect(venueLengthUnit({ ...venue, lengthUnit: 'studs' })).toBe('studs');
-    expect(venueLengthUnit({ ...venue, lengthUnit: 'cubits' })).toBe('ftin');
+    expect(venueLengthUnit({ ...venue, lengthUnit: 'studs' }, 'm')).toBe('studs');
+    expect(venueLengthUnit({ ...venue, lengthUnit: 'ftin' }, 'm')).toBe('ftin');
+    expect(venueLengthUnit({ ...venue, lengthUnit: 'cubits' }, 'studs')).toBe('studs');
     expect(venueLengthUnit(null)).toBe('ftin');
+    expect(venueOwnLengthUnit(venue)).toBeNull();
+    expect(venueOwnLengthUnit({ ...venue, lengthUnit: 'ftin' })).toBe('ftin');
   });
 
-  it('is written only when not feet and inches, and round-trips in a sidecar', () => {
+  it('is written once picked, feet and inches too, and round-trips in a sidecar', () => {
     const m = withVenueLengthUnit(venue, 'm');
     expect(m).toEqual({ ...venue, lengthUnit: 'm' });
     expect(withVenueLengthUnit(m, 'm')).toBe(m);
-    expect(withVenueLengthUnit(venue, 'ftin')).toBe(venue);
-    expect('lengthUnit' in withVenueLengthUnit(m, 'ftin')).toBe(false);
+    expect(withVenueLengthUnit(venue, 'ftin')).toEqual({ ...venue, lengthUnit: 'ftin' });
+    expect((withVenueLengthUnit(m, 'ftin') as Venue).lengthUnit).toBe('ftin');
     const back = readSidecar(writeSidecar({ schemaVersion: 1, bbmHashSha256: '', venue: m as Venue }));
     expect(back.venue?.lengthUnit).toBe('m');
   });

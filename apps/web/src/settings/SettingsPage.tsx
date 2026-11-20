@@ -1,5 +1,5 @@
-// Settings: light or dark, color, bigger text, help icons and how
-// strongly parts snap together. Signed in, they're stored on the account on this server (named
+// Settings: light or dark, color, bigger text, the length unit, help
+// icons and how strongly parts snap together. Signed in, they're stored on the account on this server (named
 // by window.location.host, since every club runs its own); signed out,
 // in this browser only. Used as a page (/settings) and as a dialog over
 // the editor, so changing the look doesn't mean leaving a layout.
@@ -11,6 +11,7 @@ import { SignInLink } from '../auth/signIn';
 import { usePreferences } from '../theme/PrefsProvider';
 import { ACCENTS, ACCENT_IDS, NEUTRALS } from '../theme/tokens';
 import { effectiveColorStyle, type ColorStyle, type ThemeChoice } from '../theme/theme';
+import type { VenueLengthUnit as LengthUnit } from '@cld/bbm';
 import { legoColor } from '@cld/model';
 import { LegoColorPicker } from './LegoColorPicker';
 import { HelpButton } from '../help/HelpButton';
@@ -27,6 +28,12 @@ const SNAP_CHOICES: { id: SnapStrength; label: string; hint: string }[] = [
   { id: 'off', label: 'Off', hint: 'Parts never pull onto each other; the grid still lines them up.' },
   { id: 'gentle', label: 'Gentle', hint: 'Pulls only when the ends are close. Recommended.' },
   { id: 'strong', label: 'Strong', hint: 'Reaches further, for quick rough placing.' },
+];
+
+const UNIT_CHOICES: { id: LengthUnit; label: string; hint: string }[] = [
+  { id: 'ftin', label: 'Feet and inches', hint: 'Like 12′ 6½″.' },
+  { id: 'm', label: 'Metric', hint: 'Like 3.81 m.' },
+  { id: 'studs', label: 'Studs', hint: 'LEGO studs, 8 mm each.' },
 ];
 
 const COLOR_STYLE_CARDS: { id: ColorStyle; label: string; hint: string }[] = [
@@ -276,6 +283,29 @@ export function SettingsContent({ onClose }: { onClose?: () => void }) {
               Bigger text and buttons
             </label>
             <HelpButton helpKey="settings.largeText" />
+          </div>
+        </Section>
+
+        <Section id="units" title="Units" help="settings.lengthUnit">
+          <div className="text-sm text-muted">How lengths are shown, such as a venue's walls.</div>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3" role="radiogroup" aria-label="Units">
+            {UNIT_CHOICES.map((c) => {
+              const on = (prefs.lengthUnit ?? 'ftin') === c.id;
+              return (
+                <button
+                  key={c.id}
+                  type="button"
+                  role="radio"
+                  aria-checked={on}
+                  data-testid={`length-unit-${c.id}`}
+                  onClick={() => setPrefs({ lengthUnit: c.id })}
+                  className={`flex min-h-11 flex-col gap-1 rounded-bubble bg-panel p-3 text-left ${on ? 'border-2 border-accent' : 'border border-border hover:border-muted'}`}
+                >
+                  <span className="text-sm font-bold text-ink">{c.label}</span>
+                  <span className="text-[13px] leading-snug text-muted">{c.hint}</span>
+                </button>
+              );
+            })}
           </div>
         </Section>
 

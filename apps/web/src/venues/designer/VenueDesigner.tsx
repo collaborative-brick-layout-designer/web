@@ -7,6 +7,7 @@ import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import type { Venue } from '@cld/bbm';
 import { DesignerCanvas, type View } from './DesignerCanvas';
 import { Inspector } from './Inspector';
+import { useLengthUnit } from '../../theme/PrefsProvider';
 import { initialState, reducer, TOOLS, venueOf, type Layer } from './designerState';
 import { estimateCount, roomSize, type Pt } from './model';
 import { calibrate, loadPlan, planOf, withPlan, type FloorPlan } from './plan';
@@ -40,7 +41,10 @@ export function VenueDesigner({
   onSave: (v: Venue) => Promise<void> | void;
   onClose: () => void;
 }) {
-  const [state, dispatch] = useReducer(reducer, initial, initialState);
+  const accountUnit = useLengthUnit();
+  const [state, dispatch] = useReducer(reducer, initial, (v) => initialState(v, accountUnit));
+  // A venue without a unit of its own follows the account's, live.
+  useEffect(() => dispatch({ type: 'accountUnit', unit: accountUnit }), [accountUnit]);
   const [view, setView] = useState<View | null>(null);
   const [cursor, setCursor] = useState<Pt | null>(null);
   const [planMoving, setPlanMoving] = useState(false);
