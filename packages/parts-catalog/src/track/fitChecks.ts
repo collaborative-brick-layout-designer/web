@@ -243,9 +243,9 @@ export type FitCheckKind =
   | 'coupler'
   /** A coupler that can't couple (none) between two cars. */
   | 'uncoupled'
-  /** A car's body over another track's clearance. */
+  /** A car's body over the clearance of another track of its kind. */
   | 'clearance'
-  /** Two trains' cars on top of each other. */
+  /** Two trains' cars on top of each other (on the same kind of track). */
   | 'overlap'
   /** A car on another kind of track (a rail car on monorail). */
   | 'trackKind'
@@ -377,7 +377,7 @@ export function fitChecks(net: TrackNetwork, input: FitInput): FitCheck[] {
   const states = input.states ?? {};
   const runs = input.runs ?? trackRuns(net);
   const out: FitCheck[] = [];
-  const rects: { train: string; unit: number; rect: Rect }[] = [];
+  const rects: { train: string; unit: number; rect: Rect; kind: string | null }[] = [];
   for (const t of input.trains) {
     if (!t.position) continue;
     const placed = input.placed?.has(t.id) ? input.placed.get(t.id)! : placeTrain(net, t, input.stock, states);
@@ -440,7 +440,7 @@ export function fitChecks(net: TrackNetwork, input: FitInput): FitCheck[] {
             out.push({ key: `coupler:${t.id}:${i}`, kind: 'coupler', severity: 'warning', train: t.id, stock: s.id, unit: i, at, values: { angle, max, gap } });
         }
       }
-      rects.push({ train: t.id, unit: i, rect: rectOf(u, s) });
+      rects.push({ train: t.id, unit: i, rect: rectOf(u, s), kind });
     });
     // Clearance: its cars against the other tracks (not the ones it stands on).
     if (placed.line) {
@@ -465,7 +465,8 @@ export function fitChecks(net: TrackNetwork, input: FitInput): FitCheck[] {
         const r = rectOf(u, s);
         const reach = Math.hypot(r.half, r.halfW) + band;
         for (const brick of net.brickIds) {
-          if (occupied.has(brick)) continue;
+          // (Another kind of track is no matter: a monorail runs above the rails.)
+          if (occupied.has(brick) || net.kindOf(brick) !== kind) continue;
           let hit: Pt | null = null;
           for (const [a, b] of net.trackOf(brick)!.paths) {
             const pts = net.path(brick, a, b);
@@ -491,7 +492,7 @@ export function fitChecks(net: TrackNetwork, input: FitInput): FitCheck[] {
     for (let j = i + 1; j < rects.length; j++) {
       const a = rects[i]!;
       const b = rects[j]!;
-      if (a.train === b.train || !rectsOverlap(a.rect, b.rect)) continue;
+      if (a.train === b.train || a.kind !== b.kind || !rectsOverlap(a.rect, b.rect)) continue;
       if (out.some((c) => c.kind === 'overlap' && c.train === a.train && c.other === b.train)) continue;
       out.push({ key: `overlap:${a.train}:${b.train}`, kind: 'overlap', severity: 'error', train: a.train, other: b.train, unit: a.unit, at: a.rect.c, values: {} });
     }

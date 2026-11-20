@@ -97,6 +97,8 @@ describe('Trains panel', () => {
           parts={[]}
           isViewer={false}
           canUseRoster={false}
+          checks={[]}
+          names={{ trains: new Map(), stock: new Map(), routes: new Map() }}
         />
       </QueryClientProvider>
     );

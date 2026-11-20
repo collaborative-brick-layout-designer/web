@@ -264,6 +264,10 @@ export interface EditorState {
   showElectricCircuits: boolean;
   /** View › Switches: each switch's arrow, while editing too (`view/switches`). Run mode always shows them. */
   showSwitches: boolean;
+  /** View › Siding lengths (trains design 6.2): each run of track labeled with its usable length (`cld:showSidingLengths`). */
+  showSidingLengths: boolean;
+  /** "Show me" on a fit check: a ring the map draws at this spot (studs) for a moment. */
+  spotlight: { x: number; y: number; at: number } | null;
   /** Run mode (trains design 6.3): a click on a switch flips it, and parts can't be moved. Not kept. */
   runMode: boolean;
   /**
@@ -373,6 +377,8 @@ export interface EditorState {
   setModuleFrameThickness: (v: number) => void;
   setShowElectricCircuits: (v: boolean) => void;
   setShowSwitches: (v: boolean) => void;
+  setShowSidingLengths: (v: boolean) => void;
+  setSpotlight: (p: { x: number; y: number } | null) => void;
   setRunMode: (v: boolean) => void;
   setRouteDraft: (d: RouteDraft | null) => void;
   setTrainPlacing: (id: string | null) => void;
@@ -496,6 +502,8 @@ export const useEditorStore = create<EditorState>((set) => ({
   reopenLastFile: localStorage.getItem('cld:reopenLastFile') === 'true',
   showElectricCircuits: localStorage.getItem('cld:showElectricCircuits') === 'true',
   showSwitches: localStorage.getItem('cld:showSwitches') === 'true',
+  showSidingLengths: localStorage.getItem('cld:showSidingLengths') === 'true',
+  spotlight: null,
   runMode: false,
   routeDraft: null,
   trainPlacing: null,
@@ -608,6 +616,11 @@ export const useEditorStore = create<EditorState>((set) => ({
     localStorage.setItem('cld:showSwitches', String(v));
     set({ showSwitches: v });
   },
+  setShowSidingLengths: (v) => {
+    localStorage.setItem('cld:showSidingLengths', String(v));
+    set({ showSidingLengths: v });
+  },
+  setSpotlight: (p) => set({ spotlight: p ? { ...p, at: Date.now() } : null }),
   // Run mode starts with nothing picked, so no edit key acts on parts.
   setRunMode: (v) => set(v ? { runMode: true, routeDraft: null, trainPlacing: null, selection: [], tool: 'select' } : { runMode: false }),
   setRouteDraft: (d) => set(d ? { routeDraft: d, runMode: false, trainPlacing: null, selection: [], tool: 'select' } : { routeDraft: null }),

@@ -67,6 +67,8 @@ export interface MapMenuToggles {
   electricCircuits: Toggle;
   /** View › Switches: the switches' arrows while building (Run mode always shows them). */
   switches: Toggle;
+  /** View › Siding lengths: each run of track labeled with the length a train can stand in. */
+  sidingLengths: Toggle;
   statusBar: Toggle;
   budgetLimit: Toggle;
   budgetOnly: Toggle;
@@ -160,6 +162,7 @@ export function mapMenuEntries(a: MapMenuActions, t: MapMenuToggles, mod = modKe
         check('always-show-connections', 'Always show connections', t.alwaysShowConnections),
         check('show-electric', 'Electric circuits', t.electricCircuits),
         check('show-switches', 'Switches', t.switches),
+        check('show-siding-lengths', 'Siding lengths', t.sidingLengths),
         check('show-ruler-points', 'Ruler attach points', t.rulerAttachPoints),
         check('show-hulls', 'Brick hulls', t.brickHulls),
         check('show-elevation', 'Brick elevation labels', t.brickElevation),
@@ -279,6 +282,7 @@ export function phoneMapEntries(a: PhoneMapActions, t: PhoneMapToggles, editing:
         check('always-show-connections', 'Always show connections', t.alwaysShowConnections),
         check('show-electric', 'Electric circuits', t.electricCircuits),
         check('show-switches', 'Switches', t.switches),
+        check('show-siding-lengths', 'Siding lengths', t.sidingLengths),
         check('show-ruler-points', 'Ruler attach points', t.rulerAttachPoints),
         check('show-hulls', 'Brick hulls', t.brickHulls),
         check('show-elevation', 'Brick elevation labels', t.brickElevation),
