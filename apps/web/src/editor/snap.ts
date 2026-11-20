@@ -9,14 +9,15 @@
 //      the existing point. Mirrors desktop's `applyLiveConnectionSnap`.
 //
 //   2. Grid snap. If no connection snap fired, the part's snap corner
-//      lands on the grid (gridSnap.ts, as BlueBrick), like the desktop.
+//      lands on the nearest point of the stud grid (gridSnap.ts), like the
+//      desktop.
 //
 // All inputs are in stud-space.
 
 import type { BbmMap, Brick, LayerBrick } from '@cld/model';
 import type { PartWire } from '../api';
 import { pivotOf } from './brickGeometry';
-import { dragShift, snapOffset } from './gridSnap';
+import { gridShift, moveShift, snapOffset, type SnapMode } from './gridSnap';
 import { applyGroupTurn, facingTurn, holdReach, pickSnap, type GroupTurn, type SnapCandidate, type SnapSession } from './snapFeel';
 
 export interface PlaceCandidate {
@@ -202,8 +203,7 @@ export function snapPlacement(
   }
   const cursor = { x: candidate.centreX, y: candidate.centreY };
   const off = snapOffset(candidate.part.snapMargin, candidate.orientation);
-  const shift = dragShift(
-    cursor,
+  const shift = gridShift(
     { x: cursor.x - candidate.width / 2 + off.x, y: cursor.y - candidate.height / 2 + off.y },
     candidate.snapStepStuds,
   );
@@ -752,12 +752,16 @@ export interface DragSnapInput {
   pivotOffsetY?: number;
   /**
    * Where the pointer has the leader's snap corner (gridSnap.ts
-   * grabSnapCorner, moved with the drag), in studs; the grid puts it on a
-   * grid point. Omitted: the box's top-left.
+   * grabSnapCorner, moved with the drag), in studs; the grid puts it on the
+   * nearest grid point. Omitted: the box's top-left.
    */
   snapCornerX?: number;
   snapCornerY?: number;
-  /** Mouse position in studs — a tiebreaker between snap candidates, and what the grid snap follows. */
+  /** Mouse position in studs — a tiebreaker between snap candidates. */
+  /** 'steps': the corner moves whole steps from where it started (startCornerX/Y) instead of onto the grid. */
+  snapMode?: SnapMode;
+  startCornerX?: number;
+  startCornerY?: number;
   mouseStudX: number;
   mouseStudY: number;
   /** Leader brick orientation. */
@@ -1110,8 +1114,9 @@ export function rotationAlignedCentre(
 }
 
 /**
- * Grid fallback: the leader's snap corner lands on the grid as BlueBrick's
- * getMovedSnapPoint puts it (gridSnap.ts dragShift), as the desktop does
+ * Grid fallback: the leader's snap corner lands on the nearest grid point
+ * (or, moving in steps, whole steps from where it started: gridSnap.ts
+ * moveShift), as the desktop does
  * live and on the drop (MapViewDrag.cpp brickGridShift). Without the
  * corner, the box's top-left stands in.
  */
@@ -1132,7 +1137,8 @@ function gridFallback(drag: DragSnapInput, movingConnCount: number): DragSnapRes
     x: drag.snapCornerX ?? drag.centreX - (drag.width ?? 0) / 2 - (drag.pivotOffsetX ?? 0),
     y: drag.snapCornerY ?? drag.centreY - (drag.height ?? 0) / 2 - (drag.pivotOffsetY ?? 0),
   };
-  const shift = dragShift({ x: drag.mouseStudX, y: drag.mouseStudY }, corner, drag.snapStepStuds);
+  const start = drag.startCornerX !== undefined && drag.startCornerY !== undefined ? { x: drag.startCornerX, y: drag.startCornerY } : null;
+  const shift = moveShift(drag.snapMode ?? 'grid', start, corner, drag.snapStepStuds);
   return { ...base, centreX: drag.centreX + shift.x, centreY: drag.centreY + shift.y };
 }
 

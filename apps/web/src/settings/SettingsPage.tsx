@@ -15,6 +15,7 @@ import type { VenueLengthUnit as LengthUnit } from '@cld/bbm';
 import { legoColor } from '@cld/model';
 import { LegoColorPicker } from './LegoColorPicker';
 import { HelpButton } from '../help/HelpButton';
+import type { SnapMode } from '../editor/gridSnap';
 import type { HelpKey } from '../help/helpTexts';
 import { isMobileDevice, useInstallState } from '../pwa/install';
 import { useHashScroll } from '../ui/useHashScroll';
@@ -455,6 +456,11 @@ export function SettingsContent({ onClose }: { onClose?: () => void }) {
  * it on (=0 off). On, the editor records the last drag's frames and this
  * row copies them, to send in when snapping misbehaves.
  */
+const SNAP_MODE_CHOICES: { id: SnapMode; label: string; hint: string }[] = [
+  { id: 'grid', label: 'Snap to the grid', hint: 'Things land on the nearest stud (or every few studs), so everything lines up.' },
+  { id: 'steps', label: 'Move in steps', hint: 'Things move a whole number of steps from where they were, keeping any offset they had.' },
+];
+
 /**
  * The grid snap and rotation steps. The editor's toolbar has them too, but a
  * phone has no toolbar row, so this is where a phone sets them.
@@ -464,12 +470,45 @@ function StepPickers() {
   const setSnap = useEditorStore((s) => s.setSnapStep);
   const rot = useEditorStore((s) => s.rotationStepDegrees);
   const setRot = useEditorStore((s) => s.setRotationStep);
+  const studGrid = useEditorStore((s) => s.showStudGrid);
+  const setStudGrid = useEditorStore((s) => s.setShowStudGrid);
+  const mode = useEditorStore((s) => s.snapMode);
+  const setMode = useEditorStore((s) => s.setSnapMode);
   const select = 'min-h-11 rounded-control border border-border bg-panel px-3 text-[15px] text-ink';
   return (
+    <>
+    <div>
+      <div id="snap-mode-label" className="flex items-center gap-2 text-[15px] font-semibold">
+        How things snap
+        <HelpButton helpKey="settings.snapMode" target='[role="radiogroup"][aria-labelledby="snap-mode-label"]' />
+      </div>
+      <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2" role="radiogroup" aria-labelledby="snap-mode-label">
+        {SNAP_MODE_CHOICES.map((c) => {
+          const on = mode === c.id;
+          return (
+            <button
+              key={c.id}
+              type="button"
+              role="radio"
+              aria-checked={on}
+              data-testid={`snap-mode-${c.id}`}
+              onClick={() => setMode(c.id)}
+              className={`flex min-h-11 flex-col gap-1 rounded-bubble bg-panel p-3 text-left ${on ? 'border-2 border-accent' : 'border border-border hover:border-muted'}`}
+            >
+              <span className="text-sm font-bold text-ink">{c.label}</span>
+              <span className="text-[13px] leading-snug text-muted">{c.hint}</span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
       <label className="flex flex-col gap-1">
-        <span className="text-[15px] font-semibold">Grid snap</span>
-        <span className="text-sm text-muted">Parts, rulers and labels land on a grid this many studs apart.</span>
+        <span className="flex items-center gap-2 text-[15px] font-semibold">
+          Grid snap
+          <HelpButton helpKey="toolbar.snap" target='[data-testid="settings-snap-step"]' />
+        </span>
+        <span className="text-sm text-muted">Everything you place or move lands on the nearest stud, or every few studs.</span>
         <select data-testid="settings-snap-step" value={snap} onChange={(e) => setSnap(parseFloat(e.target.value))} className={select}>
           {SNAP_STEPS.map((v) => (
             <option key={v} value={v}>
@@ -490,6 +529,17 @@ function StepPickers() {
         </select>
       </label>
     </div>
+    <div className="flex items-center justify-between gap-6">
+      <div>
+        <div className="flex items-center gap-2 text-[15px] font-semibold">
+          Show the stud grid
+          <HelpButton helpKey="settings.studGrid" target='[role="switch"][aria-label="Show the stud grid"]' />
+        </div>
+        <div className="text-sm text-muted">Faint lines one stud apart when you zoom in close.</div>
+      </div>
+      <Switch label="Show the stud grid" checked={studGrid} onChange={setStudGrid} />
+    </div>
+    </>
   );
 }
 

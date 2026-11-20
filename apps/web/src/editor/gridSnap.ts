@@ -9,7 +9,8 @@
 // rails sit on the grid, not its box.
 //
 // Points (ruler ends, label corners, text and venue points) snap to the
-// nearest grid point.
+// nearest grid point. One grid for everything: a whole number of studs a
+// step, anchored at the layout's origin (0, 0).
 
 import type { Brick, LayerBrick } from '@cld/model';
 import type { PartWire, SnapMarginWire } from '../api';
@@ -70,24 +71,88 @@ export function snapPoint(p: Pt, step: number): Pt {
 }
 
 /**
- * Where a dragged part's snap corner lands: the pointer is at `mouse`, and
- * would have the corner at `rawCorner` (both studs). The corner keeps the
- * grid steps it had from the pointer when grabbed, so it lands on the grid
- * and moves a whole step as the pointer crosses a grid line (BlueBrick's
- * getMovedSnapPoint with no connection in reach).
+ * Where a moved part's snap corner lands: the nearest grid point, wherever
+ * the part was grabbed. Dragged, dropped from the list, pasted or put down
+ * as a module, it goes on the one stud grid anchored at the layout's origin
+ * (vanilla BlueBrick floors relative to the grab instead).
  */
-export function dragCorner(mouse: Pt, rawCorner: Pt, step: number): Pt {
-  if (step <= 0) return { x: rawCorner.x, y: rawCorner.y };
-  return {
-    x: floorToStep(mouse.x, step) - floorToStep(mouse.x - rawCorner.x, step),
-    y: floorToStep(mouse.y, step) - floorToStep(mouse.y - rawCorner.y, step),
-  };
+export function cornerOnGrid(rawCorner: Pt, step: number): Pt {
+  return snapPoint(rawCorner, step);
 }
 
-/** The shift that takes a dragged part from where the pointer has it onto the grid. */
-export function dragShift(mouse: Pt, rawCorner: Pt, step: number): Pt {
-  const c = dragCorner(mouse, rawCorner, step);
+/** The shift that takes a part whose snap corner the move has at `rawCorner` onto the grid. */
+export function gridShift(rawCorner: Pt, step: number): Pt {
+  const c = cornerOnGrid(rawCorner, step);
   return { x: c.x - rawCorner.x, y: c.y - rawCorner.y };
+}
+
+/**
+ * How a move snaps (a per-person choice, as the desktop's editing/snapMode):
+ * 'grid' puts the thing on the nearest point of the one stud grid; 'steps'
+ * moves it a whole number of steps from where it started, so a piece off
+ * the grid stays off it by the same amount.
+ */
+export type SnapMode = 'grid' | 'steps';
+export const DEFAULT_SNAP_MODE: SnapMode = 'grid';
+
+/** A saved mode, or the default for anything else. */
+export function validSnapMode(v: unknown): SnapMode {
+  return v === 'steps' || v === 'grid' ? v : DEFAULT_SNAP_MODE;
+}
+
+/** In 'steps' mode, the shift that rounds a move of `delta` to a whole number of steps. */
+export function stepShift(delta: Pt, step: number): Pt {
+  if (step <= 0) return { x: 0, y: 0 };
+  return { x: roundToStep(delta.x, step) - delta.x, y: roundToStep(delta.y, step) - delta.y };
+}
+
+/**
+ * The shift for something whose snap corner started at `start` and that
+ * the move has at `rawCorner`: onto the nearest grid point ('grid'), or to
+ * a whole number of steps from `start` ('steps'; without a start, the grid).
+ */
+export function moveShift(mode: SnapMode, start: Pt | null, rawCorner: Pt, step: number): Pt {
+  if (mode === 'steps' && start) return stepShift({ x: rawCorner.x - start.x, y: rawCorner.y - start.y }, step);
+  return gridShift(rawCorner, step);
+}
+
+/** The next grid line from `v` in direction `dir` (+1 or -1); the nearest when `dir` is 0. */
+export function nudgeToStep(v: number, dir: number, step: number): number {
+  if (dir > 0) return Math.floor(v / step + GRID_EPSILON) * step + step;
+  if (dir < 0) return Math.ceil(v / step - GRID_EPSILON) * step - step;
+  return roundToStep(v, step);
+}
+
+/**
+ * Where an arrow key takes a snap corner at `corner`: to the next grid line
+ * in direction (dx, dy) (each -1, 0 or +1), the other axis on its nearest
+ * grid line. In 'steps' mode, one step that way; with snap off, one stud.
+ */
+export function nudgeCorner(corner: Pt, dx: number, dy: number, step: number, mode: SnapMode = 'grid'): Pt {
+  if (step <= 0) return { x: corner.x + dx, y: corner.y + dy };
+  if (mode === 'steps') return { x: corner.x + dx * step, y: corner.y + dy * step };
+  return { x: nudgeToStep(corner.x, dx, step), y: nudgeToStep(corner.y, dy, step) };
+}
+
+/** The stud grid fades in from this many screen pixels a stud (none below) to full at STUD_GRID_FULL_PX, as the desktop's. */
+export const STUD_GRID_MIN_PX = 6;
+export const STUD_GRID_FULL_PX = 16;
+
+/** How strongly the stud grid shows at `pxPerStud` screen pixels a stud: 0 (not at all) to 1. */
+export function studGridFade(pxPerStud: number): number {
+  return Math.min(1, Math.max(0, (pxPerStud - STUD_GRID_MIN_PX) / (STUD_GRID_FULL_PX - STUD_GRID_MIN_PX)));
+}
+
+/** The steps the snap can take, in studs: whole studs only. */
+export const SNAP_STEPS_STUDS = [1, 2, 4, 8, 16, 32] as const;
+export const DEFAULT_SNAP_STEP = 1;
+
+/** A saved step as one of SNAP_STEPS_STUDS (vanilla's 0.5 becomes 1); 0 (off) for nothing above 0. */
+export function validSnapStep(step: number): number {
+  if (!(step > 0)) return 0;
+  let best: number = SNAP_STEPS_STUDS[0];
+  for (const s of SNAP_STEPS_STUDS) if (Math.abs(s - step) < Math.abs(best - step)) best = s;
+  return best;
 }
 
 /**
@@ -101,17 +166,17 @@ export function dragShift(mouse: Pt, rawCorner: Pt, step: number): Pt {
 export function annoDragShift(o: {
   /** The pointer's move since the press, studs. */
   moved: Pt;
-  mouse: Pt | null;
   corner: Pt | null;
   ref: Pt | null;
   step: number;
   free: boolean;
+  /** 'steps': whole steps from where it started instead of the grid. */
+  mode?: SnapMode;
 }): Pt {
-  if (o.corner) {
-    if (!o.mouse) return { x: 0, y: 0 };
-    return dragShift(o.mouse, { x: o.corner.x + o.moved.x, y: o.corner.y + o.moved.y }, o.step);
-  }
+  const mode = o.mode ?? 'grid';
+  if (o.corner) return moveShift(mode, o.corner, { x: o.corner.x + o.moved.x, y: o.corner.y + o.moved.y }, o.step);
   if (!o.ref) return { x: 0, y: 0 };
+  if (mode === 'steps') return o.free ? { x: 0, y: 0 } : stepShift(o.moved, o.step);
   const at = { x: o.ref.x + o.moved.x, y: o.ref.y + o.moved.y };
   const to = snapPoint(at, o.free ? 0 : o.step);
   return { x: to.x - at.x, y: to.y - at.y };

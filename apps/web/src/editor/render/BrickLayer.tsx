@@ -1135,6 +1135,10 @@ const BrickGlyph = memo(function BrickGlyph({
         ...(snapCornerRef.current
           ? { snapCornerX: snapCornerRef.current.x + raw.x - pivot.x, snapCornerY: snapCornerRef.current.y + raw.y - pivot.y }
           : {}),
+        // Where the corner started, for 'Move in steps'.
+        startCornerX: snapCornerRef.current ? snapCornerRef.current.x : pivot.x - brick.displayArea.width / 2 - pivotOff.x,
+        startCornerY: snapCornerRef.current ? snapCornerRef.current.y : pivot.y - brick.displayArea.height / 2 - pivotOff.y,
+        snapMode: useEditorStore.getState().snapMode,
         mouseStudX,
         mouseStudY,
         orientation: brick.orientation,

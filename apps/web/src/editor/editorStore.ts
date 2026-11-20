@@ -6,6 +6,7 @@ import type { TrackPosition } from '@cld/parts-catalog/browser';
 
 import { create } from 'zustand';
 import { DEFAULT_SNAP_STRENGTH, type SnapStrength } from './snapFeel';
+import { DEFAULT_SNAP_STEP, SNAP_STEPS_STUDS, validSnapMode, validSnapStep, type SnapMode } from './gridSnap';
 
 export type Tool =
   | 'select'
@@ -19,11 +20,11 @@ export type Tool =
   | 'venueObstacle';
 
 /**
- * Snap-step values offered in the toolbar. Mirrors desktop
- * PreferencesDialog.cpp:118-122 — `[off, 32, 16, 8, 4, 2, 1, 0.5]`
- * studs. 0 means "no grid snap" (connection snap still fires).
+ * Snap-step values offered in the toolbar and Settings, as the desktop's:
+ * off, then whole studs only (gridSnap.ts SNAP_STEPS_STUDS). 0 means "no
+ * grid snap" (connection snap still fires).
  */
-export const SNAP_STEPS = [0, 32, 16, 8, 4, 2, 1, 0.5] as const;
+export const SNAP_STEPS = [0, ...SNAP_STEPS_STUDS] as const;
 
 /**
  * Rotation-step values. Mirrors desktop's rotation-step submenu
@@ -174,6 +175,8 @@ export interface EditorState {
    * snap still applies). Default 1 stud (matches desktop default).
    */
   snapStepStuds: number;
+  /** How a move snaps: onto the stud grid, or whole steps from where it started (persisted; desktop editing/snapMode). */
+  snapMode: SnapMode;
   /**
    * Rotation step in degrees for R / Shift+R and the rotate tool.
    * Mirrors `editing/rotationStepDegrees` from desktop preferences.
@@ -215,6 +218,8 @@ export interface EditorState {
   showConnectionPoints: boolean;
   /** View toggle: show/hide the grid layer (persisted). Desktop View menu. */
   showGrid: boolean;
+  /** The stud grid (lines a stud apart, fading in as you zoom in) with the grid sheet's lines (persisted; desktop `view/studGrid`). */
+  showStudGrid: boolean;
   /** View toggle: draw brick hull outlines (`view/brickHulls`). */
   showBrickHulls: boolean;
   /** View toggle: draw per-brick altitude badge labels (`view/brickElevation`). */
@@ -362,6 +367,8 @@ export interface EditorState {
   setHudMouse: (studX: number | null, studY: number | null) => void;
   setShowConnectionPoints: (v: boolean) => void;
   setShowGrid: (v: boolean) => void;
+  setShowStudGrid: (v: boolean) => void;
+  setSnapMode: (v: SnapMode) => void;
   setShowBrickHulls: (v: boolean) => void;
   setShowBrickElevation: (v: boolean) => void;
   setShowRulerAttachPoints: (v: boolean) => void;
@@ -440,11 +447,14 @@ export const useEditorStore = create<EditorState>((set) => ({
   dropTag: null,
   flashSheetId: null,
   snapStepStuds: (() => {
-    // Off by default, like desktop snapStepStuds (PreferencesDialog.cpp:137).
+    // On, a stud at a time, by default, as the desktop's snapStepStuds; a
+    // saved step that isn't a whole number of studs any more (0.5) as the
+    // nearest one.
     const v = localStorage.getItem('cld:snapStepStuds');
-    const n = v !== null ? parseFloat(v) : 0;
-    return Number.isFinite(n) && n >= 0 ? n : 0;
+    const n = v !== null ? parseFloat(v) : DEFAULT_SNAP_STEP;
+    return Number.isFinite(n) ? validSnapStep(n) : DEFAULT_SNAP_STEP;
   })(),
+  snapMode: validSnapMode(localStorage.getItem('cld:snapMode')),
   rotationStepDegrees: (() => {
     const v = localStorage.getItem('cld:rotationStepDegrees');
     const n = v !== null ? parseFloat(v) : 90;
@@ -467,6 +477,7 @@ export const useEditorStore = create<EditorState>((set) => ({
   // still show their free connections (SceneBuilder.cpp:250-310).
   showConnectionPoints: localStorage.getItem('cld:showConnectionPoints') === 'true',
   showGrid: localStorage.getItem('cld:showGrid') !== 'false',
+  showStudGrid: localStorage.getItem('cld:showStudGrid') !== 'false',
   showBrickHulls: localStorage.getItem('cld:showBrickHulls') === 'true',
   showBrickElevation: localStorage.getItem('cld:showBrickElevation') === 'true',
   showRulerAttachPoints: localStorage.getItem('cld:showRulerAttachPoints') === 'true',
@@ -539,6 +550,15 @@ export const useEditorStore = create<EditorState>((set) => ({
   setShowGrid: (v) => {
     localStorage.setItem('cld:showGrid', String(v));
     set({ showGrid: v });
+  },
+  setSnapMode: (v) => {
+    const m = validSnapMode(v);
+    localStorage.setItem('cld:snapMode', m);
+    set({ snapMode: m });
+  },
+  setShowStudGrid: (v) => {
+    localStorage.setItem('cld:showStudGrid', String(v));
+    set({ showStudGrid: v });
   },
   setShowBrickHulls: (v) => {
     localStorage.setItem('cld:showBrickHulls', String(v));
@@ -673,7 +693,7 @@ export const useEditorStore = create<EditorState>((set) => ({
       return { statusMessage: msg, statusMessageTimerId: id };
     }),
   setSnapStep: (studs) => {
-    const v = Math.max(0, studs);
+    const v = validSnapStep(studs);
     localStorage.setItem('cld:snapStepStuds', String(v));
     set({ snapStepStuds: v });
   },

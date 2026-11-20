@@ -36,6 +36,7 @@ import {
   translateBricksAcrossLayers,
 } from './mutations';
 import { pivotOf } from './brickGeometry';
+import { grabSnapCorner } from './gridSnap';
 import type { PartWire } from '../api';
 
 // ---------------------------------------------------------------------------
@@ -397,6 +398,47 @@ export function translateMixedSelection(
       }
     }
   }, LOCAL_ORIGIN);
+}
+
+/**
+ * Where the selection's lead sits for the grid (studs), as the desktop's
+ * MapView::selectionSnapRef: its first part's snap corner (in sheet order),
+ * else its first ruler's first end (or a circle's centre), label corner or
+ * text box corner. Null when nothing is picked.
+ */
+export function selectionSnapRef(
+  map: BbmMap,
+  labels: readonly AnchoredLabel[],
+  modules: readonly SidecarModule[],
+  bricks: readonly string[],
+  anno: AnnoSelection,
+  partsByKey: ReadonlyMap<string, PartWire>,
+): Pt | null {
+  if (bricks.length > 0) {
+    const picked = new Set(bricks);
+    for (const l of map.layers) {
+      if (l.type !== 'brick') continue;
+      const b = l.bricks.find((x) => picked.has(x.id));
+      if (b) return grabSnapCorner(l, b, partsByKey);
+    }
+  }
+  for (const l of map.layers) {
+    if (l.type !== 'ruler') continue;
+    const r = l.rulerItems.find((x) => anno.rulers.includes(x.id));
+    if (r) return r.kind === 'linear' ? { x: r.point1.x, y: r.point1.y } : { x: r.center.x, y: r.center.y };
+  }
+  const label = labels.find((x) => anno.labels.includes(x.id));
+  if (label) {
+    const at = labelPlacement(label, buildLabelIndex(map, modules, partsByKey));
+    return { x: at.x, y: at.y };
+  }
+  for (const key of anno.texts) {
+    const c = parseTextKey(key);
+    const l = c ? map.layers.find((x) => x.id === c.layerId) : undefined;
+    const cell = c && l?.type === 'text' ? l.textCells[c.cellIndex] : undefined;
+    if (cell) return { x: cell.displayArea.x, y: cell.displayArea.y };
+  }
+  return null;
 }
 
 /** Delete every selected brick, ruler, label and text cell in one undo step. */

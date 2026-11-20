@@ -28,6 +28,7 @@ import {
   clickAnno,
   deleteMixedSelection,
   mergeAnno,
+  selectionSnapRef,
   translateMixedSelection,
 } from './mixedSelection';
 import {
@@ -184,7 +185,7 @@ import { fetchModuleBatches, libraryVersionOf } from './moduleSnapshot';
 import { SharedModulesHost } from './SharedModulesHost';
 import { dropPlacement, followsHere, forClipboard, libraryPlacement, pastedLooseText, pastedShared } from './sharedModules';
 import { sharedPlaced } from '@cld/modules';
-import { moduleDropTranslation, placedModuleBatches } from './moduleDrop';
+import { moduleDropTranslation, pasteGridOffset, placedModuleBatches } from './moduleDrop';
 import type { GroupTurn } from './snapFeel';
 import { absorbIntoEditedModule, openMakeModule, enterModuleEdit, leaveModuleEdit, selectionMayMove, setModulePinned } from './moduleActions';
 import { applyViewSheets, moduleNamesShown, pictureGrid, setModuleNamesSource, viewRegionStuds, type PictureSpec } from './savedViews';
@@ -210,7 +211,7 @@ import { AppMark, HelpMenu, LayoutNameMenu, SavePill, SettingsButton, TaskTabs, 
 import { SettingsDialog } from '../settings/SettingsPage';
 import { usePreferences } from '../theme/PrefsProvider';
 import { DEFAULT_SNAP_STRENGTH, SnapSession, snapBypassed } from './snapFeel';
-import { annoDragShift, grabSnapCorner, snapPoint } from './gridSnap';
+import { annoDragShift, grabSnapCorner, nudgeCorner, snapPoint } from './gridSnap';
 import { liveSnapReach } from './liveSnapReach';
 import { LAST_LAYOUT_KEY } from '../layouts/reopenLast';
 import { askConfirm, askLeaveUnsaved, askLeaveUnsavedModule } from '../ui/ConfirmDialog';
@@ -2684,11 +2685,11 @@ function Canvas({
       const raw = { x: node.x() - d.x0, y: node.y() - d.y0 };
       const shift = annoDragShift({
         moved: { x: pxToStud(raw.x), y: pxToStud(raw.y) },
-        mouse: pointerStuds(),
         corner: d.corner,
         ref: d.ref,
         step: useEditorStore.getState().snapStepStuds,
         free,
+        mode: useEditorStore.getState().snapMode,
       });
       return { x: raw.x + studToPx(shift.x), y: raw.y + studToPx(shift.y) };
     };
@@ -3620,17 +3621,26 @@ function Canvas({
           deleteSelection();
           return;
         }
-        const NUDGE = snapStepStuds > 0 ? snapStepStuds : 1;
-        let dx = 0;
-        let dy = 0;
-        if (e.key === 'ArrowLeft') dx = -NUDGE;
-        else if (e.key === 'ArrowRight') dx = NUDGE;
-        else if (e.key === 'ArrowUp') dy = -NUDGE;
-        else if (e.key === 'ArrowDown') dy = NUDGE;
-        if (dx !== 0 || dy !== 0) {
+        // To the next grid line that way: the lead's snap corner (or ruler
+        // end, label or text corner) there, the other axis onto its nearest
+        // line (gridSnap.ts nudgeCorner); a stud with the grid off.
+        let ux = 0;
+        let uy = 0;
+        if (e.key === 'ArrowLeft') ux = -1;
+        else if (e.key === 'ArrowRight') ux = 1;
+        else if (e.key === 'ArrowUp') uy = -1;
+        else if (e.key === 'ArrowDown') uy = 1;
+        if (ux !== 0 || uy !== 0) {
           e.preventDefault();
           if (!selectionMayMove(doc, selection)) return;
           const sc = readSidecarFromDoc(doc);
+          const ref = snapStepStuds > 0
+            ? selectionSnapRef(map, sc?.anchoredLabels ?? [], sc?.modules ?? [], selection, annoSelection, partsByKeyRef.current)
+            : null;
+          const to = ref ? nudgeCorner(ref, ux, uy, snapStepStuds, useEditorStore.getState().snapMode) : null;
+          const step = snapStepStuds > 0 ? snapStepStuds : 1;
+          const dx = ref && to ? to.x - ref.x : ux * step;
+          const dy = ref && to ? to.y - ref.y : uy * step;
           translateMixedSelection(doc, map, sc?.anchoredLabels ?? [], sc?.modules ?? [], {
             bricks: selection,
             anno: annoSelection,
@@ -4211,7 +4221,14 @@ function Canvas({
     const clipped = read?.entries;
     if (!clipped || clipped.length === 0 || !map) return { pasted: 0, found: false, system };
     // The group's centre lands under the cursor (MapViewClipboard.cpp:62-73).
-    const { dx, dy } = pasteOffset(clipped.map((e) => e.brick.displayArea), at ?? currentPasteTarget());
+    // On the grid, the lead part's snap corner lands on the nearest grid point.
+    const { dx, dy } = pasteGridOffset(
+      clipped.map((e) => e.brick),
+      pasteOffset(clipped.map((e) => e.brick.displayArea), at ?? currentPasteTarget()),
+      useEditorStore.getState().snapStepStuds,
+      partsByKeyRef.current,
+      useEditorStore.getState().snapMode,
+    );
     const entries = keepWithinBudget(clipped, (e) => e.brick.partNumber);
     if (entries.length === 0) return { pasted: 0, found: true, system };
 
@@ -4348,7 +4365,13 @@ function Canvas({
     }
     const areas = [...perLayer.values()].flat().map((b) => b.displayArea);
     // By touch there's no cursor: the copy lands beside the original.
-    const offset = pasteOffset(areas, (beside ? besideTarget(areas) : null) ?? currentPasteTarget());
+    const offset = pasteGridOffset(
+      [...perLayer.values()].flat(),
+      pasteOffset(areas, (beside ? besideTarget(areas) : null) ?? currentPasteTarget()),
+      useEditorStore.getState().snapStepStuds,
+      partsByKeyRef.current,
+      useEditorStore.getState().snapMode,
+    );
     // Bricks beyond their budget are left out, in layer order.
     const flat = [...perLayer].flatMap(([layerId, bricks]) => bricks.map((brick) => ({ layerId, brick })));
     perLayer.clear();
@@ -6583,29 +6606,56 @@ function PaintColorPicker() {
 }
 
 /**
- * Snap-step dropdown — port of desktop's PreferencesDialog combo
- * (PreferencesDialog.cpp:117-129). Same value list, same labels:
- * `[off, 32, 16, 8, 4, 2, 1, 0.5]` studs. The setting is local-only
- * (per-tab) for now; PLAN.md TBD whether to persist via cookie/localStorage.
+ * How things snap (onto the stud grid, or in whole steps from where they
+ * were), the step (off, or 1 to 32 studs) and the stud grid's lines, as the
+ * desktop's Snap button and its menu.
  */
 function SnapPicker() {
   const value = useEditorStore((s) => s.snapStepStuds);
   const set = useEditorStore((s) => s.setSnapStep);
+  const studGrid = useEditorStore((s) => s.showStudGrid);
+  const setStudGrid = useEditorStore((s) => s.setShowStudGrid);
+  const mode = useEditorStore((s) => s.snapMode);
+  const setMode = useEditorStore((s) => s.setSnapMode);
   return (
-    <label className="flex items-center gap-1 text-xs text-muted" title="Grid snap step (studs)">
-      <span>Snap</span>
+    <span className="flex items-center gap-2">
+      <label className="flex items-center gap-1 text-xs text-muted" title="Everything you place or move lands on the nearest stud (or every few studs)">
+        <span>Snap</span>
+        <select
+          data-testid="toolbar-snap-step"
+          value={value}
+          onChange={(e) => set(parseFloat(e.target.value))}
+          className="rounded-lg border border-border bg-panel px-1 py-0.5 text-xs"
+        >
+          {SNAP_STEPS.map((s) => (
+            <option key={s} value={s}>
+              {s === 0 ? 'off' : s === 1 ? '1 stud' : `${s} studs`}
+            </option>
+          ))}
+        </select>
+      </label>
       <select
-        value={value}
-        onChange={(e) => set(parseFloat(e.target.value))}
+        data-testid="toolbar-snap-mode"
+        aria-label="How things snap"
+        title="Snap to the grid: land on the nearest stud. Move in steps: move a whole number of steps from where it was."
+        value={mode}
+        onChange={(e) => setMode(e.target.value === 'steps' ? 'steps' : 'grid')}
         className="rounded-lg border border-border bg-panel px-1 py-0.5 text-xs"
       >
-        {SNAP_STEPS.map((s) => (
-          <option key={s} value={s}>
-            {s === 0 ? 'off' : s}
-          </option>
-        ))}
+        <option value="grid">On the grid</option>
+        <option value="steps">In steps</option>
       </select>
-    </label>
+      <label className="flex items-center gap-1 text-xs text-muted" title="Show the stud grid: faint lines one stud apart when you zoom in close">
+        <input
+          type="checkbox"
+          data-testid="toolbar-stud-grid"
+          checked={studGrid}
+          onChange={(e) => setStudGrid(e.target.checked)}
+          className="accent-accent"
+        />
+        <span>Studs</span>
+      </label>
+    </span>
   );
 }
 
