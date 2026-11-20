@@ -5231,11 +5231,13 @@ function Canvas({
     // Like desktop's Insert Text (MapView::addTextAtScenePos): at the view
     // centre, or where "Add Text Here" was picked, on the first text
     // layer, in a box sized from the text and its Size.
-    // Its middle on the grid, as the parts are.
-    const target = gridPointStuds(addTextAt ?? viewCentreStuds({ width, height }));
+    // Its top-left corner on the grid, the corner a drag snaps it by.
+    const at = addTextAt ?? viewCentreStuds({ width, height });
     setAddTextAt(null);
     const layerId = ensureTextLayer(doc, activeLayerId);
     const box = newTextBox(r.text, r.fontSize, mapLineWidth(textFontStyle(r)));
+    const corner = gridPointStuds({ x: at.x - box.width / 2, y: at.y - box.height / 2 });
+    const target = { x: corner.x + box.width / 2, y: corner.y + box.height / 2 };
     const styleParts: string[] = [];
     if (r.isBold) styleParts.push('Bold');
     if (r.isItalic) styleParts.push('Italic');

@@ -70,10 +70,8 @@ test.describe('anchored labels — default placement', () => {
       const st = (window as unknown as { Konva: { stages: { width: () => number; height: () => number }[] } }).Konva.stages[0]!;
       return { iw: st.width(), ih: st.height() };
     });
-    const expected = {
-      x: Math.round((iw / 2 / 8) * 100) / 100,
-      y: Math.round((ih / 2 / 8) * 100) / 100,
-    };
+    // On the nearest stud: snap is on, a stud at a time, by default.
+    const expected = { x: Math.round(iw / 2 / 8), y: Math.round(ih / 2 / 8) };
 
     await page.keyboard.press('Control+l');
     const dialog = page.getByRole('dialog');
@@ -368,8 +366,13 @@ test.describe('insert text', () => {
     };
     await expect.poll(cell).not.toBeNull();
     const c = (await cell())!;
-    expect(c.x).toBeCloseTo(centre.x, 1);
-    expect(c.y).toBeCloseTo(centre.y, 1);
+    // Its middle at the view centre, its top-left corner moved onto the nearest stud.
+    expect(Math.abs(c.x - centre.x)).toBeLessThanOrEqual(0.5 + 1e-6);
+    expect(Math.abs(c.y - centre.y)).toBeLessThanOrEqual(0.5 + 1e-6);
+    const bbm = await (await page.request.get(`/api/layouts/${id}/export.bbm`)).text();
+    const m = /<TextCell>\s*<DisplayArea>\s*<X>([^<]+)<\/X>\s*<Y>([^<]+)<\/Y>/.exec(bbm)!;
+    expect(Number(m[1]) % 1).toBeCloseTo(0, 6);
+    expect(Number(m[2]) % 1).toBeCloseTo(0, 6);
   });
 
   test('T puts Arial 12 black text at the view centre on a Labels layer, whatever the mouse', async ({ page }) => {
@@ -395,8 +398,11 @@ test.describe('insert text', () => {
     const xml = await bbm();
     const cellXml = xml.slice(xml.indexOf('<TextCell>'), xml.indexOf('</TextCell>'));
     const num = (tag: string) => Number(new RegExp(`<${tag}>([^<]+)</${tag}>`).exec(cellXml)![1]);
-    expect(num('X') + num('Width') / 2).toBeCloseTo(centre.x, 1);
-    expect(num('Y') + num('Height') / 2).toBeCloseTo(centre.y, 1);
+    // Its middle at the view centre, its top-left corner on the nearest stud.
+    expect(Math.abs(num('X') + num('Width') / 2 - centre.x)).toBeLessThanOrEqual(0.5 + 1e-6);
+    expect(Math.abs(num('Y') + num('Height') / 2 - centre.y)).toBeLessThanOrEqual(0.5 + 1e-6);
+    expect(num('X') % 1).toBeCloseTo(0, 6);
+    expect(num('Y') % 1).toBeCloseTo(0, 6);
     // Sized from 12 pt (a point is 4/3 of a stud): one line of 16-stud text,
     // as wide as "Yard" measures plus a sixth of the size each side.
     expect(num('Height')).toBeCloseTo(16 * (2355 / 2048), 2);
