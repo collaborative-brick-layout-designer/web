@@ -21,7 +21,8 @@
 // <PickShape> (Qt simplifies the outline its own way): the same number of
 // rings, covering the same area within 2%.
 
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { scanCatalog } from '@cld/parts-catalog';
@@ -31,6 +32,8 @@ import { convertPart, type ConvertChoices } from '../convert';
 import { isLayoutFile, layoutBbm, readLayout } from '../layout';
 import { importedPartKey, prepareLDraw, suggestedImportName } from '../prepare';
 import { toRgba } from '../rasterize';
+import { prepareModel } from '../prepareModel';
+import { makeIo, type IoEntry } from './makeIo';
 import { compareImages, FolderLibrary, readPng, runConverter } from './nodeHelpers';
 
 const LIB = process.env.BLD_LDRAW_LIBRARY ?? '';
@@ -204,4 +207,58 @@ describe.skipIf(!CONVERTER || !existsSync(CONVERTER) || !existsSync(PARTS))('bro
     expect(cmp.iou).toBeGreaterThanOrEqual(IOU_MIN);
     expect(cmp.meanRgb).toBeLessThanOrEqual(MEAN_RGB_MAX);
   }, 120_000);
+});
+
+// Studio .io files: the fixtures packed as Studio 2.1 packs them (ZipCrypto,
+// Studio's password), one with its own custom part, read by both.
+describe.skipIf(!CONVERTER || !existsSync(CONVERTER) || !existsSync(PARTS))('Studio files in the browser match the converter', () => {
+  const work = mkdtempSync(join(tmpdir(), 'cbld-io-parity-'));
+  const CUSTOM = '0 My plate\n4 16 -20 -8 -20 20 -8 -20 20 -8 20 -20 -8 20\n1 16 0 -8 0 1 0 0 0 1 0 0 0 1 stud.dat\n';
+  const cases: { name: string; lib: string; entries: IoEntry[] }[] = [
+    {
+      name: 'Mini city.io',
+      lib: MINI,
+      entries: [
+        { name: 'model.ldr', text: '0 FILE Mini city.io\n0 Author: Studio Builder\n1 4 0 0 0 1 0 0 0 1 0 0 0 1 box2.dat\n1 1 40 0 0 1 0 0 0 1 0 0 0 1 myplate.dat\n0 NOFILE\n' },
+        { name: 'CustomParts/myplate.dat', text: CUSTOM },
+      ],
+    },
+  ];
+  if (LIB && existsSync(LIB))
+    for (const f of ['track-line.ldr', 'baseplate.ldr', 'nested.mpd', 'glass.ldr'])
+      cases.push({ name: f.replace(/\.(ldr|mpd)$/, '.io'), lib: LIB, entries: [{ name: 'model.ldr', text: readFileSync(join(FIXTURES, f), 'utf8') }] });
+
+  for (const c of cases) {
+    it(`reads, draws and makes ${c.name} as the converter does`, async () => {
+      const parts = new MapLibrary((await scanCatalog(PARTS)).catalog);
+      const file = join(work, c.name);
+      const bytes = makeIo(c.entries);
+      writeFileSync(file, bytes);
+      const want = runConverter(CONVERTER, { command: 'analyse', libraries: { parts: [PARTS], ldraw: c.lib }, options: {} }, file).json as Json;
+      expect(want.ok, JSON.stringify(want)).toBe(true);
+      const got = await prepareModel(c.name, bytes, { source: new FolderLibrary(c.lib), parts });
+      expect(got.kindLabel).toBe(want.kindLabel);
+      expect([got.title, got.designer, suggestedImportName(got)]).toEqual([want.title, want.designer, want.suggestedName]);
+      expect({ w: got.widthStuds, h: got.heightStuds, stats: got.stats, warnings: got.warnings, base: got.baseOnGrid, margin: got.snapMargin, n: got.connections.length }).toEqual({
+        w: want.part.widthStuds,
+        h: want.part.heightStuds,
+        stats: want.part.stats,
+        warnings: want.part.warnings,
+        base: want.part.baseOnGrid,
+        margin: want.part.snapMargin,
+        n: want.part.connections.length,
+      });
+      const choices: ConvertChoices = { quarterTurns: 1, align: 'box', nudge: [0.25, 0], drop: [], name: '', designer: 'S', designerUrl: '', author: 'U' };
+      const conv = runConverter(CONVERTER, { command: 'convert', libraries: { parts: [PARTS], ldraw: c.lib }, options: { mode: 'part', ...choices } }, file);
+      const made = convertPart(got, choices, { name: c.name, lastModified: Math.floor(statSync(file).mtimeMs), format: 'studio' });
+      const strip = (x: string) => x.replace(/ date="[^"]*"/, '').replace(/ *<SourcePath>[^<]*<\/SourcePath>\n/, '').replace(/<PickShape>[\s\S]*<\/PickShape>\n/, '');
+      expect(strip(made.xml)).toBe(strip(conv.files.get(String(conv.json.xml))!.toString('utf8')));
+      const png = readPng(conv.files.get(String(conv.json.sprite))!);
+      const cmp = compareImages({ width: made.sprite.width, height: made.sprite.height, rgba: toRgba(made.sprite) }, png);
+      if (process.env.BLD_PARITY_LOG) console.log(c.name, JSON.stringify(cmp));
+      expect(cmp.sameSize).toBe(true);
+      expect(cmp.iou).toBeGreaterThanOrEqual(IOU_MIN);
+      expect(cmp.meanRgb).toBeLessThanOrEqual(MEAN_RGB_MAX);
+    }, 120_000);
+  }
 });

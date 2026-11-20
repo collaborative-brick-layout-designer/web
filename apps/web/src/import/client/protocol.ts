@@ -5,7 +5,8 @@ import type { ImportAnalysis } from '../importApi';
 import type { ConvertChoices } from './convert';
 
 export type ToWorker =
-  | { type: 'analyse'; file: File; ldrawVersion: string; parts: PartWire[] }
+  /** `library`: the version of the library to draw it from (Studio's for an .io, when the site has it). */
+  | { type: 'analyse'; file: File; library: { name: 'ldraw' | 'studio'; version: string }; parts: PartWire[] }
   | { type: 'convert'; mode: 'part'; choices: ConvertChoices }
   | { type: 'convert'; mode: 'parts' };
 

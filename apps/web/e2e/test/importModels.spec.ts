@@ -4,7 +4,7 @@
 // desktop's converter for the rest and as the backup (here the e2e
 // stand-in, e2e/fakeImportServer.mjs; the real one is checked against the
 // desktop app in the desktop repo).
-//   - in the browser: no server job, its part saved, the library files
+//   - in the browser (LDraw and Studio): no server job, its part saved, the library files
 //     cached for the next import; Cancel mid-way; the server taking over
 //     when the browser can't;
 //   - a model dropped on Home: preview with the desktop's choices, a custom
@@ -23,6 +23,9 @@
 // No step may 4xx (the WAF bans bursts of them).
 
 import { test, expect, type Page } from '@playwright/test';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { signIn, mapMenu, adminSection } from '../helpers';
 import { makeGlobalAdmin } from '../dbHelpers';
 import { watch4xx } from '../quietNetwork';
@@ -379,6 +382,24 @@ test.describe('Import a model in the browser', () => {
     expect(batches.count).toBe(before);
     await dialog.getByTestId('import-cancel').click();
     await expect(dialog).toHaveCount(0);
+    net.expectQuiet();
+  });
+
+  test('a Studio file is unpacked and drawn here too, its own custom part with it, with no server job', async ({ page }) => {
+    const net = watch4xx(page);
+    const jobs = serverJobs(page);
+    const io = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '../fixtures/mini-city.io'));
+    await page.goto('/');
+    await dropFile(page, 'Mini city.io', io);
+    const dialog = page.getByRole('dialog', { name: 'Import a model' });
+    await expect(dialog.getByTestId('import-preview')).toBeVisible({ timeout: 30000 });
+    await expect(dialog).toContainText('Preview: Studio import');
+    await expect(dialog.getByTestId('import-size')).toHaveText('4 × 2 studs, 0 connection points');
+    await expect(dialog.getByLabel('Designed by')).toHaveValue('Studio Builder');
+    await dialog.getByLabel('Save as').fill('Browser Studio');
+    await dialog.getByRole('button', { name: 'Save as Custom Part' }).click();
+    await expect(dialog.getByTestId('import-summary')).toContainText('Made the custom part “Browser Studio” (4 × 2 studs, 0 connection points)', { timeout: 30000 });
+    expect(jobs).toEqual([]);
     net.expectQuiet();
   });
 

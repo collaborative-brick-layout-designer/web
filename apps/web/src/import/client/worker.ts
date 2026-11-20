@@ -8,7 +8,8 @@ import { catalogFromParts } from '../../editor/catalogFromParts';
 import { convertPart } from './convert';
 import { isLayoutFile, layoutBbm, readLayout, type LayoutSummary } from './layout';
 import { SubfileLoop } from './meshLoader';
-import { importedPartKey, prepareLDraw, suggestedImportName, type PreparedPart } from './prepare';
+import { importedPartKey, suggestedImportName, type PreparedPart } from './prepare';
+import { formatOf, prepareModel } from './prepareModel';
 import type { FromWorker, ToWorker } from './protocol';
 import { toRgba, type Image } from './rasterize';
 import { RemoteLibrary } from './remoteSource';
@@ -36,9 +37,10 @@ export async function pngOf(img: Image): Promise<Blob> {
 async function analyse(msg: Extract<ToWorker, { type: 'analyse' }>) {
   file = msg.file;
   send({ type: 'progress', phase: 'reading' });
-  text = await msg.file.text();
+  const bytes = new Uint8Array(await msg.file.arrayBuffer());
+  text = formatOf(msg.file.name) === 'ldraw' ? new TextDecoder().decode(bytes) : '';
   const parts = new MapLibrary(catalogFromParts(msg.parts));
-  const source = new RemoteLibrary('ldraw', msg.ldrawVersion, scope.location.origin);
+  const source = new RemoteLibrary(msg.library.name, msg.library.version, scope.location.origin);
   let layoutError: string | null = null;
   if (isLayoutFile(msg.file.name)) {
     try {
@@ -47,7 +49,7 @@ async function analyse(msg: Extract<ToWorker, { type: 'analyse' }>) {
       layoutError = (e as Error).message;
     }
   }
-  prepared = await prepareLDraw(msg.file.name, text, {
+  prepared = await prepareModel(msg.file.name, bytes, {
     source,
     parts,
     onFetch: (p) => send({ type: 'progress', phase: 'fetching', done: p.done, total: p.total }),
@@ -62,7 +64,7 @@ async function analyse(msg: Extract<ToWorker, { type: 'analyse' }>) {
   send({
     type: 'analysed',
     analysis: {
-      format: 'ldraw',
+      format: formatOf(msg.file.name),
       kindLabel: prepared.kindLabel,
       title: prepared.title,
       designer: prepared.designer,
@@ -96,7 +98,7 @@ async function convert(msg: Extract<ToWorker, { type: 'convert' }>) {
     return;
   }
   if (!prepared?.sprite || !file) throw new Error('Nothing could be imported from this file.');
-  const made = convertPart(prepared, msg.choices, { name: file.name, lastModified: file.lastModified || null, format: 'ldraw' });
+  const made = convertPart(prepared, msg.choices, { name: file.name, lastModified: file.lastModified || null, format: formatOf(file.name) });
   send({ type: 'made-part', partKey: made.partKey, displayName: made.displayName, xml: made.xml, png: await pngOf(made.sprite), widthStuds: made.widthStuds, heightStuds: made.heightStuds, connections: made.connections });
 }
 

@@ -58,6 +58,8 @@ export const IMPORT_RASTER: RasterizeOptions = { pxPerStud: 32, studsPerLdu: 1 /
 const MAX_PIXELS = 128_000_000;
 const MAX_SUPER_PIXELS = 16_000_000;
 const SNAP_SLACK = 0.05;
+/** How far from the origin a model may reach, in studs (the desktop's kMaxModelStuds): far beyond any layout. */
+export const MAX_MODEL_STUDS = 100000;
 
 /** QRectF |= : a null rect (no size) takes the other. */
 function unite(a: Rect | null, b: Rect): Rect {
@@ -160,14 +162,21 @@ export function rasterizeMeshTopDown(mesh: Mesh, opt: RasterizeOptions = IMPORT_
     xmax = -Infinity,
     zmin = Infinity,
     zmax = -Infinity;
+  let ymax = 0;
+  let finite = true;
   for (let i = 0; i < nTri * 3; i++) {
     const xs = T[i * 3]! * s;
     const zs = T[i * 3 + 2]! * s;
+    const y = T[i * 3 + 1]!;
+    finite = finite && Number.isFinite(xs) && Number.isFinite(zs) && Number.isFinite(y);
     if (xs < xmin) xmin = xs;
     if (xs > xmax) xmax = xs;
     if (zs < zmin) zmin = zs;
     if (zs > zmax) zmax = zs;
+    if (Math.abs(y * s) > ymax) ymax = Math.abs(y * s);
   }
+  // A model far beyond any layout (a damaged file), or numbers that aren't: no picture.
+  if (!finite || !(Math.max(Math.abs(xmin), Math.abs(xmax), Math.abs(zmin), Math.abs(zmax), ymax) <= MAX_MODEL_STUDS)) return none;
   const out: RasterizeResult = { ...none, meshBoundsXZ: { x: xmin, y: zmin, width: xmax - xmin, height: zmax - zmin } };
 
   const base = baseLattice(mesh, s);
@@ -272,6 +281,10 @@ export function rasterizeMeshTopDown(mesh: Mesh, opt: RasterizeOptions = IMPORT_
     const E = mesh.edge;
     for (let k = 0; k < mesh.edgeColor.length; k++) {
       const ec = mesh.edgeColor[k]!;
+      // An outline far beyond the model (a damaged file) isn't drawn.
+      let far = false;
+      for (let q = 0; q < 6; q++) if (!(Math.abs(mesh.edge[k * 6 + q]! * s) <= MAX_MODEL_STUDS)) far = true;
+      if (far) continue;
       const argb = packPremul((ec >>> 24) & 0xff, (ec >>> 16) & 0xff, (ec >>> 8) & 0xff, 160);
       const keep = 255 - 160;
       const o = k * 6;

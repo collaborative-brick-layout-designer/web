@@ -44,7 +44,7 @@ vi.mock('../browserImport', async (importOriginal) => {
   // jsdom has neither workers nor off-screen canvases: only the status counts here.
   const canImportInBrowser = (name: string, s: { browser?: { available: boolean; extensions: string[] } } | null | undefined) =>
     !!s?.browser?.available && s.browser.extensions.includes(name.split('.').pop()!.toLowerCase());
-  return { ...orig, BrowserImport, canImportInBrowser };
+  return { ...orig, BrowserImport, canImportInBrowser, libraryFor: orig.libraryFor };
 });
 
 import { FallBack } from '../browserImport';
@@ -122,7 +122,7 @@ describe('ImportDialog in the browser', () => {
     setup();
     await waitFor(() => expect(w.analyse).toHaveBeenCalled());
     // The site's own parts only, as the converter has them.
-    expect(w.analyse.mock.calls[0]![1]).toBe('0123456789abcdef');
+    expect(w.analyse.mock.calls[0]![1]).toEqual({ name: 'ldraw', version: '0123456789abcdef' });
     expect(w.analyse.mock.calls[0]![2]).toEqual([{ key: 'a', source: 'bundled' }]);
     act(() => w.progress!({ phase: 'fetching', done: 120, total: 213 }));
     expect(screen.getByTestId('import-reading-here').textContent).toContain('Fetching 213 parts… 120/213');
@@ -192,7 +192,17 @@ describe('ImportDialog in the browser', () => {
     expect(m.upload).not.toHaveBeenCalled();
   });
 
-  it('a Studio or LDD file still goes to the server', async () => {
+  it('a Studio file is read here too, from Studio’s own library when the site has one', async () => {
+    m.status.mockResolvedValue(status({ browser: { available: true, extensions: ['ldr', 'mpd', 'dat', 'io'], ldraw: '0123456789abcdef', studio: 'fedcba9876543210' } }));
+    w.analyse.mockResolvedValue({ ...analysis, format: 'studio', kindLabel: 'Studio import', layout: null });
+    setup('set.io');
+    expect(await screen.findByTestId('import-preview')).toBeTruthy();
+    expect(w.analyse.mock.calls[0]![1]).toEqual({ name: 'studio', version: 'fedcba9876543210' });
+    expect(screen.getByRole('dialog', { name: 'Import a model' }).textContent).toContain('Preview: Studio import');
+    expect(m.upload).not.toHaveBeenCalled();
+  });
+
+  it('a file the browser doesn’t read here (LDD, or Studio where it isn’t offered) goes to the server', async () => {
     setup('set.io');
     await waitFor(() => expect(m.upload).toHaveBeenCalled());
     expect(w.analyse).not.toHaveBeenCalled();

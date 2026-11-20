@@ -245,11 +245,12 @@ async function saveUpload(file: NodeJS.ReadableStream & { truncated?: boolean },
   return !file.truncated;
 }
 
-/** What the browser's importer can do here: on, with an LDraw library, for LDraw files. */
+/** What the browser's importer can do here: LDraw and Studio files, with the libraries to draw them. */
 async function browserImport(enabled: boolean) {
   const [ldraw, studio] = await Promise.all([library('ldraw'), library('studio')]);
-  const available = enabled && !!ldraw;
-  return { available, extensions: available ? ['ldr', 'mpd', 'dat'] : [], ldraw: ldraw?.version ?? null, studio: studio?.version ?? null };
+  // LDraw files need the LDraw library; a Studio file draws from Studio's own when there is one.
+  const extensions = enabled ? [...(ldraw ? ['ldr', 'mpd', 'dat'] : []), ...(ldraw || studio ? ['io'] : [])] : [];
+  return { available: extensions.length > 0, extensions, ldraw: ldraw?.version ?? null, studio: studio?.version ?? null };
 }
 
 async function adminView() {

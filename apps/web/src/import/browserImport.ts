@@ -18,10 +18,20 @@ export class FallBack extends Error {}
 /** Whether this browser can import `fileName` itself here. */
 export function canImportInBrowser(fileName: string, status: Pick<ImportStatus, 'browser'> | null | undefined): boolean {
   const b = status?.browser;
-  if (!b?.available || !b.ldraw) return false;
+  if (!b?.available || !libraryFor(fileName, status)) return false;
   const ext = /\.([A-Za-z]+)$/.exec(fileName)?.[1]?.toLowerCase() ?? '';
   if (!b.extensions.includes(ext)) return false;
   return typeof Worker !== 'undefined' && typeof OffscreenCanvas !== 'undefined';
+}
+
+/**
+ * The library a model is drawn from, as the desktop's prepareImport picks it:
+ * Studio's own for an .io when the site has it, else the LDraw library.
+ */
+export function libraryFor(fileName: string, status: Pick<ImportStatus, 'browser'> | null | undefined): { name: 'ldraw' | 'studio'; version: string } | null {
+  const b = status?.browser;
+  if (/\.io$/i.test(fileName) && b?.studio) return { name: 'studio', version: b.studio };
+  return b?.ldraw ? { name: 'ldraw', version: b.ldraw } : null;
 }
 
 export type MadePart = Extract<FromWorker, { type: 'made-part' }>;
@@ -73,8 +83,8 @@ export class BrowserImport {
   }
 
   /** The analysis as the server's job has it, its preview a blob: URL (freed on cancel). */
-  async analyse(file: File, ldrawVersion: string, parts: PartWire[]): Promise<ImportAnalysis> {
-    const m = await this.ask({ type: 'analyse', file, ldrawVersion, parts });
+  async analyse(file: File, library: { name: 'ldraw' | 'studio'; version: string }, parts: PartWire[]): Promise<ImportAnalysis> {
+    const m = await this.ask({ type: 'analyse', file, library, parts });
     if (m.type !== 'analysed') throw new FallBack('Unexpected answer from the import worker.');
     const a = m.analysis;
     if (a.part) this.preview = URL.createObjectURL(a.part.preview);
