@@ -206,5 +206,5 @@ test('the grid snap can be set from Settings (a phone has no toolbar for it)', a
   await page.getByTestId('settings-snap-step').selectOption('8');
   const res = await page.request.post('/api/layouts', { data: { title: 'Snap' } });
   await open(page, ((await res.json()) as { id: string }).id);
-  await expect(page.getByTitle('Grid snap step (studs)').locator('select')).toHaveValue('8');
+  await expect(page.getByTestId('toolbar-snap-step')).toHaveValue('8');
 });

@@ -8,6 +8,7 @@ import { colorSpecToCss } from '../layerOptions';
 import { cellIndexLabels, drawnGridLayer, parseCellIndexCorner } from './gridIndex';
 import { fontStack } from './fontStack';
 import { legibleLabelPx } from '../textLegibility';
+import { studGridFade } from '../gridSnap';
 
 export interface ViewportRect {
   /** World-space (stud) bounds currently visible on the stage. */
@@ -66,6 +67,7 @@ export const GridLayer = memo(function GridLayer({
 }: GridLayerProps) {
   const showGridStore = useEditorStore((s) => s.showGrid);
   const showGrid = showGridProp ?? showGridStore;
+  const studGrid = useEditorStore((s) => s.showStudGrid);
   const grid = drawnGridLayer(map.layers) as LayerGrid | undefined;
   const gridVisible = !!grid && grid.visible && showGrid;
   const background = colorSpecToCss(map.backgroundColor, '#404040');
@@ -73,7 +75,7 @@ export const GridLayer = memo(function GridLayer({
 
   return (
     <Group>
-      <GridShape grid={gridVisible ? grid : undefined} background={background} />
+      <GridShape grid={gridVisible ? grid : undefined} background={background} studGrid={studGrid} />
       {gridVisible && grid.displayCellIndex && (
         <CellIndexLabels
           grid={cornerOverride && cornerOverride.layerId === grid.id ? { ...grid, cellIndexCorner: cornerOverride.corner } : grid}
@@ -117,9 +119,10 @@ function linesAcrossScreen(shape: Konva.Shape, step: number, drawn: Bounds): num
   return (Math.max(st.width(), st.height()) / scale) / (step * px) + 4;
 }
 
-const GridShape = memo(function GridShape({ grid, background }: { grid: LayerGrid | undefined; background: string }) {
+const GridShape = memo(function GridShape({ grid, background, studGrid }: { grid: LayerGrid | undefined; background: string; studGrid: boolean }) {
   return (
     <Shape
+      name="grid-lines"
       listening={false}
       perfectDrawEnabled={false}
       sceneFunc={(kctx, shape) => {
@@ -132,6 +135,21 @@ const GridShape = memo(function GridShape({ grid, background }: { grid: LayerGri
         ctx.fillStyle = background;
         ctx.fillRect(bounds.xMin, bounds.yMin, bounds.xMax - bounds.xMin, bounds.yMax - bounds.yMin);
         if (!grid) return;
+        // The stud grid everything snaps to: faint lines a stud apart in the
+        // sub-grid's color, fading in as the studs grow apart on screen.
+        const st = shape.getStage();
+        const fade = studGrid && (grid.displayGrid || grid.displaySubGrid) ? studGridFade((st?.scaleX() ?? 0) * studToPx()) : 0;
+        if (fade > 0) {
+          const m = ctx.getTransform();
+          const devicePx = Math.hypot(m.a, m.b) || 1;
+          ctx.save();
+          ctx.globalAlpha *= 0.5 * fade;
+          strokeLines(ctx, shape, 1, bounds, colorSpecToCss(grid.subGridColor), 1 / devicePx);
+          ctx.restore();
+          shape.setAttr('studGridDrawn', true);
+        } else {
+          shape.setAttr('studGridDrawn', false);
+        }
         if (grid.displaySubGrid) {
           const step = grid.gridSizeInStud / Math.max(2, grid.subDivisionNumber);
           strokeLines(ctx, shape, step, bounds, colorSpecToCss(grid.subGridColor), grid.subGridThickness);

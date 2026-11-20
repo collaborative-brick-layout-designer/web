@@ -99,8 +99,8 @@ describe('snapPlacement — grid snap', () => {
   it('puts the box corner on the grid, held by its middle as BlueBrick drops a part', () => {
     const candidate: PlaceCandidate = {
       part: makePart(),
-      // The corner is 4 studs up and left of the cursor: 4 whole steps from
-      // the grid line at or before it (3, 10), so (-1, 6), centre (3, 10).
+      // The corner is 4 studs up and left of the cursor, at (-0.3, 6.2):
+      // on the nearest stud, (0, 6), so the centre is (4, 10).
       centreX: 3.7,
       centreY: 10.2,
       orientation: 0,
@@ -111,7 +111,7 @@ describe('snapPlacement — grid snap', () => {
     const result = snapPlacement(candidate, emptyMap(), partsByKey);
     expect(result.snappedToConnection).toBe(false);
     expect(result.newOrientation).toBeNull();
-    expect(result.centreX).toBeCloseTo(3);
+    expect(result.centreX).toBeCloseTo(4);
     expect(result.centreY).toBeCloseTo(10);
   });
 
@@ -345,9 +345,9 @@ describe('liveDragSnap', () => {
       partsByKey,
     );
     expect(result.snappedToConnection).toBe(false);
-    // Its corner (no size given: the centre) is 0.3 and 0.8 studs past the
-    // pointer, so a step past the grid line at or before it.
-    expect(result.centreX).toBeCloseTo(4);
+    // Its corner (no size given: the centre), (3.3, 7.8), goes on the
+    // nearest stud.
+    expect(result.centreX).toBeCloseTo(3);
     expect(result.centreY).toBeCloseTo(8);
   });
 
@@ -510,7 +510,7 @@ describe('liveDragSnap — desktop parity', () => {
     expect(r.snappedToConnection).toBe(false);
   });
 
-  it('grid fallback puts the box corner on the grid, whole steps from the pointer', () => {
+  it('grid fallback puts the box corner on the nearest grid point', () => {
     const part = makePart();
     const r = liveDragSnap(
       {
@@ -520,10 +520,38 @@ describe('liveDragSnap — desktop parity', () => {
       },
       emptyMap(), new Map(),
     );
-    // TL (0.3, -0.1): from the pointer at (0, 0), 0.3 right (a step past
-    // the line) and 0.1 up (none), so (1, 0) and the centre (2.5, 2.5).
-    expect(r.centreX).toBeCloseTo(2.5);
+    // TL (0.3, -0.1): the nearest stud is (0, 0), so the centre (1.5, 2.5).
+    expect(r.centreX).toBeCloseTo(1.5);
     expect(r.centreY).toBeCloseTo(2.5);
+  });
+
+  it('moving in steps, the corner moves whole steps from where it started', () => {
+    const part = makePart();
+    // Started at (0.3, -0.1); the pointer has it at (2.6, 1.3): 2.3 and 1.4
+    // studs on, so 2 and 1 whole steps, (2.3, 0.9).
+    const r = liveDragSnap(
+      {
+        part, movingId: 'd', movingLinks: [],
+        centreX: 4.1, centreY: 3.8, width: 3, height: 5,
+        snapCornerX: 2.6, snapCornerY: 1.3, startCornerX: 0.3, startCornerY: -0.1, snapMode: 'steps',
+        mouseStudX: 0, mouseStudY: 0, orientation: 0, snapStepStuds: 1, reach: 3,
+      },
+      emptyMap(), new Map(),
+    );
+    expect(r.centreX).toBeCloseTo(4.1 - 0.3);
+    expect(r.centreY).toBeCloseTo(3.8 - 0.4);
+    // The same move on the grid lands on the nearest stud instead.
+    const g = liveDragSnap(
+      {
+        part, movingId: 'd', movingLinks: [],
+        centreX: 4.1, centreY: 3.8, width: 3, height: 5,
+        snapCornerX: 2.6, snapCornerY: 1.3, startCornerX: 0.3, startCornerY: -0.1, snapMode: 'grid',
+        mouseStudX: 0, mouseStudY: 0, orientation: 0, snapStepStuds: 1, reach: 3,
+      },
+      emptyMap(), new Map(),
+    );
+    expect(g.centreX).toBeCloseTo(4.1 + 0.4);
+    expect(g.centreY).toBeCloseTo(3.8 - 0.3);
   });
 
   it('grid fallback puts the snap corner, not the box, on the grid', () => {
@@ -538,8 +566,7 @@ describe('liveDragSnap — desktop parity', () => {
       },
       emptyMap(), new Map(),
     );
-    // The corner (22.3, 8.2) is 5.3 / 5.7 studs from the pointer: no whole
-    // step, so it goes to the line at or before the pointer, (24, 8).
+    // The corner (22.3, 8.2) goes on the nearest grid point, (24, 8).
     expect(r.centreX).toBeCloseTo(24 - 0.5 + 8.5);
     expect(r.centreY).toBeCloseTo(8 + 4);
   });
@@ -699,10 +726,10 @@ describe('liveDragSnap — calm snapping', () => {
   });
 
   it('Alt places without connection snap, keeping the grid', () => {
-    const r = at(0.6, { bypass: true, snapStepStuds: 1 });
+    const r = at(0.4, { bypass: true, snapStepStuds: 1 });
     expect(r.snappedToConnection).toBe(false);
     expect(r.centreX).toBeCloseTo(0);
-    expect(at(0.6, { bypass: true }).centreX).toBeCloseTo(0.6);
+    expect(at(0.4, { bypass: true }).centreX).toBeCloseTo(0.4);
   });
 
   it('a fast drag starts no snap until the drop, which snaps at the normal reach', () => {

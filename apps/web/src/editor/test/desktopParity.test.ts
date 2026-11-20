@@ -178,11 +178,9 @@ describe('module drop placement (E)', () => {
     // Centroid (0,0); the lead (first) part's corner (-3,-1).
     expect(moduleDropTranslation(batches, { x: 5.2, y: 7.9 }, 0, null, null)).toEqual({ dx: 5.2, dy: 7.9 });
     const t = moduleDropTranslation(batches, { x: 5.2, y: 7.9 }, 1, null, null);
-    // Under the cursor its corner is at (2.2, 6.9), 3 by 1 studs from the
-    // cursor: BlueBrick keeps those whole steps from the grid line at or
-    // before the cursor (5, 7), so (2, 6).
+    // Under the cursor its corner is at (2.2, 6.9): on the nearest stud, (2, 7).
     expect(t.dx).toBeCloseTo(5);
-    expect(t.dy).toBeCloseTo(7);
+    expect(t.dy).toBeCloseTo(8);
   });
 
   it('shifts the module onto a nearby free host connection', () => {

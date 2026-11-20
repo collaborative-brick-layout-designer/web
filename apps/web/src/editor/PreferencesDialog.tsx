@@ -55,6 +55,10 @@ export function PreferencesDialog({ onClose }: Props) {
   const showRulerAttachPoints = useEditorStore((s) => s.showRulerAttachPoints);
   const alwaysShowConnections = useEditorStore((s) => s.alwaysShowConnections);
   const setShowGrid = useEditorStore((s) => s.setShowGrid);
+  const showStudGrid = useEditorStore((s) => s.showStudGrid);
+  const snapMode = useEditorStore((s) => s.snapMode);
+  const setSnapMode = useEditorStore((s) => s.setSnapMode);
+  const setShowStudGrid = useEditorStore((s) => s.setShowStudGrid);
   const setShowConnectionPoints = useEditorStore((s) => s.setShowConnectionPoints);
   const setShowBrickHulls = useEditorStore((s) => s.setShowBrickHulls);
   const setShowBrickElevation = useEditorStore((s) => s.setShowBrickElevation);
@@ -188,6 +192,18 @@ export function PreferencesDialog({ onClose }: Props) {
                 </select>
               </div>
               <div className={rowCls}>
+                <span className={labelCls}>How things snap</span>
+                <select
+                  aria-label="How things snap"
+                  value={snapMode}
+                  onChange={(e) => setSnapMode(e.target.value === 'steps' ? 'steps' : 'grid')}
+                  className="rounded-lg border border-border bg-soft px-2 py-1 text-xs"
+                >
+                  <option value="grid">Snap to the grid</option>
+                  <option value="steps">Move in steps</option>
+                </select>
+              </div>
+              <div className={rowCls}>
                 <span className={labelCls}>Default turn step</span>
                 <select
                   aria-label="Default turn step"
@@ -217,6 +233,7 @@ export function PreferencesDialog({ onClose }: Props) {
             <div className="flex flex-col gap-0.5">
               {[
                 { label: 'Show grid', value: showGrid, set: setShowGrid },
+                { label: 'Show the stud grid when zoomed in', value: showStudGrid, set: setShowStudGrid },
                 { label: 'Show connection points', value: showConnectionPoints, set: setShowConnectionPoints },
                 { label: 'Show brick hull outlines', value: showBrickHulls, set: setShowBrickHulls },
                 { label: 'Show brick elevation labels', value: showBrickElevation, set: setShowBrickElevation },

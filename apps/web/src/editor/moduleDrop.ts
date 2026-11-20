@@ -9,20 +9,50 @@ import type { ModuleBatch } from './mutations';
 import { connKey, freeConnectionsCached, lookupPart } from './snap';
 import { applyGroupTurn, facingTurn, holdReach, pickSnap, type GroupTurn, type SnapCandidate, type SnapSession } from './snapFeel';
 import { areaForPivot, pivotOf } from './brickGeometry';
-import { dragShift, snapCorner } from './gridSnap';
+import { gridShift, snapCorner, stepShift, type SnapMode } from './gridSnap';
 
 // (Shared with the server: @cld/modules batches.ts.)
 export { moduleBatchesFromMap };
 
-/** The part a dropped module snaps to the grid by, as BlueBrick drops a group: the first that has a connection, else the first. */
-function moduleSnapLead(batches: ModuleBatch[], partsByKey: Map<string, PartWire> | null): ModuleBatch['bricks'][number] | undefined {
-  for (const batch of batches) {
-    for (const b of batch.bricks) {
-      const meta = partsByKey ? lookupPart(partsByKey, b.partNumber) : undefined;
-      if (meta?.connections.some((c) => c.type)) return b;
-    }
+/** The part a group of parts (a module dropped, a paste) snaps to the grid by, as BlueBrick drops a group: the first that has a connection, else the first. */
+export function snapLead<B extends { partNumber: string }>(bricks: readonly B[], partsByKey: Map<string, PartWire> | null): B | undefined {
+  for (const b of bricks) {
+    const meta = partsByKey ? lookupPart(partsByKey, b.partNumber) : undefined;
+    if (meta?.connections.some((c) => c.type)) return b;
   }
-  return batches.find((b) => b.bricks.length > 0)?.bricks[0];
+  return bricks[0];
+}
+
+function moduleSnapLead(batches: ModuleBatch[], partsByKey: Map<string, PartWire> | null): ModuleBatch['bricks'][number] | undefined {
+  return snapLead(batches.flatMap((b) => b.bricks), partsByKey);
+}
+
+/**
+ * A paste's or duplicate's move, onto the grid: the lead part's (snapLead)
+ * snap corner goes on the nearest grid point after `offset`, as a module
+ * put down does; moving in steps, `offset` rounds to whole steps (the
+ * desktop's MapView::pasteClipboard).
+ */
+export function pasteGridOffset(
+  bricks: readonly { partNumber: string; displayArea: { x: number; y: number; width: number; height: number }; orientation?: number }[],
+  offset: { dx: number; dy: number },
+  snapStepStuds: number,
+  partsByKey: Map<string, PartWire> | null,
+  mode: SnapMode = 'grid',
+): { dx: number; dy: number } {
+  // Moving in steps: whole steps from the copied parts.
+  if (mode === 'steps') {
+    const s = stepShift({ x: offset.dx, y: offset.dy }, snapStepStuds);
+    return { dx: offset.dx + s.x, dy: offset.dy + s.y };
+  }
+  const lead = snapStepStuds > 0 ? snapLead(bricks, partsByKey) : undefined;
+  if (!lead) return offset;
+  const corner = snapCorner(
+    { displayArea: lead.displayArea, orientation: lead.orientation ?? 0 },
+    partsByKey ? lookupPart(partsByKey, lead.partNumber) : undefined,
+  );
+  const shift = gridShift({ x: corner.x + offset.dx, y: corner.y + offset.dy }, snapStepStuds);
+  return { dx: offset.dx + shift.x, dy: offset.dy + shift.y };
 }
 
 /** Connection snap for a module drop: reach, the drag's session, Alt, the drop. */
@@ -75,7 +105,7 @@ export function moduleDropTranslation(
       { displayArea: lead.displayArea, orientation: lead.orientation ?? 0 },
       partsByKey ? lookupPart(partsByKey, lead.partNumber) : undefined,
     );
-    const shift = dragShift(target, { x: corner.x + tx - cx, y: corner.y + ty - cy }, snapStepStuds);
+    const shift = gridShift({ x: corner.x + tx - cx, y: corner.y + ty - cy }, snapStepStuds);
     tx += shift.x;
     ty += shift.y;
   }
