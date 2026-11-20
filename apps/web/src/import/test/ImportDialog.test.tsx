@@ -244,6 +244,42 @@ describe('ImportDialog', () => {
     });
   });
 
+  it('the preview zooms and pans, and the grid slides under the model as it’s nudged', async () => {
+    setup();
+    const pic = await screen.findByTestId('import-picture');
+    const zoom = () => Number(pic.getAttribute('data-zoom'));
+    const left = () => Number(pic.getAttribute('data-grid-left'));
+    const k = () => Number(pic.getAttribute('data-px-per-stud'));
+    // Fitted: 8 × 2 studs in the stand-in 640 × 400 room.
+    const fitted = zoom();
+    expect(fitted).toBe(Math.round((608 / 8 / 32) * 100));
+    fireEvent.click(screen.getByRole('button', { name: 'Zoom in' }));
+    expect(zoom()).toBeGreaterThan(fitted);
+    expect(screen.getByTestId('import-zoom').textContent).toBe(`${zoom()}%`);
+    fireEvent.click(screen.getByRole('button', { name: '100%' }));
+    expect(zoom()).toBe(100);
+    // The wheel zooms too (towards the pointer).
+    fireEvent.wheel(pic, { deltaY: -100, clientX: 10, clientY: 10 });
+    expect(zoom()).toBe(116);
+    // A drag pans.
+    const before = left();
+    fireEvent.pointerDown(pic, { pointerId: 1, button: 0, clientX: 100, clientY: 100 });
+    fireEvent.pointerMove(pic, { pointerId: 1, clientX: 130, clientY: 100 });
+    fireEvent.pointerUp(pic, { pointerId: 1 });
+    expect(left() - before).toBeCloseTo(30, 1);
+    // Nudging while zoomed: the model stays put, the grid moves a quarter stud the other way.
+    const at = left();
+    fireEvent.click(screen.getByRole('button', { name: 'Right' }));
+    expect(zoom()).toBe(116);
+    expect(left() - at).toBeCloseTo(-0.25 * k(), 1);
+    expect(screen.getByTestId('import-size').textContent).toBe('9 × 2 studs, 2 connection points');
+    // The arrow keys over the picture nudge as the desktop's do.
+    fireEvent.keyDown(pic, { key: 'ArrowLeft' });
+    expect(screen.getByTestId('import-size').textContent).toBe('8 × 2 studs, 2 connection points');
+    fireEvent.click(screen.getByRole('button', { name: 'Fit' }));
+    expect(zoom()).toBe(fitted);
+  });
+
   it('sends the file once, even with React’s development double effects', async () => {
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(h(StrictMode, null, h(QueryClientProvider, { client: qc }, h(MemoryRouter, null, h(ImportDialog, { file: new File(['0 x'], 'loop.ldr'), onClose: vi.fn() })))));
