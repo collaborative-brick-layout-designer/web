@@ -68,6 +68,17 @@
       ]
     },
     {
+      "id": "routes",
+      "title": "Routes",
+      "devices": "large",
+      "steps": [
+        { "target": "panel.routes", "title": "Your routes", "text": "Routes are named ways along the track. Open this list from Panels; the eye hides one on your map only." },
+        { "target": "routes.new", "title": "Draw a route", "text": "Press New route, then click on the track where it starts and where it ends. The shortest way is found for you." },
+        { "target": "map", "title": "Stops on the way", "text": "Shift-click adds a stop, to send the route along another line. Name it and press Save route." },
+        { "target": "routes.setSwitches", "title": "Switches follow the route", "text": "Set switches turns every switch on the route its way. Run mode lets you flip them by hand." }
+      ]
+    },
+    {
       "id": "view",
       "title": "Looking at a layout",
       "devices": "phone",

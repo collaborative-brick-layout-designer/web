@@ -98,6 +98,15 @@ class Driver {
     }
   }
 
+  /** The desktop's named routes (id, name, steps, broken), or null when this driver has none (older desktop). */
+  async routes(): Promise<{ id: string; name: string; steps: { brick: string }[]; broken: boolean }[] | null> {
+    try {
+      return JSON.parse(await this.run('routes'));
+    } catch {
+      return null;
+    }
+  }
+
   async close(): Promise<void> {
     if (this.proc.exitCode !== null) return;
     this.proc.stdin.write('quit\n');
@@ -646,6 +655,76 @@ test.describe('desktop and web live editing', () => {
       await expect.poll(async () => (await arrows()).find((a) => a.key === first.key)?.color, { timeout: 10_000 }).toBe('#16A34A');
       await driver.run(`switch-set ${first.key} ${exit}`);
       await expect.poll(async () => (await arrows()).find((a) => a.key === first.key)?.color, { timeout: 10_000 }).toBe('#EA580C');
+    } finally {
+      await driver.close();
+    }
+  });
+
+  test('routes: a route the web draws reaches the desktop, and a part the desktop takes out breaks it on the web', async ({ page, request, browser }) => {
+    test.setTimeout(120_000);
+    const stamp = Date.now();
+    await page.setViewportSize({ width: 1400, height: 900 });
+    await signIn(page, `route-desk-web-${stamp}@example.com`, 'Web Tester');
+    const created = await page.request.post('/api/layouts', { data: { title: 'Routes, web and desktop', bbm: TIGHT_CORNER_BBM } });
+    const { id } = (await created.json()) as { id: string };
+    const deskEmail = `route-desk-driver-${stamp}@example.com`;
+    const desk = await browser.newContext();
+    await signIn(desk, deskEmail, 'Desktop Driver');
+    const deskPage = await desk.newPage();
+    const invite = await page.request.post(`/api/layouts/${id}/invites`, { data: { email: deskEmail, role: 'editor' } });
+    expect((await deskPage.request.post(`/api/invites/${((await invite.json()) as { token: string }).token}`)).ok()).toBe(true);
+    const token = await desktopToken(deskPage, request);
+    await desk.close();
+    const driver = new Driver(DRIVER!, token);
+    // Two loose monorail straights on the longest row (as routes.spec.ts picks them).
+    const straights = [...TIGHT_CORNER_BBM.matchAll(/<Brick id="([^"]+)">\s*<DisplayArea>\s*<X>([^<]*)<\/X>\s*<Y>([^<]*)<\/Y>\s*<Width>([^<]*)<\/Width>\s*<Height>([^<]*)<\/Height>\s*<\/DisplayArea>\s*<MyGroup \/>\s*<PartNumber>267[01]\.7<\/PartNumber>/g)].map((m) => ({
+      x: Number(m[2]) + Number(m[4]) / 2,
+      y: Number(m[3]) + Number(m[5]) / 2,
+    }));
+    const rows = new Map<number, { x: number; y: number }[]>();
+    for (const s of straights) rows.set(Math.round(s.y), [...(rows.get(Math.round(s.y)) ?? []), s]);
+    const row = [...rows.values()].sort((p, q) => q.length - p.length)[0]!.sort((p, q) => p.x - q.x);
+    const onPage = (x: number, y: number) =>
+      page.evaluate(([sx, sy]) => {
+        type St = { getAbsoluteTransform: () => { point: (p: { x: number; y: number }) => { x: number; y: number } }; container: () => HTMLElement };
+        const st = (window as unknown as { Konva: { stages: St[] } }).Konva.stages[0]!;
+        const p = st.getAbsoluteTransform().point({ x: sx! * 8, y: sy! * 8 });
+        const box = st.container().getBoundingClientRect();
+        return { x: box.left + p.x, y: box.top + p.y };
+      }, [x, y]);
+    try {
+      await driver.run(`open ${id}`);
+      await driver.run('wait-synced');
+      test.skip((await driver.routes()) === null, 'this bld_sync_driver has no route commands yet (desktop main is older)');
+      await page.goto(`/editor/${id}`);
+      await expect(page.locator('canvas').first()).toBeVisible({ timeout: 15000 });
+      await page.waitForTimeout(1000);
+      await page.keyboard.press('f');
+      await page.getByRole('button', { name: 'Panels', exact: true }).click();
+      await page.getByLabel('Routes', { exact: true }).check();
+      await page.keyboard.press('Escape');
+
+      // The web draws and saves a route: the desktop has it.
+      await page.getByTestId('route-new').click();
+      let p = await onPage(row[1]!.x, row[1]!.y);
+      await page.mouse.click(p.x, p.y);
+      p = await onPage(row[row.length - 2]!.x, row[row.length - 2]!.y);
+      await page.mouse.click(p.x, p.y);
+      const banner = page.getByTestId('route-draft-banner');
+      await banner.getByLabel('Route name').fill('Monorail run');
+      await banner.getByRole('button', { name: 'Save route' }).click();
+      await expect.poll(async () => (await driver.routes())?.map((r) => r.name), { timeout: 10_000 }).toEqual(['Monorail run']);
+      const route = (await driver.routes())![0]!;
+      expect(route.broken).toBe(false);
+
+      // The desktop takes a part out from under it: Broken on the web, live.
+      await driver.run(`brick-delete ${route.steps[Math.floor(route.steps.length / 2)]!.brick}`);
+      const item = page.getByRole('list', { name: 'Routes' }).getByRole('listitem').filter({ hasText: 'Monorail run' });
+      await expect(item.getByTestId('route-status')).toHaveText('Broken', { timeout: 15000 });
+      await expect.poll(async () => (await driver.routes())![0]!.broken).toBe(true);
+      // Mended on the web: the desktop has the new way.
+      await item.getByRole('button', { name: 'Find a new way' }).click();
+      await expect.poll(async () => (await driver.routes())![0]!.broken, { timeout: 10_000 }).toBe(false);
     } finally {
       await driver.close();
     }

@@ -54,8 +54,15 @@ import { RulerLayers } from './render/RulerLayer';
 import { AnchoredLabels } from './render/AnchoredLabels';
 import { ElectricCircuitLayer } from './render/ElectricCircuitLayer';
 import { SwitchLayer } from './render/SwitchLayer';
+import { RouteLayer } from './render/RouteLayer';
+import { RoutesPanel } from './RoutesPanel';
+import { formatLength } from '../venues/designer/units';
+import { useLengthUnit } from '../theme/PrefsProvider';
+import { newRoute, problemText, saveRoute, useHiddenRoutes, useRouteStatuses, useRoutes } from './routes';
+import type { RouteDraft } from './editorStore';
+import type { Route, RouteFound, RouteProblem, TrackPosition } from '@cld/parts-catalog/browser';
 import { legLabel, switchAt, switchMenuItems, useSwitchStates, useTrackNetwork, type SwitchMenuItem } from './trackSwitches';
-import { nextExit } from '@cld/parts-catalog/browser';
+import { findRoute, nearestPosition, nextExit } from '@cld/parts-catalog/browser';
 import { BEND_HANDLE_NAME, BendHandles } from './render/BendHandles';
 import { ModuleOverlay, measureBold, moduleLabelBoundsStuds } from './render/ModuleOverlay';
 import { VenueOverlay } from './render/VenueOverlay';
@@ -642,6 +649,12 @@ function Editor({ layoutId, docState, moduleMode }: { layoutId: string; docState
   // Subscribe to ALL doc changes; the projection is shared (cached per
   // doc) with the canvas and panels, so this costs no extra docToBbm.
   const docMap = useDocMap(doc);
+  // Named routes for the Routes panel (the canvas works out the same for the map).
+  const editorTrackNet = useTrackNetwork(docMap, catalog.data?.parts);
+  const editorSwitchStates = useSwitchStates(doc, docMap);
+  const editorRoutes = useRoutes(doc, docMap);
+  const editorRouteStatuses = useRouteStatuses(editorTrackNet, editorRoutes, editorSwitchStates);
+  const routesHidden = useHiddenRoutes(layoutId);
   // Budget limits live in the doc's meta (shared with collaborators,
   // undoable). A meta change yields a new docMap, so re-read on that.
   const budgetRead = useMemo(
@@ -827,6 +840,10 @@ function Editor({ layoutId, docState, moduleMode }: { layoutId: string; docState
     if (panelId === 'parts') return <PartsPanel onPlacePart={onPlacePart} budgetLimits={budgetLimits} map={budgetLimits.size > 0 ? docMap : null} canUploadPart={!!me.data?.user && !me.data.user.isDemoAccount} onImportModel={me.data?.user && !me.data.user.isDemoAccount ? importModelAsPart : undefined} mapEmpty={!isViewer && mapHasNoParts(docMap)} />;
     if (panelId === 'layers') return <LayersPanelHost doc={doc} isViewer={isViewer} />;
     if (panelId === 'usedparts') return <UsedPartsPanel doc={doc} budgetLimits={budgetLimits} />;
+    if (panelId === 'routes')
+      return (
+        <RoutesPanel doc={doc} net={editorTrackNet} routes={editorRoutes} statuses={editorRouteStatuses} hidden={routesHidden.hidden} setShown={routesHidden.setShown} isViewer={isViewer} />
+      );
     if (panelId === 'modules') return <Suspense fallback={null}><ModulesPanel doc={doc} isViewer={isViewer} layoutId={moduleMode ? null : layoutId} /></Suspense>;
     if (panelId === 'modlibrary')
       return (
@@ -1489,7 +1506,7 @@ function Editor({ layoutId, docState, moduleMode }: { layoutId: string; docState
         )}
         {touchModuleId && doc && <TouchModuleSheet doc={doc} moduleId={touchModuleId} onClose={() => setTouchModuleId(null)} />}
 
-        <Canvas doc={doc} awareness={awareness} isViewer={isViewer} size={canvasSize} touchEl={canvasBox} phone={viewport.isMobile} saveNow={saveNow} placeAtCenterRef={placeAtCenterRef} exportImageRef={exportImageRef} canvasActionsRef={canvasActionsRef} undo={undo} onOpenVenueProps={() => setShowVenueProps(true)} onMakeModule={() => openMakeModule(doc)} sharedLayoutId={moduleMode ? null : layoutId} />
+        <Canvas doc={doc} awareness={awareness} isViewer={isViewer} size={canvasSize} touchEl={canvasBox} phone={viewport.isMobile} saveNow={saveNow} placeAtCenterRef={placeAtCenterRef} exportImageRef={exportImageRef} canvasActionsRef={canvasActionsRef} undo={undo} onOpenVenueProps={() => setShowVenueProps(true)} onMakeModule={() => openMakeModule(doc)} sharedLayoutId={moduleMode ? null : layoutId} layoutKey={layoutId} />
       </main>
       {showRight && (
         <DockColumn
@@ -1849,7 +1866,10 @@ function Canvas({
   onOpenVenueProps,
   onMakeModule,
   sharedLayoutId,
+  layoutKey,
 }: {
+  /** This layout's id (a module's in its own editor): whose routes this person hid. */
+  layoutKey: string;
   /** The layout on the server (null in a module's own editor): where shared modules are looked up. */
   sharedLayoutId: string | null;
   doc: import('yjs').Doc;
@@ -2861,6 +2881,40 @@ function Canvas({
   const runMode = useEditorStore((s) => s.runMode);
   const trackNet = useTrackNetwork(map, catalog.data?.parts);
   const switchStates = useSwitchStates(doc, map);
+  // Named routes (trains design 6.2): shown on this person's map unless hidden here.
+  const routes = useRoutes(doc, map);
+  const routeStatuses = useRouteStatuses(trackNet, routes, switchStates);
+  const { hidden: hiddenRoutes } = useHiddenRoutes(layoutKey);
+  const routeDraft = useEditorStore((s) => s.routeDraft);
+  useEffect(() => {
+    if (!routeDraft) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') useEditorStore.getState().setRouteDraft(null);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [routeDraft]);
+  const draftFound = useMemo(() => {
+    if (!routeDraft?.from || !routeDraft.to || !trackNet) return null;
+    return findRoute(trackNet, routeDraft.from, routeDraft.to, { via: routeDraft.via });
+  }, [routeDraft, trackNet]);
+  /** Drawing a route: a click picks the place on the track nearest it. */
+  const onDraftClick = (e: KonvaEventObject<MouseEvent | TouchEvent>) => {
+    if ('button' in e.evt && e.evt.button !== 0) return;
+    const at = pointerStuds();
+    const d = useEditorStore.getState().routeDraft;
+    if (!at || !trackNet || !d) return;
+    const pos = nearestPosition(trackNet, at, Math.max(3, 24 / (8 * zoom)));
+    if (!pos) {
+      useEditorStore.getState().showStatusMessage('Click on the track.', 3000);
+      return;
+    }
+    const shift = 'shiftKey' in e.evt && e.evt.shiftKey;
+    if (!d.from) useEditorStore.getState().setRouteDraft({ ...d, from: pos });
+    else if (shift && d.to) useEditorStore.getState().setRouteDraft({ ...d, via: [...d.via, d.to], to: pos });
+    else if (shift) useEditorStore.getState().setRouteDraft({ ...d, via: [...d.via, pos] });
+    else useEditorStore.getState().setRouteDraft({ ...d, to: pos });
+  };
   /** Run mode: a click or tap flips the switch nearest it. */
   const onRunClick = (e: KonvaEventObject<MouseEvent | TouchEvent>) => {
     if ('button' in e.evt && e.evt.button !== 0) return;
@@ -4756,7 +4810,7 @@ function Canvas({
           skipContextMenuRef.current = false;
           return;
         }
-        if (isViewer || runMode) return;
+        if (isViewer || runMode || routeDraft) return;
         if (tool === 'venueOutline' || tool === 'venueObstacle') {
           finishVenueDraft();
           return;
@@ -5002,11 +5056,22 @@ function Canvas({
       {/* Switches (trains design 6.3): their arrows in Run mode or with View › Switches,
           and in Run mode a cover that takes every click, so a click flips a
           switch and never picks or moves a part. */}
-      {trackNet && (showSwitches || runMode) && (
-        <KonvaLayer name="switch-layer" listening={runMode} perfectDrawEnabled={false}>
-          <SwitchLayer net={trackNet} states={switchStates} zoom={zoom} />
+      {trackNet && (showSwitches || runMode || routeDraft || routes.length > 0) && (
+        <KonvaLayer name="switch-layer" listening={runMode || !!routeDraft} perfectDrawEnabled={false}>
+          <RouteLayer
+            net={trackNet}
+            routes={routes}
+            statuses={routeStatuses}
+            hidden={hiddenRoutes}
+            zoom={zoom}
+            draft={routeDraft ? { ends: [routeDraft.from, ...routeDraft.via, routeDraft.to].filter((p): p is TrackPosition => !!p), route: draftFound && typeof draftFound !== 'string' && routeDraft.from && routeDraft.to ? { steps: draftFound.steps, from: routeDraft.from, to: routeDraft.to } : null } : null}
+          />
+          {(showSwitches || runMode) && <SwitchLayer net={trackNet} states={switchStates} zoom={zoom} />}
           {runMode && (
             <Rect name="run-mode-cover" x={-1e7} y={-1e7} width={2e7} height={2e7} fill="rgba(0,0,0,0)" onClick={onRunClick} onTap={onRunClick} />
+          )}
+          {routeDraft && (
+            <Rect name="route-draft-cover" x={-1e7} y={-1e7} width={2e7} height={2e7} fill="rgba(0,0,0,0)" onClick={onDraftClick} onTap={onDraftClick} />
           )}
         </KonvaLayer>
       )}
@@ -5166,6 +5231,7 @@ function Canvas({
       )}
       </Suspense>
       {runMode && <RunModeBanner />}
+      {routeDraft && <RouteDraftBanner doc={doc} draft={routeDraft} found={draftFound} routes={routes} />}
       <SetUpdatesBar updates={setUpdates} onUpdate={updatePlacedSets} onShow={showPlacedSets} top={phone} />
       <SharedModulesHost doc={doc} layoutId={sharedLayoutId} isViewer={isViewer} onShowParts={showParts} parts={partsByKey} top={phone} />
       {ctxMenu && !isViewer && (
@@ -5713,7 +5779,7 @@ function SnapRing() {
  * affordance stays visible.
  */
 // UI words: layers are "Sheets" (the ids stay).
-const PANEL_TITLES: Record<string, string> = { parts: 'Parts', layers: 'Sheets', views: 'Views', usedparts: 'Parts list', modules: 'Modules', modlibrary: 'Module library', venuelibrary: 'Venue library' };
+const PANEL_TITLES: Record<string, string> = { parts: 'Parts', layers: 'Sheets', views: 'Views', usedparts: 'Parts list', modules: 'Modules', modlibrary: 'Module library', venuelibrary: 'Venue library', routes: 'Routes' };
 
 /**
  * Renders a vertical stack of panels in one dock column, with:
@@ -6928,6 +6994,46 @@ function RunModeBanner() {
         className="h-8 rounded-control bg-accent px-3 text-xs font-bold text-accent-ink hover:bg-accent-hover"
       >
         Stop
+      </button>
+    </div>
+  );
+}
+
+/** Drawing a route (trains design 6.2): what to click next, the way found, and Save (with a name) or Cancel. */
+function RouteDraftBanner({ doc, draft, found, routes }: { doc: import('yjs').Doc; draft: RouteDraft; found: RouteFound | RouteProblem | null; routes: readonly Route[] }) {
+  const unit = useLengthUnit();
+  const [name, setName] = useState(() => `Route ${routes.length + 1}`);
+  const cancel = () => useEditorStore.getState().setRouteDraft(null);
+  const ok = found && typeof found !== 'string';
+  const save = () => {
+    if (!ok || !draft.from || !draft.to) return;
+    saveRoute(doc, newRoute(name.trim() || `Route ${routes.length + 1}`, draft.from, draft.to, draft.via, found, routes));
+    useEditorStore.getState().setRouteDraft(null);
+    useEditorStore.getState().showStatusMessage(`Route “${name.trim()}” saved.`, 3000);
+  };
+  return (
+    <div role="status" data-testid="route-draft-banner" className="pointer-events-auto absolute left-1/2 top-3 z-20 flex max-w-[95%] -translate-x-1/2 flex-wrap items-center gap-2 rounded-2xl border border-line bg-panel px-4 py-2 text-sm shadow-pop">
+      <span>
+        <b>New route:</b>{' '}
+        {!draft.from
+          ? 'click on the track where it starts.'
+          : !draft.to
+            ? 'click where it ends (Shift-click adds a stop on the way).'
+            : ok
+              ? `${formatLength(found.length, unit)} along the track${found.turnsAround.length ? ', and it turns the train around' : ''}. Shift-click adds a stop.`
+              : problemText(found as RouteProblem)}
+      </span>
+      <HelpButton helpKey="routes.new" />
+      {ok && (
+        <form className="flex items-center gap-1" onSubmit={(e) => { e.preventDefault(); save(); }}>
+          <input aria-label="Route name" value={name} onChange={(e) => setName(e.target.value)} className="h-8 w-40 rounded border border-border bg-bg px-2" />
+          <button type="submit" className="h-8 rounded-control bg-accent px-3 text-xs font-bold text-accent-ink hover:bg-accent-hover">
+            Save route
+          </button>
+        </form>
+      )}
+      <button type="button" onClick={cancel} className="h-8 rounded-control border border-border px-3 text-xs font-semibold hover:bg-soft">
+        Cancel
       </button>
     </div>
   );

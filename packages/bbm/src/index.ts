@@ -16,6 +16,8 @@ export {
   writeSidecar,
   readView,
   readSwitchStatesField,
+  readRoutesField,
+  type SidecarRoute,
   venueLengthUnit,
   venueOwnLengthUnit,
   withVenueLengthUnit,

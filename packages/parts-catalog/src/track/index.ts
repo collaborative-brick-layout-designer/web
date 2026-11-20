@@ -5,3 +5,4 @@ export * from './tables.js';
 export * from './partTrack.js';
 export * from './network.js';
 export * from './fromMap.js';
+export * from './routes.js';

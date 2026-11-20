@@ -327,3 +327,14 @@ describe('switch settings', () => {
   });
 });
 
+
+describe('routes', () => {
+  it('keep entries with an id, as they are, and stay out when there are none', () => {
+    const r = { id: 'r1', name: 'Main', from: { brick: 'A', from: 0, to: 1, s: 2 }, steps: [], future: 1 };
+    const back = readSidecar(JSON.stringify({ schemaVersion: 1, bbmHashSha256: '', routes: [r, { name: 'no id' }, 3] }));
+    expect(back.routes).toEqual([r]);
+    expect(back.extras).toBeUndefined();
+    expect(readSidecar(writeSidecar(back)).routes).toEqual([r]);
+    expect(JSON.parse(writeSidecar({ schemaVersion: 1, bbmHashSha256: '', routes: [] }))).not.toHaveProperty('routes');
+  });
+});

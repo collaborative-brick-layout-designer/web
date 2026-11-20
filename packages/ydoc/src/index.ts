@@ -10,7 +10,7 @@
 
 import * as Y from 'yjs';
 import { BBM_FORMAT_VERSION, type BbmMap } from '@cld/model';
-import { readSwitchStatesField, type Sidecar } from '@cld/bbm';
+import { readRoutesField, readSwitchStatesField, type Sidecar, type SidecarRoute } from '@cld/bbm';
 import { bbmToDoc, docToBbm } from './projection.js';
 import { keepDrawnSettingsInRange } from './drawnLimits.js';
 
@@ -174,9 +174,14 @@ export function readBudgetLimitsFromDoc(doc: Y.Doc): Record<string, number> | un
  * budget in the sidecar, the doc's budget is left as it is.
  */
 export function importSidecarIntoDoc(doc: Y.Doc, sidecar: Sidecar): void {
-  const { budgetLimits, switchStates, ...rest } = sidecar;
+  const { budgetLimits, switchStates, routes, ...rest } = sidecar;
   const meta = doc.getMap('meta');
   meta.set('cache', rest as unknown as Record<string, unknown>);
+  if (routes && routes.length > 0) {
+    const y = new Y.Map<Y.Map<unknown>>();
+    for (const r of routes) y.set(r.id, routeMap(r));
+    meta.set(ROUTES_KEY, y);
+  }
   if (switchStates && Object.keys(switchStates).length > 0) {
     const y = new Y.Map<number>();
     for (const [key, exit] of Object.entries(switchStates)) y.set(key, exit);
@@ -193,12 +198,15 @@ function withBudget(doc: Y.Doc, cache: Record<string, unknown> | null): Sidecar 
   const budgetLimits = readBudgetLimitsFromDoc(doc);
   const states = readSwitchStatesFromDoc(doc);
   const switchStates = Object.keys(states).length > 0 ? states : undefined;
+  const allRoutes = readRoutesFromDoc(doc);
+  const routes = allRoutes.length > 0 ? allRoutes : undefined;
+  const live = { ...(budgetLimits ? { budgetLimits } : {}), ...(switchStates ? { switchStates } : {}), ...(routes ? { routes } : {}) };
   if (!cache) {
-    if (!budgetLimits && !switchStates) return null;
-    return { schemaVersion: 1, bbmHashSha256: '', ...(budgetLimits ? { budgetLimits } : {}), ...(switchStates ? { switchStates } : {}) };
+    if (!budgetLimits && !switchStates && !routes) return null;
+    return { schemaVersion: 1, bbmHashSha256: '', ...live };
   }
-  const { budgetLimits: _inCache, switchStates: _statesInCache, ...rest } = cache;
-  return { ...rest, ...(budgetLimits ? { budgetLimits } : {}), ...(switchStates ? { switchStates } : {}) } as unknown as Sidecar;
+  const { budgetLimits: _inCache, switchStates: _statesInCache, routes: _routesInCache, ...rest } = cache;
+  return { ...rest, ...live } as unknown as Sidecar;
 }
 
 // ---------------------------------------------------------------------------
@@ -212,6 +220,78 @@ function withBudget(doc: Y.Doc, cache: Record<string, unknown> | null): Sidecar 
 // ---------------------------------------------------------------------------
 
 export const SWITCH_STATES_KEY = 'switchStates';
+
+// ---------------------------------------------------------------------------
+// Named routes (trains design 2.5) live at `meta.routes`: a Y.Map of route
+// id -> a Y.Map of its fields, so two people's edits to different routes,
+// or to different fields of one (a rename and a new way), merge. Arrays
+// (steps, via) are plain values, replaced whole. An older web build that
+// imported a file kept them in `meta.cache`: read from there until the
+// first write moves them over.
+// ---------------------------------------------------------------------------
+
+export const ROUTES_KEY = 'routes';
+
+function routeMap(r: SidecarRoute): Y.Map<unknown> {
+  const m = new Y.Map<unknown>();
+  for (const [k, v] of Object.entries(r)) if (v !== undefined) m.set(k, v);
+  return m;
+}
+
+/** The doc's named routes, by name then id ([] when none). */
+export function readRoutesFromDoc(doc: Y.Doc): SidecarRoute[] {
+  const meta = doc.getMap('meta');
+  const y = meta.get(ROUTES_KEY);
+  let out: SidecarRoute[];
+  if (y instanceof Y.Map) {
+    out = [];
+    for (const [id, v] of y.entries()) {
+      if (!(v instanceof Y.Map)) continue;
+      const r = v.toJSON() as Record<string, unknown>;
+      out.push({ ...r, id, name: typeof r.name === 'string' ? r.name : '' });
+    }
+  } else {
+    const cache = meta.get('cache') as Record<string, unknown> | undefined;
+    out = readRoutesField(cache?.routes) ?? [];
+  }
+  return out.sort((a, b) => a.name.localeCompare(b.name) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+}
+
+function routesMap(doc: Y.Doc): Y.Map<Y.Map<unknown>> {
+  const meta = doc.getMap('meta');
+  let y = meta.get(ROUTES_KEY);
+  if (!(y instanceof Y.Map)) {
+    const fromCache = readRoutesFromDoc(doc);
+    y = new Y.Map<Y.Map<unknown>>();
+    for (const r of fromCache) (y as Y.Map<Y.Map<unknown>>).set(r.id, routeMap(r));
+    meta.set(ROUTES_KEY, y);
+  }
+  return y as Y.Map<Y.Map<unknown>>;
+}
+
+/**
+ * Add a route, or change one: only the fields that differ are written, so
+ * someone else's change to another field stays. Fields not in `route` are
+ * left as they are. Call inside the caller's transaction.
+ */
+export function writeRoute(doc: Y.Doc, route: SidecarRoute): void {
+  const all = routesMap(doc);
+  const cur = all.get(route.id);
+  if (!(cur instanceof Y.Map)) {
+    all.set(route.id, routeMap(route));
+    return;
+  }
+  for (const [k, v] of Object.entries(route)) {
+    if (v === undefined) continue;
+    if (JSON.stringify(cur.get(k)) !== JSON.stringify(v)) cur.set(k, v);
+  }
+}
+
+/** Delete a route. Call inside the caller's transaction. */
+export function deleteRoute(doc: Y.Doc, id: string): void {
+  const all = routesMap(doc);
+  if (all.has(id)) all.delete(id);
+}
 
 /** The doc's switch settings ({} when none is set). */
 export function readSwitchStatesFromDoc(doc: Y.Doc): Record<string, number> {

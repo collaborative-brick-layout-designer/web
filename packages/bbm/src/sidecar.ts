@@ -274,6 +274,12 @@ export interface Sidecar {
    * set. The live doc keeps it in `meta.switchStates`. Never in a .bbm.
    */
   switchStates?: Record<string, number>;
+  /**
+   * Named routes (trains design 2.5): each `{ id, name, train, from, to,
+   * via, steps, color }` with fields this version doesn't know kept. The
+   * live doc keeps them in `meta.routes`, one Y.Map a route. Never in a .bbm.
+   */
+  routes?: SidecarRoute[];
   /** Unknown top-level fields preserved verbatim across round-trip. */
   extras?: Record<string, unknown>;
 }
@@ -286,6 +292,21 @@ export function readBudgetLimitsField(v: unknown): Record<string, number> | unde
     if (typeof limit === 'number' && Number.isFinite(limit) && limit >= 0) out[part] = Math.floor(limit);
   }
   return out;
+}
+
+/** A named route as the sidecar keeps it (@cld/parts-catalog track/routes.ts `Route` reads it). */
+export interface SidecarRoute {
+  id: string;
+  name: string;
+  [field: string]: unknown;
+}
+
+/** A sidecar's `routes`: the entries with a string id (and name), as they are; undefined when none. */
+export function readRoutesField(v: unknown): SidecarRoute[] | undefined {
+  if (!Array.isArray(v)) return undefined;
+  const out = v.filter((r): r is SidecarRoute => !!r && typeof r === 'object' && typeof (r as SidecarRoute).id === 'string' && (r as SidecarRoute).id !== '')
+    .map((r) => ({ ...r, name: typeof r.name === 'string' ? r.name : '' }));
+  return out.length > 0 ? out : undefined;
 }
 
 /** A sidecar's `switchStates`: "<brick>/<heel>" to a connection index (a whole number, 0 or more); undefined when it has none. */
@@ -334,6 +355,8 @@ export function readSidecar(raw: string): Sidecar {
   if (budget) sidecar.budgetLimits = budget;
   const switches = readSwitchStatesField(parsed.switchStates);
   if (switches) sidecar.switchStates = switches;
+  const routes = readRoutesField(parsed.routes);
+  if (routes) sidecar.routes = routes;
 
   const knownKeys = new Set([
     'schemaVersion',
@@ -346,6 +369,7 @@ export function readSidecar(raw: string): Sidecar {
     'sets',
     'budgetLimits',
     'switchStates',
+    'routes',
   ]);
   const extras: Record<string, unknown> = {};
   for (const key of Object.keys(parsed)) {
@@ -393,6 +417,7 @@ export function writeSidecar(sidecar: Sidecar, opts: WriteSidecarOptions = {}): 
   if (sidecar.sets && sidecar.sets.length > 0) out.sets = sidecar.sets;
   if (sidecar.budgetLimits) out.budgetLimits = sidecar.budgetLimits;
   if (sidecar.switchStates && Object.keys(sidecar.switchStates).length > 0) out.switchStates = sidecar.switchStates;
+  if (sidecar.routes && sidecar.routes.length > 0) out.routes = sidecar.routes;
   if (sidecar.extras) {
     for (const [k, v] of Object.entries(sidecar.extras)) out[k] = v;
   }
