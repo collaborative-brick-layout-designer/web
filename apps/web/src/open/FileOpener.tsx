@@ -19,7 +19,7 @@ import { catalogMapConverter, type OpenedMapState } from '../mapFormats';
 import { HelpButton } from '../help/HelpButton';
 import { DesktopOnlySteps } from './DesktopOnly';
 import { ImportDialog } from '../import/ImportDialog';
-import { importApi } from '../import/importApi';
+import { canImport, importApi } from '../import/importApi';
 import { OPEN_FORMATS_LINE, OPEN_PICKER_ACCEPT, sortFiles, titleFromFileName, type DesktopOnlyFormat } from './openFiles';
 
 let pickerInput: HTMLInputElement | null = null;
@@ -67,7 +67,7 @@ export function FileOpener() {
     if (sorted.kind === 'desktop') {
       // Imported here when this site can; else the desktop app's steps, and why.
       const status = await qc.fetchQuery({ queryKey: ['imports-status'], queryFn: importApi.status, staleTime: 30_000 }).catch(() => null);
-      if (status?.available) return setImporting(sorted.file);
+      if (canImport(status, sorted.file.name)) return setImporting(sorted.file);
       return setMessage({ kind: 'desktop', name: sorted.file.name, format: sorted.format, reason: status?.message ?? null });
     }
     if (sorted.kind === 'unknown') return setMessage({ kind: 'unknown', name: sorted.file.name });

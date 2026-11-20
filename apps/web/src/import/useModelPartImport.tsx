@@ -9,7 +9,7 @@ import { useQuery } from '@tanstack/react-query';
 import { api } from '../api';
 import type { OwnerFilter } from '../owners/owners';
 import { ImportDialog } from './ImportDialog';
-import { IMPORT_ACCEPT, importApi } from './importApi';
+import { canImport, IMPORT_ACCEPT, importApi } from './importApi';
 
 /** `pick` opens the file picker (call it from a click); absent when this site can't import. */
 export function useModelPartImport(opts: { enabled: boolean; filter?: OwnerFilter | undefined }): { pick: (() => void) | undefined; element: ReactNode } {
@@ -17,7 +17,7 @@ export function useModelPartImport(opts: { enabled: boolean; filter?: OwnerFilte
   const me = useQuery({ queryKey: ['me'], queryFn: api.me, enabled: opts.enabled });
   const input = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
-  const pick = opts.enabled && status.data?.available ? () => input.current?.click() : undefined;
+  const pick = opts.enabled && canImport(status.data) ? () => input.current?.click() : undefined;
   const element = opts.enabled ? (
     <>
       <input

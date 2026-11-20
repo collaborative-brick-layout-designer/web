@@ -1,6 +1,12 @@
-// E2E: importing LDraw, Studio and LDD models on the website. The server
-// runs the desktop's converter (here the e2e stand-in, e2e/fakeImportServer.mjs;
-// the real one is checked against the desktop app in the desktop repo).
+// E2E: importing LDraw, Studio and LDD models on the website. The browser
+// reads LDraw models itself (from the e2e stack's tiny library,
+// src/import/client/test-node/fixtures/minilib); the server runs the
+// desktop's converter for the rest and as the backup (here the e2e
+// stand-in, e2e/fakeImportServer.mjs; the real one is checked against the
+// desktop app in the desktop repo).
+//   - in the browser: no server job, its part saved, the library files
+//     cached for the next import; Cancel mid-way; the server taking over
+//     when the browser can't;
 //   - a model dropped on Home: preview with the desktop's choices, a custom
 //     part and a new layout with it, what was missing and where to fix it;
 //   - the editor's Map › File › Import a model…: an LDraw layout's parts
@@ -43,8 +49,17 @@ async function importSwitch(page: Page, on: boolean) {
   expect(res.ok(), await res.text()).toBe(true);
 }
 
+/** A browser without workers (a very old one): models go to the server's converter. */
+async function serverOnly(page: Page) {
+  await page.addInitScript(() => {
+    Reflect.deleteProperty(window, 'Worker');
+  });
+}
+
 test.describe('Import a model', () => {
   test.beforeEach(async ({ page }) => {
+    // These check the server's converter (the stand-in): this browser can't read models itself.
+    await serverOnly(page);
     await signIn(page, EMAIL, 'Import Tester');
   });
 
@@ -304,6 +319,104 @@ test.describe('Import a model', () => {
     await perHour.fill('30');
     await save.click();
     await expect(save).toBeDisabled();
+    net.expectQuiet();
+  });
+});
+
+// The browser's own importer (docs/model-import.md, "In the browser").
+const MINI = Buffer.from('0 Mini model\n0 Author: Test Builder\n1 4 0 0 0 1 0 0 0 1 0 0 0 1 box2.dat\n1 1 40 0 0 1 0 0 0 1 0 0 0 1 oldbox.dat\n');
+
+/** The server's import jobs the page asks for (none, when the browser reads the model). */
+function serverJobs(page: Page): string[] {
+  const seen: string[] = [];
+  page.on('request', (r) => {
+    const path = new URL(r.url()).pathname;
+    if (path === '/api/imports' || (path.startsWith('/api/imports/') && path !== '/api/imports/status' && path !== '/api/imports/client')) seen.push(`${r.method()} ${path}`);
+  });
+  return seen;
+}
+
+/** The library batches the page asks for. */
+function libraryBatches(page: Page): { count: number } {
+  const n = { count: 0 };
+  page.on('request', (r) => {
+    if (/\/api\/import-library\/ldraw\/[0-9a-f]{16}\/files$/.test(new URL(r.url()).pathname)) n.count++;
+  });
+  return n;
+}
+
+test.describe('Import a model in the browser', () => {
+  test.beforeEach(async ({ page }) => {
+    await signIn(page, EMAIL, 'Import Tester');
+  });
+
+  test('an LDraw model is read and drawn here, with no server job; its part is saved, and its parts come from the cache next time', async ({ page }) => {
+    const net = watch4xx(page);
+    const jobs = serverJobs(page);
+    const batches = libraryBatches(page);
+    await page.goto('/');
+    await dropFile(page, 'Mini.ldr', MINI);
+    const dialog = page.getByRole('dialog', { name: 'Import a model' });
+    await expect(dialog.getByTestId('import-preview')).toBeVisible({ timeout: 30000 });
+    await expect(dialog).toContainText('Preview: LDraw import');
+    await expect(dialog.getByTestId('import-size')).toHaveText('4 × 2 studs, 0 connection points');
+    await expect(dialog.getByLabel('Designed by')).toHaveValue('Test Builder');
+    expect(batches.count).toBeGreaterThan(0);
+    await dialog.getByLabel('Save as').fill('Browser Mini');
+    await dialog.getByRole('button', { name: 'Save as Custom Part' }).click();
+    await expect(dialog.getByTestId('import-summary')).toContainText('Made the custom part “Browser Mini” (4 × 2 studs, 0 connection points) and put it in a new layout.', { timeout: 30000 });
+    expect(jobs).toEqual([]);
+    const parts = (await (await page.request.get('/api/custom-parts')).json()) as { parts: { partNumber: string }[] };
+    expect(parts.parts.map((p) => p.partNumber)).toContain('Browser_Mini');
+    await dialog.getByTestId('import-open-layout').click();
+    await expect(page).toHaveURL(/\/editor\/[^/]+$/);
+
+    // Again: every part file comes from the browser's own copy.
+    const before = batches.count;
+    await page.goto('/');
+    await dropFile(page, 'Mini again.ldr', MINI);
+    await expect(dialog.getByTestId('import-preview')).toBeVisible({ timeout: 30000 });
+    expect(batches.count).toBe(before);
+    await dialog.getByTestId('import-cancel').click();
+    await expect(dialog).toHaveCount(0);
+    net.expectQuiet();
+  });
+
+  test('Cancel stops it mid-way, in the browser: nothing is made and nothing went to the server', async ({ page }) => {
+    const net = watch4xx(page);
+    const jobs = serverJobs(page);
+    // Slow parts, to cancel while they're on their way.
+    await page.route('**/api/import-library/ldraw/*/files', async (route) => {
+      await new Promise((r) => setTimeout(r, 2000));
+      await route.continue().catch(() => undefined);
+    });
+    const parts = async () => ((await (await page.request.get('/api/custom-parts')).json()) as { parts: unknown[] }).parts.length;
+    await page.goto('/');
+    const had = await parts();
+    await dropFile(page, 'Slow.ldr', Buffer.from('0 Slow\n1 4 0 0 0 1 0 0 0 1 0 0 0 1 nothere-yet.dat\n'));
+    const dialog = page.getByRole('dialog', { name: 'Import a model' });
+    await expect(dialog.getByTestId('import-reading-here')).toContainText(/Fetching|Reading/);
+    await dialog.getByTestId('import-cancel').click();
+    await expect(dialog).toHaveCount(0);
+    expect(jobs).toEqual([]);
+    expect(await parts()).toBe(had);
+    net.expectQuiet();
+  });
+
+  test('when the browser can’t, the server reads it instead, and says so', async ({ page }) => {
+    const net = watch4xx(page);
+    const jobs = serverJobs(page);
+    // The importer's worker won't load here (as in a browser that can't run it).
+    await page.route(/worker[^/]*\.(ts|js)(\?|$)/, (route) => route.abort());
+    await page.goto('/');
+    await dropFile(page, 'Fallback.ldr', MINI);
+    const dialog = page.getByRole('dialog', { name: 'Import a model' });
+    await expect(dialog.getByTestId('import-fell-back')).toContainText('Your browser couldn’t read this one, so the server is reading it instead.', { timeout: 30000 });
+    // The server's stand-in converter's preview.
+    await expect(dialog.getByTestId('import-size')).toHaveText('8 × 2 studs, 2 connection points', { timeout: 30000 });
+    expect(jobs.some((j) => j === 'POST /api/imports')).toBe(true);
+    await dialog.getByTestId('import-cancel').click();
+    await expect(dialog).toHaveCount(0);
     net.expectQuiet();
   });
 });

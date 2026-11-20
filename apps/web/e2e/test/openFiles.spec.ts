@@ -135,8 +135,10 @@ test.describe('Open a file', () => {
     const dialog = page.getByRole('dialog', { name: 'Import a model' });
     for (const [name, how] of [['ninjago.io', 'drop'], ['house.lxf', 'pick'], ['train.ldr', 'drop']] as const) {
       net.stage(name);
-      if (how === 'drop') await dropFile(page, name, Buffer.from('PK\x03\x04'));
-      else await pickFromHome(page, name, Buffer.from('PK\x03\x04'));
+      // An LDraw file is read in the browser (the e2e library is fixtures/minilib); the others by the server.
+      const bytes = name.endsWith('.ldr') ? Buffer.from('0 Train\n1 4 0 0 0 1 0 0 0 1 0 0 0 1 box2.dat\n') : Buffer.from('PK\x03\x04');
+      if (how === 'drop') await dropFile(page, name, bytes);
+      else await pickFromHome(page, name, bytes);
       await expect(dialog.getByTestId('import-preview')).toBeVisible({ timeout: 30000 });
       await dialog.getByTestId('import-cancel').click();
       await expect(dialog).toHaveCount(0);

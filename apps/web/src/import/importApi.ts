@@ -10,6 +10,8 @@ export interface ImportStatus {
   maxUploadBytes: number;
   perHour: number;
   libraries: { ldraw: boolean; ldd: boolean; lddMapping: boolean; studio: boolean };
+  /** The browser's own importer: the files it reads here, and the libraries' versions. */
+  browser?: { available: boolean; extensions: string[]; ldraw: string | null; studio: string | null };
 }
 
 export interface ImportConnection {
@@ -112,6 +114,38 @@ export interface ConvertChoices {
   target: ImportTarget;
 }
 
+/** POST /api/imports/client: a part (XML and PNG, base64) or a layout (.bbm text). */
+export type ClientBody =
+  | {
+      mode: 'part';
+      partKey: string;
+      displayName: string;
+      xmlBase64: string;
+      spriteBase64: string;
+      widthStuds: number;
+      heightStuds: number;
+      connections: number;
+      category: string;
+      stats: ImportStats;
+      warnings: string[];
+      target: ImportTarget;
+    }
+  | { mode: 'parts'; bbm: string; title: string; sheets: number; stats: ImportStats | null; warnings: string[]; target: ImportTarget };
+
+/**
+ * Whether this site imports models (the server's converter, or the browser's
+ * own importer for the files it reads), or this file when one is named.
+ */
+export function canImport(s: ImportStatus | null | undefined, fileName?: string): boolean {
+  if (!s) return false;
+  if (s.available) return true;
+  const b = s.browser;
+  if (!b?.available) return false;
+  if (fileName === undefined) return true;
+  const ext = /\.([A-Za-z]+)$/.exec(fileName)?.[1]?.toLowerCase() ?? '';
+  return b.extensions.includes(ext);
+}
+
 /** The files the website imports (the server says which). */
 export const IMPORT_ACCEPT = '.ldr,.mpd,.dat,.io,.lxf,.lxfml';
 export const IMPORTABLE = /\.(ldr|mpd|dat|io|lxf|lxfml)$/i;
@@ -120,6 +154,8 @@ export const importApi = {
   status: () => apiGet<ImportStatus>('/api/imports/status'),
   job: (id: string) => apiGet<ImportJob>(`/api/imports/${encodeURIComponent(id)}`),
   convert: (id: string, choices: ConvertChoices) => apiSend<ImportJob>('POST', `/api/imports/${encodeURIComponent(id)}/convert`, choices),
+  /** What the browser's own importer made, saved as a job's result is. */
+  client: (body: ClientBody) => apiSend<ImportResult>('POST', '/api/imports/client', body),
   cancel: async (id: string) => {
     await fetch(`/api/imports/${encodeURIComponent(id)}`, { method: 'DELETE', credentials: 'include' }).catch(() => undefined);
   },

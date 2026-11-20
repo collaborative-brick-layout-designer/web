@@ -16,6 +16,9 @@ const proxy = {
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  // The model importer's worker (src/import/client/worker.ts) imports the
+  // shared packages: an ES module worker, so the build can split it.
+  worker: { format: 'es' },
   server: {
     port: Number(process.env.VITE_PORT ?? 5173),
     proxy,

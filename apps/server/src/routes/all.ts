@@ -51,6 +51,7 @@ import { privacyAdminRoutes } from './privacyAdmin.js';
 import { clubDeletionRoutes } from './clubDeletion.js';
 import { clubLogoRoutes } from './clubLogos.js';
 import { importRoutes } from './imports.js';
+import { importLibraryRoutes } from './importLibraries.js';
 
 export async function registerApiRoutes(app: FastifyInstance): Promise<void> {
   // A JSON body of `null`, a string or a number reads as an empty one:
@@ -80,6 +81,7 @@ export async function registerApiRoutes(app: FastifyInstance): Promise<void> {
   await app.register(transferRoutes);
   await app.register(customPartRoutes);
   await app.register(importRoutes);
+  await app.register(importLibraryRoutes);
   await app.register(moduleRoutes);
   await app.register(moduleShareRoutes);
   await app.register(layoutSharedModuleRoutes);

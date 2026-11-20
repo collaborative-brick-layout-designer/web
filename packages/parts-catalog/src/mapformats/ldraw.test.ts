@@ -152,7 +152,7 @@ describe.skipIf(!existsSync(PARTS))('LDraw maps match vanilla BlueBrick', () => 
     ].join('\n');
     expect(lib.meta('3034.15')?.spritePath).toBe('');
     const r = readLDrawMap(text, lib, { mpd: false });
-    expect(r.warnings).toEqual(['1 part(s) are not in the parts library']);
+    expect(r.warnings).toEqual(["1 part(s) aren't in your parts library, so they were left out."]);
     const l = r.map.layers[0]!;
     if (l.type !== 'brick') throw new Error('brick layer');
     expect(l.name).toBe('Layer 1');

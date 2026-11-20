@@ -8,13 +8,13 @@ import type { HelpEntry } from './helpTexts';
 export const WEB_ONLY_HELP_TEXTS = {
   'admin.imports': {
     title: 'Model import',
-    short: 'Lets people import LDraw, BrickLink Studio and LDD files, read on this server by the desktop app’s own importer.',
-    more: 'The importer runs locked down: no network, its own folder, limits on time and memory, and the file is deleted once it’s read. Turn it off here, or with IMPORTS_ENABLED on the server. If the importer is missing or too old, this page says so.',
+    short: 'Lets people import LDraw, Studio and LDD files: LDraw is read in their browser, the rest here by the desktop app’s own importer.',
+    more: 'People’s browsers read LDraw models themselves with this site’s LDraw library. The server’s importer reads the rest, locked down: no network, its own folder, limits on time and memory, and the file is deleted once it’s read. Turn importing off here, or with IMPORTS_ENABLED on the server.',
   },
   'admin.importLibraries': {
     title: 'Import libraries',
     short: 'The parts libraries the importer draws models with; without them, parts are left out of the picture and counted.',
-    more: 'The LDraw library draws LDraw and Studio models; LDD’s brick database draws LDD models; the mapping links LDD bricks to LDraw parts; Studio’s library adds Studio-only parts. They are kept beside the database, never served to anyone and never in a backup or a data download.',
+    more: 'The LDraw library draws LDraw and Studio models; LDD’s brick database draws LDD models; the mapping links LDD bricks to LDraw parts; Studio’s library adds Studio-only parts. They are kept beside the database and never in a backup or a data download. A signed-in person’s browser fetches the LDraw files a model uses, one at a time, to read it there; a library is never served whole or listed, and LDD’s database is never served.',
   },
   'admin.importLimits': {
     title: 'Import limits',
@@ -25,6 +25,12 @@ export const WEB_ONLY_HELP_TEXTS = {
     title: 'A custom part from a model',
     short: 'Turn an LDraw, BrickLink Studio or LDD model into one custom part, read by the desktop app’s own importer.',
     more: 'Pick the model file, line it up with the studs in the preview, and save it to your parts or a club’s. It shows up in Custom parts and the Parts panel at once. In the editor you can also place it in the middle of your view.',
+    learnMoreUrl: '/help#importing',
+  },
+  'import.inBrowser': {
+    title: 'Read in your browser',
+    short: 'Your browser reads LDraw models itself, as the desktop app does, fetching only the parts they use from this site.',
+    more: 'Big models take a moment while the parts arrive; parts already fetched once come from your browser’s own copy. If your browser can’t read a model, the site reads it instead and says so. Studio and LDD files are read by the site.',
     learnMoreUrl: '/help#importing',
   },
   'import.zoom': {

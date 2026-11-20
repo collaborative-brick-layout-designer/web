@@ -1,0 +1,11 @@
+0 FILE main.ldr
+0 Mini model
+0 Author: Test Builder
+1 4 0 0 0 1 0 0 0 1 0 0 0 1 box2.dat
+1 16 40 0 0 1 0 0 0 1 0 0 0 1 sub.ldr
+1 47 0 -8 0 1 0 0 0 1 0 0 0 1 glass2.dat
+1 4 0 0 0 1 0 0 0 1 0 0 0 1 nothere.dat
+0 NOFILE
+0 FILE sub.ldr
+1 1 0 0 0 1 0 0 0 1 0 0 0 1 oldbox.dat
+0 NOFILE

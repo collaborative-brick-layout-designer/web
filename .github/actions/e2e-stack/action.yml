@@ -97,6 +97,11 @@ runs:
           chmod +x "$fake"
           export IMPORT_CONVERTER="$fake"
         fi
+        # The browser's importer: a tiny LDraw-style library written for the
+        # tests (apps/web/src/import/client/test-node/fixtures/minilib).
+        if [ -z "${IMPORT_LDRAW_DIR:-}" ]; then
+          export IMPORT_LDRAW_DIR="$GITHUB_WORKSPACE/apps/web/src/import/client/test-node/fixtures/minilib"
+        fi
         npx tsx src/db/migrate.ts
         nohup npx tsx src/index.ts > "$GITHUB_WORKSPACE/.e2e/server.log" 2>&1 &
         for i in $(seq 60); do

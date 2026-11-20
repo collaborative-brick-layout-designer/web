@@ -1,0 +1,12 @@
+0 FILE main.ldr
+0 Nested model
+0 Author: Nest Builder
+1 16 0 0 0 1 0 0 0 1 0 0 0 1 sub.ldr
+1 4 100 0 40 0 0 1 0 1 0 -1 0 0 sub.ldr
+1 15 0 -24 100 1 0 0 0 1 0 0 0 1 3022.dat
+0 NOFILE
+0 FILE sub.ldr
+0 Sub
+1 16 0 0 0 1 0 0 0 1 0 0 0 1 3001.dat
+1 2 0 -24 0 1 0 0 0 1 0 0 0 1 3003.dat
+0 NOFILE
