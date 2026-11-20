@@ -1,8 +1,8 @@
 // Journey: read-only holds while usage limits are off.
 //
 //   Settings: the admin turns "Enforce usage limits" off and is told
-//   read-only still holds → Heavy use: makes a member read-only (the ⓘ
-//   explains it) → the member can't start a layout, and is told why in
+//   read-only still holds → Users: makes a member read-only (the ⓘ
+//   explains it; the same panel Heavy use opens) → the member can't start a layout, and is told why in
 //   plain words, but still sees their layouts → lifted, they can again.
 
 import { test, expect } from '@playwright/test';
@@ -33,9 +33,12 @@ test('read-only holds while usage limits are off, and lifts again', async ({ pag
     await expect(enforce).not.toBeChecked();
     await expect(page.getByTestId('limits-off')).toHaveText(/Read-only accounts and clubs stay read-only\./);
 
-    // ── Heavy use: open the member, read the ⓘ, make them read-only. ──
-    await adminSection(page, 'heavy');
-    await page.getByRole('region', { name: /Top people/ }).getByRole('button', { name: `RO Member ${ts}` }).first().click();
+    // ── Users: open the member, read the ⓘ, make them read-only. (Found
+    // by search: Heavy use lists the top 50 by space, and on a server the
+    // whole suite has filled, one small layout isn't among them.) ──
+    await adminSection(page, 'users');
+    await page.getByPlaceholder('Search by email or name…').fill(MEMBER);
+    await page.getByRole('row').filter({ hasText: MEMBER }).getByRole('button', { name: MEMBER }).click();
     await expect(page.getByText('It holds even while usage limits are off.')).toBeVisible();
     await page.getByRole('button', { name: /Read-only accounts and clubs/ }).click();
     await expect(page.getByText(/Read-only always holds, even while “Enforce usage limits” is off/)).toBeVisible();
