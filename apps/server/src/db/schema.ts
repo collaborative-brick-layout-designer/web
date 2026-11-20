@@ -684,7 +684,7 @@ export const auditEvents = sqliteTable(
    * (resource_kind + resource_id) must be set; never both, never
    * neither. Enforced in the writer, not in the schema.
    */
-  resourceKind: text('resource_kind', { enum: ['layout', 'custom_part', 'module', 'venue', 'org', 'user', 'part_library', 'platform_settings', 'catalog_item', 'catalog_collection'] }),
+  resourceKind: text('resource_kind', { enum: ['layout', 'custom_part', 'module', 'venue', 'rolling_stock', 'org', 'user', 'part_library', 'platform_settings', 'catalog_item', 'catalog_collection'] }),
   resourceId: text('resource_id'),
   userId: text('user_id').references(() => users.id, { onDelete: 'set null' }),
   eventType: text('event_type').notNull(),
@@ -1177,6 +1177,34 @@ export const venueLibrary = sqliteTable('venue_library', {
   ownerOrgIdx: index('venue_library_owner_org_id_idx').on(t.ownerOrgId),
 }));
 export type VenueLibraryEntry = typeof venueLibrary.$inferSelect;
+
+/**
+ * Rolling stock rosters (trains design 2.6): engines and cars kept on an
+ * account or a club, "kinda like modules" (Aaron, 2026-11-19). A layout
+ * holds copies, linked back by libraryId and libraryVersion.
+ */
+export const rollingStock = sqliteTable('rolling_stock', {
+  id: text('id').primaryKey(),
+  ownerUserId: text('owner_user_id').references(() => users.id, { onDelete: 'cascade' }),
+  ownerOrgId: text('owner_org_id').references(() => orgs.id, { onDelete: 'cascade' }),
+  /** The record's road number and name, for lists and search. */
+  number: text('number').notNull().default(''),
+  name: text('name').notNull().default(''),
+  /** The record as JSON (trains design 2.3). */
+  data: text('data').notNull(),
+  /** An imported model's custom part (a later phase), when it has one. */
+  modelPartId: text('model_part_id'),
+  /** Bumped by every save, so layouts know their copy is older. */
+  version: integer('version').notNull().default(1),
+  createdBy: text('created_by').references(() => users.id, { onDelete: 'set null' }),
+  copiedFromId: text('copied_from_id'),
+  createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
+}, (t) => ({
+  ownerUserIdx: index('rolling_stock_owner_user_id_idx').on(t.ownerUserId),
+  ownerOrgIdx: index('rolling_stock_owner_org_id_idx').on(t.ownerOrgId),
+}));
+export type RollingStockEntry = typeof rollingStock.$inferSelect;
 
 /**
  * Recently deleted (0045): a layout, module or venue its owner deleted,

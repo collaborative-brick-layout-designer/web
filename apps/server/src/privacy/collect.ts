@@ -218,6 +218,11 @@ export async function collectUserData(userId: string): Promise<DataSection[]> {
     'Venues (rooms) you saved, and club venues you made. Your own are also in the venues folder.',
     await select(s.venueLibrary, or(eq(s.venueLibrary.ownerUserId, userId), eq(s.venueLibrary.createdBy, userId))),
   );
+  add(
+    'rolling-stock',
+    'Engines and cars on your roster, and the ones you added to a club roster.',
+    await select(s.rollingStock, or(eq(s.rollingStock.ownerUserId, userId), eq(s.rollingStock.createdBy, userId))),
+  );
 
   add(
     'recently-deleted',
@@ -346,6 +351,7 @@ export const READ_TABLES = [
   'custom_part_invites',
   'custom_part_set_shares',
   'venue_library',
+  'rolling_stock',
   'trash_items',
   'catalog_items',
   'catalog_item_versions',
@@ -414,6 +420,7 @@ export async function collectOrgData(orgId: string): Promise<DataSection[]> {
   );
   add('custom-parts', 'The club’s custom parts (in the parts folder).', await select(s.customParts, eq(s.customParts.ownerOrgId, orgId)));
   add('venues', 'The club’s venues (in the venues folder).', await select(s.venueLibrary, eq(s.venueLibrary.ownerOrgId, orgId)));
+  add('rolling-stock', 'The engines and cars on the club’s roster.', await select(s.rollingStock, eq(s.rollingStock.ownerOrgId, orgId)));
   add('catalog-items', 'What the club shared in the public catalog.', await select(s.catalogItems, eq(s.catalogItems.ownerOrgId, orgId)));
   add('collections', 'The club’s collections.', await select(s.catalogCollections, eq(s.catalogCollections.orgId, orgId)));
   add('part-libraries', 'Which part libraries the club switched on or off.', await select(s.orgPartLibraries, eq(s.orgPartLibraries.orgId, orgId)));

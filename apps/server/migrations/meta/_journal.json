@@ -421,6 +421,13 @@
       "when": 1795157690865,
       "tag": "0059_module_setup",
       "breakpoints": true
+    },
+    {
+      "idx": 60,
+      "version": "6",
+      "when": 1795185800528,
+      "tag": "0060_rolling_stock",
+      "breakpoints": true
     }
   ]
 }

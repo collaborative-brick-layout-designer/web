@@ -273,6 +273,11 @@ export interface EditorState {
    * when not drawing.
    */
   routeDraft: RouteDraft | null;
+  /**
+   * Putting a train on the track (trains design 6.4): the train's id; the
+   * next click on the track puts its head there. Null when not placing.
+   */
+  trainPlacing: string | null;
   /** Stamp export watermark on canvas export (`export/watermark`). */
   showExportWatermark: boolean;
   /** Module label font size percent (`view/moduleLabelPercent`). */
@@ -370,6 +375,7 @@ export interface EditorState {
   setShowSwitches: (v: boolean) => void;
   setRunMode: (v: boolean) => void;
   setRouteDraft: (d: RouteDraft | null) => void;
+  setTrainPlacing: (id: string | null) => void;
   setShowExportWatermark: (v: boolean) => void;
   setModuleLabelPercent: (v: number) => void;
   setVenueLabelPx: (v: number) => void;
@@ -492,6 +498,7 @@ export const useEditorStore = create<EditorState>((set) => ({
   showSwitches: localStorage.getItem('cld:showSwitches') === 'true',
   runMode: false,
   routeDraft: null,
+  trainPlacing: null,
   showExportWatermark: localStorage.getItem('cld:showExportWatermark') === 'true',
   // Desktop `view/moduleLabelPercent`: % of the module's long axis,
   // 5..100, default 35. New storage key — the old one held a different,
@@ -602,8 +609,9 @@ export const useEditorStore = create<EditorState>((set) => ({
     set({ showSwitches: v });
   },
   // Run mode starts with nothing picked, so no edit key acts on parts.
-  setRunMode: (v) => set(v ? { runMode: true, routeDraft: null, selection: [], tool: 'select' } : { runMode: false }),
-  setRouteDraft: (d) => set(d ? { routeDraft: d, runMode: false, selection: [], tool: 'select' } : { routeDraft: null }),
+  setRunMode: (v) => set(v ? { runMode: true, routeDraft: null, trainPlacing: null, selection: [], tool: 'select' } : { runMode: false }),
+  setRouteDraft: (d) => set(d ? { routeDraft: d, runMode: false, trainPlacing: null, selection: [], tool: 'select' } : { routeDraft: null }),
+  setTrainPlacing: (id) => set(id ? { trainPlacing: id, routeDraft: null, runMode: false, selection: [], tool: 'select' } : { trainPlacing: null }),
   setShowExportWatermark: (v) => {
     localStorage.setItem('cld:showExportWatermark', String(v));
     set({ showExportWatermark: v });

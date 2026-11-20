@@ -56,13 +56,16 @@ import { ElectricCircuitLayer } from './render/ElectricCircuitLayer';
 import { SwitchLayer } from './render/SwitchLayer';
 import { RouteLayer } from './render/RouteLayer';
 import { RoutesPanel } from './RoutesPanel';
+import { TrainsPanel } from './TrainsPanel';
+import { TrainLayer } from './render/TrainLayer';
+import { saveTrain, usePlacedTrains, useStock, useTrains } from './trains';
 import { formatLength } from '../venues/designer/units';
 import { useLengthUnit } from '../theme/PrefsProvider';
 import { newRoute, problemText, saveRoute, useHiddenRoutes, useRouteStatuses, useRoutes } from './routes';
 import type { RouteDraft } from './editorStore';
 import type { Route, RouteFound, RouteProblem, TrackPosition } from '@cld/parts-catalog/browser';
 import { legLabel, switchAt, switchMenuItems, useSwitchStates, useTrackNetwork, type SwitchMenuItem } from './trackSwitches';
-import { findRoute, nearestPosition, nextExit } from '@cld/parts-catalog/browser';
+import { findRoute, nearestPosition, nextExit, placeTrain } from '@cld/parts-catalog/browser';
 import { BEND_HANDLE_NAME, BendHandles } from './render/BendHandles';
 import { ModuleOverlay, measureBold, moduleLabelBoundsStuds } from './render/ModuleOverlay';
 import { VenueOverlay } from './render/VenueOverlay';
@@ -655,6 +658,11 @@ function Editor({ layoutId, docState, moduleMode }: { layoutId: string; docState
   const editorRoutes = useRoutes(doc, docMap);
   const editorRouteStatuses = useRouteStatuses(editorTrackNet, editorRoutes, editorSwitchStates);
   const routesHidden = useHiddenRoutes(layoutId);
+  // Rolling stock and trains for the Trains panel (the canvas places the same on the map).
+  const editorStock = useStock(doc, docMap);
+  const editorTrains = useTrains(doc, docMap);
+  const editorStockById = useMemo(() => new Map(editorStock.map((s) => [s.id, s])), [editorStock]);
+  const editorPlaced = usePlacedTrains(editorTrackNet, editorTrains, editorStockById, editorSwitchStates);
   // Budget limits live in the doc's meta (shared with collaborators,
   // undoable). A meta change yields a new docMap, so re-read on that.
   const budgetRead = useMemo(
@@ -843,6 +851,20 @@ function Editor({ layoutId, docState, moduleMode }: { layoutId: string; docState
     if (panelId === 'routes')
       return (
         <RoutesPanel doc={doc} net={editorTrackNet} routes={editorRoutes} statuses={editorRouteStatuses} hidden={routesHidden.hidden} setShown={routesHidden.setShown} isViewer={isViewer} />
+      );
+    if (panelId === 'trains')
+      return (
+        <TrainsPanel
+          doc={doc}
+          net={editorTrackNet}
+          stock={editorStock}
+          trains={editorTrains}
+          placed={editorPlaced}
+          switchStates={editorSwitchStates}
+          parts={catalog.data?.parts ?? []}
+          isViewer={isViewer}
+          canUseRoster={!!me.data?.user && !me.data.user.isDemoAccount}
+        />
       );
     if (panelId === 'modules') return <Suspense fallback={null}><ModulesPanel doc={doc} isViewer={isViewer} layoutId={moduleMode ? null : layoutId} /></Suspense>;
     if (panelId === 'modlibrary')
@@ -2886,6 +2908,46 @@ function Canvas({
   const routeStatuses = useRouteStatuses(trackNet, routes, switchStates);
   const { hidden: hiddenRoutes } = useHiddenRoutes(layoutKey);
   const routeDraft = useEditorStore((s) => s.routeDraft);
+  // Rolling stock and trains (trains design 6.4): each train on the track, its cars on chords between their trucks.
+  const stock = useStock(doc, map);
+  const trains = useTrains(doc, map);
+  const stockById = useMemo(() => new Map(stock.map((s) => [s.id, s])), [stock]);
+  const placedTrains = usePlacedTrains(trackNet, trains, stockById, switchStates);
+  const trainPlacing = useEditorStore((s) => s.trainPlacing);
+  const placingTrain = trainPlacing ? trains.find((t) => t.id === trainPlacing) ?? null : null;
+  useEffect(() => {
+    if (!trainPlacing) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') useEditorStore.getState().setTrainPlacing(null);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [trainPlacing]);
+  // The train went away (deleted by someone else, or undone) while being placed.
+  useEffect(() => {
+    if (trainPlacing && !trains.some((t) => t.id === trainPlacing)) useEditorStore.getState().setTrainPlacing(null);
+  }, [trainPlacing, trains]);
+  /** Putting a train on the track: its front goes where the click is, the rest of it the way more track lies. */
+  const onPlaceTrainClick = (e: KonvaEventObject<MouseEvent | TouchEvent>) => {
+    if ('button' in e.evt && e.evt.button !== 0) return;
+    const at = pointerStuds();
+    const t = placingTrain;
+    if (!at || !trackNet || !t) return;
+    const pos = nearestPosition(trackNet, at, Math.max(3, 24 / (8 * zoom)));
+    const { showStatusMessage, setTrainPlacing } = useEditorStore.getState();
+    if (!pos) {
+      showStatusMessage('Click on the track.', 3000);
+      return;
+    }
+    const tries = (['to', 'from'] as const).map((facing) => {
+      const position = { ...pos, facing };
+      return { position, placed: placeTrain(trackNet, { ...t, position }, stockById, switchStates) };
+    });
+    const best = tries.find((x) => x.placed && !x.placed.offTrack) ?? tries.find((x) => x.placed) ?? tries[0]!;
+    saveTrain(doc, { ...t, position: best.position });
+    setTrainPlacing(null);
+    showStatusMessage(best.placed && !best.placed.offTrack ? `${t.name} is on the track.` : `${t.name} runs off the end of the track here.`, 3000);
+  };
   useEffect(() => {
     if (!routeDraft) return;
     const onKey = (e: KeyboardEvent) => {
@@ -4810,7 +4872,7 @@ function Canvas({
           skipContextMenuRef.current = false;
           return;
         }
-        if (isViewer || runMode || routeDraft) return;
+        if (isViewer || runMode || routeDraft || trainPlacing) return;
         if (tool === 'venueOutline' || tool === 'venueObstacle') {
           finishVenueDraft();
           return;
@@ -5056,8 +5118,8 @@ function Canvas({
       {/* Switches (trains design 6.3): their arrows in Run mode or with View › Switches,
           and in Run mode a cover that takes every click, so a click flips a
           switch and never picks or moves a part. */}
-      {trackNet && (showSwitches || runMode || routeDraft || routes.length > 0) && (
-        <KonvaLayer name="switch-layer" listening={runMode || !!routeDraft} perfectDrawEnabled={false}>
+      {trackNet && (showSwitches || runMode || routeDraft || routes.length > 0 || trainPlacing || placedTrains.size > 0) && (
+        <KonvaLayer name="switch-layer" listening={runMode || !!routeDraft || !!trainPlacing} perfectDrawEnabled={false}>
           <RouteLayer
             net={trackNet}
             routes={routes}
@@ -5066,9 +5128,13 @@ function Canvas({
             zoom={zoom}
             draft={routeDraft ? { ends: [routeDraft.from, ...routeDraft.via, routeDraft.to].filter((p): p is TrackPosition => !!p), route: draftFound && typeof draftFound !== 'string' && routeDraft.from && routeDraft.to ? { steps: draftFound.steps, from: routeDraft.from, to: routeDraft.to } : null } : null}
           />
+          <TrainLayer trains={trains} placed={placedTrains} stock={stockById} partsByKey={partsByKey} zoom={zoom} picked={trainPlacing} />
           {(showSwitches || runMode) && <SwitchLayer net={trackNet} states={switchStates} zoom={zoom} />}
           {runMode && (
             <Rect name="run-mode-cover" x={-1e7} y={-1e7} width={2e7} height={2e7} fill="rgba(0,0,0,0)" onClick={onRunClick} onTap={onRunClick} />
+          )}
+          {trainPlacing && (
+            <Rect name="train-place-cover" x={-1e7} y={-1e7} width={2e7} height={2e7} fill="rgba(0,0,0,0)" onClick={onPlaceTrainClick} onTap={onPlaceTrainClick} />
           )}
           {routeDraft && (
             <Rect name="route-draft-cover" x={-1e7} y={-1e7} width={2e7} height={2e7} fill="rgba(0,0,0,0)" onClick={onDraftClick} onTap={onDraftClick} />
@@ -5231,6 +5297,7 @@ function Canvas({
       )}
       </Suspense>
       {runMode && <RunModeBanner />}
+      {placingTrain && <TrainPlaceBanner name={placingTrain.name} />}
       {routeDraft && <RouteDraftBanner doc={doc} draft={routeDraft} found={draftFound} routes={routes} />}
       <SetUpdatesBar updates={setUpdates} onUpdate={updatePlacedSets} onShow={showPlacedSets} top={phone} />
       <SharedModulesHost doc={doc} layoutId={sharedLayoutId} isViewer={isViewer} onShowParts={showParts} parts={partsByKey} top={phone} />
@@ -5779,7 +5846,7 @@ function SnapRing() {
  * affordance stays visible.
  */
 // UI words: layers are "Sheets" (the ids stay).
-const PANEL_TITLES: Record<string, string> = { parts: 'Parts', layers: 'Sheets', views: 'Views', usedparts: 'Parts list', modules: 'Modules', modlibrary: 'Module library', venuelibrary: 'Venue library', routes: 'Routes' };
+const PANEL_TITLES: Record<string, string> = { parts: 'Parts', layers: 'Sheets', views: 'Views', usedparts: 'Parts list', modules: 'Modules', modlibrary: 'Module library', venuelibrary: 'Venue library', routes: 'Routes', trains: 'Trains' };
 
 /**
  * Renders a vertical stack of panels in one dock column, with:
@@ -6980,6 +7047,20 @@ function textFontStyle(r: { isBold: boolean; isItalic: boolean }): string {
 }
 
 /** Run mode's banner (trains design 6.3): what a click does now, and the way back. */
+function TrainPlaceBanner({ name }: { name: string }) {
+  return (
+    <div role="status" data-testid="train-place-banner" className="pointer-events-auto absolute left-1/2 top-3 z-20 flex -translate-x-1/2 items-center gap-3 rounded-full border border-line bg-panel px-4 py-2 text-sm shadow-pop">
+      <span>
+        Click the track where the front of <b>{name || 'the train'}</b> goes.
+      </span>
+      <HelpButton helpKey="trains.putOnTrack" />
+      <button type="button" onClick={() => useEditorStore.getState().setTrainPlacing(null)} className="h-8 rounded px-3 text-xs font-semibold hover:bg-soft">
+        Cancel
+      </button>
+    </div>
+  );
+}
+
 function RunModeBanner() {
   return (
     <div role="status" data-testid="run-mode-banner" className="pointer-events-auto absolute left-1/2 top-3 z-20 flex -translate-x-1/2 items-center gap-3 rounded-full border border-line bg-panel px-4 py-2 text-sm shadow-pop">

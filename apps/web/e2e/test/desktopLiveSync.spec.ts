@@ -107,6 +107,15 @@ class Driver {
     }
   }
 
+  /** The desktop's rolling stock and trains, or null when this driver has none (older desktop). */
+  async trains(): Promise<{ rollingStock: { id: string; number: string; length: number }[]; trains: { id: string; name: string; units: { stock: string }[]; position: { brick: string; facing: string } | null }[] } | null> {
+    try {
+      return JSON.parse(await this.run('trains'));
+    } catch {
+      return null;
+    }
+  }
+
   async close(): Promise<void> {
     if (this.proc.exitCode !== null) return;
     this.proc.stdin.write('quit\n');
@@ -729,5 +738,66 @@ test.describe('desktop and web live editing', () => {
       await driver.close();
     }
   });
-});
 
+  test('trains: a train the web puts on the track reaches the desktop, and a car the desktop adds shows on the web', async ({ page, request, browser }) => {
+    test.setTimeout(120_000);
+    const stamp = Date.now();
+    await page.setViewportSize({ width: 1400, height: 900 });
+    await signIn(page, `train-desk-web-${stamp}@example.com`, 'Web Tester');
+    const created = await page.request.post('/api/layouts', { data: { title: 'Trains, web and desktop', bbm: TIGHT_CORNER_BBM } });
+    const { id } = (await created.json()) as { id: string };
+    const deskEmail = `train-desk-driver-${stamp}@example.com`;
+    const desk = await browser.newContext();
+    await signIn(desk, deskEmail, 'Desktop Driver');
+    const deskPage = await desk.newPage();
+    const invite = await page.request.post(`/api/layouts/${id}/invites`, { data: { email: deskEmail, role: 'editor' } });
+    expect((await deskPage.request.post(`/api/invites/${((await invite.json()) as { token: string }).token}`)).ok()).toBe(true);
+    const token = await desktopToken(deskPage, request);
+    await desk.close();
+    const driver = new Driver(DRIVER!, token);
+    const onPage = (x: number, y: number) =>
+      page.evaluate(([sx, sy]) => {
+        type St = { getAbsoluteTransform: () => { point: (p: { x: number; y: number }) => { x: number; y: number } }; container: () => HTMLElement };
+        const st = (window as unknown as { Konva: { stages: St[] } }).Konva.stages[0]!;
+        const p = st.getAbsoluteTransform().point({ x: sx! * 8, y: sy! * 8 });
+        const box = st.container().getBoundingClientRect();
+        return { x: box.left + p.x, y: box.top + p.y };
+      }, [x, y]);
+    try {
+      await driver.run(`open ${id}`);
+      await driver.run('wait-synced');
+      test.skip((await driver.trains()) === null, 'this bld_sync_driver has no train commands yet (desktop main is older)');
+      await page.goto(`/editor/${id}`);
+      await expect(page.locator('canvas').first()).toBeVisible({ timeout: 15000 });
+      await page.waitForTimeout(1000);
+      await page.keyboard.press('f');
+      await page.getByRole('button', { name: 'Panels', exact: true }).click();
+      await page.getByRole('checkbox', { name: 'Trains', exact: true }).check();
+      await page.keyboard.press('Escape');
+
+      // The web makes a car and a train of it, and puts it in the middle of the top-left monorail corner.
+      await page.getByTestId('stock-new').click();
+      await page.getByTestId('stock-editor').getByLabel('Road number').fill('101');
+      await page.getByTestId('stock-save').click();
+      await page.getByLabel('Pick 101 for a new train').check();
+      await page.getByTestId('train-from-ticked').click();
+      await page.getByTestId('train-place').click();
+      const p = await onPage(140 - 28 * Math.SQRT1_2, 140 - 28 * Math.SQRT1_2);
+      await page.mouse.click(p.x, p.y);
+      await expect.poll(async () => (await driver.trains())?.trains[0]?.position?.brick ?? null, { timeout: 10_000 }).not.toBeNull();
+      const theirs = (await driver.trains())!;
+      expect(theirs.rollingStock.map((s) => s.number)).toEqual(['101']);
+      expect(theirs.trains[0]!.units.map((u) => u.stock)).toEqual([theirs.rollingStock[0]!.id]);
+
+      // The desktop adds a car and renames the train: the web shows both, live.
+      await driver.run('stock-add 202 28');
+      await driver.run(`train-rename ${theirs.trains[0]!.id} Desk Express`);
+      await page.getByTestId('trains-tab-stock').click();
+      await expect(page.getByRole('list', { name: 'Rolling stock' })).toContainText('202', { timeout: 15000 });
+      await page.getByTestId('trains-tab-trains').click();
+      await expect(page.getByRole('list', { name: 'Trains' })).toContainText('Desk Express', { timeout: 15000 });
+    } finally {
+      await driver.close();
+    }
+  });
+});

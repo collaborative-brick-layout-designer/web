@@ -124,13 +124,14 @@ export async function publish(hint: Hint, reach: Reach = {}): Promise<number> {
 
 /** The owner of a layout, module, venue or custom part, read before it changes (or goes). */
 export async function ownerOfResource(
-  kind: 'layout' | 'module' | 'venue' | 'custom-part',
+  kind: 'layout' | 'module' | 'venue' | 'custom-part' | 'rolling-stock',
   id: string,
 ): Promise<{ owner?: Hint['owner']; isGlobal?: boolean } | null> {
   const table =
     kind === 'layout' ? schema.layouts
     : kind === 'module' ? schema.modules
     : kind === 'venue' ? schema.venueLibrary
+    : kind === 'rolling-stock' ? schema.rollingStock
     : schema.customParts;
   const row = await db
     .select({ ownerUserId: table.ownerUserId, ownerOrgId: table.ownerOrgId })

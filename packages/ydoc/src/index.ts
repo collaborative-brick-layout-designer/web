@@ -10,7 +10,7 @@
 
 import * as Y from 'yjs';
 import { BBM_FORMAT_VERSION, type BbmMap } from '@cld/model';
-import { readRoutesField, readSwitchStatesField, type Sidecar, type SidecarRoute } from '@cld/bbm';
+import { readRecordsField, readRoutesField, readSwitchStatesField, type Sidecar, type SidecarRecord, type SidecarRoute } from '@cld/bbm';
 import { bbmToDoc, docToBbm } from './projection.js';
 import { keepDrawnSettingsInRange } from './drawnLimits.js';
 
@@ -174,13 +174,19 @@ export function readBudgetLimitsFromDoc(doc: Y.Doc): Record<string, number> | un
  * budget in the sidecar, the doc's budget is left as it is.
  */
 export function importSidecarIntoDoc(doc: Y.Doc, sidecar: Sidecar): void {
-  const { budgetLimits, switchStates, routes, ...rest } = sidecar;
+  const { budgetLimits, switchStates, routes, rollingStock, trains, ...rest } = sidecar;
   const meta = doc.getMap('meta');
   meta.set('cache', rest as unknown as Record<string, unknown>);
   if (routes && routes.length > 0) {
     const y = new Y.Map<Y.Map<unknown>>();
     for (const r of routes) y.set(r.id, routeMap(r));
     meta.set(ROUTES_KEY, y);
+  }
+  for (const [key, list] of [[ROLLING_STOCK_KEY, rollingStock], [TRAINS_KEY, trains]] as const) {
+    if (!list || list.length === 0) continue;
+    const y = new Y.Map<Y.Map<unknown>>();
+    for (const r of list) y.set(r.id, routeMap(r as SidecarRoute));
+    meta.set(key, y);
   }
   if (switchStates && Object.keys(switchStates).length > 0) {
     const y = new Y.Map<number>();
@@ -200,12 +206,20 @@ function withBudget(doc: Y.Doc, cache: Record<string, unknown> | null): Sidecar 
   const switchStates = Object.keys(states).length > 0 ? states : undefined;
   const allRoutes = readRoutesFromDoc(doc);
   const routes = allRoutes.length > 0 ? allRoutes : undefined;
-  const live = { ...(budgetLimits ? { budgetLimits } : {}), ...(switchStates ? { switchStates } : {}), ...(routes ? { routes } : {}) };
+  const stockList = readRecordsFromDoc(doc, ROLLING_STOCK_KEY);
+  const trainList = readRecordsFromDoc(doc, TRAINS_KEY);
+  const live = {
+    ...(budgetLimits ? { budgetLimits } : {}),
+    ...(switchStates ? { switchStates } : {}),
+    ...(routes ? { routes } : {}),
+    ...(stockList.length ? { rollingStock: stockList } : {}),
+    ...(trainList.length ? { trains: trainList } : {}),
+  };
   if (!cache) {
-    if (!budgetLimits && !switchStates && !routes) return null;
+    if (!budgetLimits && !switchStates && !routes && !stockList.length && !trainList.length) return null;
     return { schemaVersion: 1, bbmHashSha256: '', ...live };
   }
-  const { budgetLimits: _inCache, switchStates: _statesInCache, routes: _routesInCache, ...rest } = cache;
+  const { budgetLimits: _inCache, switchStates: _statesInCache, routes: _routesInCache, rollingStock: _stockInCache, trains: _trainsInCache, ...rest } = cache;
   return { ...rest, ...live } as unknown as Sidecar;
 }
 
@@ -285,6 +299,62 @@ export function writeRoute(doc: Y.Doc, route: SidecarRoute): void {
     if (v === undefined) continue;
     if (JSON.stringify(cur.get(k)) !== JSON.stringify(v)) cur.set(k, v);
   }
+}
+
+// ---------------------------------------------------------------------------
+// Rolling stock and trains (trains design 2.3, 2.4) are kept the same way:
+// `meta.rollingStock` and `meta.trains`, a Y.Map of id -> a Y.Map of
+// fields, so different records, and different fields of one, merge. Arrays
+// (units, trucks, tags) are plain values, replaced whole.
+// ---------------------------------------------------------------------------
+
+export const ROLLING_STOCK_KEY = 'rollingStock';
+export const TRAINS_KEY = 'trains';
+type RecordsKey = typeof ROLLING_STOCK_KEY | typeof TRAINS_KEY;
+
+/** The doc's rolling stock or trains, in id order ([] when none); an older build's copy in meta.cache is read too. */
+export function readRecordsFromDoc(doc: Y.Doc, key: RecordsKey): SidecarRecord[] {
+  const meta = doc.getMap('meta');
+  const y = meta.get(key);
+  if (!(y instanceof Y.Map)) {
+    const cache = meta.get('cache') as Record<string, unknown> | undefined;
+    return readRecordsField(cache?.[key]) ?? [];
+  }
+  const out: SidecarRecord[] = [];
+  for (const [id, v] of y.entries()) if (v instanceof Y.Map) out.push({ ...(v.toJSON() as Record<string, unknown>), id });
+  return out.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+}
+
+function recordsMap(doc: Y.Doc, key: RecordsKey): Y.Map<Y.Map<unknown>> {
+  const meta = doc.getMap('meta');
+  let y = meta.get(key);
+  if (!(y instanceof Y.Map)) {
+    const fromCache = readRecordsFromDoc(doc, key);
+    y = new Y.Map<Y.Map<unknown>>();
+    for (const r of fromCache) (y as Y.Map<Y.Map<unknown>>).set(r.id, routeMap(r as SidecarRoute));
+    meta.set(key, y);
+  }
+  return y as Y.Map<Y.Map<unknown>>;
+}
+
+/** Add or change a record (only fields that differ are written). Call inside the caller's transaction. */
+export function writeRecord(doc: Y.Doc, key: RecordsKey, record: SidecarRecord): void {
+  const all = recordsMap(doc, key);
+  const cur = all.get(record.id);
+  if (!(cur instanceof Y.Map)) {
+    all.set(record.id, routeMap(record as SidecarRoute));
+    return;
+  }
+  for (const [k, v] of Object.entries(record)) {
+    if (v === undefined) continue;
+    if (JSON.stringify(cur.get(k)) !== JSON.stringify(v)) cur.set(k, v);
+  }
+}
+
+/** Delete a record. Call inside the caller's transaction. */
+export function deleteRecord(doc: Y.Doc, key: RecordsKey, id: string): void {
+  const all = recordsMap(doc, key);
+  if (all.has(id)) all.delete(id);
 }
 
 /** Delete a route. Call inside the caller's transaction. */

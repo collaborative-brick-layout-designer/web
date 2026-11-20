@@ -51,6 +51,8 @@ export function blueBrickLeavesOut(sidecar: Sidecar | null | undefined): string[
   if (sidecar?.backgroundImage) lost.push('the background image');
   if (sidecar?.switchStates && Object.keys(sidecar.switchStates).length > 0) lost.push('switch settings');
   if (sidecar?.routes?.length) lost.push('routes');
+  if (sidecar?.trains?.length) lost.push('trains');
+  if (sidecar?.rollingStock?.length) lost.push('rolling stock');
   return lost;
 }
 

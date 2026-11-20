@@ -42,6 +42,7 @@ function resetStore() {
     showSwitches: false,
     runMode: false,
     routeDraft: null,
+    trainPlacing: null,
     showExportWatermark: false,
     moduleLabelPercent: 100,
     venueLabelPx: 28,

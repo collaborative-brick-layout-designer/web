@@ -383,6 +383,23 @@ export interface Credit {
 /** The four kinds of thing a person makes, as their API paths. */
 export type OwnableKind = 'layouts' | 'modules' | 'venues' | 'custom-parts';
 
+/** An engine or car on your roster or a club's (trains design 2.6). */
+export interface RosterStock {
+  id: string;
+  number: string;
+  name: string;
+  ownerUserId: string | null;
+  ownerOrgId: string | null;
+  /** Bumped on every save: a layout's copy with a lower libraryVersion is older. */
+  version: number;
+  updatedAt: number;
+  /** May change or delete it (yours, or a club where you may edit modules). */
+  canManage: boolean;
+  owner?: OwnerInfo | null;
+  /** The record a layout keeps, linked back (libraryId, libraryVersion). */
+  record: Record<string, unknown>;
+}
+
 export interface VenueSummary {
   id: string;
   name: string;
@@ -1266,6 +1283,15 @@ export const api = {
       patch<{ ok: true; id: string; name: string }>(`/api/venues/${id}`, { data }),
     /** To Recently deleted for 30 days (`trashId` restores it). */
     remove: (id: string) => delJson<{ ok: true; trashId?: string | null }>(`/api/venues/${id}`),
+  },
+
+  /** Rolling stock rosters: yours and your clubs' engines and cars. */
+  rollingStock: {
+    list: (owner = 'all') => get<{ stock: RosterStock[] }>(`/api/rolling-stock?owner=${encodeURIComponent(owner)}`),
+    /** Save to your roster (no `orgSlug`) or a club's. */
+    create: (record: Record<string, unknown>, orgSlug?: string) => post<RosterStock>('/api/rolling-stock', orgSlug ? { record, orgSlug } : { record }),
+    update: (id: string, record: Record<string, unknown>) => patch<RosterStock>(`/api/rolling-stock/${encodeURIComponent(id)}`, { record }),
+    remove: (id: string) => delJson<{ ok: true }>(`/api/rolling-stock/${encodeURIComponent(id)}`),
   },
 
   /** Handing a club's thing back to the person who made it (the club keeps a copy). */
