@@ -49,12 +49,50 @@ function listsOf(l: Lists, client: number): (readonly Struct[])[] {
   return out;
 }
 
+/** Whether two structs of `list` (sorted by clock) cover the same clock. */
+const overlapsSeen = new WeakMap<readonly Struct[], boolean>();
+function overlaps(list: readonly Struct[]): boolean {
+  let seen = overlapsSeen.get(list);
+  if (seen === undefined) {
+    seen = false;
+    for (let i = 1; i < list.length && !seen; i++) {
+      const prev = list[i - 1]!;
+      if (list[i]!.id.clock < prev.id.clock + prev.length) seen = true;
+    }
+    overlapsSeen.set(list, seen);
+  }
+  return seen;
+}
+
+/**
+ * Work of a delete range on structs that overlap (a hand-made update with
+ * two blocks of one client). Which of them Yjs keeps isn't known here, so
+ * count every one the range touches, and the whole of each one it splits:
+ * the document Yjs ends up with then never costs more than this said.
+ */
+function overlappingRangeWork(list: readonly Struct[], from: number, to: number): number {
+  let work = 0;
+  for (const s of list) {
+    const start = s.id.clock;
+    const stop = start + s.length;
+    if (stop <= from || start >= to) continue;
+    work += 1;
+    if (start < from || stop > to) work += s.length;
+  }
+  return work;
+}
+
 /** Work of one delete range on the structs it lands on. */
 function rangeWork(l: Lists, client: number, clock: number, len: number): number {
   let work = 1;
   const end = clock + len;
   for (const list of listsOf(l, client)) {
     if (list.length === 0) continue;
+    // A room's own structs never overlap; only an update's can.
+    if (list === l.update.get(client) && overlaps(list)) {
+      work += overlappingRangeWork(list, clock, end);
+      continue;
+    }
     const first = list[0]!.id.clock;
     const last = list[list.length - 1]!;
     const from = Math.max(clock, first);
