@@ -168,3 +168,26 @@ describe('an update past the limit', () => {
     warn.mockRestore();
   });
 });
+
+describe('two blocks of one client that overlap', () => {
+  // Found by the Fuzz workflow (fuzz/regressions/guard/crash-3d25a531…): a
+  // short block and a ~2^30-clock one for the same client, and a delete
+  // range over both. Counted on the short block it looked cheap; Yjs keeps
+  // the long one, and the document it leaves cost the desktop 2^30 steps.
+  const update = Uint8Array.from(Buffer.from('AwF6AQCw4nYAAAMBeiQA/////wMBegEA4gA=', 'base64'));
+
+  it('counts the delete range on every block it touches, so the update is refused', () => {
+    const decoded = decodeIncoming(update)!;
+    expect(decoded.overlapping).toBe(true);
+    expect(yjsWork(null, decoded)).toBeGreaterThan(MAX_UPDATE_WORK);
+    expect(checkUpdateWork(null, decoded)).toMatch(/steps, more than/);
+  });
+
+  it('leaves updates without overlapping blocks counted as before', () => {
+    const doc = new Y.Doc();
+    doc.getMap('m').set('a', 'x'.repeat(50));
+    const u = Y.encodeStateAsUpdate(doc);
+    expect(decodeIncoming(u)!.overlapping).toBe(false);
+    expect(work(null, u)).toBeLessThan(10);
+  });
+});
