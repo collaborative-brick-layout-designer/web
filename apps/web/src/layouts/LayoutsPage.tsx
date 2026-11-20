@@ -3,6 +3,8 @@ import { lazyRetry } from '../ui/lazyRetry';
 import { RenameDialog, MAX_NAME_LENGTH } from '../ui/RenameDialog';
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { LibraryModuleSetupDialog } from '../editor/ModuleSetupDialog';
+import { powerText, tableText } from '../editor/moduleSetupText';
 import { api, lowResThumbnail, type LayoutSummary, type ModuleSummary, type OrgSummary } from '../api';
 import { defaultSaveTo, matchesOwnerFilter, useOwnerFilter, type OwnedItem } from '../owners/owners';
 import { CreditLine, MoveCopyDialog, OwnerChip, OwnerFilterBar, ReturnMenuItems, SaveToPicker } from '../owners/OwnerControls';
@@ -66,6 +68,7 @@ export function LayoutsPage() {
   }, [startVenue]);
   const [showNewModule, setShowNewModule] = useState(false);
   const [historyOf, setHistoryOf] = useState<ModuleSummary | null>(null);
+  const [setupOf, setSetupOf] = useState<ModuleSummary | null>(null);
   const [toCollection, setToCollection] = useState<ModuleSummary | null>(null);
   // A member (not an admin or manager) of a trusted club shares its modules for the club's own review.
   const trustedMember = (m: ModuleSummary) => m.role === 'editor' && !!m.ownerOrgId && !!orgs?.find((o) => o.id === m.ownerOrgId && o.trusted);
@@ -272,6 +275,11 @@ export function LayoutsPage() {
                   <p className="text-xs text-muted">
                     {m.latestVersion ? `version ${m.latestVersion} · ` : ''}updated {new Date(m.updatedAt).toLocaleString()}
                   </p>
+                  {(m.setup?.table || m.setup?.power) && (
+                    <p data-testid="module-row-setup" className="text-xs text-muted">
+                      {[m.setup.table ? tableText(m.setup.table, 'ftin') : null, m.setup.power ? powerText(m.setup.power) : null].filter(Boolean).join(' · ')}
+                    </p>
+                  )}
                   <CreditLine credit={m.credit} />
                   {m.role !== 'viewer' && lowResThumbnail(m) && (
                     <p data-testid="low-res-picture" className="text-xs text-muted">
@@ -293,6 +301,11 @@ export function LayoutsPage() {
                   <button role="menuitem" type="button" onClick={() => setHistoryOf(m)} className={MORE_ITEM}>
                     Version history…
                   </button>
+                  {m.role !== 'viewer' && (
+                    <button role="menuitem" type="button" data-testid="module-row-setup-open" onClick={() => setSetupOf(m)} className={MORE_ITEM}>
+                      Table and power…
+                    </button>
+                  )}
                   {m.role !== 'viewer' && m.thumbnailAt && (
                     <Link role="menuitem" to={`/modules/${m.id}?refresh=picture`} className={MORE_ITEM}>
                       Refresh picture
@@ -381,6 +394,7 @@ export function LayoutsPage() {
       )}
 
       {historyOf && <ModuleVersionsDialog module={historyOf} onClose={() => setHistoryOf(null)} />}
+      {setupOf && <LibraryModuleSetupDialog module={setupOf} onClose={() => setSetupOf(null)} />}
       {sharingPeople && (
         <Suspense fallback={null}>
           <ModuleShareDialog module={sharingPeople} myUserId={myUserId} onClose={() => setSharingPeople(null)} />

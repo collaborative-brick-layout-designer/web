@@ -27,6 +27,11 @@ import { libraryNote, libraryState } from './moduleLibrary';
 import { useLibraryEntries, type ModuleMenuEntry } from './moduleLibraryMenu';
 import { askConfirm, confirmDelete } from '../ui/ConfirmDialog';
 import { ModuleLookDialog } from './ModuleLookDialog';
+import { PlacedModuleSetupDialog } from './ModuleSetupDialog';
+import { setupOf, setupSummary } from '@cld/modules';
+import type { VenueLengthUnit } from '@cld/bbm';
+import { heightUnit, powerText, summaryPowerText, summaryTableLines, tableText } from './moduleSetupText';
+import { HelpButton } from '../help/HelpButton';
 import { withShowName } from './moduleLook';
 import { useDocMap } from './useDocMap';
 import { hiddenSheetsNote, moduleSheetsUsed } from './moduleSheets';
@@ -52,6 +57,7 @@ export function ModulesPanel({ doc, isViewer, layoutId = null }: Props) {
   const sidecar = readSidecarFromDoc(doc);
   const modules = sidecar?.modules ?? [];
   const map = useDocMap(doc);
+  const unit = heightUnit(sidecar?.venue);
 
   const library = useQuery({ queryKey: ['modules'], queryFn: api.modules.list, enabled: modules.length > 0 });
   const libraryEntries = useLibraryEntries(doc);
@@ -62,6 +68,7 @@ export function ModulesPanel({ doc, isViewer, layoutId = null }: Props) {
   // Desktop ModulesPanel's "Make a module" (createModuleRequested).
   const createButton = isViewer ? null : (
     <button
+      data-tour="module.make"
       onClick={() => openMakeModule(doc)}
       className="rounded-lg border border-border px-1.5 py-0.5 text-[10px] normal-case tracking-normal text-neutral-300 hover:bg-soft"
       title="Make the picked parts one module in this layout"
@@ -99,6 +106,7 @@ export function ModulesPanel({ doc, isViewer, layoutId = null }: Props) {
             libraryLine={libraryNote(libraryState(mod, library.data?.modules))}
             libraryEntries={libraryEntries(mod)}
             partOf={partOf}
+            unit={unit}
             shared={(() => {
               const placed = sharedPlacedList.find((s) => s.placedId === mod.id);
               if (!placed) return undefined;
@@ -113,7 +121,35 @@ export function ModulesPanel({ doc, isViewer, layoutId = null }: Props) {
           />
         ))}
       </ul>
+      <SetupSummaryBox modules={modules} unit={unit} />
     </aside>
+  );
+}
+
+/**
+ * For the layout's coordinator: what all the modules need together, power
+ * and tables (@cld/modules setup.ts). It follows every change at once.
+ */
+export function SetupSummaryBox({ modules, unit }: { modules: readonly SidecarModule[]; unit: VenueLengthUnit }) {
+  const s = setupSummary(modules);
+  const tables = summaryTableLines(s, unit);
+  return (
+    <section data-testid="module-setup-summary" aria-label="Tables and power" className="border-t border-line px-2 py-1.5 text-xs text-muted">
+      <div className="flex items-center justify-between gap-2">
+        <span className="font-semibold uppercase tracking-wider">Tables and power</span>
+        <HelpButton helpKey="module.setupSummary" />
+      </div>
+      <p data-testid="module-setup-power" className="text-ink">{summaryPowerText(s)}</p>
+      {tables.length ? (
+        <ul data-testid="module-setup-tables">
+          {tables.map((t) => (
+            <li key={t}>{t}</li>
+          ))}
+        </ul>
+      ) : (
+        <p>Tables: not set for any module</p>
+      )}
+    </section>
   );
 }
 
@@ -126,8 +162,11 @@ function ModuleRow({
   libraryEntries,
   partOf,
   shared,
+  unit,
 }: {
   partOf: (partNumber: string) => PartGeom | undefined;
+  /** The unit heights are shown in. */
+  unit: VenueLengthUnit;
   module: SidecarModule;
   doc: Y.Doc;
   isViewer: boolean;
@@ -151,6 +190,8 @@ function ModuleRow({
   // The Rotate submenu opens on hover with a mouse, and on a tap (no hover on a touch screen).
   const [rotateOpen, setRotateOpen] = useState(false);
   const [lookOpen, setLookOpen] = useState(false);
+  const [setupOpen, setSetupOpen] = useState(false);
+  const setup = setupOf(module);
   const menuRef = useRef<HTMLDivElement>(null);
   const menuStyle = useOnScreen(menuRef, ctxMenu);
   useMenuRoles(menuRef, !!ctxMenu, `Module ${module.name}`, () => setCtxMenu(null));
@@ -246,6 +287,11 @@ function ModuleRow({
                 </span>
               )
             )}
+            {setup && (
+              <span data-testid="module-setup-note" className="block text-xs text-muted">
+                {[setup.table ? tableText(setup.table, unit) : null, setup.power ? powerText(setup.power) : null].filter(Boolean).join(' · ')}
+              </span>
+            )}
             {hiddenNote && (
               <span data-testid="module-hidden-note" className="ml-2 text-xs italic text-muted">
                 {hiddenNote}
@@ -258,6 +304,7 @@ function ModuleRow({
               aria-label={`More for ${module.name || 'this module'}`}
               title="More"
               data-testid="module-more"
+              data-tour="modules.more"
               aria-haspopup="menu"
               onClick={(e) => {
                 e.stopPropagation();
@@ -275,6 +322,7 @@ function ModuleRow({
       )}
 
       {lookOpen && <ModuleLookDialog doc={doc} moduleId={module.id} onClose={() => setLookOpen(false)} />}
+      {setupOpen && <PlacedModuleSetupDialog doc={doc} moduleId={module.id} onClose={() => setSetupOpen(false)} />}
       {versionsOpen && shared?.layoutId && (
         <SharedVersionsDialog layoutId={shared.layoutId} placed={shared.placed} canUpdate={shared.canUpdate} onClose={() => setVersionsOpen(false)} />
       )}
@@ -377,6 +425,13 @@ function ModuleRow({
             onClick={() => { setCtxMenu(null); setLookOpen(true); }}
           >
             Colors…
+          </button>
+          <button
+            data-testid="module-menu-setup"
+            className="block w-full px-3 py-1 text-left hover:bg-neutral-700"
+            onClick={() => { setCtxMenu(null); setSetupOpen(true); }}
+          >
+            Table and power…
           </button>
           <button
             className="block w-full px-3 py-1 text-left hover:bg-neutral-700"

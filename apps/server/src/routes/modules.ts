@@ -42,6 +42,7 @@ import { moduleSharesChanged } from '../sharedModules/lifecycle.js';
 import { refreshStatesForModule } from '../sharedModules/placed.js';
 import { updateAutomatically } from '../sharedModules/auto.js';
 import { notifyUpdateWaiting } from '../notifications/sharedModules.js';
+import { parseStoredSetup, setupOf, validSetup, type ModuleSetup } from '@cld/modules';
 
 type ModuleRow = typeof schema.modules.$inferSelect;
 
@@ -73,6 +74,7 @@ export async function copyModuleTo(
     // A copy starts at version 1 (its first version is recorded just below), so no list shows "v0".
     docVersion: 1,
     sidecarSnapshot: src.sidecarSnapshot,
+    setup: src.setup,
     copiedFromId: src.id,
     createdAt: now,
     updatedAt: now,
@@ -275,7 +277,7 @@ export async function moduleRoutes(app: FastifyInstance): Promise<void> {
   );
 
   // ---- patch (rename) ---------------------------------------------------
-  app.patch<{ Params: { id: string }; Body: { title?: string } }>(
+  app.patch<{ Params: { id: string }; Body: { title?: string; setup?: unknown } }>(
     '/api/modules/:id',
     { config: TOKEN_WRITE }, 
     async (req, reply) => {
@@ -290,6 +292,11 @@ export async function moduleRoutes(app: FastifyInstance): Promise<void> {
         const t = trimmed(req.body.title);
         if (!t || titleTooLong(t)) return reply.code(400).send({ error: 'invalid_title' });
         updates.title = t;
+      }
+      // Its table and power (@cld/modules setup.ts); null clears them.
+      if (req.body.setup !== undefined) {
+        if (!validSetup(req.body.setup)) return reply.code(400).send({ error: 'invalid_setup' });
+        updates.setup = storedSetup(req.body.setup);
       }
       if (Object.keys(updates).length === 0) {
         return reply.code(400).send({ error: 'no_updates' });
@@ -824,15 +831,23 @@ const moduleListColumns = {
   /** The picture's first bytes, for its size (imageSide), not the picture. */
   thumbnailHead: sql<Buffer | null>`substr(${schema.modules.thumbnail}, 1, ${HEAD_BYTES})`,
   latestVersion: schema.modules.latestVersion,
+  setup: schema.modules.setup,
   createdAt: schema.modules.createdAt,
   updatedAt: schema.modules.updatedAt,
 };
+
+/** The setup column for a valid PATCH value: null when nothing is set. */
+function storedSetup(v: ModuleSetup | null): string | null {
+  const s = v ? setupOf(v) : null;
+  return s ? JSON.stringify(s) : null;
+}
+
 
 function toListItem(
   m: Pick<
     typeof schema.modules.$inferSelect,
     'id' | 'title' | 'ownerUserId' | 'ownerOrgId' | 'docVersion' | 'thumbnailAt' | 'latestVersion' | 'createdAt' | 'updatedAt'
-  > & { hasSidecar: number; smallDoc?: Buffer | Uint8Array | null; thumbnailHead?: Buffer | Uint8Array | null },
+  > & { setup?: string | null } & { hasSidecar: number; smallDoc?: Buffer | Uint8Array | null; thumbnailHead?: Buffer | Uint8Array | null },
 ) {
   return {
     id: m.id,
@@ -849,6 +864,8 @@ function toListItem(
     thumbnailSide: m.thumbnailAt ? imageSide(m.thumbnailHead ?? null) : null,
     /** The newest version's number; 0 when it has no history yet. */
     latestVersion: m.latestVersion,
+    /** Its table and power (@cld/modules setup.ts); null when neither is set. */
+    setup: parseStoredSetup(m.setup),
     createdAt: m.createdAt.getTime(),
     updatedAt: m.updatedAt.getTime(),
   };

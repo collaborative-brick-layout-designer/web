@@ -29,6 +29,10 @@ const NOT_SHARED = errorText('not_shared');
 import { MODULE_DELETE_WORDING } from '../ui/deleteWording';
 import { restoreDeleted } from '../trash/RecentlyDeleted';
 import { HelpButton } from '../help/HelpButton';
+import { readSidecarFromDoc } from '@cld/ydoc';
+import type { VenueLengthUnit } from '@cld/bbm';
+import { LibraryModuleSetupDialog } from './ModuleSetupDialog';
+import { heightUnit, powerText, tableText } from './moduleSetupText';
 export { MODULE_MIME };
 
 type LibraryTab = 'mine' | 'clubs' | 'shared';
@@ -62,6 +66,8 @@ export function ModuleLibraryPanel({ doc, isViewer, editingModuleId = null }: Pr
   const [error, setError] = useState<string | null>(null);
   const [inserting, setInserting] = useState<string | null>(null);
   const [toCollection, setToCollection] = useState<ModuleSummary | null>(null);
+  const [setupOf, setSetupOf] = useState<ModuleSummary | null>(null);
+  const unit = heightUnit(readSidecarFromDoc(doc)?.venue);
   const settings = useQuery({ queryKey: ['catalog-settings'], queryFn: api.catalog.settings, staleTime: 60_000 });
   const demo = useIsDemo();
   // Not for the demo account: the server keeps collections to real accounts.
@@ -234,6 +240,8 @@ export function ModuleLibraryPanel({ doc, isViewer, editingModuleId = null }: Pr
                 )
               }
               onAddToCollection={collectionsOn && (m.role === undefined || m.role === 'owner') ? () => setToCollection(m) : undefined}
+              unit={unit}
+              onSetup={m.role === undefined || m.role === 'owner' || m.role === 'editor' ? () => setSetupOf(m) : undefined}
               onDelete={async () => {
                 if (!(await confirmDelete(m.title, MODULE_DELETE_WORDING))) return;
                 void api.modules.remove(m.id).then((r) => {
@@ -247,6 +255,7 @@ export function ModuleLibraryPanel({ doc, isViewer, editingModuleId = null }: Pr
         </ul>
       </div>
       {toCollection && <AddToCollectionDialog target={{ kind: 'module', module: toCollection }} onClose={() => setToCollection(null)} />}
+      {setupOf && <LibraryModuleSetupDialog module={setupOf} unit={unit} onClose={() => setSetupOf(null)} />}
     </aside>
   );
 }
@@ -264,7 +273,13 @@ function ModuleLibraryRow({
   onAddToCollection,
   sharedVia,
   removeFrom = [],
+  unit,
+  onSetup,
 }: {
+  /** The unit heights are shown in. */
+  unit: VenueLengthUnit;
+  /** "Table and power…" (when you may change the module). */
+  onSetup?: (() => void) | undefined;
   /** Shared with a club you run: "Remove from ‹club›…", one per club. */
   removeFrom?: { name: string; onRemove: () => void }[];
   /** Someone else's module shared with you: "Alice · via Riverside LUG" (it has no menu: it isn't yours to change). */
@@ -348,6 +363,13 @@ function ModuleLibraryRow({
           <p className="text-[11px] text-muted">
             v{shownVersion(module, !!sharedVia)} · {new Date(module.updatedAt).toLocaleDateString()}
           </p>
+          {(module.setup?.table || module.setup?.power) && (
+            <p className="text-[11px] text-muted" data-testid="module-library-setup">
+              {[module.setup.table ? tableText(module.setup.table, unit) : null, module.setup.power ? powerText(module.setup.power) : null]
+                .filter(Boolean)
+                .join(' · ')}
+            </p>
+          )}
           {sharedVia && (
             <p className="text-[11px] text-muted" data-testid="module-shared-via">
               <span aria-hidden>🔗 </span>
@@ -397,6 +419,11 @@ function ModuleLibraryRow({
                 <button role="menuitem" type="button" onClick={startRename} className={MORE_ITEM}>
                   Rename…
                 </button>
+                {onSetup && (
+                  <button role="menuitem" type="button" data-testid="module-library-setup-open" onClick={onSetup} className={MORE_ITEM}>
+                    Table and power…
+                  </button>
+                )}
                 {onAddToCollection && (
                   <button role="menuitem" type="button" onClick={onAddToCollection} className={MORE_ITEM}>
                     Add to a collection…

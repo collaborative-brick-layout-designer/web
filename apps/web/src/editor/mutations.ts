@@ -33,7 +33,7 @@ import { connectedTurn, type TurnBrick } from './rotateTurn';
 import { cloneGroups, topGroupId, type ExpandedSet, type SetModule } from './sets';
 import { findPartsSheet, type SheetChoices } from './moduleSheets';
 import { textBoxStuds, type LineWidthAt } from './render/mapText';
-import { movedPlacement, replaceModuleParts as replacePlacedModuleParts, sharedPlaced, withShared, type ModuleBatch, type Placement } from '@cld/modules';
+import { movedPlacement, replaceModuleParts as replacePlacedModuleParts, sharedPlaced, withLibrarySetup, withShared, type ModuleBatch, type ModuleSetup, type Placement } from '@cld/modules';
 import { keepsLock, moduleLocked, partsLocked } from './sharedLock';
 import { followedPlacement, partPoses, sharedShapes } from './sharedPlacement';
 
@@ -2646,7 +2646,7 @@ export function importBricksAsModule(
      * module is locked and follows its owner's updates. `placement` is how the library
      * version's own coordinates map onto `batches` as given (before `offset`).
      */
-    library?: { id: string; version?: number; shared?: { by: string; server?: string; placement: Placement } };
+    library?: { id: string; version?: number; shared?: { by: string; server?: string; placement: Placement }; setup?: ModuleSetup };
   },
 ): { moduleId: string; ids: string[] } | null {
   const nonEmpty = batches.filter((b) => b.bricks.length > 0);
@@ -2684,7 +2684,7 @@ export function importBricksAsModule(
     }
     const cache = readSidecarCache(doc);
     const shared = opts.library?.shared;
-    const mod: SidecarModule = {
+    const mod: SidecarModule = withLibrarySetup({
       id: moduleId,
       name: opts.name || 'Module',
       members: ids,
@@ -2702,7 +2702,7 @@ export function importBricksAsModule(
             },
           }
         : {}),
-    };
+    }, opts.library?.setup);
     writeSidecarCache(doc, { ...cache, modules: [...getSidecarModules(cache), mod] });
   }, LOCAL_ORIGIN);
   return { moduleId, ids };
@@ -2990,7 +2990,7 @@ export function replaceModuleParts(
   moduleId: string,
   batches: readonly ModuleBatch[],
   sheetFor: (sheetName: string) => string,
-  patch: Partial<SidecarModule> = {},
+  patch: Partial<SidecarModule> | ((m: SidecarModule) => SidecarModule) = {},
 ): string[] | null {
   // The step itself is shared with the server (@cld/modules replace.ts).
   return replacePlacedModuleParts(doc, moduleId, batches, sheetFor, patch, LOCAL_ORIGIN);

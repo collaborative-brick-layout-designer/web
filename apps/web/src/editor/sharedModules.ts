@@ -4,7 +4,7 @@
 // have a newer version waiting, and the server's steps on them (Update, Go
 // back, Put back, Make it mine). The lock itself is sharedLock.ts.
 
-import { droppedPlacement, movedPlacement, sharedPlaced, type Placement, type SharedPlaced } from '@cld/modules';
+import { droppedPlacement, movedPlacement, sharedPlaced, type ModuleSetup, type Placement, type SharedPlaced } from '@cld/modules';
 import type { SidecarModule } from '@cld/bbm';
 import { moduleCopy } from './moduleCopy';
 import { api, type LayoutSharedModule, type SharedPlaceCheck } from '../api';
@@ -27,6 +27,17 @@ export interface LibraryPlacement {
   id: string;
   version?: number;
   shared?: { by: string; server?: string; placement: Placement };
+  /** Its table and power in the Module library: the placed module gets them. */
+  setup?: ModuleSetup;
+}
+
+/** A Module library module's table and power; null when not set, or not known (offline, an older server). */
+async function librarySetup(moduleId: string): Promise<ModuleSetup | null> {
+  try {
+    return (await api.modules.get(moduleId)).module.setup ?? null;
+  } catch {
+    return null;
+  }
 }
 
 /** Why a shared module can't go into this layout, and what to do about it. */
@@ -56,7 +67,8 @@ export function refusalText(c: SharedPlaceCheck): { title: string; body: string;
  * placed (null). `placement`: where the version's own coordinates land.
  */
 export async function libraryPlacement(moduleId: string, version: number | undefined, placement: Placement): Promise<LibraryPlacement | null> {
-  const plain: LibraryPlacement = { id: moduleId, ...(version ? { version } : {}) };
+  const setup = await librarySetup(moduleId);
+  const plain: LibraryPlacement = { id: moduleId, ...(version ? { version } : {}), ...(setup ? { setup } : {}) };
   const layoutId = layoutOnServer;
   if (!layoutId) return plain;
   try {

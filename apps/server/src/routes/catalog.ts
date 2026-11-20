@@ -42,6 +42,19 @@ import type { Venue } from '@cld/bbm';
 import { perPerson } from '../utils/rateLimits.js';
 import { stripImportSource } from '../utils/partXml.js';
 import { syncStoredLayout } from '../sharedModules/placed.js';
+import { parseStoredSetup } from '@cld/modules';
+
+/** A catalog module version's table and power (kept in its summary as { setup }), for the module copied from it. */
+function catalogModuleSetup(summary: string | null | undefined): string | null {
+  let inner: unknown;
+  try {
+    inner = summary ? (JSON.parse(summary) as { setup?: unknown }).setup : undefined;
+  } catch {
+    return null;
+  }
+  const s = inner ? parseStoredSetup(JSON.stringify(inner)) : null;
+  return s ? JSON.stringify(s) : null;
+}
 
 /** What the catalog holds: modules and custom parts, and (when on) layouts and venues. */
 export type Kind = 'module' | 'part' | 'layout' | 'venue';
@@ -206,7 +219,8 @@ async function snapshotSource(kind: Kind, sourceId: string, thumbnail: Buffer | 
       ownerOrgId: m.ownerOrgId,
       title: m.title,
       bytes: doc.length + (thumb?.length ?? 0),
-      values: { docSnapshot: doc, thumbnail: thumb, thumbnailMime: thumb ? m.thumbnailMime : null },
+      // Its table and power go with it (summary holds them for a module).
+      values: { docSnapshot: doc, thumbnail: thumb, thumbnailMime: thumb ? m.thumbnailMime : null, summary: m.setup ? JSON.stringify({ setup: JSON.parse(m.setup) as unknown }) : null },
     };
   }
   const p = await db.select().from(schema.customParts).where(eq(schema.customParts.id, sourceId)).get();
@@ -416,6 +430,7 @@ export async function copyItemTo(user: User, item: typeof schema.catalogItems.$i
       thumbnail: thumb,
       thumbnailMime: thumb ? (v.thumbnailMime as 'image/png' | 'image/webp') : null,
       thumbnailAt: thumb ? now : null,
+      setup: catalogModuleSetup(v.summary),
       copiedFromId: item.sourceId,
       createdAt: now,
       updatedAt: now,

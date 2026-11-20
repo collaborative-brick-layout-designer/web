@@ -9,3 +9,4 @@ export * from './replace.js';
 export * from './shared.js';
 export * from './keepIds.js';
 export * from './settle.js';
+export * from './setup.js';

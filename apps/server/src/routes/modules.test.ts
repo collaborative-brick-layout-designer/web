@@ -272,6 +272,76 @@ describe('modules', () => {
     expect(exportBbmFromDoc(doc)?.layers.map((l) => l.type)).toContain('brick');
   });
 
+  describe('table and power (setup)', () => {
+    const SETUP = {
+      table: { type: 'mils', heightMm: 781.1 },
+      power: { needed: true, outlets: 2, watts: 60, plugSide: 'back' },
+    };
+    async function made(cookie: string) {
+      const create = await app.inject({ method: 'POST', url: '/api/modules', headers: { cookie }, payload: { title: 'Yard' } });
+      return (create.json() as { id: string }).id;
+    }
+    const patch = (cookie: string, id: string, payload: unknown) =>
+      app.inject({ method: 'PATCH', url: `/api/modules/${id}`, headers: { cookie }, payload: payload as Record<string, unknown> });
+    const listed = async (cookie: string, id: string) =>
+      ((await app.inject({ method: 'GET', url: '/api/modules', headers: { cookie } })).json() as { modules: { id: string; setup: unknown }[] }).modules.find(
+        (m) => m.id === id,
+      );
+
+    it('starts unset, is saved with PATCH, listed, read and cleared with null', async () => {
+      const alice = await registerAndLogin(app, 'alice@example.com');
+      const id = await made(alice);
+      expect((await listed(alice, id))?.setup).toBeNull();
+      expect((await patch(alice, id, { setup: SETUP })).statusCode).toBe(200);
+      expect((await listed(alice, id))?.setup).toEqual(SETUP);
+      const one = (await app.inject({ method: 'GET', url: `/api/modules/${id}`, headers: { cookie: alice } })).json() as { module: { setup: unknown } };
+      expect(one.module.setup).toEqual(SETUP);
+      // Only the power: the table goes.
+      expect((await patch(alice, id, { setup: { power: { needed: false } } })).statusCode).toBe(200);
+      expect((await listed(alice, id))?.setup).toEqual({ power: { needed: false } });
+      expect((await patch(alice, id, { setup: null })).statusCode).toBe(200);
+      expect((await listed(alice, id))?.setup).toBeNull();
+    });
+
+    it('refuses a setup that is not one, and viewers', async () => {
+      const alice = await registerAndLogin(app, 'alice@example.com');
+      const bob = await registerAndLogin(app, 'bob@example.com');
+      const id = await made(alice);
+      for (const bad of [
+        { table: { type: 'tall' } },
+        { table: { type: 'mils', heightMm: -3 } },
+        { table: { type: 'mils', heightMm: 99999 } },
+        { power: { needed: 'yes' } },
+        { power: { needed: true, outlets: 1.5 } },
+        { power: { needed: true, plugSide: 'up' } },
+        { power: { needed: true, note: 'x'.repeat(10) } },
+        { other: 1 },
+        'mils',
+        [],
+      ]) {
+        const res = await patch(alice, id, { setup: bad });
+        expect(res.statusCode, JSON.stringify(bad)).toBe(400);
+        expect(res.json()).toEqual({ error: 'invalid_setup' });
+      }
+      const row = await db.select({ setup: schema.modules.setup }).from(schema.modules).where(eq(schema.modules.id, id)).get();
+      expect(row?.setup).toBeNull();
+      const bobUser = await db.select().from(schema.users).where(eq(schema.users.email, 'bob@example.com')).get();
+      await db.insert(schema.moduleCollaborators).values({ moduleId: id, userId: bobUser!.id, role: 'viewer', addedAt: new Date() });
+      expect((await patch(bob, id, { setup: SETUP })).statusCode).toBe(403);
+      // A viewer sees it.
+      await patch(alice, id, { setup: SETUP });
+      expect((await listed(bob, id))?.setup).toEqual(SETUP);
+    });
+
+    it('a copy keeps it', async () => {
+      const alice = await registerAndLogin(app, 'alice@example.com');
+      const id = await made(alice);
+      await patch(alice, id, { setup: SETUP });
+      const copied = await app.inject({ method: 'POST', url: `/api/modules/${id}/copy`, headers: { cookie: alice }, payload: {} });
+      expect((await listed(alice, (copied.json() as { id: string }).id))?.setup).toEqual(SETUP);
+    });
+  });
+
   describe('thumbnails', () => {
     let PNG: Buffer;
     beforeAll(async () => {

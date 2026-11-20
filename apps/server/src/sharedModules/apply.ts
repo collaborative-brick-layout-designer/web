@@ -20,10 +20,12 @@ import {
   alignToPlaced,
   detached,
   moduleBatchesFromBytes,
+  parseStoredSetup,
   placeVersion,
   resolvePlacement,
   sharedPlaced,
   sheetKey,
+  withLibrarySetup,
   withShared,
   type ModuleBatch,
   updateModuleParts,
@@ -181,6 +183,9 @@ export async function applyVersion(
   const before = modulesOf(session.doc).find((m) => m.id === placedId);
   const hadVersion = typeof before?.libraryVersion === 'number' ? before.libraryVersion : null;
   const current = hadVersion && hadVersion !== version ? batchesOrNull(await versionBytes(moduleId, hadVersion)) : hadVersion === version ? next : null;
+  // Its table and power come with the version (@cld/modules setup.ts).
+  const setupRow = await db.select({ setup: schema.modules.setup }).from(schema.modules).where(eq(schema.modules.id, moduleId)).get();
+  const setup = parseStoredSetup(setupRow?.setup);
   return inRoom(layoutId, ({ doc }): ApplyResult => {
     const mod = modulesOf(doc).find((m) => m.id === placedId);
     if (!mod) return { ok: false, error: 'not_placed' };
@@ -211,7 +216,7 @@ export async function applyVersion(
       chooser.pick,
       partOf,
       (m) => {
-        const linked = { ...m, libraryModuleId: moduleId, libraryVersion: version };
+        const linked = withLibrarySetup({ ...m, libraryModuleId: moduleId, libraryVersion: version }, setup);
         if (!shared) return linked;
         return withShared(linked, {
           placement: { degrees: placement.degrees, x: placement.x, y: placement.y, sheets: { ...chooser.used } },
