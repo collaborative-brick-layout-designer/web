@@ -12,3 +12,4 @@ export { MapLibrary, newBrickLayer, newGridLayer, newMap, type MapReadResult } f
 export { readFourDBrixMap, writeFourDBrixMap, type FourDBrixWriteOptions } from './mapformats/fourDBrix.js';
 export { partForTrackDesignerId, readTrackDesignerMap, writeTrackDesignerMap } from './mapformats/trackDesigner.js';
 export { readLDrawMap, writeLDrawMap, type LDrawReadOptions } from './mapformats/ldraw.js';
+export * from './track/index.js';

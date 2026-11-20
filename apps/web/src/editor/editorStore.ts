@@ -254,6 +254,10 @@ export interface EditorState {
   moduleFrameThickness: number;
   /** Show electric circuit overlay (`view/electricCircuits`). No-op until circuit data exists. */
   showElectricCircuits: boolean;
+  /** View › Switches: each switch's arrow, while editing too (`view/switches`). Run mode always shows them. */
+  showSwitches: boolean;
+  /** Run mode (trains design 6.3): a click on a switch flips it, and parts can't be moved. Not kept. */
+  runMode: boolean;
   /** Stamp export watermark on canvas export (`export/watermark`). */
   showExportWatermark: boolean;
   /** Module label font size percent (`view/moduleLabelPercent`). */
@@ -348,6 +352,8 @@ export interface EditorState {
   setShowBudgetNumbers: (v: boolean) => void;
   setModuleFrameThickness: (v: number) => void;
   setShowElectricCircuits: (v: boolean) => void;
+  setShowSwitches: (v: boolean) => void;
+  setRunMode: (v: boolean) => void;
   setShowExportWatermark: (v: boolean) => void;
   setModuleLabelPercent: (v: number) => void;
   setVenueLabelPx: (v: number) => void;
@@ -467,6 +473,8 @@ export const useEditorStore = create<EditorState>((set) => ({
   })(),
   reopenLastFile: localStorage.getItem('cld:reopenLastFile') === 'true',
   showElectricCircuits: localStorage.getItem('cld:showElectricCircuits') === 'true',
+  showSwitches: localStorage.getItem('cld:showSwitches') === 'true',
+  runMode: false,
   showExportWatermark: localStorage.getItem('cld:showExportWatermark') === 'true',
   // Desktop `view/moduleLabelPercent`: % of the module's long axis,
   // 5..100, default 35. New storage key — the old one held a different,
@@ -572,6 +580,12 @@ export const useEditorStore = create<EditorState>((set) => ({
     localStorage.setItem('cld:showElectricCircuits', String(v));
     set({ showElectricCircuits: v });
   },
+  setShowSwitches: (v) => {
+    localStorage.setItem('cld:showSwitches', String(v));
+    set({ showSwitches: v });
+  },
+  // Run mode starts with nothing picked, so no edit key acts on parts.
+  setRunMode: (v) => set(v ? { runMode: true, selection: [], tool: 'select' } : { runMode: false }),
   setShowExportWatermark: (v) => {
     localStorage.setItem('cld:showExportWatermark', String(v));
     set({ showExportWatermark: v });

@@ -39,6 +39,8 @@ function resetStore() {
     showModuleNames: false,
     moduleFrameThickness: 2,
     showElectricCircuits: false,
+    showSwitches: false,
+    runMode: false,
     showExportWatermark: false,
     moduleLabelPercent: 100,
     venueLabelPx: 28,

@@ -75,3 +75,31 @@ export function Toolbar({ noVenue = false }: { noVenue?: boolean } = {}) {
     </nav>
   );
 }
+
+/**
+ * "Run trains" (trains design 6.3): Run mode, where a click on a switch
+ * flips it and parts can't be moved, so nobody flips a switch by accident
+ * while building, or moves a part while playing with the switches.
+ */
+export function RunModeButton() {
+  const runMode = useEditorStore((s) => s.runMode);
+  const setRunMode = useEditorStore((s) => s.setRunMode);
+  return (
+    <button
+      type="button"
+      onClick={() => setRunMode(!runMode)}
+      aria-pressed={runMode}
+      data-testid="run-mode"
+      title={runMode ? 'Stop running: back to building' : 'Run trains: click switches to flip them'}
+      className={
+        'flex h-[54px] w-[60px] flex-col items-center justify-center gap-0.5 rounded-card text-[11px] font-bold transition-colors ' +
+        (runMode ? 'bg-accent text-accent-ink' : 'text-muted hover:bg-soft hover:text-ink')
+      }
+    >
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+        {runMode ? <rect x="6" y="6" width="12" height="12" rx="1" /> : <path d="M7 4l12 8-12 8z" />}
+      </svg>
+      {runMode ? 'Stop' : 'Run'}
+    </button>
+  );
+}

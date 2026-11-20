@@ -7,7 +7,7 @@ import { flushSync } from 'react-dom';
 import * as Y from 'yjs';
 import { Link, Navigate, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Stage, Layer as KonvaLayer, Circle, Group, Image as KonvaImage, Line, Text } from 'react-konva';
+import { Stage, Layer as KonvaLayer, Circle, Group, Image as KonvaImage, Line, Rect, Text } from 'react-konva';
 import Konva from 'konva';
 import type { KonvaEventObject } from 'konva/lib/Node';
 import { api, spriteUrlFor, type LayoutSummary, type PartWire } from '../api';
@@ -38,7 +38,7 @@ import {
   type AnnoDragHandlers,
   type NodeSnap,
 } from './render/groupDragNodes';
-import { Toolbar, toolLabel } from './Toolbar';
+import { RunModeButton, Toolbar, toolLabel } from './Toolbar';
 import { GridLayer } from './render/GridLayer';
 import { BrickLayer } from './render/BrickLayer';
 import { PartsPanel } from './PartsPanel';
@@ -53,6 +53,9 @@ import { TextLayers, type TextCellRef } from './render/TextLayer';
 import { RulerLayers } from './render/RulerLayer';
 import { AnchoredLabels } from './render/AnchoredLabels';
 import { ElectricCircuitLayer } from './render/ElectricCircuitLayer';
+import { SwitchLayer } from './render/SwitchLayer';
+import { legLabel, switchAt, switchMenuItems, useSwitchStates, useTrackNetwork, type SwitchMenuItem } from './trackSwitches';
+import { nextExit } from '@cld/parts-catalog/browser';
 import { BEND_HANDLE_NAME, BendHandles } from './render/BendHandles';
 import { ModuleOverlay, measureBold, moduleLabelBoundsStuds } from './render/ModuleOverlay';
 import { VenueOverlay } from './render/VenueOverlay';
@@ -106,6 +109,8 @@ import {
   deleteBricksAcrossLayers,
   groupBricksAcrossLayers,
   insertBricksAcrossLayers,
+  copySwitchStates,
+  setSwitch,
   insertBricks,
   insertSet,
   paintAreaCells,
@@ -340,6 +345,9 @@ const VIEW_BITMAP_LAYERS = ['background-layer', 'parts-layer', DRAG_LAYER]; // t
 const NO_MODULES: NonNullable<NonNullable<ReturnType<typeof readSidecarFromDoc>>['modules']> = [];
 
 function Editor({ layoutId, docState, moduleMode }: { layoutId: string; docState: LayoutDocState; moduleMode: boolean }) {
+  const runMode = useEditorStore((s) => s.runMode);
+  // Leaving the layout leaves Run mode: the next one opens for building.
+  useEffect(() => () => useEditorStore.getState().setRunMode(false), []);
   const { doc, awareness, loadError, loading, status, saveNow: checkSaved } = docState;
   // A layout is opening: the loading card counts its pictures afresh.
   useEffect(() => resetSpriteProgress(), [layoutId]);
@@ -1128,6 +1136,11 @@ function Editor({ layoutId, docState, moduleMode }: { layoutId: string; docState
                     Sheets…
                   </button>
                 )}
+                {role !== 'viewer' && (
+                  <button role="menuitem" type="button" data-testid="phone-run" onClick={() => useEditorStore.getState().setRunMode(!useEditorStore.getState().runMode)} className="block w-full px-3.5 py-3 text-left hover:bg-soft">
+                    {runMode ? 'Stop running trains' : 'Run trains'}
+                  </button>
+                )}
                 <button role="menuitem" type="button" onClick={() => setShowSettings(true)} className="block w-full px-3.5 py-3 text-left hover:bg-soft">
                   Settings
                 </button>
@@ -1377,6 +1390,9 @@ function Editor({ layoutId, docState, moduleMode }: { layoutId: string; docState
           <Toolbar noVenue={moduleMode} />
           <div className="mt-2 flex justify-center">
             <HelpButton helpKey="tools.rail" target='nav[aria-label="Build tools"]' />
+          </div>
+          <div className="mx-auto mt-3 w-[60px] border-t border-line pt-3">
+            <RunModeButton />
           </div>
         </aside>
       )}
@@ -2839,6 +2855,27 @@ function Canvas({
     wantSprites(spriteUrls(m, partsByKey));
   }, [shownMap, map, partsByKey, catalog.data, spriteUrls]);
   const linkCatalog = useMemo(() => catalogFromParts(catalog.data?.parts), [catalog.data]);
+  // The track network and its switches (trains design 6.3): the arrows,
+  // Run mode's clicks and the right-click menu's choices.
+  const showSwitches = useEditorStore((s) => s.showSwitches);
+  const runMode = useEditorStore((s) => s.runMode);
+  const trackNet = useTrackNetwork(map, catalog.data?.parts);
+  const switchStates = useSwitchStates(doc, map);
+  /** Run mode: a click or tap flips the switch nearest it. */
+  const onRunClick = (e: KonvaEventObject<MouseEvent | TouchEvent>) => {
+    if ('button' in e.evt && e.evt.button !== 0) return;
+    const at = pointerStuds();
+    if (!at || !trackNet) return;
+    const sw = switchAt(trackNet, switchStates, at, Math.max(4, 28 / (8 * zoom)));
+    const { showStatusMessage } = useEditorStore.getState();
+    if (!sw) {
+      showStatusMessage('Click on a switch to flip it.', 3000);
+      return;
+    }
+    const exit = nextExit(sw, trackNet.settingOf(sw, switchStates));
+    setSwitch(doc, sw.key, exit === sw.default ? null : exit);
+    showStatusMessage(`Switch set: ${legLabel(sw.legs[exit] ?? 'straight')}`, 3000);
+  };
   // Placed custom sets whose set changed since (sidecar `sets`, editor/setUpdates.ts).
   const setUpdates = useMemo(
     () => (isViewer ? [] : findSetUpdates(map, readSidecarFromDoc(doc) as Record<string, unknown> | null, partsByKey)),
@@ -4194,6 +4231,7 @@ function Canvas({
       // (insertBricksAcrossLayers adds the layers' parts in this order.)
       const originals = [...perLayer.values()].flat().map((b) => sourceOf.get(b) ?? '');
       copyPlacedSets(doc, originals.flatMap((from, i) => (anchors.has(from) && ids[i] ? [{ brick: ids[i], link: anchors.get(from)! }] : [])));
+      copySwitchStates(doc, originals, ids);
     }, LOCAL_ORIGIN);
     absorbIntoEditedModule(doc, ids);
     if (ids.length > 0) setSelection(ids);
@@ -4718,7 +4756,7 @@ function Canvas({
           skipContextMenuRef.current = false;
           return;
         }
-        if (isViewer) return;
+        if (isViewer || runMode) return;
         if (tool === 'venueOutline' || tool === 'venueObstacle') {
           finishVenueDraft();
           return;
@@ -4961,6 +4999,17 @@ function Canvas({
 
       {/* Layer 3 — HUD overlays (no hit-testing): drag ghost, marquee,
           snap ring, ruler/venue drafts, remote cursors. */}
+      {/* Switches (trains design 6.3): their arrows in Run mode or with View › Switches,
+          and in Run mode a cover that takes every click, so a click flips a
+          switch and never picks or moves a part. */}
+      {trackNet && (showSwitches || runMode) && (
+        <KonvaLayer name="switch-layer" listening={runMode} perfectDrawEnabled={false}>
+          <SwitchLayer net={trackNet} states={switchStates} zoom={zoom} />
+          {runMode && (
+            <Rect name="run-mode-cover" x={-1e7} y={-1e7} width={2e7} height={2e7} fill="rgba(0,0,0,0)" onClick={onRunClick} onTap={onRunClick} />
+          )}
+        </KonvaLayer>
+      )}
       <KonvaLayer ref={hudLayerRef} listening={false} perfectDrawEnabled={false}>
         {dropPart?.setBricks && (
           <ModuleGhost batches={[{ layerName: '', bricks: dropPart.setBricks }]} offset={{ dx: 0, dy: 0 }} partsByKey={partsByKey} />
@@ -5116,6 +5165,7 @@ function Canvas({
         />
       )}
       </Suspense>
+      {runMode && <RunModeBanner />}
       <SetUpdatesBar updates={setUpdates} onUpdate={updatePlacedSets} onShow={showPlacedSets} top={phone} />
       <SharedModulesHost doc={doc} layoutId={sharedLayoutId} isViewer={isViewer} onShowParts={showParts} parts={partsByKey} top={phone} />
       {ctxMenu && !isViewer && (
@@ -5152,6 +5202,16 @@ function Canvas({
           textCellRef={ctxMenu.textCellRef}
           rulerRef={ctxMenu.rulerRef}
           brickIdUnderCursor={ctxMenu.brickIdUnderCursor}
+          // The switch nearest the click (as Run mode finds it), whatever is drawn over it.
+          switchItems={switchMenuItems(
+            trackNet,
+            switchStates,
+            (trackNet && switchAt(trackNet, switchStates, { x: ctxMenu.studX, y: ctxMenu.studY }, Math.max(3, 20 / (8 * zoom)))?.brick) ?? ctxMenu.brickIdUnderCursor,
+          )}
+          onSetSwitch={(it) => {
+            const sw = trackNet?.switchAt(it.key);
+            setSwitch(doc, it.key, sw && it.exit === sw.default ? null : it.exit);
+          }}
           selectedRulerId={selectedRulerId}
           onAttachRuler={(which) => {
             if (!ctxMenu.brickIdUnderCursor || !selectedRulerId || !map) return;
@@ -5274,7 +5334,7 @@ function ScaleBarHud({ zoom, right = false }: { zoom: number; right?: boolean })
  */
 function CanvasContextMenu({
   x, y, onBrick, selection, map, doc, undo,
-  textCellRef, onEditText, rulerRef, brickIdUnderCursor, selectedRulerId, onAttachRuler,
+  textCellRef, onEditText, rulerRef, brickIdUnderCursor, switchItems, onSetSwitch, selectedRulerId, onAttachRuler,
   onClose, onCopy, onCut, onPaste, onDuplicate, onDelete,
   onRotateCCW, onRotateCW, onBringToFront, onSendToBack, onMoveToSheet,
   onGroup, onUngroup, ungroup, onSelectConnected, onAddTextHere, onProperties, onMakeModule,
@@ -5296,6 +5356,9 @@ function CanvasContextMenu({
   textCellRef: TextCellRef | null;
   rulerRef: { item: import('@cld/model').RulerItem; layerId: string } | null;
   brickIdUnderCursor: string | null;
+  /** The part under the cursor is a switch: the ways it can be set (trackSwitches.ts). */
+  switchItems: SwitchMenuItem[];
+  onSetSwitch: (item: SwitchMenuItem) => void;
   selectedRulerId: string | null;
   onAttachRuler: (which: 0 | 1) => void;
   onEditText: (ref: TextCellRef) => void;
@@ -5377,6 +5440,31 @@ function CanvasContextMenu({
     entries.push(sep('sm1'));
     for (const e of libraryEntries(module)) entries.push(item(e.label, e.onSelect, !!e.disabled));
     entries.push(sep('sm2'));
+  }
+
+  // A switch: set it to one of its ways (trains design 6.3).
+  if (switchItems.length > 0) {
+    entries.push(
+      <div key="swh" className="truncate px-3 pb-0.5 pt-1 text-[11px] uppercase tracking-wide text-muted">
+        Set the switch
+      </div>,
+    );
+    for (const it of switchItems) {
+      entries.push(
+        <button
+          key={`sw-${it.key}-${it.exit}`}
+          role="menuitemradio"
+          aria-checked={it.checked}
+          data-testid={`switch-set-${it.exit}`}
+          onClick={() => { onSetSwitch(it); onClose(); }}
+          className="w-full px-3 py-1 text-left text-xs hover:bg-neutral-700"
+        >
+          <span aria-hidden className="inline-block w-4">{it.checked ? '✓' : ''}</span>
+          {it.label}
+        </button>,
+      );
+    }
+    entries.push(sep('sw1'));
   }
 
   // A placed custom set whose set changed since: Update available.
@@ -6210,6 +6298,7 @@ function useMapMenuToggles(): MapMenuToggles {
       alwaysShowConnections: s.alwaysShowConnections, setAlwaysShowConnections: s.setAlwaysShowConnections,
       showModuleNames: s.showModuleNames, setShowModuleNames: s.setShowModuleNames,
       showElectricCircuits: s.showElectricCircuits, setShowElectricCircuits: s.setShowElectricCircuits,
+      showSwitches: s.showSwitches, setShowSwitches: s.setShowSwitches,
       showStatusBar: s.showStatusBar, setShowStatusBar: s.setShowStatusBar,
       useBudgetLimitation: s.useBudgetLimitation, setUseBudgetLimitation: s.setUseBudgetLimitation,
       showOnlyBudgetedParts: s.showOnlyBudgetedParts, setShowOnlyBudgetedParts: s.setShowOnlyBudgetedParts,
@@ -6226,6 +6315,7 @@ function useMapMenuToggles(): MapMenuToggles {
     alwaysShowConnections: toggle(store.alwaysShowConnections, store.setAlwaysShowConnections),
     moduleNames: toggle(store.showModuleNames, store.setShowModuleNames),
     electricCircuits: toggle(store.showElectricCircuits, store.setShowElectricCircuits),
+    switches: toggle(store.showSwitches, store.setShowSwitches),
     statusBar: toggle(store.showStatusBar, store.setShowStatusBar),
     budgetLimit: toggle(store.useBudgetLimitation, store.setUseBudgetLimitation),
     budgetOnly: toggle(store.showOnlyBudgetedParts, store.setShowOnlyBudgetedParts),
@@ -6822,3 +6912,24 @@ function shiftArea(map: import('@cld/model').BbmMap, shift: { layerId: string; d
 function textFontStyle(r: { isBold: boolean; isItalic: boolean }): string {
   return [r.isItalic ? 'italic' : '', r.isBold ? 'bold' : ''].filter(Boolean).join(' ') || 'normal';
 }
+
+/** Run mode's banner (trains design 6.3): what a click does now, and the way back. */
+function RunModeBanner() {
+  return (
+    <div role="status" data-testid="run-mode-banner" className="pointer-events-auto absolute left-1/2 top-3 z-20 flex -translate-x-1/2 items-center gap-3 rounded-full border border-line bg-panel px-4 py-2 text-sm shadow-pop">
+      <span aria-hidden className="text-accent">&#x25B6;&#xFE0E;</span>
+      <span>
+        <b>Run mode:</b> click a switch to flip it. Parts can&apos;t be moved.
+      </span>
+      <HelpButton helpKey="run.mode" />
+      <button
+        type="button"
+        onClick={() => useEditorStore.getState().setRunMode(false)}
+        className="h-8 rounded-control bg-accent px-3 text-xs font-bold text-accent-ink hover:bg-accent-hover"
+      >
+        Stop
+      </button>
+    </div>
+  );
+}
+

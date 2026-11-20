@@ -15,6 +15,7 @@ export {
   readSidecar,
   writeSidecar,
   readView,
+  readSwitchStatesField,
   venueLengthUnit,
   venueOwnLengthUnit,
   withVenueLengthUnit,

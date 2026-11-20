@@ -314,3 +314,16 @@ describe('a venue’s length unit', () => {
     expect(back.venue?.lengthUnit).toBe('m');
   });
 });
+
+describe('switch settings', () => {
+  it('round-trip in a sidecar, keep only whole exits on "<brick>/<heel>" keys, and stay out when none is set', () => {
+    const raw = JSON.stringify({ schemaVersion: 1, bbmHashSha256: '', switchStates: { 'P/0': 2, 'a/b/1': 0, 'bad': 1, 'Q/0': -1, 'R/0': 1.5, 'S/0': '1' } });
+    const back = readSidecar(raw);
+    expect(back.switchStates).toEqual({ 'P/0': 2, 'a/b/1': 0 });
+    expect(back.extras).toBeUndefined();
+    expect(readSidecar(writeSidecar(back)).switchStates).toEqual({ 'P/0': 2, 'a/b/1': 0 });
+    expect(JSON.parse(writeSidecar({ schemaVersion: 1, bbmHashSha256: '', switchStates: {} }))).not.toHaveProperty('switchStates');
+    expect(readSidecar(JSON.stringify({ schemaVersion: 1, bbmHashSha256: '', switchStates: [1] })).switchStates).toBeUndefined();
+  });
+});
+

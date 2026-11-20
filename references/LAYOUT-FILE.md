@@ -55,6 +55,20 @@ many of each part the layout may use, as `budgetLimits`:
 - A BlueBrick `.bbb` file is the same list in XML; both apps import and
   export it.
 
+It also carries how the layout's switches are set, as `switchStates`
+(trains design 2.2):
+
+```json
+"switchStates": { "17/0": 2, "23/1": 0 }
+```
+
+- `"<brick id>/<heel connection>"` → the connection a train leaves by. A
+  switch without a key is set to its default, the way that turns least;
+  none set: no field.
+- In the live doc it is a Y.Map at `meta.switchStates`, one key a switch,
+  not part of `meta.cache`, so flips of different switches merge. A sidecar
+  coming in lands there; one going out carries it. Never in a `.bbm`.
+
 ## Saved views
 
 `sidecar.json` (and the `.bbm.bld` sidecar, and the live doc's `meta.cache`)
