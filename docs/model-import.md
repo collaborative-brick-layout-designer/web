@@ -186,6 +186,8 @@ the `<PickShape>` has as many rings covering the same area within 2% (Qt
 simplifies the outline its own way). On the fixtures and the library's
 models the pictures came out identical but for a level or two on a few
 pixels, and 4 of 5 outlines point for point.
+Studio files are compared the same way: the fixtures packed as Studio packs
+them (ZipCrypto), and one with its own custom part on the tiny library.
 
 The v2.1.11 converter bundle has no Qt image-format plugins, so it can't
 read BlueBrick's GIF sprites: parts placed one by one get a 2 × 2 stud
