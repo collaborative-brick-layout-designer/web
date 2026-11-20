@@ -9,13 +9,15 @@
 import { useMemo, useState } from 'react';
 import type * as Y from 'yjs';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { turnedAround, type PlacedTrain, type RollingStock, type Train, type TrackNetwork } from '@cld/parts-catalog/browser';
+import { turnedAround, type FitCheck, type PlacedTrain, type RollingStock, type Train, type TrackNetwork } from '@cld/parts-catalog/browser';
 import { api, type PartWire, type RosterStock } from '../api';
 import { formatLength } from '../venues/designer/units';
 import { useLengthUnit } from '../theme/PrefsProvider';
 import { HelpButton } from '../help/HelpButton';
 import { SaveToPicker } from '../owners/OwnerControls';
 import { useEditorStore } from './editorStore';
+import { FitChecksList } from './FitChecksList';
+import type { namesOf } from './fitChecks';
 import { StockEditor } from './StockEditor';
 import {
   copyOf,
@@ -48,6 +50,9 @@ interface Props {
   isViewer: boolean;
   /** Signed in with a real account: rosters are offered. */
   canUseRoster: boolean;
+  /** The fit checks for the trains on the map (routes' are in the Routes panel). */
+  checks: readonly FitCheck[];
+  names: ReturnType<typeof namesOf>;
 }
 
 const btn = 'rounded border border-border px-2 py-1 text-xs hover:bg-soft disabled:opacity-50';
@@ -309,7 +314,7 @@ function SaveToRoster({ doc, s, onClose }: { doc: Y.Doc; s: RollingStock; onClos
   );
 }
 
-export function TrainsPanel({ doc, net, stock, trains, placed, switchStates, parts, isViewer, canUseRoster }: Props) {
+export function TrainsPanel({ doc, net, stock, trains, placed, switchStates, parts, isViewer, canUseRoster, checks, names }: Props) {
   const unit = useLengthUnit();
   const placing = useEditorStore((s) => s.trainPlacing);
   const [tab, setTab] = useState<'trains' | 'stock'>(() => (stock.length === 0 ? 'stock' : 'trains'));
@@ -499,6 +504,9 @@ export function TrainsPanel({ doc, net, stock, trains, placed, switchStates, par
                 setMessage(`Saved ${t.name}.`);
               }}
             />
+          )}
+          {trains.some((t) => t.position) && (
+            <FitChecksList checks={checks.filter((c) => c.train)} names={names} allClear="Every train on the track fits: nothing too long, too tight or too close." />
           )}
           {trains.length === 0 ? (
             <p className="text-muted">

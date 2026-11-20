@@ -11,7 +11,7 @@
 // stored (switchStates.ts), the default being the exit that turns least.
 
 import { circuitPath, pointAt, type CircuitPathPoint, type Pt } from './circuitPath.js';
-import { partTrack, type PartSwitch, type PartTrack, type TrackConn, type TrackKind } from './partTrack.js';
+import { electricCircuits, partTrack, type PartSwitch, type PartTrack, type TrackConn, type TrackKind } from './partTrack.js';
 
 /** One brick as the network reads it. */
 export interface TrackBrickInput {
@@ -181,6 +181,12 @@ export class TrackNetwork {
   pointAt(pos: TrackPosition): CircuitPathPoint | null {
     const pts = this.path(pos.brick, pos.from, pos.to);
     return pts.length ? pointAt(pts, Math.max(0, Math.min(pos.s, pts[pts.length - 1]!.s))) : null;
+  }
+
+  /** Whether the brick's track carries power: it has an electric circuit (9V). */
+  isPowered(brick: string): boolean {
+    const b = this.bricks.get(brick);
+    return !!b && electricCircuits(b.input.conns!).length > 0;
   }
 
   /** The kind of track a brick is (its first track connection's). */

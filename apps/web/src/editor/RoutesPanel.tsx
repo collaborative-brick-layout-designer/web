@@ -7,13 +7,15 @@
 
 import { useState } from 'react';
 import type * as Y from 'yjs';
-import type { Route, RouteStatus, TrackNetwork } from '@cld/parts-catalog/browser';
+import type { FitCheck, Route, RouteStatus, TrackNetwork } from '@cld/parts-catalog/browser';
 import { formatLength } from '../venues/designer/units';
 import { useLengthUnit } from '../theme/PrefsProvider';
 import { HelpButton } from '../help/HelpButton';
 import { useEditorStore } from './editorStore';
 import { setSwitches } from './mutations';
 import { findAgain, problemText, removeRoute, saveRoute } from './routes';
+import { FitChecksList } from './FitChecksList';
+import type { namesOf } from './fitChecks';
 
 interface Props {
   doc: Y.Doc;
@@ -23,6 +25,9 @@ interface Props {
   hidden: ReadonlySet<string>;
   setShown: (id: string, shown: boolean) => void;
   isViewer: boolean;
+  /** The routes' fit checks (turning a train around, polarity). */
+  checks?: readonly FitCheck[];
+  names?: ReturnType<typeof namesOf>;
 }
 
 function StatusChip({ status }: { status: RouteStatus | undefined }) {
@@ -39,7 +44,7 @@ function StatusChip({ status }: { status: RouteStatus | undefined }) {
   return <span data-testid="route-status" className="rounded-full bg-green-100 px-2 py-0.5 text-[11px] font-semibold text-green-800 dark:bg-green-950 dark:text-green-200">OK</span>;
 }
 
-export function RoutesPanel({ doc, net, routes, statuses, hidden, setShown, isViewer }: Props) {
+export function RoutesPanel({ doc, net, routes, statuses, hidden, setShown, isViewer, checks = [], names }: Props) {
   const unit = useLengthUnit();
   const drafting = useEditorStore((s) => s.routeDraft !== null);
   const [renaming, setRenaming] = useState<string | null>(null);
@@ -189,6 +194,7 @@ export function RoutesPanel({ doc, net, routes, statuses, hidden, setShown, isVi
           })}
         </ul>
       )}
+      {names && checks.length > 0 && <FitChecksList checks={checks} names={names} allClear="" title="Route checks" />}
     </div>
   );
 }

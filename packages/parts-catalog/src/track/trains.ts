@@ -146,7 +146,8 @@ export function partStockLength(conns: readonly { type: string; x: number; y: nu
 
 /** The track behind a train's head, as a line: points with their distance back from the head. */
 export interface TrackLine {
-  pts: { p: Pt; d: number }[];
+  /** Each point, its distance back from the head, and the brick it's on. */
+  pts: { p: Pt; d: number; brick: string }[];
   /** True when the track ran out before `length` (an end of track). */
   ended: boolean;
 }
@@ -156,7 +157,7 @@ export interface TrackLine {
  * as they are set (a train backing into a switch's heel takes the set way).
  */
 export function trackBehind(net: TrackNetwork, head: TrainPosition, length: number, states: Readonly<Record<string, number>> = {}): TrackLine {
-  const out: { p: Pt; d: number }[] = [];
+  const out: { p: Pt; d: number; brick: string }[] = [];
   let d = 0;
   // The way back through the head's brick: towards `from` when facing `to`.
   let brick = head.brick;
@@ -167,12 +168,12 @@ export function trackBehind(net: TrackNetwork, head: TrainPosition, length: numb
   const len0 = pts[pts.length - 1]!.s;
   let start = head.facing === 'to' ? len0 - Math.max(0, Math.min(head.s, len0)) : Math.max(0, Math.min(head.s, len0));
   for (let guard = 0; guard < 100000; guard++) {
-    if (out.length === 0) out.push({ p: pointAt(pts, start).p, d: 0 });
+    if (out.length === 0) out.push({ p: pointAt(pts, start).p, d: 0, brick });
     for (const q of pts) {
       if (q.s <= start) continue;
       const prev = out[out.length - 1]!;
       d += Math.hypot(q.p.x - prev.p.x, q.p.y - prev.p.y);
-      out.push({ p: q.p, d });
+      out.push({ p: q.p, d, brick });
       if (d >= length) return { pts: out, ended: false };
     }
     const next = net.partner({ brick, conn: leave });
@@ -190,6 +191,10 @@ export function trackBehind(net: TrackNetwork, head: TrainPosition, length: numb
 }
 
 /** The point on the line at distance `d` from the head. */
+export function lineAt(line: TrackLine, d: number): Pt | null {
+  return at(line, d);
+}
+
 function at(line: TrackLine, d: number): Pt | null {
   const pts = line.pts;
   if (pts.length === 0 || d > pts[pts.length - 1]!.d + 1e-9) return null;
@@ -244,12 +249,17 @@ export interface PlacedUnit {
   rearCoupler: Pt;
   /** The rear coupler's distance back from the head along the track. */
   back: number;
+  /** The trucks' distances back from the head along the track (the fit checks read the track there). */
+  frontD: number;
+  rearD: number;
 }
 
 export interface PlacedTrain {
   units: PlacedUnit[];
   /** Some cars didn't fit on the track behind the head (an end of track). */
   offTrack: boolean;
+  /** The track behind the head the cars were placed on. */
+  line?: TrackLine;
 }
 
 /** A unit's trucks and couplers in the order it runs (turned round: mirrored). */
@@ -300,6 +310,8 @@ export function placeTrain(
       frontCoupler: { x: centre.x + ux * g.half, y: centre.y + uy * g.half },
       rearCoupler: { x: centre.x - ux * g.half, y: centre.y - uy * g.half },
       back: rearD + (g.half + g.rear),
+      frontD,
+      rearD,
     };
   };
   for (const { u, s } of units) {
@@ -335,12 +347,12 @@ export function placeTrain(
       }
       unit = best === Infinity ? null : place(s, g, (lo + hi) / 2);
     }
-    if (!unit) return { units: out, offTrack: true };
+    if (!unit) return { units: out, offTrack: true, line };
     out.push(unit);
     couplerAt = unit.rearCoupler;
     along = unit.back;
   }
-  return { units: out, offTrack: false };
+  return { units: out, offTrack: false, line };
 }
 
 /** A train's coupler-to-coupler length, studs. */

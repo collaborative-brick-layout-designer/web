@@ -59,6 +59,8 @@ import { RoutesPanel } from './RoutesPanel';
 import { TrainsPanel } from './TrainsPanel';
 import { TrainLayer } from './render/TrainLayer';
 import { saveTrain, usePlacedTrains, useStock, useTrains } from './trains';
+import { namesOf, useFitChecks, useTrackRuns } from './fitChecks';
+import { FitLayer } from './render/FitLayer';
 import { formatLength } from '../venues/designer/units';
 import { useLengthUnit } from '../theme/PrefsProvider';
 import { newRoute, problemText, saveRoute, useHiddenRoutes, useRouteStatuses, useRoutes } from './routes';
@@ -663,6 +665,10 @@ function Editor({ layoutId, docState, moduleMode }: { layoutId: string; docState
   const editorTrains = useTrains(doc, docMap);
   const editorStockById = useMemo(() => new Map(editorStock.map((s) => [s.id, s])), [editorStock]);
   const editorPlaced = usePlacedTrains(editorTrackNet, editorTrains, editorStockById, editorSwitchStates);
+  // The fit checks (trains design 3.5), for the Trains and Routes panels.
+  const editorRuns = useTrackRuns(editorTrackNet);
+  const editorChecks = useFitChecks(editorTrackNet, editorRuns, editorTrains, editorStockById, editorRoutes, editorSwitchStates, editorPlaced);
+  const editorNames = useMemo(() => namesOf(editorTrains, editorStockById, editorRoutes), [editorTrains, editorStockById, editorRoutes]);
   // Budget limits live in the doc's meta (shared with collaborators,
   // undoable). A meta change yields a new docMap, so re-read on that.
   const budgetRead = useMemo(
@@ -850,7 +856,7 @@ function Editor({ layoutId, docState, moduleMode }: { layoutId: string; docState
     if (panelId === 'usedparts') return <UsedPartsPanel doc={doc} budgetLimits={budgetLimits} />;
     if (panelId === 'routes')
       return (
-        <RoutesPanel doc={doc} net={editorTrackNet} routes={editorRoutes} statuses={editorRouteStatuses} hidden={routesHidden.hidden} setShown={routesHidden.setShown} isViewer={isViewer} />
+        <RoutesPanel doc={doc} net={editorTrackNet} routes={editorRoutes} statuses={editorRouteStatuses} hidden={routesHidden.hidden} setShown={routesHidden.setShown} isViewer={isViewer} checks={editorChecks.filter((c) => c.route)} names={editorNames} />
       );
     if (panelId === 'trains')
       return (
@@ -864,6 +870,8 @@ function Editor({ layoutId, docState, moduleMode }: { layoutId: string; docState
           parts={catalog.data?.parts ?? []}
           isViewer={isViewer}
           canUseRoster={!!me.data?.user && !me.data.user.isDemoAccount}
+          checks={editorChecks}
+          names={editorNames}
         />
       );
     if (panelId === 'modules') return <Suspense fallback={null}><ModulesPanel doc={doc} isViewer={isViewer} layoutId={moduleMode ? null : layoutId} /></Suspense>;
@@ -2913,6 +2921,28 @@ function Canvas({
   const trains = useTrains(doc, map);
   const stockById = useMemo(() => new Map(stock.map((s) => [s.id, s])), [stock]);
   const placedTrains = usePlacedTrains(trackNet, trains, stockById, switchStates);
+  // Fit checks (trains design 3.5): the siding lengths, and a ring at each spot a check is about.
+  const showSidingLengths = useEditorStore((s) => s.showSidingLengths);
+  const spotlight = useEditorStore((s) => s.spotlight);
+  const runs = useTrackRuns(placedTrains.size > 0 || routes.length > 0 || showSidingLengths ? trackNet : null);
+  const checks = useFitChecks(trackNet, runs, trains, stockById, routes, switchStates, placedTrains);
+  // "Show me": bring the spot into view (not closer than 2:1) and ring it.
+  useEffect(() => {
+    const onSpot = (e: Event) => {
+      const at = (e as CustomEvent<{ x: number; y: number }>).detail;
+      if (!at) return;
+      const fit = fitView({ x: at.x - 24, y: at.y - 24, width: 48, height: 48 }, width, height, { min: MIN_ZOOM, max: Math.min(MAX_ZOOM, 2) });
+      if (fit) useEditorStore.setState(fit);
+      useEditorStore.getState().setSpotlight(at);
+    };
+    window.addEventListener('cld:show-spot', onSpot);
+    return () => window.removeEventListener('cld:show-spot', onSpot);
+  }, [width, height]);
+  useEffect(() => {
+    if (!spotlight) return;
+    const t = window.setTimeout(() => useEditorStore.getState().setSpotlight(null), 2500);
+    return () => window.clearTimeout(t);
+  }, [spotlight]);
   const trainPlacing = useEditorStore((s) => s.trainPlacing);
   const placingTrain = trainPlacing ? trains.find((t) => t.id === trainPlacing) ?? null : null;
   useEffect(() => {
@@ -5118,7 +5148,7 @@ function Canvas({
       {/* Switches (trains design 6.3): their arrows in Run mode or with View › Switches,
           and in Run mode a cover that takes every click, so a click flips a
           switch and never picks or moves a part. */}
-      {trackNet && (showSwitches || runMode || routeDraft || routes.length > 0 || trainPlacing || placedTrains.size > 0) && (
+      {trackNet && (showSwitches || runMode || routeDraft || routes.length > 0 || trainPlacing || placedTrains.size > 0 || showSidingLengths || spotlight) && (
         <KonvaLayer name="switch-layer" listening={runMode || !!routeDraft || !!trainPlacing} perfectDrawEnabled={false}>
           <RouteLayer
             net={trackNet}
@@ -5129,6 +5159,7 @@ function Canvas({
             draft={routeDraft ? { ends: [routeDraft.from, ...routeDraft.via, routeDraft.to].filter((p): p is TrackPosition => !!p), route: draftFound && typeof draftFound !== 'string' && routeDraft.from && routeDraft.to ? { steps: draftFound.steps, from: routeDraft.from, to: routeDraft.to } : null } : null}
           />
           <TrainLayer trains={trains} placed={placedTrains} stock={stockById} partsByKey={partsByKey} zoom={zoom} picked={trainPlacing} />
+          <FitLayer runs={showSidingLengths ? runs : []} checks={checks} spotlight={spotlight} zoom={zoom} />
           {(showSwitches || runMode) && <SwitchLayer net={trackNet} states={switchStates} zoom={zoom} />}
           {runMode && (
             <Rect name="run-mode-cover" x={-1e7} y={-1e7} width={2e7} height={2e7} fill="rgba(0,0,0,0)" onClick={onRunClick} onTap={onRunClick} />
@@ -6432,6 +6463,7 @@ function useMapMenuToggles(): MapMenuToggles {
       showModuleNames: s.showModuleNames, setShowModuleNames: s.setShowModuleNames,
       showElectricCircuits: s.showElectricCircuits, setShowElectricCircuits: s.setShowElectricCircuits,
       showSwitches: s.showSwitches, setShowSwitches: s.setShowSwitches,
+      showSidingLengths: s.showSidingLengths, setShowSidingLengths: s.setShowSidingLengths,
       showStatusBar: s.showStatusBar, setShowStatusBar: s.setShowStatusBar,
       useBudgetLimitation: s.useBudgetLimitation, setUseBudgetLimitation: s.setUseBudgetLimitation,
       showOnlyBudgetedParts: s.showOnlyBudgetedParts, setShowOnlyBudgetedParts: s.setShowOnlyBudgetedParts,
@@ -6449,6 +6481,7 @@ function useMapMenuToggles(): MapMenuToggles {
     moduleNames: toggle(store.showModuleNames, store.setShowModuleNames),
     electricCircuits: toggle(store.showElectricCircuits, store.setShowElectricCircuits),
     switches: toggle(store.showSwitches, store.setShowSwitches),
+    sidingLengths: toggle(store.showSidingLengths, store.setShowSidingLengths),
     statusBar: toggle(store.showStatusBar, store.setShowStatusBar),
     budgetLimit: toggle(store.useBudgetLimitation, store.setUseBudgetLimitation),
     budgetOnly: toggle(store.showOnlyBudgetedParts, store.setShowOnlyBudgetedParts),
