@@ -175,8 +175,20 @@ function TrainEditor({
 
 /** Your roster and your clubs': add one to this layout, or update the layout's copy. */
 function RosterPicker({ doc, stock, onClose }: { doc: Y.Doc; stock: readonly RollingStock[]; onClose: () => void }) {
+  const qc = useQueryClient();
   const roster = useQuery({ queryKey: ['rolling-stock'], queryFn: () => api.rollingStock.list() });
   const [message, setMessage] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  const removeEntry = async (e: RosterStock) => {
+    try {
+      await api.rollingStock.remove(e.id);
+      setMessage(`Took “${e.number || e.name}” off the roster. Layouts keep their copies.`);
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : 'It couldn’t be taken off the roster. Try again.');
+    }
+    setConfirmDelete(null);
+    void qc.invalidateQueries({ queryKey: ['rolling-stock'] });
+  };
   const entries = roster.data?.stock ?? [];
   const add = (e: RosterStock) => {
     const mine = copyOf(e.id, stock);
@@ -226,6 +238,21 @@ function RosterPicker({ doc, stock, onClose }: { doc: Y.Doc; stock: readonly Rol
                     {newer ? 'Update' : 'Add'}
                   </button>
                 )}
+                {e.canManage &&
+                  (confirmDelete === e.id ? (
+                    <span className="flex items-center gap-1">
+                      <button type="button" className="rounded bg-red-700 px-2 py-1 font-semibold text-white" onClick={() => void removeEntry(e)}>
+                        Take off
+                      </button>
+                      <button type="button" className={quiet} onClick={() => setConfirmDelete(null)}>
+                        Keep
+                      </button>
+                    </span>
+                  ) : (
+                    <button type="button" className={quiet} aria-label={`Take ${[e.number, e.name].filter(Boolean).join(' ') || 'it'} off the roster`} onClick={() => setConfirmDelete(e.id)}>
+                      ✕
+                    </button>
+                  ))}
               </li>
             );
           })}

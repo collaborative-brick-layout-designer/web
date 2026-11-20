@@ -338,3 +338,19 @@ describe('routes', () => {
     expect(JSON.parse(writeSidecar({ schemaVersion: 1, bbmHashSha256: '', routes: [] }))).not.toHaveProperty('routes');
   });
 });
+
+describe('rolling stock and trains', () => {
+  it('keep their records whole (unknown fields too), drop ones without an id, and leave out empty lists', () => {
+    const car = { id: 's1', number: '4021', length: 28, trucks: [{ at: 7, swivelMax: 30 }], later: { x: 1 } };
+    const train = { id: 't1', name: 'Freight', units: [{ stock: 's1', reversed: false }], position: null };
+    const back = readSidecar(JSON.stringify({ schemaVersion: 1, bbmHashSha256: '', rollingStock: [car, { number: 'no id' }], trains: [train, 7] }));
+    expect(back.rollingStock).toEqual([car]);
+    expect(back.trains).toEqual([train]);
+    const again = readSidecar(writeSidecar(back));
+    expect(again.rollingStock).toEqual([car]);
+    expect(again.trains).toEqual([train]);
+    const empty = JSON.parse(writeSidecar({ schemaVersion: 1, bbmHashSha256: '', rollingStock: [], trains: [] }));
+    expect(empty).not.toHaveProperty('rollingStock');
+    expect(empty).not.toHaveProperty('trains');
+  });
+});

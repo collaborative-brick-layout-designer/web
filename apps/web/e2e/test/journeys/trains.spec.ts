@@ -189,4 +189,12 @@ test('a car saved to your roster goes into another layout and is brought up to d
   await item2.getByRole('button', { name: 'Update from roster' }).click();
   await expect.poll(async () => (await saved(page, second)).rollingStock?.[0]).toMatchObject({ length: 36, libraryVersion: 2 });
   await expect(item2).not.toContainText('newer version');
+
+  // Taken off the roster: the layout keeps its copy.
+  const picker2 = page.getByTestId('roster-picker');
+  if (!(await picker2.isVisible())) await page.getByTestId('roster-open').click();
+  await picker2.getByRole('button', { name: 'Take 4021 off the roster' }).click();
+  await picker2.getByRole('button', { name: 'Take off', exact: true }).click();
+  await expect(picker2).toContainText('Your roster is empty');
+  await expect(page.getByRole('list', { name: 'Rolling stock' })).toContainText('4021');
 });
