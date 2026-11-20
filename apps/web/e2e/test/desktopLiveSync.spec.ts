@@ -89,6 +89,15 @@ class Driver {
     }
   }
 
+  /** The desktop's switch settings, or null when this driver has no switch commands (older desktop). */
+  async switches(): Promise<Record<string, number> | null> {
+    try {
+      return JSON.parse(await this.run('switches')) as Record<string, number>;
+    } catch {
+      return null;
+    }
+  }
+
   async close(): Promise<void> {
     if (this.proc.exitCode !== null) return;
     this.proc.stdin.write('quit\n');
@@ -587,4 +596,59 @@ test.describe('desktop and web live editing', () => {
       await driver.close();
     }
   });
+
+  test('switches: a flip on the web shows on the desktop live, and the other way round', async ({ page, request, browser }) => {
+    test.setTimeout(120_000);
+    const stamp = Date.now();
+    await signIn(page, `switch-desk-web-${stamp}@example.com`, 'Web Tester');
+    const created = await page.request.post('/api/layouts', { data: { title: 'Switches, web and desktop', bbm: TIGHT_CORNER_BBM } });
+    const { id } = (await created.json()) as { id: string };
+    const deskEmail = `switch-desk-driver-${stamp}@example.com`;
+    const desk = await browser.newContext();
+    await signIn(desk, deskEmail, 'Desktop Driver');
+    const deskPage = await desk.newPage();
+    const invite = await page.request.post(`/api/layouts/${id}/invites`, { data: { email: deskEmail, role: 'editor' } });
+    expect((await deskPage.request.post(`/api/invites/${((await invite.json()) as { token: string }).token}`)).ok()).toBe(true);
+    const token = await desktopToken(deskPage, request);
+    await desk.close();
+    const driver = new Driver(DRIVER!, token);
+    /** Every switch arrow on the web: key, color and its heel on the page. */
+    const arrows = () =>
+      page.evaluate(() => {
+        type N = { name: () => string; getClassName: () => string; getAttr: (k: string) => unknown; find: (f: (n: N) => boolean) => N[]; getAbsolutePosition: () => { x: number; y: number }; getStage: () => { container: () => HTMLElement } };
+        const out: { key: string; color: string; x: number; y: number }[] = [];
+        for (const st of (window as unknown as { Konva: { stages: N[] } }).Konva.stages)
+          for (const g of st.find((n) => n.getClassName() === 'Group' && n.name().startsWith('switch-') && n.name() !== 'switch-arrows')) {
+            const heel = g.find((n) => n.getClassName() === 'Circle')[0]!;
+            const at = heel.getAbsolutePosition();
+            const box = heel.getStage().container().getBoundingClientRect();
+            out.push({ key: g.name().slice('switch-'.length), color: String(g.find((n) => n.getClassName() === 'Arrow')[0]!.getAttr('stroke')), x: box.left + at.x, y: box.top + at.y });
+          }
+        return out;
+      });
+    try {
+      await driver.run(`open ${id}`);
+      await driver.run('wait-synced');
+      test.skip((await driver.switches()) === null, 'this bld_sync_driver has no switch commands yet (desktop main is older)');
+      await page.goto(`/editor/${id}`);
+      await expect(page.locator('canvas').first()).toBeVisible({ timeout: 15000 });
+      await page.getByTestId('run-mode').click();
+      await expect.poll(async () => (await arrows()).length, { timeout: 20000 }).toBe(8);
+
+      // The web flips one: the desktop has the setting.
+      const first = (await arrows())[0]!;
+      await page.mouse.click(first.x, first.y);
+      await expect.poll(async () => Object.keys((await driver.switches()) ?? {}), { timeout: 10_000 }).toEqual([first.key]);
+
+      // The desktop puts it back, then flips it again: the web follows each.
+      const exit = (await driver.switches())![first.key]!;
+      await driver.run(`switch-set ${first.key} default`);
+      await expect.poll(async () => (await arrows()).find((a) => a.key === first.key)?.color, { timeout: 10_000 }).toBe('#16A34A');
+      await driver.run(`switch-set ${first.key} ${exit}`);
+      await expect.poll(async () => (await arrows()).find((a) => a.key === first.key)?.color, { timeout: 10_000 }).toBe('#EA580C');
+    } finally {
+      await driver.close();
+    }
+  });
 });
+

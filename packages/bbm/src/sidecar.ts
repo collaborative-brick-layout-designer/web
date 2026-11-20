@@ -267,6 +267,13 @@ export interface Sidecar {
    * export it.
    */
   budgetLimits?: Record<string, number>;
+  /**
+   * How the layout's switches are set (trains design 2.2): "<brick id>/<heel
+   * connection>" to the connection a train leaves by. A switch with no key
+   * is set to its default, the way that turns least; absent when none is
+   * set. The live doc keeps it in `meta.switchStates`. Never in a .bbm.
+   */
+  switchStates?: Record<string, number>;
   /** Unknown top-level fields preserved verbatim across round-trip. */
   extras?: Record<string, unknown>;
 }
@@ -279,6 +286,16 @@ export function readBudgetLimitsField(v: unknown): Record<string, number> | unde
     if (typeof limit === 'number' && Number.isFinite(limit) && limit >= 0) out[part] = Math.floor(limit);
   }
   return out;
+}
+
+/** A sidecar's `switchStates`: "<brick>/<heel>" to a connection index (a whole number, 0 or more); undefined when it has none. */
+export function readSwitchStatesField(v: unknown): Record<string, number> | undefined {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return undefined;
+  const out: Record<string, number> = {};
+  for (const [key, exit] of Object.entries(v as Record<string, unknown>)) {
+    if (typeof exit === 'number' && Number.isInteger(exit) && exit >= 0 && /^.+\/\d+$/.test(key)) out[key] = exit;
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
 }
 
 export function readSidecar(raw: string): Sidecar {
@@ -315,6 +332,8 @@ export function readSidecar(raw: string): Sidecar {
   }
   const budget = readBudgetLimitsField(parsed.budgetLimits);
   if (budget) sidecar.budgetLimits = budget;
+  const switches = readSwitchStatesField(parsed.switchStates);
+  if (switches) sidecar.switchStates = switches;
 
   const knownKeys = new Set([
     'schemaVersion',
@@ -326,6 +345,7 @@ export function readSidecar(raw: string): Sidecar {
     'views',
     'sets',
     'budgetLimits',
+    'switchStates',
   ]);
   const extras: Record<string, unknown> = {};
   for (const key of Object.keys(parsed)) {
@@ -372,6 +392,7 @@ export function writeSidecar(sidecar: Sidecar, opts: WriteSidecarOptions = {}): 
   if (sidecar.views) out.views = sidecar.views;
   if (sidecar.sets && sidecar.sets.length > 0) out.sets = sidecar.sets;
   if (sidecar.budgetLimits) out.budgetLimits = sidecar.budgetLimits;
+  if (sidecar.switchStates && Object.keys(sidecar.switchStates).length > 0) out.switchStates = sidecar.switchStates;
   if (sidecar.extras) {
     for (const [k, v] of Object.entries(sidecar.extras)) out[k] = v;
   }

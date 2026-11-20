@@ -10,7 +10,7 @@
 
 import * as Y from 'yjs';
 import { BBM_FORMAT_VERSION, type BbmMap } from '@cld/model';
-import type { Sidecar } from '@cld/bbm';
+import { readSwitchStatesField, type Sidecar } from '@cld/bbm';
 import { bbmToDoc, docToBbm } from './projection.js';
 import { keepDrawnSettingsInRange } from './drawnLimits.js';
 
@@ -174,21 +174,87 @@ export function readBudgetLimitsFromDoc(doc: Y.Doc): Record<string, number> | un
  * budget in the sidecar, the doc's budget is left as it is.
  */
 export function importSidecarIntoDoc(doc: Y.Doc, sidecar: Sidecar): void {
-  const { budgetLimits, ...rest } = sidecar;
+  const { budgetLimits, switchStates, ...rest } = sidecar;
   const meta = doc.getMap('meta');
   meta.set('cache', rest as unknown as Record<string, unknown>);
+  if (switchStates && Object.keys(switchStates).length > 0) {
+    const y = new Y.Map<number>();
+    for (const [key, exit] of Object.entries(switchStates)) y.set(key, exit);
+    meta.set(SWITCH_STATES_KEY, y);
+  }
   if (!budgetLimits) return;
   const y = new Y.Map<number>();
   for (const [part, limit] of Object.entries(budgetLimits)) y.set(part, limit);
   meta.set(BUDGET_LIMITS_KEY, y);
 }
 
-/** `cache` with the doc's budget, as a sidecar. */
+/** `cache` with the doc's budget and switch settings, as a sidecar. */
 function withBudget(doc: Y.Doc, cache: Record<string, unknown> | null): Sidecar | null {
   const budgetLimits = readBudgetLimitsFromDoc(doc);
-  if (!cache) return budgetLimits ? { schemaVersion: 1, bbmHashSha256: '', budgetLimits } : null;
-  const { budgetLimits: _inCache, ...rest } = cache;
-  return (budgetLimits ? { ...rest, budgetLimits } : rest) as unknown as Sidecar;
+  const states = readSwitchStatesFromDoc(doc);
+  const switchStates = Object.keys(states).length > 0 ? states : undefined;
+  if (!cache) {
+    if (!budgetLimits && !switchStates) return null;
+    return { schemaVersion: 1, bbmHashSha256: '', ...(budgetLimits ? { budgetLimits } : {}), ...(switchStates ? { switchStates } : {}) };
+  }
+  const { budgetLimits: _inCache, switchStates: _statesInCache, ...rest } = cache;
+  return { ...rest, ...(budgetLimits ? { budgetLimits } : {}), ...(switchStates ? { switchStates } : {}) } as unknown as Sidecar;
+}
+
+// ---------------------------------------------------------------------------
+// Switch settings (trains design 2.2) live outside `meta.cache` too, as a
+// Y.Map at `meta.switchStates` ("<brick id>/<heel>" -> the connection a
+// train leaves by), set one key at a time like the budget: two people
+// flipping different switches merge; the same switch, the last one wins. A
+// switch without a key is set to its default. An older web build that
+// imported a file kept the field in `meta.cache`; it is read from there
+// until the first flip moves it over.
+// ---------------------------------------------------------------------------
+
+export const SWITCH_STATES_KEY = 'switchStates';
+
+/** The doc's switch settings ({} when none is set). */
+export function readSwitchStatesFromDoc(doc: Y.Doc): Record<string, number> {
+  const meta = doc.getMap('meta');
+  const y = meta.get(SWITCH_STATES_KEY);
+  if (y instanceof Y.Map) {
+    const out: Record<string, number> = {};
+    for (const [key, exit] of y.entries()) if (typeof exit === 'number' && Number.isInteger(exit) && exit >= 0) out[key] = exit;
+    return out;
+  }
+  const cache = meta.get('cache') as Record<string, unknown> | undefined;
+  return readSwitchStatesField(cache?.switchStates) ?? {};
+}
+
+/**
+ * Set some switches (null: back to the default, the key goes), one key at a
+ * time. Keys of parts no longer on the map (`present`, when given) are
+ * dropped as it writes. Call inside the caller's transaction (its origin
+ * decides whether Undo takes it back).
+ */
+export function writeSwitchStates(doc: Y.Doc, changes: Readonly<Record<string, number | null>>, present?: ReadonlySet<string>): void {
+  const meta = doc.getMap('meta');
+  let y = meta.get(SWITCH_STATES_KEY);
+  if (!(y instanceof Y.Map)) {
+    const fromCache = readSwitchStatesFromDoc(doc);
+    y = new Y.Map<number>();
+    for (const [key, exit] of Object.entries(fromCache)) (y as Y.Map<number>).set(key, exit);
+    meta.set(SWITCH_STATES_KEY, y);
+  }
+  const ym = y as Y.Map<number>;
+  for (const [key, exit] of Object.entries(changes)) {
+    if (exit === null) {
+      if (ym.has(key)) ym.delete(key);
+    } else if (ym.get(key) !== exit) {
+      ym.set(key, exit);
+    }
+  }
+  if (present) {
+    for (const key of [...ym.keys()]) {
+      const at = key.lastIndexOf('/');
+      if (at <= 0 || !present.has(key.slice(0, at))) ym.delete(key);
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------

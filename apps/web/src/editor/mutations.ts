@@ -8,7 +8,7 @@
 // distinguish "this user's edits" from "other users' edits" using the
 // y-websocket clientID; for Phase 3 single-user, LOCAL_ORIGIN is enough.
 
-import { readSidecarCache as readMergedSidecar, writeSidecarCache as writeMergedSidecar } from '@cld/ydoc';
+import { readSidecarCache as readMergedSidecar, readSwitchStatesFromDoc, writeSidecarCache as writeMergedSidecar, writeSwitchStates } from '@cld/ydoc';
 import * as Y from 'yjs';
 import type { ColorSpec, FontSpec, Group, Layer, RectangleF } from '@cld/model';
 import type { AnchoredLabel, BackgroundImage, SavedView, SidecarModule } from '@cld/bbm';
@@ -3033,4 +3033,54 @@ export function clearBackgroundImage(doc: Y.Doc, opts: { untracked?: boolean } =
     const { backgroundImage: _removed, ...rest } = readSidecarCache(doc);
     writeSidecarCache(doc, rest);
   }, opts.untracked ? BACKGROUND_REMOVED_ORIGIN : LOCAL_ORIGIN);
+}
+
+/** Every brick id in the doc, on any sheet (mixedSelection.ts brickIdsInDoc, which imports this file). */
+function bricksInDoc(doc: Y.Doc): Set<string> {
+  const ids = new Set<string>();
+  doc.getMap('layerData').forEach((layer) => {
+    const bricks = layer instanceof Y.Map ? layer.get('bricks') : null;
+    if (bricks instanceof Y.Array) bricks.forEach((b) => b instanceof Y.Map && ids.add(b.get('id') as string));
+  });
+  return ids;
+}
+
+/**
+ * Set a switch (trains design 2.2): from heel `key` ("<brick>/<heel>") a
+ * train leaves by `exit`; null puts it back to its default. One undo step,
+ * in Run mode too (Aaron, 2026-11-19). Keys of parts no longer on the map
+ * are dropped as it writes.
+ */
+export function setSwitch(doc: Y.Doc, key: string, exit: number | null): void {
+  doc.transact(() => {
+    writeSwitchStates(doc, { [key]: exit }, bricksInDoc(doc));
+  }, LOCAL_ORIGIN);
+}
+
+/** Several switches at once, as one undo step (a route's Set switches). */
+export function setSwitches(doc: Y.Doc, changes: Readonly<Record<string, number | null>>): void {
+  if (Object.keys(changes).length === 0) return;
+  doc.transact(() => {
+    writeSwitchStates(doc, changes, bricksInDoc(doc));
+  }, LOCAL_ORIGIN);
+}
+
+/**
+ * Copies of parts keep their originals' switch settings: `from[i]` was
+ * copied as `to[i]`. Call inside the copy's transaction.
+ */
+export function copySwitchStates(doc: Y.Doc, from: readonly string[], to: readonly string[]): void {
+  const states = readSwitchStatesFromDoc(doc);
+  if (Object.keys(states).length === 0) return;
+  const newId = new Map<string, string>();
+  from.forEach((f, i) => {
+    if (f && to[i]) newId.set(f, to[i]);
+  });
+  const changes: Record<string, number> = {};
+  for (const [key, exit] of Object.entries(states)) {
+    const at = key.lastIndexOf('/');
+    const brick = newId.get(key.slice(0, at));
+    if (brick) changes[`${brick}${key.slice(at)}`] = exit;
+  }
+  if (Object.keys(changes).length > 0) writeSwitchStates(doc, changes);
 }

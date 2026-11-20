@@ -65,6 +65,8 @@ export interface MapMenuToggles {
   alwaysShowConnections: Toggle;
   moduleNames: Toggle;
   electricCircuits: Toggle;
+  /** View › Switches: the switches' arrows while building (Run mode always shows them). */
+  switches: Toggle;
   statusBar: Toggle;
   budgetLimit: Toggle;
   budgetOnly: Toggle;
@@ -157,6 +159,7 @@ export function mapMenuEntries(a: MapMenuActions, t: MapMenuToggles, mod = modKe
         check('show-connection-points', 'Connection points', t.connectionPoints),
         check('always-show-connections', 'Always show connections', t.alwaysShowConnections),
         check('show-electric', 'Electric circuits', t.electricCircuits),
+        check('show-switches', 'Switches', t.switches),
         check('show-ruler-points', 'Ruler attach points', t.rulerAttachPoints),
         check('show-hulls', 'Brick hulls', t.brickHulls),
         check('show-elevation', 'Brick elevation labels', t.brickElevation),
@@ -275,6 +278,7 @@ export function phoneMapEntries(a: PhoneMapActions, t: PhoneMapToggles, editing:
         check('show-connection-points', 'Connection points', t.connectionPoints),
         check('always-show-connections', 'Always show connections', t.alwaysShowConnections),
         check('show-electric', 'Electric circuits', t.electricCircuits),
+        check('show-switches', 'Switches', t.switches),
         check('show-ruler-points', 'Ruler attach points', t.rulerAttachPoints),
         check('show-hulls', 'Brick hulls', t.brickHulls),
         check('show-elevation', 'Brick elevation labels', t.brickElevation),
