@@ -8,7 +8,7 @@ import type { HelpEntry } from './helpTexts';
 export const WEB_ONLY_HELP_TEXTS = {
   'admin.imports': {
     title: 'Model import',
-    short: 'Lets people import LDraw, Studio and LDD files: LDraw is read in their browser, the rest here by the desktop app’s own importer.',
+    short: 'Lets people import LDraw, Studio and LDD files: LDraw and Studio in their browser, LDD here by the desktop app’s own importer.',
     more: 'People’s browsers read LDraw models themselves with this site’s LDraw library. The server’s importer reads the rest, locked down: no network, its own folder, limits on time and memory, and the file is deleted once it’s read. Turn importing off here, or with IMPORTS_ENABLED on the server.',
   },
   'admin.importLibraries': {
@@ -29,8 +29,8 @@ export const WEB_ONLY_HELP_TEXTS = {
   },
   'import.inBrowser': {
     title: 'Read in your browser',
-    short: 'Your browser reads LDraw models itself, as the desktop app does, fetching only the parts they use from this site.',
-    more: 'Big models take a moment while the parts arrive; parts already fetched once come from your browser’s own copy. If your browser can’t read a model, the site reads it instead and says so. Studio and LDD files are read by the site.',
+    short: 'Your browser reads LDraw and Studio models itself, as the desktop app does, fetching only the parts they use from this site.',
+    more: 'Big models take a moment while the parts arrive; parts already fetched once come from your browser’s own copy. If your browser can’t read a model, the site reads it instead and says so. LDD files are read by the site.',
     learnMoreUrl: '/help#importing',
   },
   'import.zoom': {

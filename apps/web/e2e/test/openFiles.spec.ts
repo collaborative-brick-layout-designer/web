@@ -16,6 +16,8 @@ const FIXTURES = join(dirname(fileURLToPath(import.meta.url)), '../../../../pack
 const EMAIL = `openfiles-e2e-${Date.now()}@example.com`;
 const BBM = readFileSync(join(FIXTURES, 'tight-corner.bbm'));
 const TDL = readFileSync(join(FIXTURES, 'oracle/tight-corner.tdl'));
+// A Studio file packed as Studio packs it (ZipCrypto), using the e2e library's parts and one of its own.
+const MINI_IO = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '../fixtures/mini-city.io'));
 const bricks = (bbm: string) => bbm.split('<Brick ').length - 1;
 // tight-corner.bbm's 16 + 16 "TB CT R24/R32" curves aren't in the parts library.
 const FIXTURE_MISSING = 32;
@@ -135,8 +137,8 @@ test.describe('Open a file', () => {
     const dialog = page.getByRole('dialog', { name: 'Import a model' });
     for (const [name, how] of [['ninjago.io', 'drop'], ['house.lxf', 'pick'], ['train.ldr', 'drop']] as const) {
       net.stage(name);
-      // An LDraw file is read in the browser (the e2e library is fixtures/minilib); the others by the server.
-      const bytes = name.endsWith('.ldr') ? Buffer.from('0 Train\n1 4 0 0 0 1 0 0 0 1 0 0 0 1 box2.dat\n') : Buffer.from('PK\x03\x04');
+      // LDraw and Studio files are read in the browser (the e2e library is fixtures/minilib); LDD by the server.
+      const bytes = name.endsWith('.ldr') ? Buffer.from('0 Train\n1 4 0 0 0 1 0 0 0 1 0 0 0 1 box2.dat\n') : name.endsWith('.io') ? MINI_IO : Buffer.from('PK\x03\x04');
       if (how === 'drop') await dropFile(page, name, bytes);
       else await pickFromHome(page, name, bytes);
       await expect(dialog.getByTestId('import-preview')).toBeVisible({ timeout: 30000 });

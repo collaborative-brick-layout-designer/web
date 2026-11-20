@@ -106,7 +106,7 @@ describe('import library files', () => {
     expect(r).toMatchObject({ enabled: true, studio: null });
     expect(r.ldraw).toMatch(/^[0-9a-f]{16}$/);
     const s = (await get('/api/imports/status')).json();
-    expect(s.browser).toEqual({ available: true, extensions: ['ldr', 'mpd', 'dat'], ldraw: r.ldraw, studio: null });
+    expect(s.browser).toEqual({ available: true, extensions: ['ldr', 'mpd', 'dat', 'io'], ldraw: r.ldraw, studio: null });
   });
 
   it('finds parts as the desktop does: parts, p, p/48, any case, a folder hint, unofficial after official', async () => {

@@ -30,7 +30,7 @@ import { SaveToPicker } from '../owners/OwnerControls';
 import { useTours } from '../tours/TourProvider';
 import { DESKTOP_URL } from '../projectLinks';
 import { importApi, importErrorText, uploadModel, type ConvertChoices, type ImportJob, type ImportResult, type ImportTarget, type ToPlace } from './importApi';
-import { base64Of, BrowserImport, canImportInBrowser, FallBack, utf8Base64, type BrowserProgress } from './browserImport';
+import { base64Of, BrowserImport, canImportInBrowser, FallBack, libraryFor, utf8Base64, type BrowserProgress } from './browserImport';
 import { partToPlace } from './placeImport';
 import { aligned, connectionTypeName, rotated, type Align } from './previewMath';
 import { PreviewCanvas } from './PreviewCanvas';
@@ -155,7 +155,7 @@ export function ImportDialog({ file, into, isAdmin = false, onClose, onDone, pur
         const catalog = await qc.fetchQuery({ queryKey: ['parts-catalog'], queryFn: api.parts.catalog, staleTime: 5 * 60 * 1000 });
         // The converter has the site's own parts library, not people's custom parts.
         const bundled = catalog.parts.filter((p) => p.source === 'bundled');
-        const analysis = await b.analyse(file, status.data!.browser!.ldraw!, bundled);
+        const analysis = await b.analyse(file, libraryFor(file.name, status.data)!, bundled);
         if (!live) return;
         setProgress(null);
         setJob({ id: '', fileName: file.name, state: 'ready', step: 'analyse', position: 0, error: null, analysis, result: null });

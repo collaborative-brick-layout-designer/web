@@ -93,10 +93,24 @@ arrow keys over the picture nudge it, as the desktop's do.
 
 ## In the browser
 
-The browser's own importer reads and draws an LDraw model (`.ldr`, `.mpd`,
-`.dat`) itself, in a Web Worker, so the server only hands it library files
-and saves the result. Studio and LDD files still go to the server's
-converter for now, as does any model the browser can't manage.
+The browser's own importer reads and draws LDraw models (`.ldr`, `.mpd`,
+`.dat`) and BrickLink Studio models (`.io`) itself, in a Web Worker, so the
+server only hands it library files and saves the result. LDD files still go
+to the server's converter for now, as does any model the browser can't
+manage.
+
+**Studio files** (`studioReader.ts`, `zip.ts`): the desktop's readStudioIo and
+SafeZip. An `.io` is a ZIP; Studio 2.1 and later encrypt every entry with
+ZipCrypto under Studio's published password (tried, then an empty one). The
+reader inflates with the browser's own `DecompressionStream` (never past the
+size an entry claims), checks every CRC, keeps the desktop's limits (128 MB
+model, 64 MB a custom part, 512 MB and 5000 of them in all) and words every
+refusal as the desktop does (AES, an unknown password, damage, too big). It
+takes `model.ldr` (else another `.ldr`, `model2.ldr` last, never
+`modelv1.ldr`); `CustomParts/*.dat` with plain names become the model's own
+parts, found before the site's library and never fetched from it. A Studio
+file is drawn from Studio's own library when the site has one (the status's
+`browser.studio`), else the LDraw library, as the desktop does.
 
 **The library files** (`apps/server/src/imports/libraryFiles.ts`,
 `apps/server/src/routes/importLibraries.ts`), for signed-in people while
