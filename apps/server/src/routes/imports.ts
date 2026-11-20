@@ -17,7 +17,7 @@
 //
 // Admin › Model import:
 //   GET    /api/admin/imports                       converter, libraries, settings, queue
-//   PATCH  /api/admin/imports                       { enabled?, limits? }
+//   PATCH  /api/admin/imports                       { enabled?, serverBackup?, limits? }
 //   POST   /api/admin/imports/ldraw/download        fetch the official LDraw library
 //   DELETE /api/admin/imports/ldraw
 //   POST   /api/admin/imports/ldd/assets            multipart `file`: LDD's Assets.lif
@@ -75,6 +75,7 @@ import {
 } from '../imports/libraries.js';
 import { IMPORT_SETTINGS, importSettings, saveImportSettings } from '../imports/settings.js';
 import { library } from '../imports/libraryFiles.js';
+import { lddLibrary, lddMapping } from '../imports/lddFiles.js';
 
 /** The file types the site imports. */
 export const IMPORT_EXTENSIONS = ['ldr', 'mpd', 'dat', 'io', 'lxf', 'lxfml'] as const;
@@ -97,6 +98,7 @@ export function safeModelName(raw: string): string | null {
 
 const REASONS: Record<string, string> = {
   off: 'An admin has turned importing off on this site.',
+  backup_off: 'This site reads models only in your browser: its own importer is off.',
   missing: 'This server doesn’t have the import converter installed.',
   too_old: 'This server’s import converter is too old.',
   broken: 'This server’s import converter doesn’t start.',
@@ -106,7 +108,7 @@ const REASONS: Record<string, string> = {
 async function availability(): Promise<{ available: boolean; reason: string | null; message: string | null; converter: ConverterState }> {
   const settings = await importSettings();
   const converter = await converterState();
-  const reason = !settings.enabled ? 'off' : converter.problem;
+  const reason = !settings.enabled ? 'off' : !settings.serverBackup ? 'backup_off' : converter.problem;
   return { available: !reason, reason, message: reason ? REASONS[reason] ?? null : null, converter };
 }
 
@@ -245,12 +247,23 @@ async function saveUpload(file: NodeJS.ReadableStream & { truncated?: boolean },
   return !file.truncated;
 }
 
-/** What the browser's importer can do here: LDraw and Studio files, with the libraries to draw them. */
+/** What the browser's importer can do here: LDraw, Studio and LDD files, with the libraries to draw them. */
 async function browserImport(enabled: boolean) {
-  const [ldraw, studio] = await Promise.all([library('ldraw'), library('studio')]);
-  // LDraw files need the LDraw library; a Studio file draws from Studio's own when there is one.
-  const extensions = enabled ? [...(ldraw ? ['ldr', 'mpd', 'dat'] : []), ...(ldraw || studio ? ['io'] : [])] : [];
-  return { available: extensions.length > 0, extensions, ldraw: ldraw?.version ?? null, studio: studio?.version ?? null };
+  const [ldraw, studio, ldd, mapping] = await Promise.all([library('ldraw'), library('studio'), lddLibrary(), lddMapping()]);
+  // LDraw files need the LDraw library; a Studio file draws from Studio's own
+  // when there is one; an LDD file from LDD's own bricks, or through the
+  // mapping to LDraw parts (without either, only the server composes it).
+  const extensions = enabled
+    ? [...(ldraw ? ['ldr', 'mpd', 'dat'] : []), ...(ldraw || studio ? ['io'] : []), ...(ldd || (mapping && ldraw) ? ['lxf', 'lxfml'] : [])]
+    : [];
+  return {
+    available: extensions.length > 0,
+    extensions,
+    ldraw: ldraw?.version ?? null,
+    studio: studio?.version ?? null,
+    ldd: ldd?.version ?? null,
+    lddMapping: mapping?.version ?? null,
+  };
 }
 
 async function adminView() {
@@ -263,6 +276,9 @@ async function adminView() {
     enabled: settings.enabled,
     enabledSetting: settings.enabledSetting,
     enabledForcedBy: settings.enabledForcedBy,
+    serverBackup: settings.serverBackup,
+    serverBackupSetting: settings.serverBackupSetting,
+    serverBackupForcedBy: settings.serverBackupForcedBy,
     limits: IMPORT_SETTINGS.map((i) => ({ ...i, value: settings.limits[i.key] })),
     libraries: {
       ldraw: { ...ldraw, path: undefined },
@@ -492,12 +508,12 @@ export async function importRoutes(app: FastifyInstance): Promise<void> {
     return adminView();
   });
 
-  app.patch<{ Body: { enabled?: unknown; limits?: unknown } }>('/api/admin/imports', { config: { rateLimit: perPerson(60, '1 minute') } }, async (req, reply) => {
+  app.patch<{ Body: { enabled?: unknown; serverBackup?: unknown; limits?: unknown } }>('/api/admin/imports', { config: { rateLimit: perPerson(60, '1 minute') } }, async (req, reply) => {
     const me = requireGlobalAdmin(req);
     const body = req.body ?? {};
     const err = await saveImportSettings(body, me.id);
     if (err) return reply.code(400).send({ error: 'invalid_settings', message: err });
-    await writeAuditEvent({ resourceKind: 'platform_settings', resourceId: 'imports', userId: me.id, eventType: 'admin_import_settings', payload: { enabled: body.enabled, limits: body.limits } });
+    await writeAuditEvent({ resourceKind: 'platform_settings', resourceId: 'imports', userId: me.id, eventType: 'admin_import_settings', payload: { enabled: body.enabled, serverBackup: body.serverBackup, limits: body.limits } });
     return adminView();
   });
 

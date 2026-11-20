@@ -4,9 +4,16 @@ import type { PartWire } from '../../api';
 import type { ImportAnalysis } from '../importApi';
 import type { ConvertChoices } from './convert';
 
+export interface LibraryVersions {
+  ldraw: string | null;
+  studio: string | null;
+  ldd: string | null;
+  lddMapping: string | null;
+}
+
 export type ToWorker =
-  /** `library`: the version of the library to draw it from (Studio's for an .io, when the site has it). */
-  | { type: 'analyse'; file: File; library: { name: 'ldraw' | 'studio'; version: string }; parts: PartWire[] }
+  /** `libraries`: the site's libraries' versions (null: not there). */
+  | { type: 'analyse'; file: File; libraries: LibraryVersions; parts: PartWire[] }
   | { type: 'convert'; mode: 'part'; choices: ConvertChoices }
   | { type: 'convert'; mode: 'parts' };
 

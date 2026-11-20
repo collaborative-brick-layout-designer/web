@@ -34,7 +34,7 @@ import { importedPartKey, prepareLDraw, suggestedImportName } from '../prepare';
 import { toRgba } from '../rasterize';
 import { prepareModel } from '../prepareModel';
 import { makeIo, type IoEntry } from './makeIo';
-import { compareImages, FolderLibrary, readPng, runConverter } from './nodeHelpers';
+import { compareImages, FolderLdd, FolderLibrary, readPng, runConverter } from './nodeHelpers';
 
 const LIB = process.env.BLD_LDRAW_LIBRARY ?? '';
 const CONVERTER = process.env.BLD_IMPORT_SERVER ?? '';
@@ -261,4 +261,73 @@ describe.skipIf(!CONVERTER || !existsSync(CONVERTER) || !existsSync(PARTS))('Stu
       expect(cmp.meanRgb).toBeLessThanOrEqual(MEAN_RGB_MAX);
     }, 120_000);
   }
+});
+
+// LDD models (opt-in: LDD's brick database is proprietary).
+//   BLD_LDD_ROOT  a folder holding LDD's Assets.lif and its ldraw.xml (or BLD_LDD_LDRAW_XML)
+// Each fixture is read three ways, as the converter can: from LDD's own
+// shapes (with and without the LDraw library, for where track snaps), and,
+// without the brick database, as the LDraw model ldraw.xml makes of it.
+const LDD_ROOT = process.env.BLD_LDD_ROOT ?? '';
+const LDD_XML = process.env.BLD_LDD_LDRAW_XML ?? (LDD_ROOT ? join(LDD_ROOT, 'ldraw.xml') : '');
+describe.skipIf(!CONVERTER || !LDD_ROOT || !existsSync(join(LDD_ROOT, 'Assets.lif')) || !existsSync(PARTS))('LDD models in the browser match the converter', () => {
+  const work = mkdtempSync(join(tmpdir(), 'cbld-ldd-parity-'));
+  const lxf = join(work, 'LDD bricks.lxf');
+  writeFileSync(lxf, makeIo([{ name: 'IMAGE100.PNG', bytes: new Uint8Array([1, 2, 3]) }, { name: 'LXFML', text: readFileSync(join(FIXTURES, 'ldd-bricks.lxfml'), 'utf8') }], { password: null }));
+  const files = [...readdirSync(FIXTURES).filter((f) => f.endsWith('.lxfml')).map((f) => join(FIXTURES, f)), lxf];
+  const ways: { name: string; assets: boolean; ldraw: boolean }[] = [
+    { name: 'LDD’s shapes', assets: true, ldraw: false },
+    { name: 'LDD’s shapes and the LDraw library', assets: true, ldraw: true },
+    { name: 'ldraw.xml and the LDraw library', assets: false, ldraw: true },
+  ];
+  for (const file of files)
+    for (const way of ways) {
+      it(`${file.split('/').pop()}: ${way.name}`, async () => {
+        if (way.ldraw && !(LIB && existsSync(LIB))) return;
+        const parts = new MapLibrary((await scanCatalog(PARTS)).catalog);
+        // The converter finds ldraw.xml beside Assets.lif, or takes it given.
+        const libraries = { parts: [PARTS], ...(way.ldraw ? { ldraw: LIB } : {}), ...(way.assets ? { lddAssets: LDD_ROOT } : {}), lddLdrawXml: LDD_XML };
+        const want = runConverter(CONVERTER, { command: 'analyse', libraries, options: {} }, file).json as Json;
+        const name = file.split('/').pop()!;
+        const bytes = new Uint8Array(readFileSync(file));
+        const ldd = new FolderLdd(way.assets ? join(LDD_ROOT, 'Assets.lif') : null, LDD_XML);
+        const got = await prepareModel(name, bytes, { source: way.ldraw ? new FolderLibrary(LIB) : null, ldd, parts });
+        if (process.env.BLD_PARITY_LOG) console.log(name, way.name, JSON.stringify({ want: want.part ? { w: want.part.widthStuds, h: want.part.heightStuds, stats: want.part.stats } : want, got: { w: got.widthStuds, h: got.heightStuds, stats: got.stats, error: got.error } }));
+        if (!want.ok) {
+          // Nothing to draw (LDD has no shape for the old 9V track): both say so.
+          expect(want.error).toBe('nothing_to_import');
+          expect(got.error).toMatch(/has no geometry/);
+          return;
+        }
+        expect(got.kindLabel).toBe(want.kindLabel);
+        expect([got.title, suggestedImportName(got)]).toEqual([want.title, want.suggestedName]);
+        expect({ w: got.widthStuds, h: got.heightStuds, stats: got.stats, warnings: got.warnings, base: got.baseOnGrid, margin: got.snapMargin }).toEqual({
+          w: want.part.widthStuds,
+          h: want.part.heightStuds,
+          stats: want.part.stats,
+          warnings: want.part.warnings,
+          base: want.part.baseOnGrid,
+          margin: want.part.snapMargin,
+        });
+        for (const k of ['x', 'y', 'width', 'height'] as const) expect(got.contentStuds[k]).toBeCloseTo(want.part.contentStuds[k], 6);
+        expect(got.connections.length).toBe(want.part.connections.length);
+        got.connections.forEach((c, i) => {
+          expect(c.type).toBe(want.part.connections[i].type);
+          expect(c.x).toBeCloseTo(want.part.connections[i].x, 4);
+          expect(c.y).toBeCloseTo(want.part.connections[i].y, 4);
+          expect(c.angle).toBeCloseTo(want.part.connections[i].angle, 4);
+        });
+        const choices: ConvertChoices = { quarterTurns: 3, align: 'box', nudge: [0, 0.25], drop: [], name: '', designer: '', designerUrl: '', author: 'U' };
+        const conv = runConverter(CONVERTER, { command: 'convert', libraries, options: { mode: 'part', ...choices } }, file);
+        const made = convertPart(got, choices, { name, lastModified: Math.floor(statSync(file).mtimeMs), format: 'ldd' });
+        const strip = (x: string) => x.replace(/ date="[^"]*"/, '').replace(/ *<SourcePath>[^<]*<\/SourcePath>\n/, '').replace(/<PickShape>[\s\S]*<\/PickShape>\n/, '');
+        expect(strip(made.xml)).toBe(strip(conv.files.get(String(conv.json.xml))!.toString('utf8')));
+        const png = readPng(conv.files.get(String(conv.json.sprite))!);
+        const cmp = compareImages({ width: made.sprite.width, height: made.sprite.height, rgba: toRgba(made.sprite) }, png);
+        if (process.env.BLD_PARITY_LOG) console.log(name, way.name, JSON.stringify(cmp));
+        expect(cmp.sameSize).toBe(true);
+        expect(cmp.iou).toBeGreaterThanOrEqual(IOU_MIN);
+        expect(cmp.meanRgb).toBeLessThanOrEqual(MEAN_RGB_MAX);
+      }, 180_000);
+    }
 });

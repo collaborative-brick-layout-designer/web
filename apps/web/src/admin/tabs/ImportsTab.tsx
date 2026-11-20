@@ -26,6 +26,9 @@ interface AdminImports {
   enabled: boolean;
   enabledSetting: boolean;
   enabledForcedBy: string | null;
+  serverBackup: boolean;
+  serverBackupSetting: boolean;
+  serverBackupForcedBy: string | null;
   limits: { key: string; label: string; help: string; min: number; max: number; unit: string; value: number; builtIn: number }[];
   libraries: { ldraw: LibraryRow; ldd: LibraryRow; lddMapping: LibraryRow; studio: LibraryRow };
   queue: { queued: number; running: number; open: number };
@@ -77,8 +80,12 @@ export function ImportsTab() {
         <h2 className="flex items-center gap-1 text-lg font-semibold">
           Model import <HelpButton helpKey="admin.imports" />
         </h2>
-        <p className={d.available ? 'text-ink' : 'font-semibold text-danger'} data-testid="admin-imports-state">
-          {d.available ? 'People can import LDraw, BrickLink Studio and LDD files on this site.' : d.message}
+        <p className={d.available || d.reason === 'backup_off' ? 'text-ink' : 'font-semibold text-danger'} data-testid="admin-imports-state">
+          {d.available
+            ? 'People can import LDraw, BrickLink Studio and LDD files on this site.'
+            : d.reason === 'backup_off'
+              ? 'People can import models: their browsers read them. The site’s own importer is off, so a model a browser can’t read isn’t imported.'
+              : d.message}
         </p>
         <label className="flex items-center gap-2">
           <input
@@ -90,6 +97,22 @@ export function ImportsTab() {
           Let people import models
         </label>
         {d.enabledForcedBy && <p className="text-xs text-muted">Forced by {d.enabledForcedBy} on the server.</p>}
+        <label className="flex items-center gap-2">
+          <input
+            type="checkbox"
+            aria-label="Server import as a backup"
+            checked={d.serverBackup}
+            disabled={!!d.serverBackupForcedBy || patch.isPending || !d.enabled}
+            onChange={(e) => patch.mutate({ serverBackup: e.target.checked })}
+            data-testid="admin-imports-backup"
+          />
+          Server import as a backup <HelpButton helpKey="admin.importServerBackup" />
+        </label>
+        {d.serverBackupForcedBy && (
+          <p className="text-xs text-muted" data-testid="admin-imports-backup-forced">
+            Set by {d.serverBackupForcedBy} on the server, so it can’t be changed here: change or remove that setting on the server.
+          </p>
+        )}
         <p className="text-xs text-muted">
           Converter: {d.converter.version ? `version ${d.converter.version}` : 'not installed'} (this site needs {d.converter.minimum} or newer)
           {d.converter.forcedBy ? `, from ${d.converter.forcedBy}` : ''}.
@@ -123,7 +146,7 @@ export function ImportsTab() {
         />
         <Library
           title="LDD brick database (Assets.lif)"
-          note="From an install of LEGO Digital Designer (about 500 MB). It isn’t free to share: upload your own copy. It stays on this server, is never served to anyone and is never in a backup or download."
+          note="From an install of LEGO Digital Designer (about 500 MB). It isn’t free to share: upload your own copy. It stays on this server and is never in a backup or download; people’s browsers get only the shapes of the bricks in the model they import, one brick at a time, never the file."
           row={d.libraries.ldd}
           busy={busy}
           testId="lib-ldd"

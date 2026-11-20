@@ -1,7 +1,8 @@
 // Admin › Model import: the switch and the limits for importing LDraw,
 // Studio and LDD files (docs/model-import.md). Stored as one JSON object in
 // platform_settings.imports; each value, first match wins:
-//   1. its env var (IMPORTS_ENABLED forces the switch): the page says
+//   1. its env var (IMPORTS_ENABLED forces the switch, IMPORTS_SERVER_BACKUP
+//      the server's importer as the backup): the page says
 //      "Forced by …"
 //   2. what an admin saved
 //   3. the built-in default below
@@ -35,6 +36,8 @@ export const IMPORT_SETTINGS: readonly ImportSettingInfo[] = [
 
 export interface ImportSettingsValue {
   enabled: boolean;
+  /** The server's converter reads what a browser can't (and every file, for a browser that can't import). */
+  serverBackup: boolean;
   limits: Record<ImportSettingKey, number>;
 }
 
@@ -42,10 +45,13 @@ export interface ImportSettingsState extends ImportSettingsValue {
   /** The switch as saved, and the env var that forces it, if any. */
   enabledSetting: boolean;
   enabledForcedBy: string | null;
+  serverBackupSetting: boolean;
+  serverBackupForcedBy: string | null;
 }
 
 interface Stored {
   enabled?: unknown;
+  serverBackup?: unknown;
   limits?: Record<string, unknown>;
 }
 
@@ -73,10 +79,14 @@ export async function importSettings(): Promise<ImportSettingsState> {
   const limits = {} as Record<ImportSettingKey, number>;
   for (const info of IMPORT_SETTINGS) limits[info.key] = clamp(info, stored.limits?.[info.key]);
   const enabledSetting = typeof stored.enabled === 'boolean' ? stored.enabled : true;
+  const serverBackupSetting = typeof stored.serverBackup === 'boolean' ? stored.serverBackup : true;
   const value: ImportSettingsState = {
     enabled: env.importsEnabledForced ?? enabledSetting,
     enabledSetting,
     enabledForcedBy: env.importsEnabledForced === null ? null : 'IMPORTS_ENABLED',
+    serverBackup: env.importsServerBackupForced ?? serverBackupSetting,
+    serverBackupSetting,
+    serverBackupForcedBy: env.importsServerBackupForced === null ? null : 'IMPORTS_SERVER_BACKUP',
     limits,
   };
   cache = { at: Date.now(), value };
@@ -88,10 +98,11 @@ export function invalidateImportSettings(): void {
 }
 
 /** Save an admin's change: `enabled` and any limits given (clamped). Returns the error for a bad value. */
-export async function saveImportSettings(patch: { enabled?: unknown; limits?: unknown }, by: string): Promise<string | null> {
+export async function saveImportSettings(patch: { enabled?: unknown; serverBackup?: unknown; limits?: unknown }, by: string): Promise<string | null> {
   const stored = parseStored((await getPlatformSettings()).imports);
-  const next: { enabled?: boolean; limits: Record<string, number> } = {
+  const next: { enabled?: boolean; serverBackup?: boolean; limits: Record<string, number> } = {
     ...(typeof stored.enabled === 'boolean' ? { enabled: stored.enabled } : {}),
+    ...(typeof stored.serverBackup === 'boolean' ? { serverBackup: stored.serverBackup } : {}),
     limits: {},
   };
   for (const info of IMPORT_SETTINGS) {
@@ -101,6 +112,10 @@ export async function saveImportSettings(patch: { enabled?: unknown; limits?: un
   if (patch.enabled !== undefined) {
     if (typeof patch.enabled !== 'boolean') return 'enabled must be true or false';
     next.enabled = patch.enabled;
+  }
+  if (patch.serverBackup !== undefined) {
+    if (typeof patch.serverBackup !== 'boolean') return 'serverBackup must be true or false';
+    next.serverBackup = patch.serverBackup;
   }
   if (patch.limits !== undefined) {
     if (!patch.limits || typeof patch.limits !== 'object' || Array.isArray(patch.limits)) return 'limits must be an object';

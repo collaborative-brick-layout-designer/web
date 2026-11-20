@@ -9,7 +9,8 @@ import { convertPart } from './convert';
 import { isLayoutFile, layoutBbm, readLayout, type LayoutSummary } from './layout';
 import { SubfileLoop } from './meshLoader';
 import { importedPartKey, suggestedImportName, type PreparedPart } from './prepare';
-import { formatOf, prepareModel } from './prepareModel';
+import { formatOf, NeedsServer, prepareModel } from './prepareModel';
+import { RemoteLdd } from './lddSource';
 import type { FromWorker, ToWorker } from './protocol';
 import { toRgba, type Image } from './rasterize';
 import { RemoteLibrary } from './remoteSource';
@@ -40,7 +41,12 @@ async function analyse(msg: Extract<ToWorker, { type: 'analyse' }>) {
   const bytes = new Uint8Array(await msg.file.arrayBuffer());
   text = formatOf(msg.file.name) === 'ldraw' ? new TextDecoder().decode(bytes) : '';
   const parts = new MapLibrary(catalogFromParts(msg.parts));
-  const source = new RemoteLibrary(msg.library.name, msg.library.version, scope.location.origin);
+  const v = msg.libraries;
+  const format = formatOf(msg.file.name);
+  // A Studio file draws from Studio's own library when the site has it (the desktop's prepareImport).
+  const lib = format === 'studio' && v.studio ? { name: 'studio' as const, version: v.studio } : v.ldraw ? { name: 'ldraw' as const, version: v.ldraw } : null;
+  const source = lib ? new RemoteLibrary(lib.name, lib.version, scope.location.origin) : null;
+  const ldd = format === 'ldd' ? new RemoteLdd(v.ldd, v.lddMapping, scope.location.origin) : null;
   let layoutError: string | null = null;
   if (isLayoutFile(msg.file.name)) {
     try {
@@ -51,6 +57,7 @@ async function analyse(msg: Extract<ToWorker, { type: 'analyse' }>) {
   }
   prepared = await prepareModel(msg.file.name, bytes, {
     source,
+    ldd,
     parts,
     onFetch: (p) => send({ type: 'progress', phase: 'fetching', done: p.done, total: p.total }),
     onDraw: () => send({ type: 'progress', phase: 'drawing' }),
@@ -107,7 +114,8 @@ scope.onmessage = (e: MessageEvent<ToWorker>) => {
   (msg.type === 'analyse' ? analyse(msg) : convert(msg)).catch((err: unknown) => {
     const loop = err instanceof SubfileLoop;
     // A model problem is the model's; anything else (memory, a missing
-    // browser feature, the network) the server may manage.
-    send({ type: 'failed', message: (err as Error)?.message ?? String(err), fallback: !loop });
+    // browser feature, the network, a model only the server can compose)
+    // the server may manage.
+    send({ type: 'failed', message: (err as Error)?.message ?? String(err), fallback: !loop || err instanceof NeedsServer });
   });
 };

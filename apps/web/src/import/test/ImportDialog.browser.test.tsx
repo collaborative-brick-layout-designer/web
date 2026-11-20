@@ -44,7 +44,7 @@ vi.mock('../browserImport', async (importOriginal) => {
   // jsdom has neither workers nor off-screen canvases: only the status counts here.
   const canImportInBrowser = (name: string, s: { browser?: { available: boolean; extensions: string[] } } | null | undefined) =>
     !!s?.browser?.available && s.browser.extensions.includes(name.split('.').pop()!.toLowerCase());
-  return { ...orig, BrowserImport, canImportInBrowser, libraryFor: orig.libraryFor };
+  return { ...orig, BrowserImport, canImportInBrowser };
 });
 
 import { FallBack } from '../browserImport';
@@ -122,7 +122,7 @@ describe('ImportDialog in the browser', () => {
     setup();
     await waitFor(() => expect(w.analyse).toHaveBeenCalled());
     // The site's own parts only, as the converter has them.
-    expect(w.analyse.mock.calls[0]![1]).toEqual({ name: 'ldraw', version: '0123456789abcdef' });
+    expect(w.analyse.mock.calls[0]![1]).toEqual({ ldraw: '0123456789abcdef', studio: null, ldd: null, lddMapping: null });
     expect(w.analyse.mock.calls[0]![2]).toEqual([{ key: 'a', source: 'bundled' }]);
     act(() => w.progress!({ phase: 'fetching', done: 120, total: 213 }));
     expect(screen.getByTestId('import-reading-here').textContent).toContain('Fetching 213 parts… 120/213');
@@ -185,6 +185,15 @@ describe('ImportDialog in the browser', () => {
     expect(await screen.findByTestId('import-preview')).toBeTruthy();
   });
 
+  it('with the site’s own importer off, says plainly that the browser couldn’t, and sends nothing', async () => {
+    m.status.mockResolvedValue(status({ available: false, reason: 'backup_off', message: 'This site reads models only in your browser: its own importer is off.' }));
+    w.analyse.mockRejectedValue(new FallBack('out of memory'));
+    setup();
+    expect((await screen.findByTestId('import-error')).textContent).toContain('Your browser couldn’t read this one, and this site reads models only in your browser');
+    expect(m.upload).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('import-fell-back')).toBeNull();
+  });
+
   it('shows a model’s own problem, without the server (which would say the same)', async () => {
     w.analyse.mockRejectedValue(new Error('This site’s LDraw library has no geometry for any part in this model.'));
     setup();
@@ -197,7 +206,7 @@ describe('ImportDialog in the browser', () => {
     w.analyse.mockResolvedValue({ ...analysis, format: 'studio', kindLabel: 'Studio import', layout: null });
     setup('set.io');
     expect(await screen.findByTestId('import-preview')).toBeTruthy();
-    expect(w.analyse.mock.calls[0]![1]).toEqual({ name: 'studio', version: 'fedcba9876543210' });
+    expect(w.analyse.mock.calls[0]![1]).toEqual({ ldraw: '0123456789abcdef', studio: 'fedcba9876543210', ldd: null, lddMapping: null });
     expect(screen.getByRole('dialog', { name: 'Import a model' }).textContent).toContain('Preview: Studio import');
     expect(m.upload).not.toHaveBeenCalled();
   });

@@ -8,13 +8,18 @@ import type { HelpEntry } from './helpTexts';
 export const WEB_ONLY_HELP_TEXTS = {
   'admin.imports': {
     title: 'Model import',
-    short: 'Lets people import LDraw, Studio and LDD files: LDraw and Studio in their browser, LDD here by the desktop app’s own importer.',
+    short: 'Lets people import LDraw, Studio and LDD files, read in their own browsers as the desktop app reads them.',
     more: 'People’s browsers read LDraw models themselves with this site’s LDraw library. The server’s importer reads the rest, locked down: no network, its own folder, limits on time and memory, and the file is deleted once it’s read. Turn importing off here, or with IMPORTS_ENABLED on the server.',
+  },
+  'admin.importServerBackup': {
+    title: 'Server import as a backup',
+    short: 'When a browser can’t read a model itself, this site’s own importer reads it instead.',
+    more: 'People’s browsers read models first; with this on, a model a browser can’t manage (an old browser, too little memory, a file only the server can draw) goes to the server’s importer, and the person is told. Off, the server reads nothing and those models aren’t imported. IMPORTS_SERVER_BACKUP on the server can set this instead.',
   },
   'admin.importLibraries': {
     title: 'Import libraries',
     short: 'The parts libraries the importer draws models with; without them, parts are left out of the picture and counted.',
-    more: 'The LDraw library draws LDraw and Studio models; LDD’s brick database draws LDD models; the mapping links LDD bricks to LDraw parts; Studio’s library adds Studio-only parts. They are kept beside the database and never in a backup or a data download. A signed-in person’s browser fetches the LDraw files a model uses, one at a time, to read it there; a library is never served whole or listed, and LDD’s database is never served.',
+    more: 'The LDraw library draws LDraw and Studio models; LDD’s brick database draws LDD models; the mapping links LDD bricks to LDraw parts; Studio’s library adds Studio-only parts. They are kept beside the database and never in a backup or a data download. A signed-in person’s browser fetches only what a model uses (LDraw part files, LDD brick shapes) to read it there; a library is never served whole or listed.',
   },
   'admin.importLimits': {
     title: 'Import limits',
@@ -29,8 +34,8 @@ export const WEB_ONLY_HELP_TEXTS = {
   },
   'import.inBrowser': {
     title: 'Read in your browser',
-    short: 'Your browser reads LDraw and Studio models itself, as the desktop app does, fetching only the parts they use from this site.',
-    more: 'Big models take a moment while the parts arrive; parts already fetched once come from your browser’s own copy. If your browser can’t read a model, the site reads it instead and says so. LDD files are read by the site.',
+    short: 'Your browser reads LDraw, Studio and LDD models itself, as the desktop app does, fetching only the parts they use from this site.',
+    more: 'Big models take a moment while the parts arrive; parts already fetched once come from your browser’s own copy. If your browser can’t read a model, the site reads it instead and says so (unless an admin has turned that off).',
     learnMoreUrl: '/help#importing',
   },
   'import.zoom': {
