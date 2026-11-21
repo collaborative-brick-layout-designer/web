@@ -9,9 +9,14 @@
 // (`linkedTo`, which connectivity re-derives from positions). A switch is
 // a (brick, heel) a train can leave by more than one way; its setting is
 // stored (switchStates.ts), the default being the exit that turns least.
+//
+// Two loose ends of one kind of track that nearly meet, facing each other
+// (a gap: within GAP_REACH, not half a stud, so not linked) are joined for
+// trains too: real track flexes that far, and a loop with a hairline gap
+// is still a loop. `gaps` lists them so the editor can say so.
 
 import { circuitPath, pointAt, type CircuitPathPoint, type Pt } from './circuitPath.js';
-import { electricCircuits, partTrack, type PartSwitch, type PartTrack, type TrackConn, type TrackKind } from './partTrack.js';
+import { electricCircuits, partTrack, wrapDegrees, type PartSwitch, type PartTrack, type TrackConn, type TrackKind } from './partTrack.js';
 
 /** One brick as the network reads it. */
 export interface TrackBrickInput {
@@ -70,12 +75,29 @@ export function parseSwitchKey(key: string): { brick: string; heel: number } | n
   return { brick: key.slice(0, at), heel };
 }
 
+/** Two ends of track that nearly meet, joined for trains though not linked. */
+export interface TrackGap {
+  a: PortRef;
+  b: PortRef;
+  /** Halfway between them, studs. */
+  at: Pt;
+  /** How far apart they are, studs. */
+  gap: number;
+}
+
+/** How far apart (studs) two facing loose ends may be and still join for trains. Links are made within half a stud. */
+export const GAP_REACH = 1;
+/** How far (degrees) from facing each other they may be turned. */
+export const GAP_TURN = 15;
+
 export class TrackNetwork {
   private readonly bricks = new Map<string, BrickTrack>();
   private readonly owner = new Map<string, PortRef>();
   private readonly paths = new Map<string, CircuitPathPoint[]>();
   private readonly switchList: SwitchPoint[] = [];
   private readonly switchByKey = new Map<string, SwitchPoint>();
+  private readonly bridges = new Map<string, PortRef>();
+  private readonly gapList: TrackGap[] = [];
 
   constructor(bricks: Iterable<TrackBrickInput>) {
     const memo = new Map<string, PartTrack>();
@@ -98,6 +120,53 @@ export class TrackNetwork {
         this.switchByKey.set(point.key, point);
       }
     }
+    this.findGaps();
+  }
+
+  /**
+   * Pair up loose ends that nearly meet: in brick id then connection
+   * order, each with the nearest one after it (ties: the first), of the
+   * same kind, another brick, within GAP_REACH and facing it.
+   */
+  private findGaps(): void {
+    const loose: { port: PortRef; p: Pt; angle: number; kind: string }[] = [];
+    for (const brick of [...this.bricks.keys()].sort()) {
+      const t = this.bricks.get(brick)!.track;
+      for (let conn = 0; conn < t.kinds.length; conn++) {
+        const kind = t.kinds[conn];
+        if (!kind || this.linkedPartner({ brick, conn })) continue;
+        const at = this.port(brick, conn);
+        if (at) loose.push({ port: { brick, conn }, p: at.p, angle: at.angle, kind });
+      }
+    }
+    const used = new Set<number>();
+    for (let i = 0; i < loose.length; i++) {
+      if (used.has(i)) continue;
+      const a = loose[i]!;
+      let best = -1;
+      let bestD = Infinity;
+      for (let j = i + 1; j < loose.length; j++) {
+        const b = loose[j]!;
+        if (used.has(j) || b.port.brick === a.port.brick || b.kind !== a.kind) continue;
+        const d = Math.hypot(b.p.x - a.p.x, b.p.y - a.p.y);
+        if (d > GAP_REACH || Math.abs(wrapDegrees(a.angle - b.angle - 180)) > GAP_TURN) continue;
+        if (d < bestD - 1e-9) {
+          best = j;
+          bestD = d;
+        }
+      }
+      if (best < 0) continue;
+      const b = loose[best]!;
+      used.add(i).add(best);
+      this.bridges.set(switchKey(a.port.brick, a.port.conn), b.port);
+      this.bridges.set(switchKey(b.port.brick, b.port.conn), a.port);
+      this.gapList.push({ a: a.port, b: b.port, at: { x: (a.p.x + b.p.x) / 2, y: (a.p.y + b.p.y) / 2 }, gap: bestD });
+    }
+  }
+
+  /** Loose ends that nearly meet, joined for trains (in brick id order). */
+  get gaps(): readonly TrackGap[] {
+    return this.gapList;
   }
 
   /** Bricks with at least one way through. */
@@ -114,8 +183,13 @@ export class TrackNetwork {
     return this.bricks.get(brick)?.track;
   }
 
-  /** The connection a port is linked to, when that is track too. */
+  /** The connection a port is linked to, when that is track too, or the loose end it nearly meets (a gap). */
   partner(port: PortRef): PortRef | null {
+    return this.linkedPartner(port) ?? this.bridges.get(switchKey(port.brick, port.conn)) ?? null;
+  }
+
+  /** The connection a port is linked to, when that is track too. */
+  private linkedPartner(port: PortRef): PortRef | null {
     const b = this.bricks.get(port.brick);
     const link = b?.input.connexions[port.conn]?.linkedTo;
     if (!b || !link) return null;

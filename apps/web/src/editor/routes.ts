@@ -6,7 +6,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import * as Y from 'yjs';
 import { deleteRoute, readRoutesFromDoc, writeRoute } from '@cld/ydoc';
-import { findRoute, routeStatus, type Route, type RouteFound, type RouteProblem, type RouteStatus, type TrackNetwork, type TrackPosition } from '@cld/parts-catalog/browser';
+import { findRoute, routeFacing, routeStatus, type Route, type RouteFound, type RouteProblem, type RouteStatus, type TrackNetwork, type TrackPosition } from '@cld/parts-catalog/browser';
 import { LOCAL_ORIGIN } from './useLayoutDoc';
 import { makeId } from './mutations';
 
@@ -98,10 +98,10 @@ export function useHiddenRoutes(layoutId: string): { hidden: ReadonlySet<string>
 }
 
 /** A new route's record from what was found. */
-export function newRoute(name: string, from: TrackPosition, to: TrackPosition, via: TrackPosition[], found: RouteFound, taken: readonly Route[]): Route {
+export function newRoute(name: string, from: TrackPosition, to: TrackPosition, via: TrackPosition[], found: RouteFound, taken: readonly Route[], train: string | null = null): Route {
   const used = new Set(taken.map((r) => r.color));
   const color = ROUTE_COLORS.find((c) => !used.has(c)) ?? ROUTE_COLORS[taken.length % ROUTE_COLORS.length]!;
-  return { id: makeId(), name, train: null, from, to, via: via.map((at) => ({ at, reverse: false })), steps: found.steps, color };
+  return { id: makeId(), name, train, from, to, via: via.map((at) => ({ at, reverse: false })), steps: found.steps, color };
 }
 
 /** Save a route (new, or changed fields of one): one undo step. */
@@ -114,9 +114,13 @@ export function removeRoute(doc: Y.Doc, id: string): void {
   doc.transact(() => deleteRoute(doc, id), LOCAL_ORIGIN);
 }
 
-/** Find a new way for a broken route, from its start through its stops to its end (name and color kept). */
+/**
+ * Find a new way for a broken route, from its start through its stops to
+ * its end (name and color kept): either way round, the shortest, as when it
+ * was drawn; a train's route still the way the train leaves.
+ */
 export function findAgain(net: TrackNetwork, route: Route): RouteFound | RouteProblem {
-  return findRoute(net, route.from, route.to, { via: route.via.map((v) => v.at) });
+  return findRoute(net, route.from, route.to, { via: route.via.map((v) => v.at), ...(route.train && route.steps.length ? { facing: routeFacing(route) } : {}) });
 }
 
 /** What a search that found nothing says, in plain words. */

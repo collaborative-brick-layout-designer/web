@@ -73,6 +73,8 @@ export function checkText(c: FitCheck, names: Names, unit: LengthUnit): string {
       return `${route} turns the train around (a reversing loop or wye).`;
     case 'power':
       return `${route} turns the train around on powered track: it needs a polarity switch there.`;
+    case 'gap':
+      return `The track doesn’t quite join here (the ends are ${len(c.values.gap)} apart). Trains and routes run across it; nudge one piece to close the gap.`;
   }
 }
 

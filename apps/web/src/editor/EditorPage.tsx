@@ -857,7 +857,7 @@ function Editor({ layoutId, docState, moduleMode }: { layoutId: string; docState
     if (panelId === 'usedparts') return <UsedPartsPanel doc={doc} budgetLimits={budgetLimits} />;
     if (panelId === 'routes')
       return (
-        <RoutesPanel doc={doc} net={editorTrackNet} routes={editorRoutes} statuses={editorRouteStatuses} hidden={routesHidden.hidden} setShown={routesHidden.setShown} isViewer={isViewer} checks={editorChecks.filter((c) => c.route)} names={editorNames} />
+        <RoutesPanel doc={doc} net={editorTrackNet} routes={editorRoutes} statuses={editorRouteStatuses} hidden={routesHidden.hidden} setShown={routesHidden.setShown} isViewer={isViewer} checks={editorChecks.filter((c) => c.route || c.kind === 'gap')} names={editorNames} />
       );
     if (panelId === 'trains')
       return (
@@ -2989,7 +2989,7 @@ function Canvas({
   }, [routeDraft]);
   const draftFound = useMemo(() => {
     if (!routeDraft?.from || !routeDraft.to || !trackNet) return null;
-    return findRoute(trackNet, routeDraft.from, routeDraft.to, { via: routeDraft.via });
+    return findRoute(trackNet, routeDraft.from, routeDraft.to, { via: routeDraft.via, ...(routeDraft.facing ? { facing: routeDraft.facing } : {}) });
   }, [routeDraft, trackNet]);
   /** Drawing a route: a click picks the place on the track nearest it. */
   const onDraftClick = (e: KonvaEventObject<MouseEvent | TouchEvent>) => {
@@ -3003,7 +3003,19 @@ function Canvas({
       return;
     }
     const shift = 'shiftKey' in e.evt && e.evt.shiftKey;
-    if (!d.from) useEditorStore.getState().setRouteDraft({ ...d, from: pos });
+    if (!d.from) {
+      // A start on a train's front: the route is that train's, and it goes the way the train faces.
+      const reach = Math.max(3, 24 / (8 * zoom));
+      const onTrain = trains.find((t) => {
+        if (!t.position || !placedTrains.get(t.id)) return false;
+        const head = trackNet.pointAt(t.position)?.p;
+        return !!head && Math.hypot(head.x - at.x, head.y - at.y) <= reach;
+      });
+      if (onTrain?.position) {
+        const { facing, ...start } = onTrain.position;
+        useEditorStore.getState().setRouteDraft({ ...d, from: start, facing, train: onTrain.id });
+      } else useEditorStore.getState().setRouteDraft({ ...d, from: pos, facing: null, train: null });
+    }
     else if (shift && d.to) useEditorStore.getState().setRouteDraft({ ...d, via: [...d.via, d.to], to: pos });
     else if (shift) useEditorStore.getState().setRouteDraft({ ...d, via: [...d.via, pos] });
     else useEditorStore.getState().setRouteDraft({ ...d, to: pos });
@@ -5354,7 +5366,7 @@ function Canvas({
       </Suspense>
       {runMode && <RunModeBanner />}
       {placingTrain && <TrainPlaceBanner name={placingTrain.name} />}
-      {routeDraft && <RouteDraftBanner doc={doc} draft={routeDraft} found={draftFound} routes={routes} />}
+      {routeDraft && <RouteDraftBanner doc={doc} draft={routeDraft} found={draftFound} routes={routes} trainName={routeDraft.train ? trains.find((t) => t.id === routeDraft.train)?.name : undefined} />}
       <SetUpdatesBar updates={setUpdates} onUpdate={updatePlacedSets} onShow={showPlacedSets} top={phone} />
       <SharedModulesHost doc={doc} layoutId={sharedLayoutId} isViewer={isViewer} onShowParts={showParts} parts={partsByKey} top={phone} />
       {ctxMenu && !isViewer && (
@@ -7166,30 +7178,55 @@ function RunModeBanner() {
 }
 
 /** Drawing a route (trains design 6.2): what to click next, the way found, and Save (with a name) or Cancel. */
-function RouteDraftBanner({ doc, draft, found, routes }: { doc: import('yjs').Doc; draft: RouteDraft; found: RouteFound | RouteProblem | null; routes: readonly Route[] }) {
+function RouteDraftBanner({
+  doc,
+  draft,
+  found,
+  routes,
+  trainName,
+}: {
+  doc: import('yjs').Doc;
+  draft: RouteDraft;
+  found: RouteFound | RouteProblem | null;
+  routes: readonly Route[];
+  /** The train the route starts on, if it does. */
+  trainName?: string | undefined;
+}) {
   const unit = useLengthUnit();
   const [name, setName] = useState(() => `Route ${routes.length + 1}`);
   const cancel = () => useEditorStore.getState().setRouteDraft(null);
   const ok = found && typeof found !== 'string';
   const save = () => {
     if (!ok || !draft.from || !draft.to) return;
-    saveRoute(doc, newRoute(name.trim() || `Route ${routes.length + 1}`, draft.from, draft.to, draft.via, found, routes));
+    saveRoute(doc, newRoute(name.trim() || `Route ${routes.length + 1}`, draft.from, draft.to, draft.via, found, routes, draft.train ?? null));
     useEditorStore.getState().setRouteDraft(null);
     useEditorStore.getState().showStatusMessage(`Route “${name.trim()}” saved.`, 3000);
   };
+  // The way it runs now, and the other way: a fixed direction flips; the shortest (either way) becomes the other one.
+  const runs = ok ? found.facing : (draft.facing ?? null);
+  const flip = () => useEditorStore.getState().setRouteDraft({ ...draft, facing: runs === 'from' ? 'to' : 'from' });
   return (
     <div role="status" data-testid="route-draft-banner" className="pointer-events-auto absolute left-1/2 top-3 z-20 flex max-w-[95%] -translate-x-1/2 flex-wrap items-center gap-2 rounded-2xl border border-line bg-panel px-4 py-2 text-sm shadow-pop">
       <span>
         <b>New route:</b>{' '}
         {!draft.from
-          ? 'click on the track where it starts.'
+          ? 'click on the track where it starts (or on a train’s front).'
           : !draft.to
-            ? 'click where it ends (Shift-click adds a stop on the way).'
+            ? trainName
+              ? `starts at ${trainName}, the way it faces. Click where it ends (Shift-click adds a stop on the way).`
+              : 'click where it ends (Shift-click adds a stop on the way).'
             : ok
-              ? `${formatLength(found.length, unit)} along the track${found.turnsAround.length ? ', and it turns the train around' : ''}. Shift-click adds a stop.`
-              : problemText(found as RouteProblem)}
+              ? `${formatLength(found.length, unit)} along the track, the way the arrows point${found.turnsAround.length ? ', and it turns the train around' : ''}.${found.bothWays.length ? ` ${found.bothWays.length === 1 ? '1 switch' : `${found.bothWays.length} switches`} on the way must be flipped while the train runs: it goes through ${found.bothWays.length === 1 ? 'it' : 'them'} twice, set a different way each time.` : ''} Shift-click adds a stop.`
+              : found === 'turnAround' && draft.facing
+                ? 'Going this way, the train can’t get there without turning around.'
+                : problemText(found as RouteProblem)}
       </span>
       <HelpButton helpKey="routes.new" />
+      {draft.from && draft.to && runs && (found === 'turnAround' || ok) && (
+        <button type="button" data-testid="route-flip" onClick={flip} className="h-8 rounded-control border border-border px-3 text-xs font-semibold hover:bg-soft">
+          Go the other way
+        </button>
+      )}
       {ok && (
         <form className="flex items-center gap-1" onSubmit={(e) => { e.preventDefault(); save(); }}>
           <input aria-label="Route name" value={name} onChange={(e) => setName(e.target.value)} className="h-8 w-40 rounded border border-border bg-bg px-2" />

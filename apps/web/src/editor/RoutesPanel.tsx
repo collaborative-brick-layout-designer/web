@@ -124,6 +124,7 @@ export function RoutesPanel({ doc, net, routes, statuses, hidden, setShown, isVi
                   <StatusChip status={st} />
                   {st?.status === 'ok' && <span data-testid="route-length">{formatLength(st.length, unit)}</span>}
                   {st?.status === 'ok' && st.turnsAround.length > 0 && <span>Turns the train around</span>}
+                  {st?.status === 'ok' && st.bothWays.length > 0 && <span data-testid="route-both-ways">Flip a switch on the way: it runs through it twice</span>}
                   {st?.status === 'broken' && (
                     <span className="flex items-center gap-1">
                       The track under it changed. <HelpButton helpKey="routes.broken" />
@@ -194,7 +195,7 @@ export function RoutesPanel({ doc, net, routes, statuses, hidden, setShown, isVi
           })}
         </ul>
       )}
-      {names && checks.length > 0 && <FitChecksList checks={checks} names={names} allClear="" title="Route checks" />}
+      {names && checks.length > 0 && <FitChecksList checks={checks} names={names} allClear="" title="Checks" />}
     </div>
   );
 }

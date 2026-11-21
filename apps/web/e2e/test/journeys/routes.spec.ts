@@ -4,7 +4,9 @@
 // piece of track out from under it turns it Broken (dashed red, kept);
 // Find a new way finds the way round the other side of the loop. Set
 // switches sets its switches; delete asks first. A .bbm download says
-// routes are left out.
+// routes are left out. Go the other way sends the train the whole loop
+// round instead (it never turns around on the spot), arrows showing which
+// way it runs.
 
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -159,6 +161,64 @@ test('draw a route, keep it, share it, hide it, break it and mend it', async ({ 
   await expect(page.getByTestId('routes-panel')).toContainText('No routes yet');
   await page.keyboard.press(process.platform === 'darwin' ? 'Meta+z' : 'Control+z');
   await expect(page.getByRole('list', { name: 'Routes' })).toContainText('Bottom run');
+});
+
+/** How many direction arrows are drawn: on the route being drawn, or on a saved one. */
+function arrows(page: Page, group: string): Promise<number> {
+  return page.evaluate((g) => {
+    type N = { name: () => string; find: (f: (n: N) => boolean) => N[] };
+    const st = (window as unknown as { Konva: { stages: N[] } }).Konva.stages[0]!;
+    return st.find((n) => n.name() === g).flatMap((x) => x.find((n) => n.name() === 'route-arrow' || n.name() === 'route-draft-arrow')).length;
+  }, group);
+}
+
+test('go the other way: the train runs the whole loop round, arrows showing the way', async ({ page }) => {
+  test.setTimeout(120_000);
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await signIn(page, `routes-loop-${Date.now()}@example.com`, 'Route Maker');
+  const { id } = (await (await page.request.post('/api/layouts', { data: { title: 'Routes loop', bbm: BBM } })).json()) as { id: string };
+  await page.goto(`/editor/${id}`);
+  await expect(page.locator('canvas').first()).toBeVisible({ timeout: 20000 });
+  await page.waitForTimeout(1000);
+  await page.keyboard.press('f');
+  await openRoutesPanel(page);
+
+  const loose = new Set([...BBM.matchAll(/<Brick id="([^"]+)">\s*<DisplayArea>[\s\S]*?<\/DisplayArea>\s*<MyGroup \/>/g)].map((m) => m[1]!));
+  const rows = new Map<number, typeof STRAIGHTS>();
+  for (const s of STRAIGHTS.filter((t) => loose.has(t.id))) rows.set(Math.round(s.y), [...(rows.get(Math.round(s.y)) ?? []), s]);
+  const bottom = [...rows.values()].sort((p, q) => q.length - p.length)[0]!.sort((p, q) => p.x - q.x);
+  const a = bottom[2]!;
+  const b = bottom[4]!;
+  const between = new Set(bottom.slice(3, 4).map((t) => t.id));
+
+  // Two places close together: the shortest way runs straight between them.
+  await page.getByTestId('route-new').click();
+  const banner = page.getByTestId('route-draft-banner');
+  let p = await onPage(page, a.x, a.y);
+  await page.mouse.click(p.x, p.y);
+  p = await onPage(page, b.x, b.y);
+  await page.mouse.click(p.x, p.y);
+  await expect(banner).toContainText('the way the arrows point');
+  await expect.poll(() => arrows(page, 'route-draft')).toBeGreaterThan(0);
+  const shortText = await banner.textContent();
+
+  // Go the other way: the whole loop round, and back to the end from the other side.
+  await banner.getByTestId('route-flip').click();
+  await expect(banner).not.toHaveText(shortText ?? '');
+  await expect(banner).toContainText('the way the arrows point');
+  await expect.poll(() => arrows(page, 'route-draft')).toBeGreaterThan(1);
+  await banner.getByLabel('Route name').fill('Long way round');
+  await banner.getByRole('button', { name: 'Save route' }).click();
+  await expect(banner).toHaveCount(0);
+  await expect.poll(async () => (await serverRoutes(page, id)).map((r) => r.name)).toEqual(['Long way round']);
+  const route = (await serverRoutes(page, id))[0]!;
+  // It runs round the loop (far more track than between the two), and not across the piece between them.
+  expect(route.steps.length).toBeGreaterThan(bottom.length);
+  expect(route.steps.slice(1, -1).some((s) => between.has(s.brick))).toBe(false);
+  const row = page.getByRole('list', { name: 'Routes' }).getByRole('listitem').filter({ hasText: 'Long way round' });
+  // (Round the loop it may meet a switch set the other way: anything but Broken.)
+  await expect(row.getByTestId('route-status')).not.toHaveText('Broken');
+  await expect.poll(() => arrows(page, `route-${route.id}`)).toBeGreaterThan(1);
 });
 
 test('a click off the track asks again, and Esc stops drawing', async ({ page }) => {
