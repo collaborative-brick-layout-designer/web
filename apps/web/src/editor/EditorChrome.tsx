@@ -46,7 +46,7 @@ const Chevron = () => (
   </svg>
 );
 
-const MENU = 'absolute z-40 mt-1 min-w-56 overflow-hidden rounded-card border border-line bg-panel py-1 text-sm text-ink shadow-pop';
+const MENU = 'absolute z-40 mt-1 min-w-56 max-h-[calc(100dvh-4rem)] overflow-y-auto rounded-card border border-line bg-panel py-1 text-sm text-ink shadow-pop';
 const MENU_ITEM = 'block w-full px-3.5 py-2 text-left hover:bg-soft';
 
 /** The layout's name, opening a menu of the whole-layout actions. */
