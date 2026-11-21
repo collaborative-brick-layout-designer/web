@@ -23,7 +23,7 @@ test.describe('on a phone', () => {
     const sw = page.getByRole('switch', { name: 'Show help buttons' });
     await expect(sw).toBeVisible({ timeout: 15000 });
     const button = (await sw.boundingBox())!;
-    const track = (await page.getByTestId('switch-track').first().boundingBox())!;
+    const track = (await sw.getByTestId('switch-track').boundingBox())!;
     expect(button.height).toBeGreaterThanOrEqual(44);
     expect(track).toMatchObject({ width: 56, height: 32 });
     // Centred in the button.

@@ -38,6 +38,7 @@ export class BrowserImport {
   private worker: Worker | null;
   private waiting: { resolve: (m: FromWorker) => void; reject: (e: Error) => void } | null = null;
   private preview: string | null = null;
+  private broken: Error | null = null;
 
   constructor(
     private readonly onProgress: (p: BrowserProgress) => void,
@@ -65,6 +66,9 @@ export class BrowserImport {
   }
 
   private fail(e: Error) {
+    // A crash with nobody waiting yet (the worker's code failed to load while the
+    // catalog was still coming) is kept, and the next question gets it as its answer.
+    if (!this.waiting && this.worker) this.broken = e;
     const w = this.waiting;
     this.waiting = null;
     w?.reject(e);
@@ -72,6 +76,7 @@ export class BrowserImport {
 
   private ask(msg: ToWorker): Promise<FromWorker> {
     if (!this.worker) return Promise.reject(new Error('cancelled'));
+    if (this.broken) return Promise.reject(this.broken);
     return new Promise((resolve, reject) => {
       this.waiting = { resolve, reject };
       this.worker!.postMessage(msg);
