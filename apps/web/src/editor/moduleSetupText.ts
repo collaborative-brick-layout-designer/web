@@ -1,9 +1,9 @@
 // What a module's table and power (@cld/modules setup.ts) read as: in the
 // Modules panel, the Module library and the layout's summary for its
 // coordinator. Heights are typed and shown in the length unit (inches,
-// centimeters or studs). The desktop's ui/ModuleSetupText.cpp says the same.
+// centimeters or studs: the account's length unit, Settings › Units). The desktop's ui/ModuleSetupText.cpp says the same.
 
-import { venueLengthUnit, type VenueLengthUnit } from '@cld/bbm';
+import type { VenueLengthUnit } from '@cld/bbm';
 import {
   MAX_HEIGHT_MM,
   outletsOf,
@@ -14,16 +14,6 @@ import {
   type TableType,
 } from '@cld/modules';
 import { parseLength, STUDS_PER_INCH, STUDS_PER_MM } from '../venues/designer/units';
-
-/**
- * The unit heights are shown in. The account's length unit isn't there
- * yet (trains design, Phase 0), so it is the layout's venue unit, which is
- * feet and inches when the layout has no venue. When the account setting
- * lands, this is the one place that changes.
- */
-export function heightUnit(venue: object | null | undefined): VenueLengthUnit {
-  return venueLengthUnit(venue);
-}
 
 export const TABLE_TYPE_LABEL: Record<TableType, string> = {
   mils: 'MILS',

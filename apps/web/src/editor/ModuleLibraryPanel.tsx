@@ -29,10 +29,10 @@ const NOT_SHARED = errorText('not_shared');
 import { MODULE_DELETE_WORDING } from '../ui/deleteWording';
 import { restoreDeleted } from '../trash/RecentlyDeleted';
 import { HelpButton } from '../help/HelpButton';
-import { readSidecarFromDoc } from '@cld/ydoc';
 import type { VenueLengthUnit } from '@cld/bbm';
 import { LibraryModuleSetupDialog } from './ModuleSetupDialog';
-import { heightUnit, powerText, tableText } from './moduleSetupText';
+import { powerText, tableText } from './moduleSetupText';
+import { useLengthUnit } from '../theme/PrefsProvider';
 export { MODULE_MIME };
 
 type LibraryTab = 'mine' | 'clubs' | 'shared';
@@ -67,7 +67,7 @@ export function ModuleLibraryPanel({ doc, isViewer, editingModuleId = null }: Pr
   const [inserting, setInserting] = useState<string | null>(null);
   const [toCollection, setToCollection] = useState<ModuleSummary | null>(null);
   const [setupOf, setSetupOf] = useState<ModuleSummary | null>(null);
-  const unit = heightUnit(readSidecarFromDoc(doc)?.venue);
+  const unit = useLengthUnit();
   const settings = useQuery({ queryKey: ['catalog-settings'], queryFn: api.catalog.settings, staleTime: 60_000 });
   const demo = useIsDemo();
   // Not for the demo account: the server keeps collections to real accounts.
@@ -255,7 +255,7 @@ export function ModuleLibraryPanel({ doc, isViewer, editingModuleId = null }: Pr
         </ul>
       </div>
       {toCollection && <AddToCollectionDialog target={{ kind: 'module', module: toCollection }} onClose={() => setToCollection(null)} />}
-      {setupOf && <LibraryModuleSetupDialog module={setupOf} unit={unit} onClose={() => setSetupOf(null)} />}
+      {setupOf && <LibraryModuleSetupDialog module={setupOf} onClose={() => setSetupOf(null)} />}
     </aside>
   );
 }

@@ -30,8 +30,9 @@ import { ModuleLookDialog } from './ModuleLookDialog';
 import { PlacedModuleSetupDialog } from './ModuleSetupDialog';
 import { setupOf, setupSummary } from '@cld/modules';
 import type { VenueLengthUnit } from '@cld/bbm';
-import { heightUnit, powerText, summaryPowerText, summaryTableLines, tableText } from './moduleSetupText';
+import { powerText, summaryPowerText, summaryTableLines, tableText } from './moduleSetupText';
 import { HelpButton } from '../help/HelpButton';
+import { useLengthUnit } from '../theme/PrefsProvider';
 import { withShowName } from './moduleLook';
 import { useDocMap } from './useDocMap';
 import { hiddenSheetsNote, moduleSheetsUsed } from './moduleSheets';
@@ -57,7 +58,8 @@ export function ModulesPanel({ doc, isViewer, layoutId = null }: Props) {
   const sidecar = readSidecarFromDoc(doc);
   const modules = sidecar?.modules ?? [];
   const map = useDocMap(doc);
-  const unit = heightUnit(sidecar?.venue);
+  // Heights in the account's length unit (Settings › Units).
+  const unit = useLengthUnit();
 
   const library = useQuery({ queryKey: ['modules'], queryFn: api.modules.list, enabled: modules.length > 0 });
   const libraryEntries = useLibraryEntries(doc);

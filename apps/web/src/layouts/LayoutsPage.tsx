@@ -4,6 +4,7 @@ import { RenameDialog, MAX_NAME_LENGTH } from '../ui/RenameDialog';
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { LibraryModuleSetupDialog } from '../editor/ModuleSetupDialog';
+import { useLengthUnit } from '../theme/PrefsProvider';
 import { powerText, tableText } from '../editor/moduleSetupText';
 import { api, lowResThumbnail, type LayoutSummary, type ModuleSummary, type OrgSummary } from '../api';
 import { defaultSaveTo, matchesOwnerFilter, useOwnerFilter, type OwnedItem } from '../owners/owners';
@@ -69,6 +70,7 @@ export function LayoutsPage() {
   const [showNewModule, setShowNewModule] = useState(false);
   const [historyOf, setHistoryOf] = useState<ModuleSummary | null>(null);
   const [setupOf, setSetupOf] = useState<ModuleSummary | null>(null);
+  const lengthUnit = useLengthUnit();
   const [toCollection, setToCollection] = useState<ModuleSummary | null>(null);
   // A member (not an admin or manager) of a trusted club shares its modules for the club's own review.
   const trustedMember = (m: ModuleSummary) => m.role === 'editor' && !!m.ownerOrgId && !!orgs?.find((o) => o.id === m.ownerOrgId && o.trusted);
@@ -277,7 +279,7 @@ export function LayoutsPage() {
                   </p>
                   {(m.setup?.table || m.setup?.power) && (
                     <p data-testid="module-row-setup" className="text-xs text-muted">
-                      {[m.setup.table ? tableText(m.setup.table, 'ftin') : null, m.setup.power ? powerText(m.setup.power) : null].filter(Boolean).join(' · ')}
+                      {[m.setup.table ? tableText(m.setup.table, lengthUnit) : null, m.setup.power ? powerText(m.setup.power) : null].filter(Boolean).join(' · ')}
                     </p>
                   )}
                   <CreditLine credit={m.credit} />

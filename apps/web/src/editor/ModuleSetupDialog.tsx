@@ -26,9 +26,10 @@ import {
 } from '@cld/modules';
 import { api, type ModuleSummary } from '../api';
 import { HelpButton } from '../help/HelpButton';
+import { useLengthUnit } from '../theme/PrefsProvider';
 import { useYjsSnapshot } from './useYjsSnapshot';
 import { updateSidecarModule } from './mutations';
-import { formatHeight, heightUnit, parseHeightMm, PLUG_SIDE_LABEL, TABLE_TYPE_HINT, TABLE_TYPE_LABEL } from './moduleSetupText';
+import { formatHeight, parseHeightMm, PLUG_SIDE_LABEL, TABLE_TYPE_HINT, TABLE_TYPE_LABEL } from './moduleSetupText';
 
 const UNIT_HINT: Record<VenueLengthUnit, string> = {
   ftin: 'In inches, like 30 3/4 or 32"',
@@ -41,6 +42,7 @@ export function PlacedModuleSetupDialog({ doc, moduleId, onClose }: { doc: Y.Doc
   // Follows the module as it changes, here or from someone else.
   useYjsSnapshot(doc);
   const sidecar = readSidecarFromDoc(doc);
+  const unit = useLengthUnit();
   const mod = sidecar?.modules?.find((m) => m.id === moduleId) ?? null;
   useEffect(() => {
     if (!mod) onClose();
@@ -50,7 +52,7 @@ export function PlacedModuleSetupDialog({ doc, moduleId, onClose }: { doc: Y.Doc
     <ModuleSetupDialog
       name={mod.name || '(module)'}
       setup={setupOf(mod) ?? {}}
-      unit={heightUnit(sidecar?.venue)}
+      unit={unit}
       onChange={(next) => updateSidecarModule(doc, moduleId, (m) => withPower(withTable(m, next.table ?? null), next.power ?? null))}
       onClose={onClose}
     />
@@ -58,7 +60,8 @@ export function PlacedModuleSetupDialog({ doc, moduleId, onClose }: { doc: Y.Doc
 }
 
 /** The table and power of a Module library module (its owner or an editor changes them). */
-export function LibraryModuleSetupDialog({ module, unit = 'ftin', onClose }: { module: ModuleSummary; unit?: VenueLengthUnit; onClose: () => void }) {
+export function LibraryModuleSetupDialog({ module, onClose }: { module: ModuleSummary; onClose: () => void }) {
+  const unit = useLengthUnit();
   const qc = useQueryClient();
   const [setup, setSetup] = useState<ModuleSetup>(module.setup ?? {});
   const save = useMutation({

@@ -15,6 +15,8 @@ import { SetupSummaryBox } from '../ModulesPanel';
 import { saveModuleToLibrary } from '../moduleLibrary';
 import { formatHeight, parseHeightMm, powerText, summaryPowerText, summaryTableLines, tableText } from '../moduleSetupText';
 import { useYjsSnapshot } from '../useYjsSnapshot';
+import { PrefsContext, type PrefsContextValue } from '../../theme/PrefsProvider';
+import { DEFAULT_PREFERENCES } from '../../theme/theme';
 
 let calls: { method: string; path: string; body: unknown }[];
 beforeEach(() => {
@@ -174,5 +176,30 @@ describe('the Module library carries them', () => {
     const placed = readSidecarFromDoc(doc)!.modules!.find((m) => m.id === res.moduleId)!;
     expect(placed.table).toEqual({ type: 'mils', heightMm: 781 });
     expect(placed.libraryVersion).toBe(2);
+  });
+});
+
+describe('heights follow the account length unit', () => {
+  it('the Table and power window types and shows heights in centimeters for a metric account', async () => {
+    const doc = layout();
+    updateSidecarModule(doc, 'pm', (m) => ({ ...m, table: { type: 'mils', heightMm: 781 } }));
+    const value: PrefsContextValue = {
+      prefs: { ...DEFAULT_PREFERENCES, lengthUnit: 'm' },
+      mode: 'light',
+      setPrefs: () => undefined,
+      syncedToAccount: true,
+      updatedAt: null,
+      ready: true,
+    };
+    render(
+      <PrefsContext.Provider value={value}>
+        <PlacedModuleSetupDialog doc={doc} moduleId="pm" onClose={() => undefined} />
+      </PrefsContext.Provider>,
+    );
+    expect((screen.getByTestId('setup-height') as HTMLInputElement).value).toBe('78.1 cm');
+    const height = screen.getByTestId('setup-height');
+    fireEvent.change(height, { target: { value: '80' } });
+    fireEvent.blur(height);
+    expect((yard(doc).table as { heightMm: number }).heightMm).toBe(800);
   });
 });
