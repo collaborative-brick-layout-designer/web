@@ -110,6 +110,10 @@ export interface RouteDraft {
   from: TrackPosition | null;
   via: TrackPosition[];
   to: TrackPosition | null;
+  /** Which way the train leaves the start (towards `from.to` or `from.from`); either, the shortest, when unset. */
+  facing?: 'to' | 'from' | null;
+  /** The train the route starts on (a start clicked on a train's front): it goes the way the train faces. */
+  train?: string | null;
 }
 
 export interface EditorState {

@@ -7,9 +7,10 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { TrackNetwork, type TrackBrickInput, type TrackPosition } from './network.js';
+import { switchKey, TrackNetwork, type TrackBrickInput, type TrackPosition } from './network.js';
 import type { TrackConn } from './partTrack.js';
-import { findRoute, nearestPosition, renameRouteBricks, routeLines, routeStatus, type RouteStep } from './routes.js';
+import { findRoute, nearestPosition, renameRouteBricks, routeFacing, routeLines, routeStatus, sameSpot, type RouteStep } from './routes.js';
+import { fitChecks } from './fitChecks.js';
 
 const FILE = join(dirname(fileURLToPath(import.meta.url)), '../../../../fixtures/contracts/route-search.json');
 
@@ -20,20 +21,25 @@ interface Case {
   via?: TrackPosition[];
   followSwitches?: boolean;
   states?: Record<string, number>;
+  facing?: 'to' | 'from';
+  network?: 'loops';
   expect: null | string | { steps: RouteStep[]; length: number; switches: Record<string, number>; turnsAround: string[] };
   status?: unknown;
 }
+type BrickVector = { id: string; part: string; points: [number, number][]; orientation?: number; connexions: { id: string; linkedTo: string }[] };
 const doc = JSON.parse(readFileSync(FILE, 'utf8')) as {
   _about: string;
   parts: Record<string, TrackConn[]>;
-  bricks: { id: string; part: string; points: [number, number][]; connexions: { id: string; linkedTo: string }[] }[];
+  bricks: BrickVector[];
+  loopBricks: BrickVector[];
   cases: Case[];
+  gaps: { a: string; b: string; at: [number, number]; gap: number }[];
 };
 
-function network(without: string[] = []): TrackNetwork {
-  const bricks: TrackBrickInput[] = doc.bricks
+function network(without: string[] = [], list: BrickVector[] = doc.bricks): TrackNetwork {
+  const bricks: TrackBrickInput[] = list
     .filter((b) => !without.includes(b.id))
-    .map((b) => ({ id: b.id, partKey: b.part, conns: doc.parts[b.part]!, points: b.points.flat(), orientation: 0, connexions: b.connexions }));
+    .map((b) => ({ id: b.id, partKey: b.part, conns: doc.parts[b.part]!, points: b.points.flat(), orientation: b.orientation ?? 0, connexions: b.connexions }));
   return new TrackNetwork(bricks);
 }
 
@@ -41,17 +47,24 @@ const round = (v: number) => Math.round(v * 1e6) / 1e6;
 const writing = process.env.BLD_WRITE_CONTRACTS === '1';
 
 describe('route search', () => {
-  const net = network();
+  const main = network();
   const withoutM = network(['M']);
+  const loops = network([], doc.loopBricks);
   for (const c of doc.cases) {
     it(c.name, () => {
-      const got = findRoute(net, c.from, c.to, { ...(c.via ? { via: c.via } : {}), ...(c.followSwitches ? { followSwitches: true } : {}), ...(c.states ? { states: c.states } : {}) });
+      const net = c.network === 'loops' ? loops : main;
+      const got = findRoute(net, c.from, c.to, {
+        ...(c.via ? { via: c.via } : {}),
+        ...(c.followSwitches ? { followSwitches: true } : {}),
+        ...(c.states ? { states: c.states } : {}),
+        ...(c.facing ? { facing: c.facing } : {}),
+      });
       const plain = typeof got === 'string' ? got : { ...got, length: round(got.length) };
       const status =
         typeof got === 'string'
           ? null
           : (() => {
-              const st = routeStatus(withoutM, { steps: got.steps, from: c.from, to: c.to });
+              const st = routeStatus(c.network === 'loops' ? loops : withoutM, { steps: got.steps, from: c.from, to: c.to });
               return st.status === 'ok' ? { status: 'ok', length: round(st.length) } : st;
             })();
       if (writing) {
@@ -63,6 +76,42 @@ describe('route search', () => {
       expect(status).toEqual(c.status);
     });
   }
+  it('joins loose ends that nearly meet, for trains', () => {
+    expect(main.gaps).toEqual([]);
+    const got = loops.gaps.map((g) => ({ a: switchKey(g.a.brick, g.a.conn), b: switchKey(g.b.brick, g.b.conn), at: [round(g.at.x), round(g.at.y)] as [number, number], gap: round(g.gap) }));
+    if (writing) {
+      doc.gaps = got;
+      return;
+    }
+    expect(got).toEqual(doc.gaps);
+    for (const g of loops.gaps) {
+      expect(loops.partner(g.a)).toEqual(g.b);
+      expect(loops.partner(g.b)).toEqual(g.a);
+    }
+  });
+  it('says where track nearly meets, as a fit check', () => {
+    const gaps = fitChecks(loops, { trains: [], stock: new Map() }).filter((c) => c.kind === 'gap');
+    expect(gaps.map((c) => [c.key, c.severity, round(c.values.gap!)])).toEqual([
+      ['gap:456/0:492/1', 'warning', 0.639312],
+      ['gap:GL/0:GT/0', 'warning', 0.6],
+    ]);
+    expect(fitChecks(main, { trains: [], stock: new Map() }).filter((c) => c.kind === 'gap')).toEqual([]);
+  });
+  it('keeps the way a saved route runs when it finds a new one', () => {
+    const c = doc.cases.find((x) => x.name.startsWith('heading on round an oval'))!;
+    const got = findRoute(loops, c.from, c.to, { facing: 'to' });
+    if (typeof got === 'string') throw new Error(got);
+    expect(routeFacing({ steps: got.steps, from: c.from })).toBe('to');
+    const back = findRoute(loops, c.from, c.to);
+    if (typeof back === 'string') throw new Error(back);
+    expect(routeFacing({ steps: back.steps, from: c.from })).toBe('from');
+  });
+  it('a click on a switch’s heel end is on each of its legs', () => {
+    // P's legs share their first stud or so: a place there on the straight leg is on the diverging one too.
+    const spots = sameSpot(main, { brick: 'P', from: 0, to: 1, s: 0.2 });
+    expect(spots.map((p) => [p.from, p.to])).toEqual([[0, 1], [0, 2]]);
+    expect(sameSpot(main, { brick: 'P', from: 0, to: 1, s: 12 })).toHaveLength(1);
+  });
   if (writing) it('writes the contract', () => writeFileSync(FILE, `${JSON.stringify(doc, null, 1)}\n`));
 });
 

@@ -5,7 +5,7 @@
 // couplers can take the curves, whether its cars clear the other tracks
 // and trains, and whether it is on its kind of track; for each route,
 // whether it turns the train around (and on powered track, needs a
-// polarity switch). Each result is a kind, a severity, what it is about,
+// polarity switch); and track that nearly meets but isn't joined. Each result is a kind, a severity, what it is about,
 // the numbers, and a place to show. The words are each app's own. The
 // desktop's src/track/FitChecks.cpp is the twin; both check
 // fixtures/contracts/train-geometry.json.
@@ -256,7 +256,9 @@ export type FitCheckKind =
   /** A route that turns the train around (a reversing loop or wye). */
   | 'reverse'
   /** ... on powered track: it needs a polarity switch. */
-  | 'power';
+  | 'power'
+  /** Two ends of track that nearly meet but aren't joined: trains run across, but the real track may not. */
+  | 'gap';
 
 export interface FitCheck {
   /** Stable while the problem lasts (a key for lists). */
@@ -268,7 +270,7 @@ export interface FitCheck {
   /** The car (a stock id) it's about, and its place in the train (0: the front). */
   stock?: string;
   unit?: number;
-  /** The other train (overlap), or the brick (clearance, reverse, power). */
+  /** The other train (overlap), or the brick (clearance, reverse, power, gap: one of the two). */
   other?: string;
   /** Where to show it (studs). */
   at: Pt;
@@ -507,6 +509,9 @@ export function fitChecks(net: TrackNetwork, input: FitInput): FitCheck[] {
       if (net.isPowered(brick)) out.push({ key: `power:${r.id}:${brick}`, kind: 'power', severity: 'warning', route: r.id, other: brick, at, values: {} });
     }
   }
+  // Track that nearly meets: joined for trains, but worth closing up.
+  for (const g of net.gaps)
+    out.push({ key: `gap:${g.a.brick}/${g.a.conn}:${g.b.brick}/${g.b.conn}`, kind: 'gap', severity: 'warning', other: g.a.brick, at: g.at, values: { gap: g.gap } });
   return out;
 }
 

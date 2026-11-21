@@ -8,7 +8,7 @@ import { asRoute, newRoute, problemText, removeRoute, ROUTE_COLORS, saveRoute } 
 import { createUndoManager } from '../useUndoManager';
 
 const at = { brick: 'A', from: 0, to: 1, s: 2 };
-const found = { steps: [{ brick: 'A', from: 0, to: 1 }], length: 10, switches: {}, turnsAround: [] };
+const found = { steps: [{ brick: 'A', from: 0, to: 1 }], length: 10, switches: {}, turnsAround: [], facing: 'to' as const, bothWays: [] };
 
 describe('editor routes', () => {
   it('read back whole, with defaults for what is missing and unknown fields kept', () => {
@@ -23,6 +23,11 @@ describe('editor routes', () => {
     expect(second.color).toBe(ROUTE_COLORS[1]);
     expect(second.via).toEqual([{ at, reverse: false }]);
     expect(first.id).not.toBe(second.id);
+  });
+
+  it('a route started on a train is that train’s', () => {
+    expect(newRoute('One', at, at, [], found, [], 't1').train).toBe('t1');
+    expect(newRoute('One', at, at, [], found, []).train).toBeNull();
   });
 
   it('saving, renaming and deleting are each one undo step', () => {
