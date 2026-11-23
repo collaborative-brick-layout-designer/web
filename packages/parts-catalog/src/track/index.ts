@@ -8,3 +8,4 @@ export * from './fromMap.js';
 export * from './routes.js';
 export * from './trains.js';
 export * from './fitChecks.js';
+export * from './animation.js';

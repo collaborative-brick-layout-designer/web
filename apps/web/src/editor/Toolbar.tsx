@@ -90,6 +90,7 @@ export function RunModeButton() {
       onClick={() => setRunMode(!runMode)}
       aria-pressed={runMode}
       data-testid="run-mode"
+      data-tour="run.mode"
       title={runMode ? 'Stop running: back to building' : 'Run trains: click switches to flip them'}
       className={
         'flex h-[54px] w-[60px] flex-col items-center justify-center gap-0.5 rounded-card text-[11px] font-bold transition-colors ' +

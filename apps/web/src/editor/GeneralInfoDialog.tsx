@@ -4,7 +4,10 @@
 import { useId, useState } from 'react';
 import type * as Y from 'yjs';
 import type { BbmMap } from '@cld/model';
+import { MAX_SCALE, MIN_SCALE } from '@cld/parts-catalog/browser';
+import { HelpButton } from '../help/HelpButton';
 import { setGeneralInfo } from './mutations';
+import { setTrainScale, useTrainScale } from './trainRun';
 import { useEscape } from './useEscape';
 
 interface Props {
@@ -23,6 +26,9 @@ export function GeneralInfoDialog({ map, doc, onClose }: Props) {
   // reads month first) and offers a calendar.
   const [date, setDate] = useState(() => isoDate(map.date));
   const [comment, setComment] = useState(map.comment);
+  // The scale the layout's trains run at (trains design 5): a layout setting, kept beside the .bbm.
+  const scaleNow = useTrainScale(doc, map);
+  const [scale, setScale] = useState(String(scaleNow));
 
   function commit() {
     setGeneralInfo(doc, {
@@ -32,6 +38,8 @@ export function GeneralInfoDialog({ map, doc, onClose }: Props) {
       comment,
       date: fromIsoDate(date) ?? map.date,
     });
+    const n = Number(scale);
+    if (Number.isFinite(n) && n >= MIN_SCALE && n <= MAX_SCALE && Math.round(n) !== scaleNow) setTrainScale(doc, n);
     onClose();
   }
 
@@ -87,6 +95,22 @@ export function GeneralInfoDialog({ map, doc, onClose }: Props) {
             rows={4}
             className="rounded-lg border border-border bg-soft px-2 py-1"
           />
+          <label className="self-center" htmlFor={`${uid}-scale`}>Train scale:</label>
+          <span className="flex items-center gap-1">
+            1:
+            <input
+              id={`${uid}-scale`}
+              data-testid="general-train-scale"
+              type="number"
+              min={MIN_SCALE}
+              max={MAX_SCALE}
+              step={1}
+              value={scale}
+              onChange={(e) => setScale(e.target.value)}
+              className="w-20 rounded-lg border border-border bg-soft px-2 py-1"
+            />
+            <HelpButton helpKey="trains.scale" />
+          </span>
         </div>
         <div className="mt-5 flex justify-end gap-2">
           <button

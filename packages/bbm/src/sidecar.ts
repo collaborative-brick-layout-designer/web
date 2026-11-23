@@ -288,6 +288,12 @@ export interface Sidecar {
   rollingStock?: SidecarRecord[];
   /** Trains (consists, trains design 2.4): `{ id, name, units, position, color, ... }`. Live: `meta.trains`. */
   trains?: SidecarRecord[];
+  /**
+   * The scale trains run at (trains design 5): 1:`trainScale`, a whole
+   * number; absent means 1:38 (LEGO track gauge). Live: `meta.trainScale`.
+   * Never in a .bbm.
+   */
+  trainScale?: number;
   /** Unknown top-level fields preserved verbatim across round-trip. */
   extras?: Record<string, unknown>;
 }
@@ -340,6 +346,11 @@ export function readSwitchStatesField(v: unknown): Record<string, number> | unde
   return Object.keys(out).length > 0 ? out : undefined;
 }
 
+/** A sidecar's `trainScale`: a whole number from 10 to 220 (1:N); undefined otherwise. */
+export function readTrainScaleField(v: unknown): number | undefined {
+  return typeof v === 'number' && Number.isInteger(v) && v >= 10 && v <= 220 ? v : undefined;
+}
+
 export function readSidecar(raw: string): Sidecar {
   const parsed = JSON.parse(raw) as Record<string, unknown>;
   // Files the web wrote before 2026-10 could leave schemaVersion out (a
@@ -382,6 +393,8 @@ export function readSidecar(raw: string): Sidecar {
   if (rollingStock) sidecar.rollingStock = rollingStock;
   const trains = readRecordsField(parsed.trains);
   if (trains) sidecar.trains = trains;
+  const trainScale = readTrainScaleField(parsed.trainScale);
+  if (trainScale !== undefined) sidecar.trainScale = trainScale;
 
   const knownKeys = new Set([
     'schemaVersion',
@@ -397,6 +410,7 @@ export function readSidecar(raw: string): Sidecar {
     'routes',
     'rollingStock',
     'trains',
+    'trainScale',
   ]);
   const extras: Record<string, unknown> = {};
   for (const key of Object.keys(parsed)) {
@@ -447,6 +461,7 @@ export function writeSidecar(sidecar: Sidecar, opts: WriteSidecarOptions = {}): 
   if (sidecar.routes && sidecar.routes.length > 0) out.routes = sidecar.routes;
   if (sidecar.rollingStock && sidecar.rollingStock.length > 0) out.rollingStock = sidecar.rollingStock;
   if (sidecar.trains && sidecar.trains.length > 0) out.trains = sidecar.trains;
+  if (sidecar.trainScale !== undefined) out.trainScale = sidecar.trainScale;
   if (sidecar.extras) {
     for (const [k, v] of Object.entries(sidecar.extras)) out[k] = v;
   }

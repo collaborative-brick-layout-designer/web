@@ -68,6 +68,9 @@ import { newRoute, problemText, saveRoute, useHiddenRoutes, useRouteStatuses, us
 import type { RouteDraft } from './editorStore';
 import type { Route, RouteFound, RouteProblem, TrackPosition } from '@cld/parts-catalog/browser';
 import { legLabel, switchAt, switchMenuItems, useSwitchStates, useTrackNetwork, type SwitchMenuItem } from './trackSwitches';
+import { useRunStore, useTrainRunner, useTrainScale } from './trainRun';
+import { RunPanel } from './RunPanel';
+import { RunLayer } from './render/RunLayer';
 import { findRoute, nearestPosition, nextExit, placeTrain } from '@cld/parts-catalog/browser';
 import { BEND_HANDLE_NAME, BendHandles } from './render/BendHandles';
 import { ModuleOverlay, measureBold, moduleLabelBoundsStuds } from './render/ModuleOverlay';
@@ -823,6 +826,15 @@ function Editor({ layoutId, docState, moduleMode }: { layoutId: string; docState
   // when loading flips false the hook count changes mid-tree and
   // React throws #310 ("rendered more hooks than during previous").
   const dock = useDockLayout(me.data?.user?.id ?? null);
+  // "Open Trains" and the like from inside the map (the Run panel): show that panel.
+  useEffect(() => {
+    const onShow = (e: Event) => {
+      const id = (e as CustomEvent<string>).detail;
+      if (typeof id === 'string' && dock.zoneOf(id) === 'hidden') dock.setZone(id, 'right');
+    };
+    window.addEventListener('cld:show-panel', onShow);
+    return () => window.removeEventListener('cld:show-panel', onShow);
+  }, [dock]);
   const panelsHere = (ids: readonly string[]) => (moduleMode ? ids.filter((id) => !NOT_IN_MODULES.has(id)) : [...ids]);
   const leftPanels = panelsHere(dock.state.left);
   const rightPanels = panelsHere(dock.state.right);
@@ -2922,6 +2934,17 @@ function Canvas({
   const trains = useTrains(doc, map);
   const stockById = useMemo(() => new Map(stock.map((s) => [s.id, s])), [stock]);
   const placedTrains = usePlacedTrains(trackNet, trains, stockById, switchStates);
+  // Running trains (trains design 5): this person's own; the run's cars are drawn on their own layer.
+  const trainScale = useTrainScale(doc, map);
+  useTrainRunner({ runMode, net: trackNet, trains, stock: stockById, routes, statuses: routeStatuses, placed: placedTrains, switchStates, scale: trainScale });
+  const activeRun = useRunStore((s) => s.run);
+  const runStates = useRunStore((s) => s.states);
+  const shownStates = runStates ?? switchStates;
+  const standingTrains = useMemo(() => {
+    if (!activeRun) return placedTrains;
+    const ids = new Set(activeRun.trainIds);
+    return new Map([...placedTrains].filter(([id]) => !ids.has(id)));
+  }, [activeRun, placedTrains]);
   // Fit checks (trains design 3.5): the siding lengths, and a ring at each spot a check is about.
   const showSidingLengths = useEditorStore((s) => s.showSidingLengths);
   const spotlight = useEditorStore((s) => s.spotlight);
@@ -3025,13 +3048,19 @@ function Canvas({
     if ('button' in e.evt && e.evt.button !== 0) return;
     const at = pointerStuds();
     if (!at || !trackNet) return;
-    const sw = switchAt(trackNet, switchStates, at, Math.max(4, 28 / (8 * zoom)));
+    const sw = switchAt(trackNet, shownStates, at, Math.max(4, 28 / (8 * zoom)));
     const { showStatusMessage } = useEditorStore.getState();
     if (!sw) {
       showStatusMessage('Click on a switch to flip it.', 3000);
       return;
     }
-    const exit = nextExit(sw, trackNet.settingOf(sw, switchStates));
+    // From where it is set now (a running train may have pushed it): the click is the layout's again.
+    const exit = nextExit(sw, trackNet.settingOf(sw, shownStates));
+    const r = useRunStore.getState().run;
+    if (r) {
+      r.dropOverlay(sw.key);
+      useRunStore.setState({ states: { ...r.states, [sw.key]: exit } });
+    }
     setSwitch(doc, sw.key, exit === sw.default ? null : exit);
     showStatusMessage(`Switch set: ${legLabel(sw.legs[exit] ?? 'straight')}`, 3000);
   };
@@ -5193,9 +5222,9 @@ function Canvas({
             zoom={zoom}
             draft={routeDraft ? { ends: [routeDraft.from, ...routeDraft.via, routeDraft.to].filter((p): p is TrackPosition => !!p), route: draftFound && typeof draftFound !== 'string' && routeDraft.from && routeDraft.to ? { steps: draftFound.steps, from: routeDraft.from, to: routeDraft.to } : null } : null}
           />
-          <TrainLayer trains={trains} placed={placedTrains} stock={stockById} partsByKey={partsByKey} zoom={zoom} picked={trainPlacing} />
+          <TrainLayer trains={trains} placed={standingTrains} stock={stockById} partsByKey={partsByKey} zoom={zoom} picked={trainPlacing} />
           <FitLayer runs={showSidingLengths ? runs : []} checks={checks} spotlight={spotlight} zoom={zoom} />
-          {(showSwitches || runMode) && <SwitchLayer net={trackNet} states={switchStates} zoom={zoom} />}
+          {(showSwitches || runMode) && <SwitchLayer net={trackNet} states={shownStates} zoom={zoom} />}
           {runMode && (
             <Rect name="run-mode-cover" x={-1e7} y={-1e7} width={2e7} height={2e7} fill="rgba(0,0,0,0)" onClick={onRunClick} onTap={onRunClick} />
           )}
@@ -5205,6 +5234,11 @@ function Canvas({
           {routeDraft && (
             <Rect name="route-draft-cover" x={-1e7} y={-1e7} width={2e7} height={2e7} fill="rgba(0,0,0,0)" onClick={onDraftClick} onTap={onDraftClick} />
           )}
+        </KonvaLayer>
+      )}
+      {runMode && activeRun && (
+        <KonvaLayer name="run-layer" listening={false} perfectDrawEnabled={false}>
+          <RunLayer trains={trains} stock={stockById} partsByKey={partsByKey} zoom={zoom} />
         </KonvaLayer>
       )}
       <KonvaLayer ref={hudLayerRef} listening={false} perfectDrawEnabled={false}>
@@ -5365,6 +5399,7 @@ function Canvas({
       )}
       </Suspense>
       {runMode && <RunModeBanner />}
+      {runMode && <RunPanel doc={doc} trains={trains} routes={routes} statuses={routeStatuses} placed={placedTrains} scale={trainScale} isViewer={isViewer} top={phone} />}
       {placingTrain && <TrainPlaceBanner name={placingTrain.name} />}
       {routeDraft && <RouteDraftBanner doc={doc} draft={routeDraft} found={draftFound} routes={routes} trainName={routeDraft.train ? trains.find((t) => t.id === routeDraft.train)?.name : undefined} />}
       <SetUpdatesBar updates={setUpdates} onUpdate={updatePlacedSets} onShow={showPlacedSets} top={phone} />
@@ -7163,7 +7198,7 @@ function RunModeBanner() {
     <div role="status" data-testid="run-mode-banner" className="pointer-events-auto absolute left-1/2 top-3 z-20 flex -translate-x-1/2 items-center gap-3 rounded-full border border-line bg-panel px-4 py-2 text-sm shadow-pop">
       <span aria-hidden className="text-accent">&#x25B6;&#xFE0E;</span>
       <span>
-        <b>Run mode:</b> click a switch to flip it. Parts can&apos;t be moved.
+        <b>Run mode:</b> press Play to run the trains; click a switch to flip it. Parts can&apos;t be moved.
       </span>
       <HelpButton helpKey="run.mode" />
       <button

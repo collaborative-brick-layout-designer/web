@@ -23,6 +23,8 @@ interface Props {
   zoom: number;
   /** The train picked in the Trains panel, outlined. */
   picked?: string | null;
+  /** The group's name on the map ('trains': standing; a run's are 'running-trains'). */
+  name?: string;
 }
 
 /** A darker shade of a #RRGGBB color, for outlines. */
@@ -53,10 +55,10 @@ function PartSprite({ part, x, y, angle }: { part: PartWire; x: number; y: numbe
   return <KonvaImage image={img} x={x} y={y} width={w} height={h} offsetX={w / 2} offsetY={h / 2} rotation={angle} listening={false} />;
 }
 
-export function TrainLayer({ trains, placed, stock, partsByKey, zoom, picked }: Props) {
+export function TrainLayer({ trains, placed, stock, partsByKey, zoom, picked, name = 'trains' }: Props) {
   const showNumbers = zoom >= 0.35;
   return (
-    <Group name="trains" listening={false}>
+    <Group name={name} listening={false}>
       {trains.map((t) => {
         const p = placed.get(t.id);
         if (!p || p.units.length === 0) return null;
