@@ -19,6 +19,7 @@ import { useEditorStore } from './editorStore';
 import { FitChecksList } from './FitChecksList';
 import type { namesOf } from './fitChecks';
 import { StockEditor } from './StockEditor';
+import { kmhToShown, speedToKmh, usesMiles } from './trainRun';
 import {
   copyOf,
   forRoster,
@@ -98,6 +99,7 @@ function TrainEditor({
 }) {
   const unit = useLengthUnit();
   const [t, setT] = useState(initial);
+  const [speedText, setSpeedText] = useState(() => String(kmhToShown(initial.speed, unit)));
   const [adding, setAdding] = useState(stock[0]?.id ?? '');
   const byId = useMemo(() => new Map(stock.map((s) => [s.id, s])), [stock]);
   const move = (i: number, d: number) =>
@@ -165,6 +167,26 @@ function TrainEditor({
           </button>
         </div>
       )}
+      <label className="flex items-center gap-1 text-xs">
+        <span className="text-muted">Speed</span>
+        <input
+          type="number"
+          min={1}
+          max={500}
+          step={1}
+          aria-label="Train speed"
+          data-testid="train-speed"
+          className="h-8 w-20 rounded border border-border bg-bg px-2 text-sm"
+          value={speedText}
+          onChange={(e) => {
+            setSpeedText(e.target.value);
+            const v = Number(e.target.value);
+            if (Number.isFinite(v) && v > 0 && v <= 500) setT({ ...t, speed: Math.round(speedToKmh(v, unit) * 100) / 100 });
+          }}
+        />
+        <span className="text-muted">{usesMiles(unit) ? 'mph' : 'km/h'} at scale</span>
+        <HelpButton helpKey="trains.speed" />
+      </label>
       <p className="text-xs text-muted">Length {formatLength(trainLength(t, byId), unit)}</p>
       <div className="flex gap-2">
         <button type="submit" className={primary} disabled={t.units.length === 0} data-testid="train-save">

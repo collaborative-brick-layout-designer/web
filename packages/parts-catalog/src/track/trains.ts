@@ -198,15 +198,19 @@ export function lineAt(line: TrackLine, d: number): Pt | null {
 function at(line: TrackLine, d: number): Pt | null {
   const pts = line.pts;
   if (pts.length === 0 || d > pts[pts.length - 1]!.d + 1e-9) return null;
-  for (let i = 1; i < pts.length; i++) {
-    const a = pts[i - 1]!;
-    const b = pts[i]!;
-    if (d <= b.d) {
-      const f = b.d > a.d ? (d - a.d) / (b.d - a.d) : 0;
-      return { x: a.p.x + (b.p.x - a.p.x) * f, y: a.p.y + (b.p.y - a.p.y) * f };
-    }
+  if (d <= pts[0]!.d) return pts[0]!.p;
+  // The first point at or past d (distances only grow along the line).
+  let lo = 1;
+  let hi = pts.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (pts[mid]!.d >= d) hi = mid;
+    else lo = mid + 1;
   }
-  return pts[0]!.p;
+  const a = pts[lo - 1]!;
+  const b = pts[lo]!;
+  const f = b.d > a.d ? (d - a.d) / (b.d - a.d) : 0;
+  return { x: a.p.x + (b.p.x - a.p.x) * f, y: a.p.y + (b.p.y - a.p.y) * f };
 }
 
 /**
@@ -283,10 +287,18 @@ export function placeTrain(
   states: Readonly<Record<string, number>> = {},
 ): PlacedTrain | null {
   if (!train.position) return null;
-  const units = train.units.map((u) => ({ u, s: stock.get(u.stock) })).filter((x): x is { u: Train['units'][number]; s: RollingStock } => !!x.s);
-  const total = units.reduce((n, x) => n + x.s.length, 0);
-  const line = trackBehind(net, train.position, total + 64, states);
+  const line = trackBehind(net, train.position, trainLength(train, stock) + 64, states);
   if (line.pts.length < 2) return null;
+  return placeOnLine(line, train.units, stock);
+}
+
+/**
+ * Where each unit sits on `line` (the track behind the head, its first
+ * point the head car's front truck): as placeTrain, on a line the caller
+ * made (a running train's: the way it came).
+ */
+export function placeOnLine(line: TrackLine, trainUnits: Train['units'], stock: ReadonlyMap<string, RollingStock>): PlacedTrain {
+  const units = trainUnits.map((u) => ({ u, s: stock.get(u.stock) })).filter((x): x is { u: Train['units'][number]; s: RollingStock } => !!x.s);
   const out: PlacedUnit[] = [];
   let couplerAt: Pt | null = null;
   let along = 0;

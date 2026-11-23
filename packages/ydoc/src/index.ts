@@ -10,7 +10,7 @@
 
 import * as Y from 'yjs';
 import { BBM_FORMAT_VERSION, type BbmMap } from '@cld/model';
-import { readRecordsField, readRoutesField, readSwitchStatesField, type Sidecar, type SidecarRecord, type SidecarRoute } from '@cld/bbm';
+import { readRecordsField, readRoutesField, readSwitchStatesField, readTrainScaleField, type Sidecar, type SidecarRecord, type SidecarRoute } from '@cld/bbm';
 import { bbmToDoc, docToBbm } from './projection.js';
 import { keepDrawnSettingsInRange } from './drawnLimits.js';
 
@@ -174,9 +174,10 @@ export function readBudgetLimitsFromDoc(doc: Y.Doc): Record<string, number> | un
  * budget in the sidecar, the doc's budget is left as it is.
  */
 export function importSidecarIntoDoc(doc: Y.Doc, sidecar: Sidecar): void {
-  const { budgetLimits, switchStates, routes, rollingStock, trains, ...rest } = sidecar;
+  const { budgetLimits, switchStates, routes, rollingStock, trains, trainScale, ...rest } = sidecar;
   const meta = doc.getMap('meta');
   meta.set('cache', rest as unknown as Record<string, unknown>);
+  if (trainScale !== undefined) meta.set(TRAIN_SCALE_KEY, trainScale);
   if (routes && routes.length > 0) {
     const y = new Y.Map<Y.Map<unknown>>();
     for (const r of routes) y.set(r.id, routeMap(r));
@@ -208,18 +209,20 @@ function withBudget(doc: Y.Doc, cache: Record<string, unknown> | null): Sidecar 
   const routes = allRoutes.length > 0 ? allRoutes : undefined;
   const stockList = readRecordsFromDoc(doc, ROLLING_STOCK_KEY);
   const trainList = readRecordsFromDoc(doc, TRAINS_KEY);
+  const trainScale = readTrainScaleFromDoc(doc);
   const live = {
     ...(budgetLimits ? { budgetLimits } : {}),
     ...(switchStates ? { switchStates } : {}),
     ...(routes ? { routes } : {}),
     ...(stockList.length ? { rollingStock: stockList } : {}),
     ...(trainList.length ? { trains: trainList } : {}),
+    ...(trainScale !== undefined ? { trainScale } : {}),
   };
   if (!cache) {
-    if (!budgetLimits && !switchStates && !routes && !stockList.length && !trainList.length) return null;
+    if (!budgetLimits && !switchStates && !routes && !stockList.length && !trainList.length && trainScale === undefined) return null;
     return { schemaVersion: 1, bbmHashSha256: '', ...live };
   }
-  const { budgetLimits: _inCache, switchStates: _statesInCache, routes: _routesInCache, rollingStock: _stockInCache, trains: _trainsInCache, ...rest } = cache;
+  const { budgetLimits: _inCache, switchStates: _statesInCache, routes: _routesInCache, rollingStock: _stockInCache, trains: _trainsInCache, trainScale: _scaleInCache, ...rest } = cache;
   return { ...rest, ...live } as unknown as Sidecar;
 }
 
@@ -234,6 +237,32 @@ function withBudget(doc: Y.Doc, cache: Record<string, unknown> | null): Sidecar 
 // ---------------------------------------------------------------------------
 
 export const SWITCH_STATES_KEY = 'switchStates';
+
+// ---------------------------------------------------------------------------
+// The scale trains run at (trains design 5), 1:N, is a plain number at
+// `meta.trainScale` (the last one set wins); none means 1:38. An older web
+// build that imported a file kept it in `meta.cache`: read from there.
+// ---------------------------------------------------------------------------
+
+export const TRAIN_SCALE_KEY = 'trainScale';
+
+/** The layout's train scale (the N of 1:N), or undefined when it has none set. */
+export function readTrainScaleFromDoc(doc: Y.Doc): number | undefined {
+  const meta = doc.getMap('meta');
+  const v = meta.get(TRAIN_SCALE_KEY);
+  if (v !== undefined) return readTrainScaleField(v);
+  const cache = meta.get('cache') as Record<string, unknown> | undefined;
+  return readTrainScaleField(cache?.trainScale);
+}
+
+/** Set the layout's train scale (null: back to 1:38). Call inside the caller's transaction. */
+export function writeTrainScale(doc: Y.Doc, scale: number | null): void {
+  const meta = doc.getMap('meta');
+  const v = scale === null ? undefined : readTrainScaleField(scale);
+  if (v === undefined) {
+    if (meta.has(TRAIN_SCALE_KEY)) meta.delete(TRAIN_SCALE_KEY);
+  } else if (meta.get(TRAIN_SCALE_KEY) !== v) meta.set(TRAIN_SCALE_KEY, v);
+}
 
 // ---------------------------------------------------------------------------
 // Named routes (trains design 2.5) live at `meta.routes`: a Y.Map of route

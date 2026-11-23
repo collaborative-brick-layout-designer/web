@@ -16,6 +16,7 @@ export {
   writeSidecar,
   readView,
   readSwitchStatesField,
+  readTrainScaleField,
   readRoutesField,
   readRecordsField,
   type SidecarRecord,
