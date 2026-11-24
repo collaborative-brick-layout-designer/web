@@ -15,6 +15,7 @@ export const WEB_ONLY_HELP_TEXTS = {
     title: 'Restore from a backup',
     short: 'Brings the things in a backup back into your account as new copies.',
     more: 'You see the list first and tick what to bring back. Nothing you have is changed or replaced: something you still have is left out unless you tick it, and one with the same name as yours comes back as “… (restored)”. Your usage limits count as usual.',
+  },
   'admin.backups': {
     title: 'Backups',
     short: 'Copies of the whole site you can download, and put back if something goes badly wrong.',
