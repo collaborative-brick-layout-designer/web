@@ -23,6 +23,13 @@ beforeAll(async () => {
   const { db } = await import('../db/index.js');
   const { migrate } = await import('drizzle-orm/better-sqlite3/migrator');
   migrate(db, { migrationsFolder: 'migrations' });
+  // No test starts a real download (the LDraw library, the LDD mapping): a route fuzz that
+  // reaches "download" would wait on the network, and a slow one stalls the whole suite.
+  // A test of the download itself sets its own fetcher.
+  const { setLibraryFetcher } = await import('../imports/libraries.js');
+  setLibraryFetcher(async (url) => {
+    throw new Error(`a test tried a real download of ${url}; set a fetcher with setLibraryFetcher`);
+  });
 });
 
 afterAll(() => {
