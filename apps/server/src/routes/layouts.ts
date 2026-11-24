@@ -964,9 +964,11 @@ function toListItem(
 export async function prepareLayoutCopy(
   src: typeof schema.layouts.$inferSelect,
   to: { title: string; ownerUserId: string | null; ownerOrgId: string | null; createdBy: string },
+  /** The document to copy (an earlier version), instead of the layout as it is now. */
+  docBytes?: Uint8Array,
 ): Promise<{ values: typeof schema.layouts.$inferInsert & { id: string }; copyBackground: () => Promise<void> }> {
   const id = randomUUID();
-  const doc = decodeDoc(await currentDocBytes(src.id, src.docSnapshot as Uint8Array));
+  const doc = decodeDoc(docBytes ?? (await currentDocBytes(src.id, src.docSnapshot as Uint8Array)));
   // The background is served per layout: point the copy at its own.
   const oldBg = `/api/layouts/${src.id}/background-image`;
   // Everyone's modules and labels, kept one per key (@cld/ydoc).

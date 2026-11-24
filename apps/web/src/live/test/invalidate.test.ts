@@ -44,7 +44,9 @@ describe('keysFor', () => {
     const STATIC = new Set([
       // The list of notification types only changes with a new server.
       'notification-types', 'unsubscribe',
-      'public-layout', 'public-layout-snapshot', 'reset-link', 'pending-link', 'invite-preview', 'module-invite-preview', 'part-invite-preview', 'org-invite-preview',
+      'public-layout', 'public-layout-snapshot',
+      // A kept version never changes (its id is new for every one).
+      'layout-version-snapshot', 'reset-link', 'pending-link', 'invite-preview', 'module-invite-preview', 'part-invite-preview', 'org-invite-preview',
       'admin-series', 'admin-people', 'admin-health', 'admin-content', 'admin-usage',
     ]);
     const reachable = new Set(HINT_KINDS.flatMap((k) => prefixes(k)));

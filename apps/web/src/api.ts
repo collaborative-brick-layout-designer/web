@@ -417,6 +417,19 @@ export interface VenueSummary {
   heightStuds?: number;
 }
 
+/** One version in a layout's history. */
+export interface LayoutVersion {
+  id: string;
+  reason: 'auto' | 'manual' | 'before-import' | 'before-merge' | 'before-restore' | 'before-bulk-delete';
+  title: string;
+  label: string | null;
+  summary: { parts: number; sheets: number; modules: number; labels: number };
+  editors: { id: string; name: string }[];
+  bytes: number;
+  createdAt: number;
+  createdBy: { id: string; name: string } | null;
+}
+
 export interface LayoutSummary {
   id: string;
   title: string;
@@ -744,6 +757,17 @@ export const api = {
     exportSidecarUrl: (id: string) => `/api/layouts/${id}/export.bbm.bld`,
     exportZipUrl: (id: string) => `/api/layouts/${id}/export.zip`,
     snapshot: (id: string) => getBytes(`/api/layouts/${id}/snapshot`),
+    /** Version history (server history/layoutVersions.ts), newest first. */
+    versions: (id: string) => get<{ versions: LayoutVersion[]; canRestore: boolean }>(`/api/layouts/${encodeURIComponent(id)}/versions`),
+    versionSnapshot: (id: string, vid: string) => getBytes(`/api/layouts/${encodeURIComponent(id)}/versions/${encodeURIComponent(vid)}/snapshot`),
+    /** Keep a version now: by hand (with a name), or just before an import or a paste. */
+    keepVersion: (id: string, body: { reason?: 'manual' | 'before-import' | 'before-merge'; label?: string } = {}) =>
+      post<{ id: string }>(`/api/layouts/${encodeURIComponent(id)}/versions`, body),
+    /** Put a version back (a version of the layout as it was is kept first: `safety`). */
+    restoreVersion: (id: string, vid: string) => post<{ ok: true; safety: string }>(`/api/layouts/${encodeURIComponent(id)}/versions/${encodeURIComponent(vid)}/restore`, {}),
+    /** A new layout from a version. */
+    copyVersion: (id: string, vid: string, body: { title?: string; orgSlug?: string } = {}) =>
+      post<{ id: string; title: string }>(`/api/layouts/${encodeURIComponent(id)}/versions/${encodeURIComponent(vid)}/copy`, body),
     enablePublicShare: (id: string) =>
       post<{ token: string }>(`/api/layouts/${id}/public-share`),
     disablePublicShare: (id: string) =>

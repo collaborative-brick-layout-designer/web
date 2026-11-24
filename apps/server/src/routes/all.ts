@@ -21,6 +21,7 @@ import { customPartInviteRoutes } from './customPartInvites.js';
 import { inviteRoutes } from './invites.js';
 import { moduleInviteRoutes } from './moduleInvites.js';
 import { layoutRoutes } from './layouts.js';
+import { layoutVersionRoutes } from './layoutVersions.js';
 import { moduleRoutes } from './modules.js';
 import { moduleShareRoutes } from './moduleShares.js';
 import { layoutSharedModuleRoutes } from './layoutSharedModules.js';
@@ -71,6 +72,7 @@ export async function registerApiRoutes(app: FastifyInstance): Promise<void> {
   await app.register(demoAuthRoutes);
   await app.register(tokenRoutes);
   await app.register(layoutRoutes);
+  await app.register(layoutVersionRoutes);
   await app.register(partsRoutes);
   await app.register(collaboratorRoutes);
   await app.register(inviteRoutes);

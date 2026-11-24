@@ -530,6 +530,11 @@ export const ROUTE_HINTS: Record<string, HintSpec> = {
   'PATCH /api/layouts/:id': resource('layout'),
   'DELETE /api/layouts/:id': resource('layout'),
   'POST /api/layouts/:id/copy': resource('layout', { reply: 'id' }),
+  // Version history: the list changes (a version kept, a restore keeps one
+  // first), and a copy out is a new layout.
+  'POST /api/layouts/:id/versions': resource('layout'),
+  'POST /api/layouts/:id/versions/:vid/restore': resource('layout'),
+  'POST /api/layouts/:id/versions/:vid/copy': resource('layout', { reply: 'id' }),
   // The server changed a placed module in the layout's room (the room sends the change itself): the lists follow.
   'POST /api/layouts/:id/shared-modules/:placedId/apply': sharedModuleStep,
   'POST /api/layouts/:id/shared-modules/apply-all': sharedModuleStep,

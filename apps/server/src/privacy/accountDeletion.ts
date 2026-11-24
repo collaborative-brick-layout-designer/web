@@ -372,6 +372,17 @@ export async function eraseUser(userId: string, how: 'self' | 'admin' | 'request
       if (p !== r.payload) tx.update(s.auditEvents).set({ payload: p }).where(eq(s.auditEvents.id, r.id)).run();
     }
 
+    // Layout versions keep what changed, without who (history/layoutVersions.ts).
+    for (const v of tx.select({ id: s.layoutVersions.id, editors: s.layoutVersions.editors }).from(s.layoutVersions).where(like(s.layoutVersions.editors, `%${userId}%`)).all()) {
+      let editors: { id: string; name: string }[] = [];
+      try {
+        editors = JSON.parse(v.editors) as { id: string; name: string }[];
+      } catch {
+        /* unreadable: dropped */
+      }
+      tx.update(s.layoutVersions).set({ editors: JSON.stringify(editors.filter((e) => e.id !== userId)) }).where(eq(s.layoutVersions.id, v.id)).run();
+    }
+
     // Club things they made stay with the club, credited "Builder #…".
     for (const a of authored) {
       const by = standIns.get(a.ownerUserId ? `u:${a.ownerUserId}` : `o:${a.ownerOrgId ?? ''}`);

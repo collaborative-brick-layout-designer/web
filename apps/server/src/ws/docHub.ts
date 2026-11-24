@@ -9,6 +9,7 @@
 // Phase 7 adds the daily compaction worker. For now the design is the
 // simplest correct shape.
 
+import { autoVersion } from '../history/layoutVersions.js';
 import * as Y from 'yjs';
 import { Awareness, applyAwarenessUpdate } from 'y-protocols/awareness';
 import * as decoding from 'lib0/decoding';
@@ -105,6 +106,8 @@ export class DocSession {
   readonly held = new HeldUpdates<unknown, Sender>();
   /** Set by DocHub.close(); a closed session never persists or re-arms. */
   closed = false;
+  /** Who edited since the last version was kept: user id → name. */
+  readonly editors = new Map<string, string>();
   private broadcasting = false;
   /** Updates waiting to be stored as one layout_updates row (queuePersist). */
   private batch: Uint8Array[] = [];
@@ -132,6 +135,9 @@ export class DocSession {
     this.doc.on('update', (update: Uint8Array, origin: unknown) => {
       if (this.closed) return;
       this.queuePersist(update);
+      // Who edited since the last version (history/layoutVersions.ts).
+      const editor = this.clientUsers.get(origin);
+      if (editor) this.editors.set(editor, this.clientNames.get(origin) ?? '');
       const bytes = encodeSyncUpdate(update);
       for (const client of this.clients) {
         if (client === origin) continue;
@@ -398,6 +404,15 @@ export class DocSession {
           ),
         );
       this.pendingUpdates = 0;
+      // A version for the history, when the last is old enough (history/layoutVersions.ts).
+      if (this.editors.size > 0) {
+        const editors = [...this.editors].map(([id, name]) => ({ id, name }));
+        await autoVersion(this.layoutId, bytes, editors)
+          .then((kept) => {
+            if (kept) this.editors.clear();
+          })
+          .catch((err: unknown) => this.persistError(err));
+      }
       // Which shared modules it places, and at which version (sharedModules/placed.ts).
       await syncLayoutSharedModules(this.layoutId, this.doc).catch((err: unknown) => this.persistError(err));
       // A shared module placed since the room opened: its parts' geometry too (sharedGeometry.ts).
