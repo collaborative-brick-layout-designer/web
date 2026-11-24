@@ -215,10 +215,10 @@ async function expectBrowser(page: Page, start: Record<string, Pose>, base: Pose
 }
 
 /** An API token for the driver, from the device sign-in the desktop app uses. */
-async function desktopToken(page: Page, request: APIRequestContext): Promise<string> {
+async function desktopToken(page: Page, request: APIRequestContext, scope = 'layouts:read layouts:write'): Promise<string> {
   const code = (await (
     await request.post('/api/auth/device/code', {
-      data: { client_name: 'Sync driver', scope: 'layouts:read layouts:write' },
+      data: { client_name: 'Sync driver', scope },
     })
   ).json()) as { device_code: string; user_code: string };
   expect((await page.request.post('/api/auth/device/approve', { data: { user_code: code.user_code } })).ok()).toBe(true);
@@ -809,7 +809,8 @@ test.describe('desktop and web live editing', () => {
     const created = await page.request.post('/api/layouts', { data: { title: 'Model engine, web and desktop', bbm: TIGHT_CORNER_BBM } });
     const { id } = (await created.json()) as { id: string };
     // The same person on the desktop: their own imported part is in their parts there.
-    const token = await desktopToken(page, request);
+    // (and the server's parts, as the desktop app downloads them).
+    const token = await desktopToken(page, request, 'layouts:read layouts:write parts:read');
     const driver = new Driver(DRIVER!, token);
     try {
       await driver.run(`open ${id}`);
