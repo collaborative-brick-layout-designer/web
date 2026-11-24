@@ -89,8 +89,10 @@ const KEYS: Record<HintKind, (h: Hint) => QueryKey[]> = {
     ...ADMIN_LISTS, ['admin-audit'], ['admin-abuse'], ['admin-settings'], ['admin-people'],
     // Admin › Privacy requests, and its badge.
     ['admin-privacy'], ['admin-privacy-summary'], ['admin-privacy-request'],
+    // Admin › Backups: a backup made, uploaded or restored.
+    ['admin-backups'], ['admin-health'],
   ],
-  settings: () => [['admin-settings'], ['catalog-settings'], ['providers'], ['admin-alerts'], ['privacy-page'], ['admin-privacy-summary'], ['imports-status'], ['admin-imports']],
+  settings: () => [['admin-settings'], ['admin-backups'], ['catalog-settings'], ['providers'], ['admin-alerts'], ['privacy-page'], ['admin-privacy-summary'], ['imports-status'], ['admin-imports']],
   limits: () => [['admin-limits'], ['admin-usage'], ['admin-abuse'], ['admin-user-detail'], ['admin-org-detail']],
   'parts-library': () => [['parts-catalog'], ['custom-parts'], ['admin-global-parts'], ['admin-part-libraries'], ['org-part-libraries']],
   warning: () => [['notices'], ['notifications'], ['notification-count'], ['warnings'], ['admin-user-detail'], ['admin-org-detail'], ['org-warnings']],
@@ -186,6 +188,7 @@ const WRITE_RULES: Array<[RegExp, HintKind[]]> = [
   [/^\/api\/admin\/layouts\b/, ['admin', 'layout']],
   [/^\/api\/admin\/users\b/, ['admin']],
   [/^\/api\/admin\/privacy\b/, ['admin']],
+  [/^\/api\/admin\/backups\b/, ['admin']],
   [/^\/api\/admin\/(global-parts|part-libraries|reload-parts)\b/, ['parts-library']],
   [/^\/api\/admin\/settings\b/, ['settings']],
   [/^\/api\/admin\/imports\b/, ['settings']],

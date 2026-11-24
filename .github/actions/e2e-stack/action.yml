@@ -107,7 +107,9 @@ runs:
           export IMPORT_LDD_ASSETS="$GITHUB_WORKSPACE/apps/web/e2e/fixtures/ldd"
         fi
         npx tsx src/db/migrate.ts
-        nohup npx tsx src/index.ts > "$GITHUB_WORKSPACE/.e2e/server.log" 2>&1 &
+        # In a loop, as Docker's restart policy runs the real one: a database
+        # restore (Admin › Backups) ends with exit code 75, "start again".
+        nohup sh -c 'while :; do npx tsx src/index.ts; code=$?; [ "$code" -eq 75 ] || exit "$code"; done' > "$GITHUB_WORKSPACE/.e2e/server.log" 2>&1 &
         for i in $(seq 60); do
           curl -sf http://localhost:3000/api/health && exit 0
           sleep 1

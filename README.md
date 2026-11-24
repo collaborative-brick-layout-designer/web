@@ -384,9 +384,35 @@ inside would be no safer than an unencrypted one. So:
   hold it as it was: delete them when you no longer need them, or change the
   SMTP password.
 
-To restore the pictures: `tar -xzf cbld-2026-10-01.bgimages.tar.gz -C /data/bgimages`.
+**Admin › Backups.** Site admins see every backup there (nightly, made by
+hand, before an update or a restore, uploaded) with its size and date, and
+can:
 
-To restore: stop the container, unzip a backup over the database and delete
+- **Back up now**: a copy made at once, while the site keeps working
+  (`cbld-manual-<date>-<time>.sqlite.gz` and its pictures; the last 5 kept).
+- **Download** a backup and its pictures, to keep a copy somewhere else.
+- **Upload** a backup downloaded earlier (for example onto a new server). It
+  is sent in 8 MiB pieces, so a proxy or firewall needs no larger body
+  limit; it is checked, then listed as Uploaded (the last 3 kept). Up to 16 GB.
+- **Restore** one. The server checks it (a whole gzip, a real SQLite database
+  of this site that passes `PRAGMA integrity_check`, not made by a newer
+  version), makes a backup of the site as it is now (`cbld-before-restore-…`,
+  the last 3 kept; restoring that one undoes the restore), stops taking
+  changes for a moment, then **exits with code 75 so it is started again**:
+  as it starts, before anything opens the database, the checked copy is
+  renamed over the database in one step and its pictures are put back. The
+  key file is never part of this. Docker's `restart: unless-stopped` (as in
+  the `docker-compose.yml` here) starts it again by itself; running it some
+  other way, start it again yourself (a systemd unit with `Restart=always`, or
+  a shell loop). Everyone who signed in after the backup was made signs in
+  again.
+
+Each of these is in the audit log, and so is the finished restore (written
+on the restored database as it starts).
+
+To restore the pictures by hand: `tar -xzf cbld-2026-10-01.bgimages.tar.gz -C /data/bgimages`.
+
+To restore by hand: stop the container, unzip a backup over the database and delete
 the `cbld.sqlite-wal` and `cbld.sqlite-shm` beside it, then start it again.
 The volumes aren't folders on the host, so do it from a throwaway container
 that mounts them. From the folder with `docker-compose.yml` (Compose names the

@@ -16,6 +16,26 @@ export const WEB_ONLY_HELP_TEXTS = {
     short: 'Brings the things in a backup back into your account as new copies.',
     more: 'You see the list first and tick what to bring back. Nothing you have is changed or replaced: something you still have is left out unless you tick it, and one with the same name as yours comes back as “… (restored)”. Your usage limits count as usual.',
   },
+  'admin.backups': {
+    title: 'Backups',
+    short: 'Copies of the whole site you can download, and put back if something goes badly wrong.',
+    more: 'Each backup holds every account, club, layout, module and setting, with the layouts’ background pictures in a second file. They are kept in the server’s backups folder (BACKUPS_DIR). Download one now and then to keep a copy somewhere else.',
+  },
+  'admin.backupsNightly': {
+    title: 'Back up every night',
+    short: 'The server makes a backup once a day and thins out old ones.',
+    more: 'It keeps one for each of the last 7 days, one a week for 3 weeks and one a month for a year. The site keeps working while a backup is made. BACKUPS_ENABLED on the server can set this instead.',
+  },
+  'admin.backupsRestore': {
+    title: 'Restoring a backup',
+    short: 'Puts the whole site back to how it was when the backup was made.',
+    more: 'The backup is checked first, then a backup of the site as it is now is made, so a restore can be undone by restoring that one. The site restarts and is down for about a minute, and everyone who signed in since the backup signs in again. The server’s secret key is never in a backup and never changed by a restore.',
+  },
+  'admin.backupsUpload': {
+    title: 'Uploading a backup',
+    short: 'Brings back a backup you downloaded earlier, for example onto a new server.',
+    more: 'Choose the database file (.sqlite.gz) and, if you have it, its pictures file (.bgimages.tar.gz). They are sent in small pieces, checked, and listed as Uploaded; nothing changes until you press Restore… on it. A backup made by a newer version of the server is refused: update the server first.',
+  },
   'admin.imports': {
     title: 'Model import',
     short: 'Lets people import LDraw, Studio and LDD files, read in their own browsers as the desktop app reads them.',

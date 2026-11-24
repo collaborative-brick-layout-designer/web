@@ -805,6 +805,11 @@ export const ROUTE_HINTS: Record<string, HintSpec> = {
   'DELETE /api/admin/part-libraries/:id': everyone('parts-library'),
   'POST /api/admin/reload-parts': everyone('parts-library'),
   'PATCH /api/admin/settings': everyone('settings'),
+  // Admin › Backups: the list changes (a backup started, a file uploaded).
+  // "Back up now" sends another when it's done (routes/adminBackups.ts).
+  'POST /api/admin/backups': adminOnly('admin'),
+  'POST /api/admin/backups/uploads/:id/finish': adminOnly('admin'),
+  'POST /api/admin/backups/:name/restore': adminOnly('admin'),
   // Admin › Model import: what everyone can import changes.
   'PATCH /api/admin/imports': everyone('settings'),
   'POST /api/admin/imports/ldraw/download': everyone('settings'),
@@ -854,6 +859,10 @@ export const NO_HINT: Record<string, string> = {
   'POST /api/import-library/:lib/:version/files': 'reads library files; changes nothing',
   'POST /api/import-library/ldd/:version/geometry': 'reads LDD brick shapes; changes nothing',
   'DELETE /api/imports/:id': 'cancels your own import job: nothing anyone else sees',
+  'POST /api/admin/backups/:name/check': 'unpacks a backup to check it; changes nothing anyone sees',
+  'POST /api/admin/backups/uploads': 'starts your own upload: nothing to show until it is finished',
+  'PUT /api/admin/backups/uploads/:id': 'one piece of your own upload',
+  'DELETE /api/admin/backups/uploads/:id': 'cancels your own upload: nothing anyone else sees',
   'POST /api/notifications/unsubscribe': 'no sign-in (a mail app); the route sends the account its own notification hint',
 };
 
