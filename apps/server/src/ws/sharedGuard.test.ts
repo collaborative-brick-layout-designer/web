@@ -260,6 +260,39 @@ describe('the lock on shared modules', () => {
     }
   });
 
+  it('takes two people putting it on another sheet at once', () => {
+    const { doc, locked } = room();
+    const toSheet = (c: Y.Doc) =>
+      c.transact(() => {
+        for (const id of locked) {
+          const b = brick(c, id);
+          const n = new Y.Map<unknown>();
+          for (const [k, v] of Object.entries(b.map.toJSON())) n.set(k, v);
+          b.list.delete(b.index, 1);
+          (c.getMap<Y.Map<unknown>>('layerData').get('brick-2')!.get('bricks') as Y.Array<unknown>).push([n]);
+        }
+      });
+    const one = edit(doc, toSheet);
+    const two = edit(doc, toSheet);
+    expect(verdict(doc, one)).toBeNull();
+    Y.applyUpdate(doc, one);
+    expect(verdict(doc, two)).toBeNull();
+    Y.applyUpdate(doc, two);
+    // And moving all of them together after it.
+    const moved = edit(doc, (c) =>
+      c.transact(() => {
+        for (const layer of c.getMap<Y.Map<unknown>>('layerData').values()) {
+          for (const b of (layer.get('bricks') as Y.Array<Y.Map<unknown>> | undefined) ?? []) {
+            if (!locked.includes(b.get('id') as string)) continue;
+            const at = b.get('displayArea') as { x: number };
+            b.set('displayArea', { ...at, x: at.x + 8 });
+          }
+        }
+      }),
+    );
+    expect(verdict(doc, moved)).toBeNull();
+  });
+
   it('costs no copy of the layout when there is no shared module, or the edit cannot touch one', () => {
     const { doc, loose } = room();
     const copies = () => guardWork.docCopies;
