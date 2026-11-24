@@ -88,9 +88,24 @@ function dropUpload(u: Upload): void {
   }
 }
 
-/** Uploads left idle for an hour, and pieces a restart left behind, go. */
+/**
+ * Uploads left idle for an hour, and pieces a restart left behind, go; so
+ * does a copy a check unpacked an hour ago that no restore is waiting on
+ * (it is as big as the database).
+ */
 function sweepUploads(now = Date.now()): void {
   for (const u of uploads.values()) if (!u.finishing && now - u.touched > UPLOAD_IDLE_MS) dropUpload(u);
+  const stagedPath = join(dataDir(), STAGED_NAME);
+  if (!busy && !restorePending(dataDir()) && existsSync(stagedPath)) {
+    try {
+      if (!staged || now - statSync(stagedPath).mtimeMs > UPLOAD_IDLE_MS) {
+        unlinkSync(stagedPath);
+        staged = null;
+      }
+    } catch {
+      /* gone */
+    }
+  }
   if (!existsSync(env.backupsDir)) return;
   const live = new Set([...uploads.values()].map((u) => u.path));
   for (const name of readdirSync(env.backupsDir)) {
