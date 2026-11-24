@@ -817,6 +817,7 @@ export const ROUTE_HINTS: Record<string, HintSpec> = {
   'POST /api/admin/backups/:name/restore': adminOnly('admin'),
   // Admin › Model import: what everyone can import changes.
   'PATCH /api/admin/imports': everyone('settings'),
+  'PATCH /api/admin/version-history': everyone('settings'),
   'POST /api/admin/imports/ldraw/download': everyone('settings'),
   'DELETE /api/admin/imports/ldraw': everyone('settings'),
   'POST /api/admin/imports/ldd/assets': everyone('settings'),

@@ -85,6 +85,7 @@ export type AuditEventType =
   | 'admin_global_part_delete'
   | 'admin_part_library_install'
   | 'admin_import_settings'
+  | 'admin_history_settings'
   | 'admin_import_library'
   | 'admin_part_library_patch'
   | 'admin_part_library_update'

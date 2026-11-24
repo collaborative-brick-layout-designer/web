@@ -49,6 +49,7 @@ import {
   unpackTo,
   writeRestoreNote,
 } from '../ops/dbBackups.js';
+import { backupKeeps } from '../history/settings.js';
 
 /** One upload piece. */
 export const CHUNK_BYTES = 8 * 1024 * 1024;
@@ -213,7 +214,7 @@ export async function adminBackupRoutes(app: FastifyInstance): Promise<void> {
     lastError = null;
     void (async () => {
       try {
-        const name = await snapshotNow({ dir: env.backupsDir, sqlite, imagesDir: imagesDirFor(env.dbPath), kind: 'manual' });
+        const name = await snapshotNow({ dir: env.backupsDir, sqlite, imagesDir: imagesDirFor(env.dbPath), kind: 'manual', keeps: await backupKeeps() });
         await writeAuditEvent({ resourceKind: 'platform_settings', resourceId: 'backups', userId: me.id, eventType: 'admin_backup_now', payload: { name } });
       } catch (err) {
         lastError = { kind: 'backup', message: (err as Error).message, at: Date.now() };
@@ -280,7 +281,7 @@ export async function adminBackupRoutes(app: FastifyInstance): Promise<void> {
         // backup of the site as it is now, then the note for the next start.
         enterMaintenance('restore');
         await docHub.flushAll();
-        safety = await snapshotNow({ dir: env.backupsDir, sqlite, imagesDir: imagesDirFor(env.dbPath), kind: 'before-restore', protect: name });
+        safety = await snapshotNow({ dir: env.backupsDir, sqlite, imagesDir: imagesDirFor(env.dbPath), kind: 'before-restore', protect: name, keeps: await backupKeeps() });
         await writeAuditEvent({ resourceKind: 'platform_settings', resourceId: 'backups', userId: me.id, eventType: 'admin_backup_restore', payload: { name, images, safety } });
         writeRestoreNote(dataDir(), { from: name, images: images ? listed.images!.name : null, by: { id: me.id, name: await adminName(me.id) }, at: Date.now(), safety });
       } catch (err) {
@@ -425,7 +426,7 @@ export async function adminBackupRoutes(app: FastifyInstance): Promise<void> {
           }
           return refused(reply, err);
         }
-        trimKinds(env.backupsDir);
+        trimKinds(env.backupsDir, null, await backupKeeps());
       }
       await writeAuditEvent({ resourceKind: 'platform_settings', resourceId: 'backups', userId: me.id, eventType: 'admin_backup_upload', payload: { name, bytes: u.bytes } });
       return reply.code(201).send({ file: listDbBackups(env.backupsDir).find((f) => f.name === (u.pairWith ?? name)) ?? null, check: staged?.name === name ? staged.check : null });

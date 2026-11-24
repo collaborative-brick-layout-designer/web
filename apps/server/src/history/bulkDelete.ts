@@ -9,9 +9,8 @@ import * as Y from 'yjs';
 import type { DocSession } from '../ws/docHub.js';
 import type { DecodedUpdate } from '../ws/decoded.js';
 import { takeVersion } from './layoutVersions.js';
+import { peekHistorySettings } from './settings.js';
 
-/** How many parts one edit deletes before a version is kept. */
-export const BULK_DELETE_PARTS = 50;
 const EVERY_MS = 5 * 60 * 1000;
 const lastKept = new Map<string, number>();
 
@@ -42,10 +41,14 @@ export function deletedEntries(doc: Y.Doc, ds: DecodedUpdate['ds'], stopAt = Inf
   return n;
 }
 
+/** How many parts one edit deletes before a version is kept: Admin › Backups sets it (50 by default). */
+// Synchronous on purpose: the layout is read before the edit is applied.
 export function keepBeforeBulkDelete(session: DocSession, decoded: DecodedUpdate, userId: string | null, now = Date.now()): void {
   if (decoded.ds.clients.size === 0) return;
   if (now - (lastKept.get(session.layoutId) ?? 0) < EVERY_MS) return;
-  if (deletedEntries(session.doc, decoded.ds, BULK_DELETE_PARTS) < BULK_DELETE_PARTS) return;
+  const { enabled, limits } = peekHistorySettings();
+  if (!enabled) return;
+  if (deletedEntries(session.doc, decoded.ds, limits.bulkDeleteParts) < limits.bulkDeleteParts) return;
   lastKept.set(session.layoutId, now);
   const state = Y.encodeStateAsUpdate(session.doc);
   void takeVersion({ layoutId: session.layoutId, state, reason: 'before-bulk-delete', by: userId }).catch((err: unknown) =>

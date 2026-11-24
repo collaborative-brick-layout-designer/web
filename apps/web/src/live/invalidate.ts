@@ -92,7 +92,7 @@ const KEYS: Record<HintKind, (h: Hint) => QueryKey[]> = {
     // Admin › Backups: a backup made, uploaded or restored.
     ['admin-backups'], ['admin-health'],
   ],
-  settings: () => [['admin-settings'], ['admin-backups'], ['catalog-settings'], ['providers'], ['admin-alerts'], ['privacy-page'], ['admin-privacy-summary'], ['imports-status'], ['admin-imports']],
+  settings: () => [['admin-settings'], ['admin-backups'], ['catalog-settings'], ['providers'], ['admin-alerts'], ['privacy-page'], ['admin-privacy-summary'], ['imports-status'], ['admin-imports'], ['version-history-status'], ['admin-version-history']],
   limits: () => [['admin-limits'], ['admin-usage'], ['admin-abuse'], ['admin-user-detail'], ['admin-org-detail']],
   'parts-library': () => [['parts-catalog'], ['custom-parts'], ['admin-global-parts'], ['admin-part-libraries'], ['org-part-libraries']],
   warning: () => [['notices'], ['notifications'], ['notification-count'], ['warnings'], ['admin-user-detail'], ['admin-org-detail'], ['org-warnings']],

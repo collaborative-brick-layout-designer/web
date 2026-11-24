@@ -57,10 +57,16 @@ test('a layout goes back to a kept version, and a version is copied out as a new
 
   // ── Lose the part. ──
   await page.getByRole('button', { name: 'Back to the layout' }).click();
+  // The editor itself first: the history page's viewer also draws the part, so a part count alone
+  // is true while the editor isn't mounted yet (and its keys aren't listening).
+  await expect(page).toHaveURL(new RegExp(`/editor/${id}$`));
+  await expect(page.locator('footer')).toContainText('no selection', { timeout: 30_000 });
   await expect.poll(() => parts(page), { timeout: 30_000 }).toBe(1);
   const area = (await page.locator('.konvajs-content').first().boundingBox())!;
   await page.mouse.click(area.x + 5, area.y + area.height - 5);
   await page.keyboard.press('Control+a');
+  // Delete only once the map has the part picked (the footer says so), not on a guess.
+  await expect(page.locator('footer')).toContainText('selected: 1');
   await page.keyboard.press('Delete');
   await expect.poll(() => parts(page)).toBe(0);
   // On the server too, before going on.

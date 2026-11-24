@@ -9,6 +9,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, friendlyErrorMessage, noteWrite, type AdminJobSetting } from '../../api';
+import { VersionHistorySettings } from './VersionHistorySettings';
 import { HelpButton } from '../../help/HelpButton';
 import { askConfirm } from '../../ui/ConfirmDialog';
 import { formatAgo, formatBytes } from '../insights/format';
@@ -235,6 +236,8 @@ export function BackupsTab() {
           A restore is waiting for the server to restart. If it doesn’t restart by itself, restart it.
         </p>
       )}
+
+      <VersionHistorySettings />
 
       <section className="space-y-3 rounded-lg border border-line p-4" aria-labelledby="backups-make">
         <h3 id="backups-make" className="text-sm font-semibold">Making backups</h3>

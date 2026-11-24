@@ -435,6 +435,13 @@
       "when": 1795509244329,
       "tag": "0061_layout_versions",
       "breakpoints": true
+    },
+    {
+      "idx": 62,
+      "version": "6",
+      "when": 1795541046402,
+      "tag": "0062_history_settings",
+      "breakpoints": true
     }
   ]
 }

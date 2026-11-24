@@ -757,12 +757,14 @@ export const api = {
     exportSidecarUrl: (id: string) => `/api/layouts/${id}/export.bbm.bld`,
     exportZipUrl: (id: string) => `/api/layouts/${id}/export.zip`,
     snapshot: (id: string) => getBytes(`/api/layouts/${id}/snapshot`),
+    /** Whether the site keeps new versions (Admin › Backups); the apps hide their Version history entry points when not. */
+    versionHistoryStatus: () => get<{ enabled: boolean }>('/api/version-history/status'),
     /** Version history (server history/layoutVersions.ts), newest first. */
-    versions: (id: string) => get<{ versions: LayoutVersion[]; canRestore: boolean }>(`/api/layouts/${encodeURIComponent(id)}/versions`),
+    versions: (id: string) => get<{ versions: LayoutVersion[]; canRestore: boolean; enabled: boolean }>(`/api/layouts/${encodeURIComponent(id)}/versions`),
     versionSnapshot: (id: string, vid: string) => getBytes(`/api/layouts/${encodeURIComponent(id)}/versions/${encodeURIComponent(vid)}/snapshot`),
     /** Keep a version now: by hand (with a name), or just before an import or a paste. */
     keepVersion: (id: string, body: { reason?: 'manual' | 'before-import' | 'before-merge'; label?: string } = {}) =>
-      post<{ id: string }>(`/api/layouts/${encodeURIComponent(id)}/versions`, body),
+      post<{ id: string | null }>(`/api/layouts/${encodeURIComponent(id)}/versions`, body),
     /** Put a version back (a version of the layout as it was is kept first: `safety`). */
     restoreVersion: (id: string, vid: string) => post<{ ok: true; safety: string }>(`/api/layouts/${encodeURIComponent(id)}/versions/${encodeURIComponent(vid)}/restore`, {}),
     /** A new layout from a version. */

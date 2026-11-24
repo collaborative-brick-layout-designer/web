@@ -21,6 +21,21 @@ export const WEB_ONLY_HELP_TEXTS = {
     short: 'Copies of the whole site you can download, and put back if something goes badly wrong.',
     more: 'Each backup holds every account, club, layout, module and setting, with the layouts’ background pictures in a second file. They are kept in the server’s backups folder (BACKUPS_DIR). Download one now and then to keep a copy somewhere else.',
   },
+  'admin.versionHistory': {
+    title: 'Version history',
+    short: 'Whether the site keeps earlier versions of every layout, and when it keeps one.',
+    more: 'While people edit, a version is kept every half hour (if something changed), and just before big changes like an import, a restore or many parts deleted at once. Switched off, nothing new is kept; the versions already there can still be looked at and copied out. VERSION_HISTORY_ENABLED on the server can set the switch instead.',
+  },
+  'admin.versionHistoryKeep': {
+    title: 'How long versions are kept',
+    short: 'Older versions are thinned out every night so they don’t pile up.',
+    more: 'Every version from the first few days is kept. After that, the newest of each day is kept for a while, then the newest of each week. Versions kept before a change, like an import or a restore, are kept on their own timer, and named versions are kept for good (the newest few per layout).',
+  },
+  'admin.backupKeeps': {
+    title: 'How many backups are kept',
+    short: 'How many backups made by hand, before a restore, or uploaded are kept.',
+    more: 'When there are more than this, the oldest of that kind are removed. The nightly backups are thinned out on their own schedule (the last 7 days, 3 weeks and 12 months).',
+  },
   'admin.backupsNightly': {
     title: 'Back up every night',
     short: 'The server makes a backup once a day and thins out old ones.',

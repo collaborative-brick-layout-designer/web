@@ -16,6 +16,7 @@ import { api, type LayoutVersion } from '../api';
 import { askConfirm } from '../ui/ConfirmDialog';
 import { HelpButton } from '../help/HelpButton';
 import { LayoutViewer } from '../layouts/PublicLayoutPage';
+import { useTours } from '../tours/TourProvider';
 
 export const REASON_WORDS: Record<LayoutVersion['reason'], string> = {
   auto: 'While editing',
@@ -52,6 +53,7 @@ function History({ layoutId }: { layoutId: string }) {
   const [status, setStatus] = useState<{ text: string; link?: { to: string; label: string } } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [name, setName] = useState('');
+  const tours = useTours();
   const versions = list.data?.versions ?? [];
   const current = versions.find((v) => v.id === picked) ?? versions[0] ?? null;
   const snapshot = useQuery({
@@ -113,7 +115,9 @@ function History({ layoutId }: { layoutId: string }) {
     );
   }
   const title = layout.data?.layout.title ?? '';
-  const canRestore = !!list.data?.canRestore;
+  // Admin › Backups can switch the history off: what was kept can still be looked at and copied out, nothing new is kept or put back.
+  const historyOn = list.data?.enabled !== false;
+  const canRestore = !!list.data?.canRestore && historyOn;
   const busy = keep.isPending || restore.isPending || copy.isPending;
 
   const panel = (
@@ -124,9 +128,18 @@ function History({ layoutId }: { layoutId: string }) {
       <div className="space-y-2 border-b border-line p-3">
         <h1 className="flex items-center gap-2 text-base font-semibold">
           Version history <HelpButton helpKey="history.versions" />
+          <button type="button" className="ml-auto text-xs font-semibold text-accent-text hover:underline" onClick={() => tours.startTour('history')}>
+            Show me around
+          </button>
         </h1>
+        {!historyOn && (
+          <p role="note" className="rounded-lg border border-line bg-soft p-2 text-sm" data-testid="history-off">
+            Version history is switched off on this site, so no new versions are kept and one can’t be put back. The ones already kept can still be looked at and copied out as a new layout.
+          </p>
+        )}
         {canRestore && (
           <form
+            data-tour="versionHistory.keep"
             className="flex gap-2"
             onSubmit={(e) => {
               e.preventDefault();
@@ -165,9 +178,11 @@ function History({ layoutId }: { layoutId: string }) {
       {list.isLoading ? (
         <p className="p-3 text-sm text-muted">Loading…</p>
       ) : versions.length === 0 ? (
-        <p className="p-3 text-sm text-muted">No versions yet. One is kept after the first edits, then every half hour while people work on the layout.</p>
+        <p className="p-3 text-sm text-muted" data-tour="versionHistory.list">
+          {historyOn ? 'No versions yet. One is kept after the first edits, then every half hour while people work on the layout.' : 'No versions were kept.'}
+        </p>
       ) : (
-        <ul className="min-h-0 flex-1 divide-y divide-line overflow-y-auto">
+        <ul data-tour="versionHistory.list" className="min-h-0 flex-1 divide-y divide-line overflow-y-auto">
           {versions.map((v) => {
             const on = v.id === current?.id;
             return (
@@ -190,6 +205,7 @@ function History({ layoutId }: { layoutId: string }) {
                     {canRestore && (
                       <button
                         type="button"
+                        data-tour="versionHistory.restore"
                         disabled={busy}
                         onClick={async () => {
                           const ok = await askConfirm({
@@ -208,6 +224,7 @@ function History({ layoutId }: { layoutId: string }) {
                     )}
                     <button
                       type="button"
+                      data-tour="versionHistory.copy"
                       disabled={busy}
                       onClick={() => copy.mutate(v)}
                       className="tap-target rounded-lg border border-border px-3 py-1 text-xs hover:bg-soft disabled:opacity-50"

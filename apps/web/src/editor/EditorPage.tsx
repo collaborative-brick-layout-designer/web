@@ -539,6 +539,8 @@ function Editor({ layoutId, docState, moduleMode }: { layoutId: string; docState
   const [importAsPart, setImportAsPart] = useState(false);
   const importInput = useRef<HTMLInputElement>(null);
   const importStatus = useQuery({ queryKey: ['imports-status'], queryFn: importApi.status, staleTime: 60_000, enabled: !docState.signedOut });
+  // Admin › Backups can switch version history off: its menu entries go (the page still opens for what was kept).
+  const historyOn = useQuery({ queryKey: ['version-history-status'], queryFn: api.layouts.versionHistoryStatus, staleTime: 60_000, enabled: !docState.signedOut }).data?.enabled !== false;
   const importModel =
     canImport(importStatus.data) && role !== 'viewer'
       ? () => {
@@ -1215,7 +1217,7 @@ function Editor({ layoutId, docState, moduleMode }: { layoutId: string; docState
                       {
                         openFile: openFilePicker,
                         ...(importModel ? { importModel } : {}),
-                        ...(moduleMode ? {} : { versionHistory: () => navigate(`/editor/${layoutId}/history`) }),
+                        ...(moduleMode || !historyOn ? {} : { versionHistory: () => navigate(`/editor/${layoutId}/history`) }),
                         generalInfo: () => setShowGeneralInfo(true),
                         backgroundColor: () => setShowBackgroundColor(true),
                         backgroundImage: () => setShowBackgroundImage(true),
@@ -1407,7 +1409,7 @@ function Editor({ layoutId, docState, moduleMode }: { layoutId: string; docState
               onExportCsv={() => setShowPartList(true)}
               onImportBbm={() => setShowImportBbm(true)}
               onImportModel={importModel}
-              onVersionHistory={moduleMode ? undefined : () => navigate(`/editor/${layoutId}/history`)}
+              onVersionHistory={moduleMode || !historyOn ? undefined : () => navigate(`/editor/${layoutId}/history`)}
               onSharedModuleUpdates={moduleMode ? undefined : () => setShowSharedUpdates(true)}
               onCreateModule={() => openMakeModule(doc)}
               onSaveAsSet={() => setShowSaveAsSet(true)}

@@ -351,6 +351,12 @@ export const platformSettings = sqliteTable('platform_settings', {
    * IMPORTS_ENABLED forces the switch.
    */
   imports: text('imports'),
+  /**
+   * Admin › Backups › Version history (0062): a JSON object { enabled, limits: { key: number } }
+   * (history/settings.ts). Keys left out use the built-in default;
+   * VERSION_HISTORY_ENABLED forces the switch.
+   */
+  history: text('history'),
   updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
   updatedBy: text('updated_by').references(() => users.id, { onDelete: 'set null' }),
 });
