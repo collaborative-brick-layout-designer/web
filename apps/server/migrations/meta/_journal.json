@@ -428,6 +428,13 @@
       "when": 1795185800528,
       "tag": "0060_rolling_stock",
       "breakpoints": true
+    },
+    {
+      "idx": 61,
+      "version": "6",
+      "when": 1795509244329,
+      "tag": "0061_layout_versions",
+      "breakpoints": true
     }
   ]
 }

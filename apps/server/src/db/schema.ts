@@ -661,6 +661,44 @@ export const layoutUpdates = sqliteTable(
   }),
 );
 
+/**
+ * Layout version history (0061): restorable copies of a layout's whole
+ * document, taken while people edit (at most every half hour, when it
+ * changed) and just before a big change (an import into it, a restore, a
+ * paste of another layout, many parts deleted at once). `docSnapshot` is
+ * the Yjs state, deflated. Thinned out by the nightly worker
+ * (history/layoutVersions.ts); goes with its layout.
+ */
+export const layoutVersions = sqliteTable(
+  'layout_versions',
+  {
+    id: text('id').primaryKey(),
+    layoutId: text('layout_id')
+      .notNull()
+      .references(() => layouts.id, { onDelete: 'cascade' }),
+    /** Why it was taken: 'auto' | 'manual' | 'before-import' | 'before-merge' | 'before-restore' | 'before-bulk-delete'. */
+    reason: text('reason').notNull(),
+    /** The layout's title then. */
+    title: text('title').notNull(),
+    /** A short name someone gave it (manual ones), or null. */
+    label: text('label'),
+    /** deflateRaw(Y.encodeStateAsUpdate(doc)). */
+    docSnapshot: blob('doc_snapshot').notNull(),
+    /** sha256 of the undeflated state, so an unchanged layout isn't kept twice. */
+    docHash: text('doc_hash').notNull(),
+    /** JSON: {parts, sheets, labels, modules} counts for the list. */
+    summary: text('summary').notNull(),
+    /** JSON: the ids and names of who edited since the version before. */
+    editors: text('editors').notNull().default('[]'),
+    bytes: integer('bytes').notNull(),
+    createdBy: text('created_by').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+  },
+  (t) => ({
+    layoutCreatedIdx: index('layout_versions_layout_created_idx').on(t.layoutId, t.createdAt),
+  }),
+);
+
 // Per-layout audit log (PLAN.md §3.1 / §4.7). Append-only. payload is a
 // JSON string because SQLite has no jsonb; queries on this table read the
 // whole row and parse it client-side, which keeps us portable to Postgres

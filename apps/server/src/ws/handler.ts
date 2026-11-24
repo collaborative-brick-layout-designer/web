@@ -10,6 +10,7 @@
 // Reference: y-websocket's bin/utils.js and the y-protocols documentation.
 // This file is small because Yjs's protocol library does the heavy lifting.
 
+import { keepBeforeBulkDelete } from '../history/bulkDelete.js';
 import type { WebSocket } from '@fastify/websocket';
 import * as Y from 'yjs';
 import * as syncProtocol from 'y-protocols/sync';
@@ -447,6 +448,8 @@ function takeUpdate(ws: WebSocket, session: DocSession, sender: Sender, update: 
   }
   if (check.suspicious) flagUpdate(session, sender, check);
   const pending = savePending(session.doc);
+  // Many parts deleted at once: the layout as it was goes in its history first.
+  if (decoded) keepBeforeBulkDelete(session, decoded, sender.userId);
   try {
     // Origin = this socket, so our own broadcasts skip this client.
     Y.applyUpdate(session.doc, update, ws);

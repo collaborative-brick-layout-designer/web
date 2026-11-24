@@ -52,6 +52,7 @@ host's to keep or not.
 | `layout_transfers` | who offered a layout to which email | yes (no token) | |
 | `modules` | owner, creator, title, the module, its picture | yes, own modules as `.bld-layout` + picture | |
 | `module_versions` | who saved each version, and its note | yes (metadata) | |
+| `layout_versions` | a layout's earlier versions (the whole layout), who kept each, its name, and who edited since the one before | yes (metadata, for the versions you kept or edited) | Go with the layout. Erasing an account takes it off the editors of every version; the versions stay with the layout. Thinned out nightly: the newest per day for 30 days, per week for 26 weeks; ones kept before a big change for 30 days; named ones (the newest 50) until the layout goes. |
 | `module_collaborators` | shares | yes | |
 | `module_transfers` | offers | yes (no token) | |
 | `module_invites` | who invited which email to a module, and the role | yes (no token) | Pending ones go when the module changes hands. |

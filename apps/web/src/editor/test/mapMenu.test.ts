@@ -49,16 +49,18 @@ describe('Map menu', () => {
     expect(noDoubleSeparators(menu)).toBe(true);
   });
 
-  it('starts with File: open a file, import a model, and download it as something else', () => {
+  it('starts with File: open a file, import a model, download it as something else, and its version history', () => {
     const { menu, actions } = setup();
-    expect(outline((find(menu, 'File') as { items: ResolvedEntry[] }).items)).toEqual(['Open a file…', 'Import a model (LDraw, Studio, LDD)…', 'Download as…']);
+    expect(outline((find(menu, 'File') as { items: ResolvedEntry[] }).items)).toEqual(['Open a file…', 'Import a model (LDraw, Studio, LDD)…', 'Download as…', 'Version history…']);
+    activate(find(menu, 'File', 'Version history…'));
+    expect(actions.versionHistory).toHaveBeenCalledTimes(1);
     activate(find(menu, 'File', 'Import a model (LDraw, Studio, LDD)…'));
     expect(actions.importModel).toHaveBeenCalledTimes(1);
     activate(find(menu, 'File', 'Open a file…'));
     activate(find(menu, 'File', 'Download as…'));
     expect(actions.openFile).toHaveBeenCalledTimes(1);
     expect(actions.downloadAs).toHaveBeenCalledTimes(1);
-    // The module editor opens files too.
+    // The module editor opens files too (a module keeps its own versions, in the Module library).
     const mod = setup(true);
     expect(outline((find(mod.menu, 'File') as { items: ResolvedEntry[] }).items)).toEqual(['Open a file…', 'Import a model (LDraw, Studio, LDD)…', 'Download as…']);
   });
@@ -67,7 +69,7 @@ describe('Map menu', () => {
     const actions = new Proxy({} as Record<string, unknown>, { get: (t, k: string) => (k === 'importModel' ? undefined : (t[k] ??= vi.fn())) });
     const toggles = new Proxy({} as Record<string, { on: boolean; set: () => void }>, { get: (t, k: string) => (t[k] ??= { on: false, set: vi.fn() }) });
     const menu = resolveMenu(mapMenuEntries(actions as unknown as MapMenuActions, toggles as unknown as MapMenuToggles, 'Ctrl'), { moduleMode: false });
-    expect(outline((find(menu, 'File') as { items: ResolvedEntry[] }).items)).toEqual(['Open a file…', 'Download as…']);
+    expect(outline((find(menu, 'File') as { items: ResolvedEntry[] }).items)).toEqual(['Open a file…', 'Download as…', 'Version history…']);
   });
 
   it("on a phone, Open a file… is first, viewing or editing", () => {

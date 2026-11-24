@@ -24,6 +24,7 @@ export const MAP_MENU_NOT_DIALOGS: Readonly<Record<string, string>> = {
   'zoom-out': 'the view',
   fit: 'the view',
   'download-layout': 'a download',
+  'version-history': 'its own page, /editor/:id/history (journeys/layoutHistory.spec.ts)',
 };
 
 const noop = () => {};

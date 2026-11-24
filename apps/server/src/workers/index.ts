@@ -19,6 +19,7 @@
 //
 // Tests skip the whole worker stack (NODE_ENV=test).
 
+import { thinVersions } from '../history/layoutVersions.js';
 import { eq, and } from 'drizzle-orm';
 import * as Y from 'yjs';
 import { db, schema, sqlite } from '../db/index.js';
@@ -113,6 +114,11 @@ async function tick(): Promise<void> {
   const jobs = await backgroundJobs();
   if (jobs.dailyCompaction.value) await safeRun('dailyCompaction', dailyCompaction);
   if (jobs.backups.value) await safeRun('backupWorker', backupWorker);
+  // Layout version history: thinned out to the newest per day, then per week (history/layoutVersions.ts).
+  await safeRun('layoutVersions', async () => {
+    const gone = await thinVersions();
+    if (gone > 0) console.log(`[history] let go of ${gone} older layout version${gone === 1 ? '' : 's'}`);
+  });
   // Admin dashboard rollup: keep ROLLUP_RETENTION_DAYS (about 13 months).
   await safeRun('rollupRetention', async () => {
     sweepRollup();

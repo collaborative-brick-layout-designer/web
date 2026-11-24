@@ -1215,6 +1215,7 @@ function Editor({ layoutId, docState, moduleMode }: { layoutId: string; docState
                       {
                         openFile: openFilePicker,
                         ...(importModel ? { importModel } : {}),
+                        ...(moduleMode ? {} : { versionHistory: () => navigate(`/editor/${layoutId}/history`) }),
                         generalInfo: () => setShowGeneralInfo(true),
                         backgroundColor: () => setShowBackgroundColor(true),
                         backgroundImage: () => setShowBackgroundImage(true),
@@ -1406,6 +1407,7 @@ function Editor({ layoutId, docState, moduleMode }: { layoutId: string; docState
               onExportCsv={() => setShowPartList(true)}
               onImportBbm={() => setShowImportBbm(true)}
               onImportModel={importModel}
+              onVersionHistory={moduleMode ? undefined : () => navigate(`/editor/${layoutId}/history`)}
               onSharedModuleUpdates={moduleMode ? undefined : () => setShowSharedUpdates(true)}
               onCreateModule={() => openMakeModule(doc)}
               onSaveAsSet={() => setShowSaveAsSet(true)}
@@ -1780,6 +1782,7 @@ function Editor({ layoutId, docState, moduleMode }: { layoutId: string; docState
             })(),
             at: canvasActionsRef.current?.viewCentre() ?? viewCentreStuds(viewport),
             place: placeImport,
+            ...(moduleMode ? {} : { beforePlacing: () => api.layouts.keepVersion(layoutId, { reason: 'before-import' }) }),
           }}
           onClose={() => setImportFile(null)}
           onDone={(r) => {
@@ -6421,6 +6424,7 @@ function MapMenu({
   onExportCsv,
   onImportBbm,
   onImportModel,
+  onVersionHistory,
   onSharedModuleUpdates,
   onCreateModule,
   onSaveAsSet,
@@ -6451,6 +6455,7 @@ function MapMenu({
   onExportCsv: () => void;
   onImportBbm: () => void;
   onImportModel?: (() => void) | undefined;
+  onVersionHistory?: (() => void) | undefined;
   onSharedModuleUpdates?: (() => void) | undefined;
   onCreateModule: () => void;
   onSaveAsSet: () => void;
@@ -6490,6 +6495,7 @@ function MapMenu({
         saveAsSet: onSaveAsSet,
         importBbm: onImportBbm,
         ...(onImportModel ? { importModel: onImportModel } : {}),
+        ...(onVersionHistory ? { versionHistory: onVersionHistory } : {}),
         ...(onSharedModuleUpdates ? { sharedModuleUpdates: onSharedModuleUpdates } : {}),
         venueDesigner: onVenueDesigner,
         venueDrawOutline: onVenueDrawOutline,

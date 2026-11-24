@@ -48,7 +48,7 @@ const MEMBERSHIP_CHANGE = /part-libraries|members|join|approve|org-invites|^dele
 const COLLECTIONS: QueryKey[] = [['catalog-collections'], ['catalog-collection'], ['catalog-collections-mine'], ['club-collections']];
 
 const KEYS: Record<HintKind, (h: Hint) => QueryKey[]> = {
-  layout: () => [['trash'], ['layout-shared-modules'], ['admin-audit'], ['admin-deleted-layouts'], ['layouts'], ['layout'], ['collaborators'], ['audit'], ['club-summary'], ['transfer-preview'], ...ADMIN_LISTS],
+  layout: () => [['layout-versions'], ['trash'], ['layout-shared-modules'], ['admin-audit'], ['admin-deleted-layouts'], ['layouts'], ['layout'], ['collaborators'], ['audit'], ['club-summary'], ['transfer-preview'], ...ADMIN_LISTS],
   // A module's new version is an update waiting in the layouts that place it (their list badge).
   module: () => [['trash'], ['modules'], ['modules-shared'], ['module-shares'], ['module-club-targets'], ['club-partners'], ['layout-shared-modules'], ['layouts'], ['module'], ['module-versions'], ['module-collaborators'], ['catalog-copies'], ['club-summary'], ...COLLECTIONS, ...ADMIN_LISTS],
   venue: () => [['trash'], ['venues'], ['venue'], ['venue-library'], ['club-summary']],

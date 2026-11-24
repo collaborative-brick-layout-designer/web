@@ -10,7 +10,7 @@
 // are not "about" the person, and handing them out would let anyone
 // holding the zip sign in.
 
-import { and, eq, or, type SQL } from 'drizzle-orm';
+import { and, eq, like, or, type SQL } from 'drizzle-orm';
 import type { SQLiteTable } from 'drizzle-orm/sqlite-core';
 import { db, schema } from '../db/index.js';
 
@@ -161,6 +161,24 @@ export async function collectUserData(userId: string): Promise<DataSection[]> {
     await select(s.modules, or(eq(s.modules.ownerUserId, userId), eq(s.modules.createdBy, userId))),
   );
   add('module-versions', 'Module versions you saved.', await select(s.moduleVersions, eq(s.moduleVersions.authorId, userId)));
+  add(
+    'layout-versions',
+    'Versions in layouts’ history that you kept or edited (when, why and what was in them; the layouts themselves are in the layouts folder).',
+    (await db
+      .select({
+        id: s.layoutVersions.id,
+        layoutId: s.layoutVersions.layoutId,
+        reason: s.layoutVersions.reason,
+        title: s.layoutVersions.title,
+        label: s.layoutVersions.label,
+        summary: s.layoutVersions.summary,
+        createdBy: s.layoutVersions.createdBy,
+        createdAt: s.layoutVersions.createdAt,
+      })
+      .from(s.layoutVersions)
+      .where(or(eq(s.layoutVersions.createdBy, userId), like(s.layoutVersions.editors, `%${userId}%`)))
+      .all()) as Record<string, unknown>[],
+  );
   add('modules-shared-with-you', 'Other people’s modules shared with you.', await select(s.moduleCollaborators, eq(s.moduleCollaborators.userId, userId)));
   add('module-invites', 'Invites to a module sent to your email.', await select(s.moduleInvites, eq(s.moduleInvites.invitedEmail, email)));
   add(
@@ -336,6 +354,7 @@ export const READ_TABLES = [
   'layout_transfers',
   'modules',
   'module_versions',
+  'layout_versions',
   'module_collaborators',
   'module_transfers',
   'module_invites',
