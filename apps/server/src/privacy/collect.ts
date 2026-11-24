@@ -172,7 +172,6 @@ export async function collectUserData(userId: string): Promise<DataSection[]> {
         title: s.layoutVersions.title,
         label: s.layoutVersions.label,
         summary: s.layoutVersions.summary,
-        editors: s.layoutVersions.editors,
         createdBy: s.layoutVersions.createdBy,
         createdAt: s.layoutVersions.createdAt,
       })
