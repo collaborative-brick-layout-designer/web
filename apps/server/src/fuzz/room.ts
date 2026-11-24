@@ -30,7 +30,7 @@
 //   - the whole room passes the desktop's guard (a desktop opening it);
 //   - the desktop that only got relayed updates holds the same state;
 //   - the room reopens from its snapshot, and from the update log the server
-//     stored, to the same state (see reopen for the one difference allowed);
+//     stored, to the same state;
 //   - the room stays usable: an editor who syncs it can edit it, and a
 //     client's shape-2 conversion (rulersInPlace, an area's offset) is taken
 //     when the room held no drawing problems.
@@ -418,8 +418,8 @@ export function fuzzRoom(data: Uint8Array, { allTaken = false } = {}): void {
     clocksInRange(session.doc, 'the room');
     desktopReads(full, 'the whole room', null);
     if (stateKey(mirror) !== stateKey(session.doc)) fail('a desktop that got every relayed update holds a different state');
-    reopen(full, [], session.doc, 'its snapshot', true);
-    reopen(base, log.length ? [Y.mergeUpdates(log)] : [], session.doc, 'its update log', false);
+    reopen(full, [], session.doc, 'its snapshot');
+    reopen(base, log.length ? [Y.mergeUpdates(log)] : [], session.doc, 'its update log');
 
     // ---- still usable ----
     const editor = connect(session, 0, 'editor', 'honest');
@@ -489,37 +489,24 @@ function checkPresence(session: DocSession): void {
   }
 }
 
-/** The clients whose changes wait in `doc` (pending structs). */
-function waitingClients(doc: Y.Doc): Set<number> {
-  const p = doc.store.pendingStructs;
-  return new Set(p ? Y.decodeUpdateV2(p.update).structs.map((st) => st.id.client) : []);
-}
-
 /**
  * The room reopened (DocSession.hydrate) from `snapshot` and `updates`
- * holds `room`'s state (besides what upgradeDoc adds on opening), and what
- * it holds passes the desktop's guard.
- *
- * From its snapshot, a client's changes that wait in the room may land:
- * the snapshot holds them merged with what the room has, and a waiting
- * change that starts inside a run the room has is written as its new tail,
- * placed after the room's last change of that run instead of where it
- * waited (Yjs mergeUpdates). Such a client may be further on reopened;
- * every other client must be where it was.
+ * holds `room`'s state (besides what upgradeDoc adds on opening): changes
+ * that wait in the room neither land nor hide any it has (ws/pending.ts
+ * trimPending). What it holds passes the desktop's guard.
  */
-function reopen(snapshot: Uint8Array, updates: Uint8Array[], room: Y.Doc, from: string, waitingMayLand: boolean): void {
+function reopen(snapshot: Uint8Array, updates: Uint8Array[], room: Y.Doc, from: string): void {
   const again = new DocSession('fuzz-reopen');
   try {
     timed(`reopening the room from ${from}`, () => again.load(snapshot, updates));
     const own = again.doc.clientID;
     const was = new Map(Y.decodeStateVector(Y.encodeStateVector(room)));
     const now = new Map(Y.decodeStateVector(Y.encodeStateVector(again.doc)));
-    const waiting = waitingMayLand ? waitingClients(room) : new Set<number>();
     for (const client of new Set([...was.keys(), ...now.keys()])) {
       if (client === own) continue;
       const a = was.get(client) ?? 0;
       const b = now.get(client) ?? 0;
-      if (b < a || (b > a && !waiting.has(client))) fail(`the room reopened from ${from} holds client ${client} at ${b}, not ${a}`);
+      if (b !== a) fail(`the room reopened from ${from} holds client ${client} at ${b}, not ${a}`);
     }
     desktopReads(Y.encodeStateAsUpdate(again.doc), `the room reopened from ${from}`, null);
   } finally {

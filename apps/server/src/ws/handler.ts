@@ -41,6 +41,7 @@ import {
   pendingDsBytes,
   restorePending,
   savePending,
+  withoutPending,
 } from './pending.js';
 import { newPace, workBudget, type Pace } from './pacing.js';
 import { concerns, onAccessChanged, suspendedIn } from './liveAccess.js';
@@ -337,7 +338,7 @@ export function handleMessage(
         const stateVector = decoding.readVarUint8Array(decoder);
         if (checkStateVector(stateVector) !== null) return;
         if (!sender.pace.step1.take(1)) return;
-        syncProtocol.writeSyncStep2(encoder, session.doc, stateVector);
+        withoutPending(session.doc, () => syncProtocol.writeSyncStep2(encoder, session.doc, stateVector));
       } else if (syncType === syncProtocol.messageYjsSyncStep2 || syncType === syncProtocol.messageYjsUpdate) {
         // The client's own state / edits: write paths. A viewer's are
         // dropped (a hostile viewer can't corrupt the doc).

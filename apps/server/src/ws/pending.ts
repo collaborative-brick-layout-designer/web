@@ -96,6 +96,74 @@ export function savePending(doc: Y.Doc): PendingState {
 export function restorePending(doc: Y.Doc, saved: PendingState): void {
   doc.store.pendingStructs = saved.structs ? { missing: new Map(saved.structs.missing), update: saved.structs.update } : null;
   doc.store.pendingDs = saved.ds;
+  trimPending(doc);
+}
+
+/** The lowest clock per client of what waits, read once per pending record. */
+const lowestClocks = new WeakMap<Uint8Array, Map<number, number>>();
+function lowestWaiting(update: Uint8Array): Map<number, number> {
+  let out = lowestClocks.get(update);
+  if (!out) {
+    out = new Map();
+    for (const s of Y.decodeUpdateV2(update).structs) {
+      if (s instanceof Y.Skip) continue;
+      const at = out.get(s.id.client);
+      if (at === undefined || s.id.clock < at) out.set(s.id.client, s.id.clock);
+    }
+    lowestClocks.set(update, out);
+  }
+  return out;
+}
+
+/**
+ * Cut from what waits in `doc` every change the room already has (its
+ * client and clock are taken), whole even when only its start is. Yjs never
+ * applies those but still writes them into a full encoding of the
+ * document, where only the room's own belong.
+ */
+export function trimPending(doc: Y.Doc): void {
+  const waiting = doc.store.pendingStructs;
+  if (!waiting) return;
+  const past = [...lowestWaiting(waiting.update)].some(([client, lowest]) => Y.getState(doc.store, client) > lowest);
+  if (!past) return;
+  // Per client, where the last change it can't keep ends (structs come in clock order).
+  const cut = new Map<number, number>();
+  const keptFrom = new Map<number, number>();
+  for (const s of Y.decodeUpdateV2(waiting.update).structs) {
+    if (s instanceof Y.Skip) continue;
+    const { client, clock } = s.id;
+    const state = Y.getState(doc.store, client);
+    if (state > clock) cut.set(client, Math.max(cut.get(client) ?? 0, clock + s.length));
+    else if (clock >= (cut.get(client) ?? 0) && !keptFrom.has(client)) keptFrom.set(client, clock);
+  }
+  const update = Y.diffUpdateV2(waiting.update, Y.encodeStateVector(cut));
+  if (lowestWaiting(update).size === 0) {
+    doc.store.pendingStructs = null;
+    return;
+  }
+  // What is left of a client waits for the clocks before it as well.
+  const missing = new Map(waiting.missing);
+  for (const client of cut.keys()) {
+    const from = keptFrom.get(client);
+    if (from !== undefined) missing.set(client, Math.min(missing.get(client) ?? Infinity, from - 1));
+  }
+  doc.store.pendingStructs = { missing, update };
+}
+
+/**
+ * What `read` makes of `doc` without what waits in it: for the apps. What
+ * waits isn't part of the layout yet, and reaches them as an ordinary edit
+ * when it lands.
+ */
+export function withoutPending<T>(doc: Y.Doc, read: () => T): T {
+  const { pendingStructs, pendingDs } = doc.store;
+  dropPending(doc);
+  try {
+    return read();
+  } finally {
+    doc.store.pendingStructs = pendingStructs;
+    doc.store.pendingDs = pendingDs;
+  }
 }
 
 /** Drop everything pending (it can't be read until changes nobody sent arrive). */
