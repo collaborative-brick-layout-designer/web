@@ -8,7 +8,6 @@ import cookie from '@fastify/cookie';
 import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
-import fastifyStatic from '@fastify/static';
 import fastifyMultipart from '@fastify/multipart';
 import { clearJobsAtStart } from './imports/jobs.js';
 import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
@@ -31,6 +30,7 @@ import { requestSerializer } from './utils/logRedact.js';
 import { registerSecurityHeaders } from './utils/securityHeaders.js';
 import { registerCrossSiteGuard } from './utils/crossSite.js';
 import { registerApiRoutes } from './routes/all.js';
+import { registerSpa } from './routes/spa.js';
 import { registerPartFiles } from './routes/partsFiles.js';
 import { registerChangeHints } from './events/routeHints.js';
 import { setHintErrorLogger } from './events/audience.js';
@@ -192,22 +192,7 @@ async function main() {
     app.log.warn({ err }, `failed to cache SPA index.html from ${spaIndexPath}`);
   }
   if (spaIndexHtml !== null) {
-    await app.register(fastifyStatic, {
-      root: spaDir,
-      prefix: '/',
-      decorateReply: false,
-      wildcard: false,
-    });
-    const indexBytes = spaIndexHtml; // capture for the closure
-    app.setNotFoundHandler(async (req, reply) => {
-      if (req.url.startsWith('/api/')) return reply.code(404).send({ error: 'not_found' });
-      reply.header('content-type', 'text/html; charset=utf-8');
-      // Don't cache — the SPA bundle hash is in the linked assets;
-      // if `index.html` itself is cached, deploys break for users
-      // whose browser still has the previous version.
-      reply.header('cache-control', 'no-cache');
-      return reply.send(indexBytes);
-    });
+    await registerSpa(app, spaDir, spaIndexHtml);
   } else {
     app.log.warn(`SPA dist not found at ${spaDir}; serving API only`);
   }
