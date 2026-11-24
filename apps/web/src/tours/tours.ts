@@ -45,8 +45,8 @@ export function forClubless(tour: Tour, inAClub: boolean): Tour {
   return inAClub ? tour : { ...tour, steps: tour.steps.filter((s) => !s.needsClub) };
 }
 
-/** Tours started from their own dialog (Show me around), never from the Help menu. */
-export const DIALOG_TOURS: readonly string[] = ['import'];
+/** Tours started from their own dialog or page (Show me around), never from the Help menu. */
+export const DIALOG_TOURS: readonly string[] = ['import', 'history'];
 
 /** The tours offered on this screen size. */
 export function toursFor(phone: boolean): Tour[] {

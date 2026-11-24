@@ -14,7 +14,7 @@ import { passwordRoutes } from '../auth/password.js';
 import { layoutRoutes } from '../layouts.js';
 import { layoutVersionRoutes } from '../layoutVersions.js';
 import { docHub } from '../../ws/docHub.js';
-import { AUTO_EVERY_MS, autoVersion, takeVersion, versionsToDrop } from '../../history/layoutVersions.js';
+import { autoVersion, takeVersion, versionsToDrop } from '../../history/layoutVersions.js';
 import { syncDocTo } from '../../history/syncDoc.js';
 import { deletedEntries } from '../../history/bulkDelete.js';
 import type { DecodedUpdate } from '../../ws/decoded.js';
@@ -24,6 +24,7 @@ let owner: { cookie: string; id: string };
 let viewer: { cookie: string; id: string };
 let stranger: { cookie: string; id: string };
 let layoutId: string;
+const AUTO_EVERY_MS = 30 * 60 * 1000;
 
 beforeEach(async () => {
   resetDb();

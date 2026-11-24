@@ -110,13 +110,20 @@ export function stamp(now = new Date()): string {
   return now.toISOString().replace(/[-:]/g, '').replace('T', '-').slice(0, 15);
 }
 
-/** Keep the newest `keep` of each kind that has a count (manual, before-restore, upload); their pictures go with them. */
-export function trimKinds(dir: string, protect: string | null = null): void {
+/** Keep the newest of each kind that has a count (manual, before-restore, upload: 5, 3 and 3 unless `keeps` says, as Admin › Backups does); their pictures go with them. */
+export interface KeepCounts {
+  manual: number;
+  'before-restore': number;
+  upload: number;
+}
+
+export function trimKinds(dir: string, protect: string | null = null, keeps?: Partial<KeepCounts>): void {
   const all = listDbBackups(dir).filter((f) => f.name !== protect);
   for (const k of KINDS) {
     if (k.keep === null) continue;
+    const keep = keeps?.[k.kind as keyof KeepCounts] ?? k.keep;
     const mine = all.filter((f) => f.kind === k.kind).sort((a, b) => (a.name < b.name ? 1 : -1));
-    for (const f of mine.slice(k.keep)) {
+    for (const f of mine.slice(keep)) {
       for (const n of [f.name, f.images?.name]) {
         if (!n) continue;
         try {
@@ -136,12 +143,14 @@ export interface SnapshotOptions {
   /** `manual` or `before-restore`. */
   kind: 'manual' | 'before-restore';
   now?: Date;
+  /** How many of each kind to keep, when not the built-in counts. */
+  keeps?: Partial<KeepCounts>;
   /** A copy the trim must keep (the one about to be restored). */
   protect?: string | null;
 }
 
 /** A database copy and its pictures, now (an online copy: the server keeps answering). Returns the database copy's name. */
-export async function snapshotNow({ dir, sqlite, imagesDir, kind, now = new Date(), protect = null }: SnapshotOptions): Promise<string> {
+export async function snapshotNow({ dir, sqlite, imagesDir, kind, now = new Date(), protect = null, keeps }: SnapshotOptions): Promise<string> {
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
   const base = `cbld-${kind}-${stamp(now)}`;
   const name = `${base}.sqlite.gz`;
@@ -157,7 +166,7 @@ export async function snapshotNow({ dir, sqlite, imagesDir, kind, now = new Date
     }
   }
   await gzipAtomic(tarOfFolder(imagesDir), resolve(dir, imagesNameFor(name)));
-  trimKinds(dir, protect);
+  trimKinds(dir, protect, keeps);
   return name;
 }
 

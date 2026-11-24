@@ -32,12 +32,14 @@ const SOURCES = import.meta.glob(['../../**/*.{ts,tsx}', '!../../**/*.test.{ts,t
 const CENTRED = new Set(['clubs.join', 'club.partners']);
 
 describe('the tour catalogue', () => {
-  it('has the welcome card and the eight tours, with ids the server accepts', () => {
+  it('has the welcome card and the nine tours, with ids the server accepts', () => {
     expect(WELCOME_ID).toBe('welcome');
-    expect(TOURS.map((t) => t.id)).toEqual(['editor', 'rooms', 'clubs', 'modules', 'routes', 'trains', 'view', 'import']);
-    // The import dialog starts its own tour (Show me around); the Help menu doesn't list it.
-    expect(toursFor(false).map((t) => t.id)).not.toContain('import');
-    expect(toursFor(true).map((t) => t.id)).not.toContain('import');
+    expect(TOURS.map((t) => t.id)).toEqual(['editor', 'rooms', 'clubs', 'modules', 'routes', 'trains', 'view', 'import', 'history']);
+    // The import dialog and the version history page start their own tours (Show me around); the Help menu doesn't list them.
+    for (const id of ['import', 'history']) {
+      expect(toursFor(false).map((t) => t.id)).not.toContain(id);
+      expect(toursFor(true).map((t) => t.id)).not.toContain(id);
+    }
     for (const id of [WELCOME_ID, ...TOURS.map((t) => t.id)]) expect(id).toMatch(/^[A-Za-z0-9._-]{1,64}$/);
   });
 
@@ -93,6 +95,18 @@ describe('the tour catalogue', () => {
     expect(steps[2]!.text).toContain('Table and power');
     const help = JSON.parse(helpText) as { entries: Record<string, unknown> };
     expect(Object.keys(help.entries)).toContain('module.setupSummary');
+  });
+
+  it('the Version history tour points at the history page: the list, keeping one, restoring and copying out', () => {
+    const steps = getTour('history')!.steps;
+    expect(steps.map((s) => s.target)).toEqual(['versionHistory.list', 'versionHistory.keep', 'versionHistory.restore', 'versionHistory.copy']);
+    // Both apps show every step (the desktop's Version history window tags the same four).
+    const raw = JSON.parse(catalogueText) as { tours: { id: string; steps: { apps?: string[] }[] }[] };
+    for (const s of raw.tours.find((t) => t.id === 'history')!.steps) expect(s.apps).toBeUndefined();
+    // The page that tags them also starts the tour.
+    const page = Object.entries(SOURCES).find(([k]) => k.endsWith('editor/LayoutHistoryPage.tsx'))![1];
+    expect(page).toContain("startTour('history')");
+    for (const s of steps) expect(page, s.target).toContain(`data-tour="${s.target}"`);
   });
 
   it('names where the desktop copy lives, so the two stay identical', () => {

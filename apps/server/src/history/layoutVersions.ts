@@ -9,10 +9,13 @@
 //     and an edit that deletes many parts at once (ws/handler.ts);
 //   - when someone asks ("Save a version now", with an optional name).
 //
-// How long they're kept (thinVersions, nightly): every one from the last
-// day; then the newest of each day for 30 days and of each week for 26
-// weeks; the ones taken before a big change for 30 days; named ones always
-// (the newest 50). A version identical to the newest isn't kept twice.
+// How long they're kept (thinVersions, nightly), by default: every one
+// from the last day; then the newest of each day for 30 days and of each
+// week for 26 weeks; the ones taken before a big change for 30 days; named
+// ones always (the newest 50). A version identical to the newest isn't kept
+// twice. Admin › Backups sets all of these numbers, and switches the whole
+// history off (history/settings.ts): nothing new is kept then, and the
+// versions already there stay readable.
 //
 // Putting one back never replaces the document: it is one ordinary change
 // (syncDoc.ts) that makes the layout as it was, so people in the layout
@@ -25,22 +28,16 @@ import { and, desc, eq, inArray, lt } from 'drizzle-orm';
 import * as Y from 'yjs';
 import { db, schema } from '../db/index.js';
 import { summarize } from '../ops/unmergeLayouts.js';
+import { DEFAULT_HISTORY_LIMITS, historySettings, type HistoryLimits } from './settings.js';
 
 export const VERSION_REASONS = ['auto', 'manual', 'before-import', 'before-merge', 'before-restore', 'before-bulk-delete'] as const;
 export type VersionReason = (typeof VERSION_REASONS)[number];
 /** Reasons the apps may ask for themselves. */
 export const CLIENT_REASONS: readonly VersionReason[] = ['manual', 'before-import', 'before-merge'];
 
-/** The least time between two versions taken while people edit. */
-export const AUTO_EVERY_MS = 30 * 60 * 1000;
 /** A version before a big change within this of an identical one isn't taken again. */
 const SAME_WITHIN_MS = 10 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
-/** Before-a-big-change versions are kept this long. */
-const BEFORE_KEEP_MS = 30 * DAY_MS;
-const DAILY_KEEP_MS = 30 * DAY_MS;
-const WEEKLY_KEEP_MS = 26 * 7 * DAY_MS;
-const MANUAL_KEEP = 50;
 /** Labels are short. */
 export const LABEL_MAX = 80;
 
@@ -96,6 +93,7 @@ export interface TakeOptions {
  * enough), so nothing identical is kept twice. Null when the layout is gone.
  */
 export async function takeVersion({ layoutId, state, reason, by = null, label = null, editors = [], now = Date.now() }: TakeOptions): Promise<string | null> {
+  if (!(await historySettings()).enabled) return null;
   const layout = await db.select({ title: schema.layouts.title }).from(schema.layouts).where(eq(schema.layouts.id, layoutId)).get();
   if (!layout) return null;
   const docHash = hashOf(state);
@@ -147,8 +145,10 @@ async function tellViewers(layoutId: string): Promise<void> {
 
 /** While people edit: a version when the newest is old enough and the layout changed. */
 export async function autoVersion(layoutId: string, state: Uint8Array, editors: Editor[], now = Date.now()): Promise<string | null> {
+  const { enabled, limits } = await historySettings();
+  if (!enabled) return null;
   const last = await newest(layoutId);
-  if (last && now - last.createdAt.getTime() < AUTO_EVERY_MS) return null;
+  if (last && now - last.createdAt.getTime() < limits.autoMinutes * 60 * 1000) return null;
   return takeVersion({ layoutId, state, reason: 'auto', editors, by: editors.length === 1 ? editors[0]!.id : null, now });
 }
 
@@ -218,7 +218,15 @@ export async function listVersions(layoutId: string, limit = 200): Promise<Versi
 }
 
 /** Which versions to let go, by the rules at the top. Pure, for tests. */
-export function versionsToDrop(rows: readonly { id: string; reason: string; label: string | null; createdAt: number }[], now: number): string[] {
+export function versionsToDrop(
+  rows: readonly { id: string; reason: string; label: string | null; createdAt: number }[],
+  now: number,
+  limits: HistoryLimits = DEFAULT_HISTORY_LIMITS,
+): string[] {
+  const allMs = limits.keepAllDays * DAY_MS;
+  const beforeMs = limits.keepBeforeDays * DAY_MS;
+  const dailyMs = limits.keepDailyDays * DAY_MS;
+  const weeklyMs = limits.keepWeeklyWeeks * 7 * DAY_MS;
   const drop: string[] = [];
   const sorted = [...rows].sort((a, b) => b.createdAt - a.createdAt);
   const seenDay = new Set<number>();
@@ -228,21 +236,21 @@ export function versionsToDrop(rows: readonly { id: string; reason: string; labe
     const age = now - r.createdAt;
     if (r.label) {
       named += 1;
-      if (named > MANUAL_KEEP) drop.push(r.id);
+      if (named > limits.keepNamed) drop.push(r.id);
       continue;
     }
-    if (age <= DAY_MS) continue;
+    if (age <= allMs) continue;
     if (r.reason !== 'auto' && r.reason !== 'manual') {
-      if (age > BEFORE_KEEP_MS) drop.push(r.id);
+      if (age > beforeMs) drop.push(r.id);
       continue;
     }
-    if (age <= DAILY_KEEP_MS) {
+    if (age <= dailyMs) {
       const day = Math.floor(r.createdAt / DAY_MS);
       if (seenDay.has(day)) drop.push(r.id);
       else seenDay.add(day);
       continue;
     }
-    if (age <= WEEKLY_KEEP_MS) {
+    if (age <= weeklyMs) {
       const week = Math.floor(r.createdAt / (7 * DAY_MS));
       if (seenWeek.has(week)) drop.push(r.id);
       else seenWeek.add(week);
@@ -255,11 +263,12 @@ export function versionsToDrop(rows: readonly { id: string; reason: string; labe
 
 /** Thin out every layout's versions (the nightly worker). Returns how many went. */
 export async function thinVersions(now = Date.now()): Promise<number> {
+  const { limits } = await historySettings();
   const layoutIds = (
     await db
       .selectDistinct({ id: schema.layoutVersions.layoutId })
       .from(schema.layoutVersions)
-      .where(lt(schema.layoutVersions.createdAt, new Date(now - DAY_MS)))
+      .where(lt(schema.layoutVersions.createdAt, new Date(now - limits.keepAllDays * DAY_MS)))
       .all()
   ).map((r) => r.id);
   let gone = 0;
@@ -269,7 +278,7 @@ export async function thinVersions(now = Date.now()): Promise<number> {
       .from(schema.layoutVersions)
       .where(eq(schema.layoutVersions.layoutId, layoutId))
       .all();
-    const drop = versionsToDrop(rows.map((r) => ({ ...r, createdAt: r.createdAt.getTime() })), now);
+    const drop = versionsToDrop(rows.map((r) => ({ ...r, createdAt: r.createdAt.getTime() })), now, limits);
     for (let i = 0; i < drop.length; i += 200) {
       await db.delete(schema.layoutVersions).where(inArray(schema.layoutVersions.id, drop.slice(i, i + 200)));
     }
