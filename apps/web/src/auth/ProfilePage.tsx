@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api';
 import { AppHeader } from '../AppHeader';
 import { DevicesSection } from './DevicesSection';
+import { AccountBackupSection } from '../backup/AccountBackupSection';
 import { MyDataSection } from '../privacy/MyDataSection';
 import { DeleteAccountSection } from '../privacy/DeleteAccount';
 import { HelpButton } from '../help/HelpButton';
@@ -160,6 +161,8 @@ export function ProfilePage() {
         )}
 
         {!user.isDemoAccount && <DevicesSection />}
+
+        {!user.isDemoAccount && <AccountBackupSection me={user} />}
 
         {!user.isDemoAccount && <MyDataSection />}
 

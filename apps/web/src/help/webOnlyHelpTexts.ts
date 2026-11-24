@@ -6,6 +6,16 @@
 import type { HelpEntry } from './helpTexts';
 
 export const WEB_ONLY_HELP_TEXTS = {
+  'account.backup': {
+    title: 'Back up your things',
+    short: 'Downloads one file with your own layouts, modules, venues and engines and cars.',
+    more: 'Keep it somewhere safe; your clubs’ things and things others shared with you aren’t in it. The layouts in it also open on their own in the desktop app. “Download my data” below is different: it is everything the site keeps about you, to read, not to put back.',
+  },
+  'account.backupRestore': {
+    title: 'Restore from a backup',
+    short: 'Brings the things in a backup back into your account as new copies.',
+    more: 'You see the list first and tick what to bring back. Nothing you have is changed or replaced: something you still have is left out unless you tick it, and one with the same name as yours comes back as “… (restored)”. Your usage limits count as usual.',
+  },
   'admin.imports': {
     title: 'Model import',
     short: 'Lets people import LDraw, Studio and LDD files, read in their own browsers as the desktop app reads them.',
