@@ -18,9 +18,13 @@
 // reads the parts) and the editor puts them down itself (`into.place`), so
 // one Undo takes the whole import back. `purpose: 'part'` (Custom parts and
 // the Parts panel) only makes a custom part: saved to you or a club, and,
-// from the editor, put down here too when asked.
+// from the editor, put down here too when asked. `purpose: 'stock'` (Trains
+// › Import a model…) makes the custom part an engine or car's picture: the
+// model is turned to run front to the right, and StockSetup shows where its
+// trucks and couplers seem to be, to confirm or drag before it's made.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { guessStock, STOCK_KINDS, type StockGuess, type StockKind } from '@cld/parts-catalog/browser';
 import { Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api';
@@ -34,6 +38,8 @@ import { base64Of, BrowserImport, canImportInBrowser, FallBack, libraryVersions,
 import { partToPlace } from './placeImport';
 import { aligned, connectionTypeName, rotated, type Align } from './previewMath';
 import { PreviewCanvas } from './PreviewCanvas';
+import { StockSetup, type StockSetupValue } from './StockSetup';
+import { KIND_LABELS } from '../editor/trains';
 
 export interface ImportInto {
   layoutId: string;
@@ -59,13 +65,28 @@ interface Props {
   onClose: () => void;
   /** The import finished: open the new layout, or select what came in. */
   onDone?: (result: ImportResult) => void;
-  /** 'part': only make a custom part (Custom parts, the Parts panel), saved to you or a club. */
-  purpose?: 'any' | 'part';
+  /** 'part': only make a custom part (Custom parts, the Parts panel), saved to you or a club. 'stock': a part for an engine or car. */
+  purpose?: 'any' | 'part' | 'stock';
+  /** Purpose 'stock': the part is made; the engine or car to add, as set up here. */
+  onStock?: (made: MadeStock) => void;
   /** Home's owner filter, for where the part is saved to (purpose 'part'). */
   filter?: OwnerFilter | undefined;
 }
 
 type Where = 'here' | 'new' | 'library';
+
+/** What Trains › Import a model… makes of it: the custom part, and the car as set up in the preview. */
+export interface MadeStock {
+  partId: string;
+  number: string;
+  kind: StockKind;
+  setup: StockSetupValue;
+  file: string;
+  format: 'ldraw' | 'studio' | 'ldd';
+  /** Where the part was saved ('' you), and whether the car goes on that roster too. */
+  saveTo: string;
+  toRoster: boolean;
+}
 
 /** The upload under way for each picked file (see "Upload once" below). */
 const uploads = new WeakMap<File, { ac: AbortController; job: Promise<ImportJob>; cancelled?: boolean }>();
@@ -82,8 +103,9 @@ const btn = 'tap-target rounded-lg border border-line bg-panel px-3 py-1.5 text-
 const primary = 'tap-target rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-accent-ink hover:bg-accent-hover disabled:opacity-50';
 const field = 'w-full rounded-lg border border-line bg-panel px-2 py-1.5 text-sm text-ink';
 
-export function ImportDialog({ file, into, isAdmin = false, onClose, onDone, purpose = 'any', filter }: Props) {
-  const partOnly = purpose === 'part';
+export function ImportDialog({ file, into, isAdmin = false, onClose, onDone, onStock, purpose = 'any', filter }: Props) {
+  const stockMode = purpose === 'stock';
+  const partOnly = purpose === 'part' || stockMode;
   const qc = useQueryClient();
   const tours = useTours();
   const [sent, setSent] = useState(0);
@@ -108,7 +130,18 @@ export function ImportDialog({ file, into, isAdmin = false, onClose, onDone, pur
   const [step, setStep] = useState(0.25);
   const [dropped, setDropped] = useState<Set<number>>(new Set());
   const [name, setName] = useState('');
-  const [category, setCategory] = useState('Imported');
+  const [category, setCategory] = useState(stockMode ? 'Rolling stock' : 'Imported');
+  // Purpose 'stock': the car as it will be made, and what the guess came from.
+  const [setup, setSetup] = useState<StockSetupValue | null>(null);
+  const [guessed, setGuessed] = useState<Pick<StockGuess, 'trucksFrom' | 'couplersFrom'>>({ trucksFrom: 'none', couplersFrom: 'none' });
+  const [stockNumber, setStockNumber] = useState('');
+  const [stockKind, setStockKind] = useState<StockKind>('car');
+  const [toRoster, setToRoster] = useState(false);
+  const stockChoice = useRef<Omit<MadeStock, 'partId'> | null>(null);
+  const onStockRef = useRef(onStock);
+  useEffect(() => {
+    onStockRef.current = onStock;
+  }, [onStock]);
   const [designer, setDesigner] = useState('');
   const [designerUrl, setDesignerUrl] = useState('');
   const [where, setWhere] = useState<Where>(partOnly ? 'library' : into ? 'here' : 'new');
@@ -253,7 +286,16 @@ export function ImportDialog({ file, into, isAdmin = false, onClose, onDone, pur
     setDesigner(analysis.designer);
     setTitle(analysis.suggestedName);
     if (!analysis.part && analysis.layout) setMode('parts');
-  }, [analysis, seeded]);
+    if (stockMode && analysis.part) {
+      // The browser's guess; from the server, the footprint alone (trucks a quarter in).
+      const p = analysis.part;
+      const g = p.stock ?? guessStock([], p.contentStuds, { x: p.widthStuds / 2, y: p.heightStuds / 2 });
+      setTurns(g.quarterTurns);
+      setSetup({ length: g.length, width: g.width, bodyLength: g.bodyLength, trucks: g.trucks });
+      setGuessed({ trucksFrom: g.trucksFrom, couplersFrom: g.couplersFrom });
+      if (/engine|loco/i.test(analysis.suggestedName)) setStockKind('engine');
+    }
+  }, [analysis, seeded, stockMode]);
 
   useEffect(() => {
     if (job?.state === 'done' && job.result && !finished.current) {
@@ -264,6 +306,10 @@ export function ImportDialog({ file, into, isAdmin = false, onClose, onDone, pur
       // Fetched past the browser's cache, so the new part draws as soon as it's put down.
       const catalog = qc.fetchQuery({ queryKey: ['parts-catalog'], queryFn: api.parts.catalog, staleTime: 0 }).catch(() => undefined);
       const at = placing.current;
+      if (stockMode && result.part && stockChoice.current) {
+        onStockRef.current?.({ ...stockChoice.current, partId: result.part.id });
+        return;
+      }
       const toPlace = result.toPlace ?? (at && result.part ? partToPlace(result) : null);
       if (!at || !into || !toPlace) {
         setPlaced(result);
@@ -283,7 +329,7 @@ export function ImportDialog({ file, into, isAdmin = false, onClose, onDone, pur
         if (job.id) void importApi.cancel(job.id);
       })();
     }
-  }, [job, qc, into]);
+  }, [job, qc, into, stockMode]);
 
   // Leaving before it's done cancels it: nothing stays on the server.
   const close = useCallback(() => {
@@ -313,7 +359,11 @@ export function ImportDialog({ file, into, isAdmin = false, onClose, onDone, pur
       : into && where === 'here'
         ? { kind: 'layout', layoutId: into.layoutId, sheetId, at: into.at, clientPlaces: true }
         : { kind: 'new', title: title.trim() || name.trim() };
-    placing.current = into && where === 'here' ? { sheetId } : null;
+    placing.current = into && where === 'here' && !stockMode ? { sheetId } : null;
+    stockChoice.current =
+      stockMode && setup
+        ? { number: stockNumber.trim(), kind: stockKind, setup, file: file.name, format: analysis?.format ?? 'ldraw', saveTo, toRoster }
+        : null;
     const choices: ConvertChoices = {
       mode: partOnly ? 'part' : mode,
       quarterTurns: turns,
@@ -430,10 +480,10 @@ export function ImportDialog({ file, into, isAdmin = false, onClose, onDone, pur
       >
         <header className="flex items-center gap-2 border-b border-line px-5 py-3">
           <h2 className="text-lg font-semibold">
-            {analysis ? `Preview: ${analysis.kindLabel}` : partOnly ? 'Make a custom part from a model' : 'Import a model'}
+            {stockMode ? 'Import a model as an engine or car' : analysis ? `Preview: ${analysis.kindLabel}` : partOnly ? 'Make a custom part from a model' : 'Import a model'}
           </h2>
-          <HelpButton helpKey="import.model" />
-          {state === 'ready' && (
+          <HelpButton helpKey={stockMode ? 'trains.importModel' : 'import.model'} />
+          {state === 'ready' && !stockMode && (
             <button type="button" className="text-sm font-semibold text-accent-text hover:underline" onClick={() => tours.startTour('import')}>
               Show me around
             </button>
@@ -480,7 +530,7 @@ export function ImportDialog({ file, into, isAdmin = false, onClose, onDone, pur
             />
           )}
           {(state === 'queued' || state === 'converting') && job?.step === 'convert' && (
-            <Progress label={partOnly || mode === 'part' ? 'Making the custom part…' : 'Placing the parts…'} testId="import-making" />
+            <Progress label={stockMode ? 'Making the engine or car…' : partOnly || mode === 'part' ? 'Making the custom part…' : 'Placing the parts…'} testId="import-making" />
           )}
           {state === 'error' && (
             <div data-testid="import-error" className="space-y-2">
@@ -499,7 +549,18 @@ export function ImportDialog({ file, into, isAdmin = false, onClose, onDone, pur
           {state === 'ready' && analysis && seeded && (
             <div className="flex flex-col gap-5 md:grid md:h-full md:min-h-0 md:grid-cols-[minmax(0,1fr)_24rem]" data-testid="import-preview">
               <div className="flex min-h-0 flex-col gap-2">
-                {mode === 'part' && part && frame ? (
+                {stockMode && part && frame && setup ? (
+                  <StockSetup
+                    src={part.preview}
+                    turns={turns}
+                    widthStuds={frame.widthStuds}
+                    heightStuds={frame.heightStuds}
+                    value={setup}
+                    onChange={setSetup}
+                    from={guessed.trucksFrom}
+                    couplersFound={guessed.couplersFrom === 'found'}
+                  />
+                ) : mode === 'part' && part && frame ? (
                   <>
                     <PreviewCanvas
                       src={part.preview}
@@ -544,7 +605,21 @@ export function ImportDialog({ file, into, isAdmin = false, onClose, onDone, pur
                     </label>
                   </fieldset>
                 )}
-                {mode === 'part' && part && frame && (
+                {stockMode && part && setup && (
+                  <StockFields
+                    setup={setup}
+                    onSetup={setSetup}
+                    number={stockNumber}
+                    onNumber={setStockNumber}
+                    kind={stockKind}
+                    onKind={setStockKind}
+                    onTurnAround={() => {
+                      setTurns((t) => (t + 2) % 4);
+                      setSetup((v) => (v ? { ...v, trucks: [-v.trucks[1], -v.trucks[0]] } : v));
+                    }}
+                  />
+                )}
+                {mode === 'part' && part && frame && !stockMode && (
                   <>
                     <div className="flex flex-wrap items-center gap-2">
                       <button type="button" className={btn} title="Turn the part 90° left" onClick={() => setTurns((t) => (t + 3) % 4)}>
@@ -614,6 +689,7 @@ export function ImportDialog({ file, into, isAdmin = false, onClose, onDone, pur
                 )}
                 {mode === 'part' && part && frame && (
                   <>
+                    {!stockMode && (
                     <div>
                       <p className="flex items-center gap-1 font-semibold">
                         Connection points (uncheck to drop): <HelpButton helpKey="import.connections" />
@@ -641,6 +717,7 @@ export function ImportDialog({ file, into, isAdmin = false, onClose, onDone, pur
                         ))}
                       </ul>
                     </div>
+                    )}
                     <Stats stats={part.stats} />
                     <Warnings list={part.warnings} />
                     <label className="block">
@@ -681,7 +758,14 @@ export function ImportDialog({ file, into, isAdmin = false, onClose, onDone, pur
                       Save it <HelpButton helpKey="import.saveTo" />
                     </legend>
                     <SaveToPicker value={saveTo} onChange={setSaveTo} orgs={orgs.data?.orgs} kind="part" />
-                    {into && (
+                    {stockMode && (
+                      <label className="flex items-center gap-2" data-testid="stock-to-roster">
+                        <input type="checkbox" checked={toRoster} onChange={(e) => setToRoster(e.target.checked)} />
+                        Also put the car on {saveTo ? 'that club’s' : 'your'} roster, for other layouts
+                        <HelpButton helpKey="trains.roster" />
+                      </label>
+                    )}
+                    {into && !stockMode && (
                       <>
                         <label className="flex items-center gap-2">
                           <input type="radio" name="import-where" checked={where === 'library'} onChange={() => setWhere('library')} />
@@ -761,7 +845,7 @@ export function ImportDialog({ file, into, isAdmin = false, onClose, onDone, pur
                   disabled={((partOnly || mode === 'part') && (!part || !name.trim() || !category.trim())) || (!partOnly && mode === 'parts' && !analysis?.layout)}
                   onClick={() => void make()}
                 >
-                  {partOnly && where === 'here' ? 'Save and place it' : partOnly || mode === 'part' ? 'Save as Custom Part' : 'Place the parts'}
+                  {stockMode ? 'Add to rolling stock' : partOnly && where === 'here' ? 'Save and place it' : partOnly || mode === 'part' ? 'Save as Custom Part' : 'Place the parts'}
                 </button>
               )}
             </>
@@ -769,6 +853,72 @@ export function ImportDialog({ file, into, isAdmin = false, onClose, onDone, pur
         </footer>
       </div>
     </div>
+  );
+}
+
+/** Purpose 'stock': the car's number, kind, which way it faces, and its trucks and couplers in numbers. */
+function StockFields({
+  setup,
+  onSetup,
+  number,
+  onNumber,
+  kind,
+  onKind,
+  onTurnAround,
+}: {
+  setup: StockSetupValue;
+  onSetup: (v: StockSetupValue) => void;
+  number: string;
+  onNumber: (v: string) => void;
+  kind: StockKind;
+  onKind: (k: StockKind) => void;
+  onTurnAround: () => void;
+}) {
+  const num = (label: string, value: number, set: (v: number) => void, testId: string, min = -200) => (
+    <label className="flex items-center justify-between gap-2">
+      {label}
+      <input
+        type="number"
+        step={0.25}
+        min={min}
+        max={200}
+        aria-label={label}
+        data-testid={testId}
+        className={field + ' w-24'}
+        value={value}
+        onChange={(e) => {
+          const v = Number(e.target.value);
+          if (e.target.value !== '' && Number.isFinite(v) && v >= min && v <= 200) set(v);
+        }}
+      />
+    </label>
+  );
+  return (
+    <fieldset className="space-y-2 rounded-lg border border-line p-3" data-testid="stock-fields">
+      <legend className="flex items-center gap-1 px-1 font-semibold">
+        The engine or car <HelpButton helpKey="trains.trucks" />
+      </legend>
+      <label className="block">
+        Road number:
+        <input aria-label="Road number" className={field} value={number} maxLength={60} placeholder="Optional, shown on the map" onChange={(e) => onNumber(e.target.value)} />
+      </label>
+      <label className="block">
+        It’s a:
+        <select aria-label="Kind" className={field} value={kind} onChange={(e) => onKind(e.target.value as StockKind)}>
+          {STOCK_KINDS.map((k) => (
+            <option key={k} value={k}>
+              {KIND_LABELS[k]}
+            </option>
+          ))}
+        </select>
+      </label>
+      <button type="button" className={btn} data-testid="stock-turn-around" title="The other end is the front" onClick={onTurnAround}>
+        Turn around ⇄
+      </button>
+      {num('Front truck (studs from the middle)', setup.trucks[0], (v) => onSetup({ ...setup, trucks: [v, setup.trucks[1]] }), 'stock-front-at')}
+      {num('Rear truck (studs from the middle)', setup.trucks[1], (v) => onSetup({ ...setup, trucks: [setup.trucks[0], v] }), 'stock-rear-at')}
+      {num('Coupler to coupler (studs)', setup.length, (v) => onSetup({ ...setup, length: v, bodyLength: Math.max(1, Math.round((v - 2) * 100) / 100) }), 'stock-length', 2)}
+    </fieldset>
   );
 }
 

@@ -186,6 +186,18 @@ export function StockEditor({ initial, isNew, parts, onSave, onCancel }: Props) 
             <label className="flex items-center gap-2">
               <input type="radio" name="look" checked={s.look.mode === 'part'} onChange={() => set({ look: { ...s.look, mode: 'part' } })} />A part’s picture
             </label>
+            {s.model?.partKey && (
+              <label className="flex items-center gap-2">
+                <input
+                  type="radio"
+                  name="look"
+                  data-testid="stock-look-model"
+                  checked={s.look.mode === 'model'}
+                  onChange={() => set({ look: { ...s.look, mode: 'model', partKey: s.model!.partKey! } })}
+                />
+                The model it was made from{s.model.file ? ` (${s.model.file})` : ''}
+              </label>
+            )}
           </fieldset>
           {s.look.mode === 'part' && (
             <div className="flex flex-col gap-1" data-testid="stock-part-picker">

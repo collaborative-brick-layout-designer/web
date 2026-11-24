@@ -8,7 +8,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import * as Y from 'yjs';
 import { readRecordsFromDoc, ROLLING_STOCK_KEY, TRAINS_KEY } from '@cld/ydoc';
 import { asStock, simpleStock } from '@cld/parts-catalog/browser';
-import { asTrain, fromRoster, newStock, newTrain, removeStock, removeTrain, rosterIsNewer, saveStock, saveTrain, stockLabel, trainState, updatedFromRoster, withLength } from '../trains';
+import { asTrain, fromRoster, newStock, newTrain, removeStock, removeTrain, rosterIsNewer, saveStock, saveTrain, stockFromModel, stockLabel, trainState, updatedFromRoster, withLength } from '../trains';
 import { TrainsPanel } from '../TrainsPanel';
 import { createUndoManager } from '../useUndoManager';
 
@@ -141,5 +141,24 @@ describe('Trains panel', () => {
     fireEvent.change(screen.getByTestId('stock-front-truck'), { target: { value: '0' } });
     fireEvent.change(screen.getByTestId('stock-rear-truck'), { target: { value: '0' } });
     expect((screen.getByTestId('stock-save') as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('makes an engine of an imported model: its picture the model’s part, its trucks as confirmed, front first', () => {
+    const taken = [newStock({ number: '1' }, [])];
+    const s = stockFromModel(
+      { partKey: 'custom:abc', number: 'SF 16', kind: 'engine', setup: { length: 30, width: 6, bodyLength: 28, trucks: [-10, 9] }, file: 'Santa Fe.io', format: 'studio' },
+      taken,
+      '2026-11-24',
+    );
+    expect(s).toMatchObject({ number: 'SF 16', kind: 'engine', powered: true, trackKind: 'rail', length: 30, width: 6, bodyLength: 28 });
+    expect(s.trucks.map((t) => t.at)).toEqual([9, -10]);
+    expect(s.look.mode).toBe('model');
+    expect(s.look.partKey).toBe('custom:abc');
+    expect(s.look.color).toMatch(/^#/);
+    expect(s.look.color).not.toBe(taken[0]!.look.color);
+    expect(s.model).toEqual({ partKey: 'custom:abc', file: 'Santa Fe.io', format: 'studio', importedAt: '2026-11-24' });
+    const mono = stockFromModel({ partKey: 'custom:m', number: '', kind: 'monorail', setup: { length: 20, width: 4, bodyLength: 18, trucks: [5, -5] }, file: 'm.ldr', format: 'ldraw' }, []);
+    expect(mono.trackKind).toBe('monorail');
+    expect(mono.powered).toBe(false);
   });
 });

@@ -26,20 +26,9 @@ function customId(partNumber: string | undefined | null): string | null {
  * The map with every "custom:<id>" brick and group named by that part's
  * number, for the parts `viewer` may see. Leaves `map` as it is.
  */
-export async function withCustomPartNumbers(map: BbmMap, viewer: PartViewer): Promise<BbmMap> {
-  const ids = new Set<string>();
-  for (const layer of map.layers) {
-    if (layer.type !== 'brick') continue;
-    for (const b of layer.bricks) {
-      const id = customId(b.partNumber);
-      if (id) ids.add(id);
-    }
-    for (const g of layer.groups) {
-      const id = customId(g.partNumber);
-      if (id) ids.add(id);
-    }
-  }
-  if (ids.size === 0) return map;
+/** The part numbers of the custom parts `ids` names that `viewer` may see, by lower-case id. */
+async function customNumbers(ids: Set<string>, viewer: PartViewer): Promise<Map<string, string>> {
+  if (ids.size === 0) return new Map();
   const rows = await db
     .select({
       id: schema.customParts.id,
@@ -62,7 +51,24 @@ export async function withCustomPartNumbers(map: BbmMap, viewer: PartViewer): Pr
       seen.push(r);
     }
   }
-  const numbers = new Map(seen.map((r) => [r.id.toLowerCase(), r.partNumber]));
+  return new Map(seen.map((r) => [r.id.toLowerCase(), r.partNumber]));
+}
+
+export async function withCustomPartNumbers(map: BbmMap, viewer: PartViewer): Promise<BbmMap> {
+  const ids = new Set<string>();
+  for (const layer of map.layers) {
+    if (layer.type !== 'brick') continue;
+    for (const b of layer.bricks) {
+      const id = customId(b.partNumber);
+      if (id) ids.add(id);
+    }
+    for (const g of layer.groups) {
+      const id = customId(g.partNumber);
+      if (id) ids.add(id);
+    }
+  }
+  if (ids.size === 0) return map;
+  const numbers = await customNumbers(ids, viewer);
   const named = (p: string) => {
     const id = customId(p);
     return (id && numbers.get(id)) || p;
@@ -79,4 +85,26 @@ export async function withCustomPartNumbers(map: BbmMap, viewer: PartViewer): Pr
           },
     ),
   };
+}
+
+/**
+ * The sidecar's engines and cars drawn with a server custom part (an
+ * imported model's, trains design Phase 6) named by that part's number in
+ * their look and model, as the map's parts are, for the parts `viewer` may
+ * see. Changes `sidecar` (the JSON as written) in place.
+ */
+export async function stockWithCustomPartNumbers(sidecar: Record<string, unknown>, viewer: PartViewer): Promise<void> {
+  const stock = Array.isArray(sidecar.rollingStock) ? (sidecar.rollingStock as Record<string, unknown>[]) : [];
+  const holders = stock.flatMap((s) => [s?.look, s?.model]).filter((h): h is Record<string, unknown> => !!h && typeof h === 'object');
+  const ids = new Set<string>();
+  for (const h of holders) {
+    const id = typeof h.partKey === 'string' ? customId(h.partKey) : null;
+    if (id) ids.add(id);
+  }
+  const numbers = await customNumbers(ids, viewer);
+  for (const h of holders) {
+    const id = typeof h.partKey === 'string' ? customId(h.partKey) : null;
+    const n = id ? numbers.get(id) : undefined;
+    if (n) h.partKey = n;
+  }
 }

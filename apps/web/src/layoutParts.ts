@@ -19,6 +19,17 @@ function customPartFor(partNumber: string, parts: readonly PartWire[]): PartWire
   return parts.find((p) => p.source === 'custom' && (p.partNumber.toLowerCase() === pn || p.key.toLowerCase() === pn));
 }
 
+/** The parts its engines and cars are drawn with (part and model looks), from the sidecar's text. */
+export function stockPartKeys(sidecar: string | null): string[] {
+  if (!sidecar) return [];
+  try {
+    const stock = (JSON.parse(sidecar) as { rollingStock?: { look?: { mode?: string; partKey?: string } }[] }).rollingStock ?? [];
+    return stock.flatMap((s) => (s.look?.mode && s.look.mode !== 'simple' && typeof s.look.partKey === 'string' ? [s.look.partKey] : []));
+  } catch {
+    return [];
+  }
+}
+
 export interface PartFetcher {
   xml: (customPartId: string) => Promise<Uint8Array>;
   sprite: (customPartId: string) => Promise<{ type: string; data: Uint8Array }>;
@@ -43,8 +54,14 @@ export async function layoutPartFiles(
   map: BbmMap,
   parts: readonly PartWire[],
   fetcher: PartFetcher = serverParts,
+  /** More part numbers it uses: engines and cars drawn with a part (an imported model's). */
+  more: readonly string[] = [],
 ): Promise<Record<string, Uint8Array>> {
   const used = new Map<string, PartWire>();
+  for (const id of more) {
+    const part = id ? customPartFor(id, parts) : undefined;
+    if (part) used.set(part.partNumber.toLowerCase(), part);
+  }
   for (const layer of map.layers) {
     if (layer.type !== 'brick') continue;
     // Placed parts, and the custom sets they were placed from.

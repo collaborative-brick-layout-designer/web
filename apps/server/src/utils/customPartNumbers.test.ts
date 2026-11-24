@@ -8,7 +8,7 @@ import { randomUUID } from 'node:crypto';
 import { readBbm, writeBbm } from '@cld/bbm';
 import type { BbmMap } from '@cld/model';
 import { db, resetDb, schema } from '../test/helpers.js';
-import { withCustomPartNumbers } from './customPartNumbers.js';
+import { stockWithCustomPartNumbers, withCustomPartNumbers } from './customPartNumbers.js';
 import { encodeDoc, seedFromBbm } from '@cld/ydoc';
 import { layoutFileBytes } from '../privacy/exportFiles.js';
 
@@ -111,5 +111,28 @@ describe('.bld-layout downloads', () => {
     expect(out).not.toBeNull();
     expect(bbm).toContain('Rivendell_10316');
     expect(bbm).not.toMatch(/custom:/i);
+  });
+
+  it('names an imported model car’s custom:<id> by its part number too, in its look and its model, for parts the viewer may see', async () => {
+    const id = await addPart('Santa_Fe');
+    const owner = lastOwner;
+    const hidden = await addPart('Not_Yours');
+    const sidecar: Record<string, unknown> = {
+      rollingStock: [
+        { id: 'a', look: { mode: 'model', partKey: `custom:${id}` }, model: { partKey: `custom:${id}`, file: 'santa-fe.io' } },
+        { id: 'b', look: { mode: 'model', partKey: `custom:${hidden}` } },
+        { id: 'c', look: { mode: 'part', partKey: '10194-1.WAGON' } },
+      ],
+    };
+    await stockWithCustomPartNumbers(sidecar, { userId: owner });
+    const stock = sidecar.rollingStock as { look: { partKey: string }; model?: { partKey: string; file: string } }[];
+    expect(stock[0]!.look.partKey).toBe('Santa_Fe');
+    expect(stock[0]!.model).toEqual({ partKey: 'Santa_Fe', file: 'santa-fe.io' });
+    expect(stock[1]!.look.partKey).toBe(`custom:${hidden}`);
+    expect(stock[2]!.look.partKey).toBe('10194-1.WAGON');
+    // Nothing to name: nothing changes.
+    const none: Record<string, unknown> = { labels: [] };
+    await stockWithCustomPartNumbers(none, { userId: owner });
+    expect(none).toEqual({ labels: [] });
   });
 });

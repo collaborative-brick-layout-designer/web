@@ -3,7 +3,7 @@
 // fromLDrawGeometry, friendlyImportWarnings, suggestedImportName) and the
 // part key (src/import/ImportToPart.cpp's sanitizeKey).
 
-import type { MapLibrary } from '@cld/parts-catalog/browser';
+import type { MapLibrary, StockGuess } from '@cld/parts-catalog/browser';
 import { bakeMeshFromLDraw } from './bake';
 import { externalConnections, toBlueBrickMap, type ImportedConnection } from './connections';
 import { readLDraw, type LDrawReadResult } from './ldrawReader';
@@ -11,6 +11,7 @@ import { LDrawFiles, type FetchProgress, type LibrarySource } from './library';
 import { MeshLoader } from './meshLoader';
 import { Palette } from './palette';
 import { IMPORT_RASTER, rasterizeMeshTopDown, type Image, type Margins, type Rect } from './rasterize';
+import { stockGuessFor } from './stockGuess';
 
 export interface ImportStats {
   ldrawResolved: number;
@@ -38,6 +39,8 @@ export interface PreparedPart {
   stats: ImportStats;
   warnings: string[];
   error: string;
+  /** Where its trucks and couplers seem to be, were it an engine or car (Trains › Import a model…). */
+  stockGuess: StockGuess | null;
 }
 
 export function emptyPart(source: string, kindLabel: string): PreparedPart {
@@ -61,6 +64,7 @@ export function emptyPart(source: string, kindLabel: string): PreparedPart {
     stats: { ldrawResolved: 0, lddRendered: 0, unresolved: 0 },
     warnings: [],
     error: '',
+    stockGuess: null,
   };
 }
 
@@ -193,6 +197,7 @@ export async function prepareLDraw(fileName: string, text: string, opts: Prepare
   out.snapMargin = rast.snapMargin;
   out.contentStuds = { ...rast.meshBoundsXZ, x: rast.meshBoundsXZ.x - rast.spriteStuds.x, y: rast.meshBoundsXZ.y - rast.spriteStuds.y };
   out.baseOnGrid = rast.baseOnGrid;
+  out.stockGuess = stockGuessFor(read, rast.meshBoundsXZ, rast.spriteStuds);
   // Snap points: the model placed as BlueBrick parts (earlier part numbers
   // from the library's "~Moved to" stubs), relative to the picture's centre.
   const former = (name: string) => formerNames(moved, name);

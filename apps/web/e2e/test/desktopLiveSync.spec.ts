@@ -15,6 +15,7 @@ import { readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { makeModule, signIn } from '../helpers';
+import { engineIo } from '../stockModel';
 
 const DRIVER = process.env.BLD_SYNC_DRIVER;
 const SERVER = process.env.BLD_SYNC_SERVER ?? 'http://127.0.0.1:3000';
@@ -108,7 +109,7 @@ class Driver {
   }
 
   /** The desktop's rolling stock and trains, or null when this driver has none (older desktop). */
-  async trains(): Promise<{ rollingStock: { id: string; number: string; length: number }[]; trains: { id: string; name: string; units: { stock: string }[]; position: { brick: string; facing: string } | null }[] } | null> {
+  async trains(): Promise<{ rollingStock: { id: string; number: string; length: number; kind?: string; trucks?: { at: number }[]; look?: { mode: string; partKey?: string }; model?: { partKey?: string; file?: string; format?: string } }[]; trains: { id: string; name: string; units: { stock: string }[]; position: { brick: string; facing: string } | null }[] } | null> {
     try {
       return JSON.parse(await this.run('trains'));
     } catch {
@@ -214,10 +215,10 @@ async function expectBrowser(page: Page, start: Record<string, Pose>, base: Pose
 }
 
 /** An API token for the driver, from the device sign-in the desktop app uses. */
-async function desktopToken(page: Page, request: APIRequestContext): Promise<string> {
+async function desktopToken(page: Page, request: APIRequestContext, scope = 'layouts:read layouts:write'): Promise<string> {
   const code = (await (
     await request.post('/api/auth/device/code', {
-      data: { client_name: 'Sync driver', scope: 'layouts:read layouts:write' },
+      data: { client_name: 'Sync driver', scope },
     })
   ).json()) as { device_code: string; user_code: string };
   expect((await page.request.post('/api/auth/device/approve', { data: { user_code: code.user_code } })).ok()).toBe(true);
@@ -796,6 +797,85 @@ test.describe('desktop and web live editing', () => {
       await expect(page.getByRole('list', { name: 'Rolling stock' })).toContainText('202', { timeout: 15000 });
       await page.getByTestId('trains-tab-trains').click();
       await expect(page.getByRole('list', { name: 'Trains' })).toContainText('Desk Express', { timeout: 15000 });
+    } finally {
+      await driver.close();
+    }
+  });
+  test('trains from a model: an engine the web imports from a Studio file is the same engine on the desktop, picture and trucks, and the other way round', async ({ page, request }) => {
+    test.setTimeout(180_000);
+    const stamp = Date.now();
+    await page.setViewportSize({ width: 1400, height: 900 });
+    await signIn(page, `model-desk-web-${stamp}@example.com`, 'Web Tester');
+    const created = await page.request.post('/api/layouts', { data: { title: 'Model engine, web and desktop', bbm: TIGHT_CORNER_BBM } });
+    const { id } = (await created.json()) as { id: string };
+    // The same person on the desktop: their own imported part is in their parts there.
+    // (and the server's parts, as the desktop app downloads them).
+    const token = await desktopToken(page, request, 'layouts:read layouts:write parts:read');
+    const driver = new Driver(DRIVER!, token);
+    try {
+      await driver.run(`open ${id}`);
+      await driver.run('wait-synced');
+      test.skip(!(await driver.run('features')).split(' ').includes('stockModels'), 'this bld_sync_driver has no model stock commands yet (desktop main is older)');
+      await page.goto(`/editor/${id}`);
+      await expect(page.locator('canvas').first()).toBeVisible({ timeout: 15000 });
+      await page.waitForTimeout(1000);
+      await page.getByRole('button', { name: 'Panels', exact: true }).click();
+      await page.getByRole('checkbox', { name: 'Trains', exact: true }).check();
+      await page.keyboard.press('Escape');
+      await page.getByTestId('trains-tab-stock').click();
+
+      // The web imports a Studio file as an engine.
+      await page.getByTestId('stock-import-input').setInputFiles({ name: 'Santa Fe engine.io', mimeType: 'application/octet-stream', buffer: Buffer.from(engineIo()) });
+      const dialog = page.getByRole('dialog', { name: 'Import a model' });
+      await expect(dialog.getByTestId('stock-setup')).toBeVisible({ timeout: 60000 });
+      await expect(dialog.getByTestId('stock-front-at')).toHaveValue('9');
+      await dialog.getByLabel('Road number').fill('SF 16');
+      await dialog.getByTestId('import-make').click();
+      await expect(dialog).toHaveCount(0, { timeout: 60000 });
+      await expect(page.getByRole('list', { name: 'Rolling stock' })).toContainText('SF 16');
+
+      // The desktop has the same engine: its trucks, its model, and the same picture from the server's parts.
+      await expect.poll(async () => (await driver.trains())?.rollingStock.length ?? 0, { timeout: 15000 }).toBe(1);
+      const engine = (await driver.trains())!.rollingStock[0]!;
+      expect(engine.number).toBe('SF 16');
+      expect(engine.kind).toBe('engine');
+      expect(engine.length).toBe(30);
+      expect(engine.trucks!.map((t) => t.at)).toEqual([9, -9]);
+      expect(engine.look).toMatchObject({ mode: 'model' });
+      expect(engine.look!.partKey).toMatch(/^custom:/);
+      expect(engine.model).toMatchObject({ partKey: engine.look!.partKey, file: 'Santa Fe engine.io', format: 'studio' });
+      const part = JSON.parse(await driver.run(`stock-part ${engine.id}`)) as { found: boolean; pxPerStud: number; width: number; height: number };
+      expect(part.found).toBe(true);
+      // 32 x 6 studs at the picture's own resolution.
+      expect(part.width / part.pxPerStud).toBe(32);
+      expect(part.height / part.pxPerStud).toBe(6);
+
+      // The desktop adds a model engine with that part: the web lists it and draws it with the picture.
+      const deskId = (await driver.run(`stock-add-model DESK ${engine.look!.partKey} 30 8 -8`)).trim();
+      await expect(page.getByRole('list', { name: 'Rolling stock' })).toContainText('DESK', { timeout: 15000 });
+      await page.getByLabel('Pick DESK for a new train').check();
+      await page.getByTestId('train-from-ticked').click();
+      await page.getByTestId('train-place').click();
+      const st = await page.evaluate(([sx, sy]) => {
+        type St = { getAbsoluteTransform: () => { point: (p: { x: number; y: number }) => { x: number; y: number } }; container: () => HTMLElement };
+        const stage = (window as unknown as { Konva: { stages: St[] } }).Konva.stages[0]!;
+        const pt = stage.getAbsoluteTransform().point({ x: sx! * 8, y: sy! * 8 });
+        const box = stage.container().getBoundingClientRect();
+        return { x: box.left + pt.x, y: box.top + pt.y };
+      }, [140 - 28 * Math.SQRT1_2, 140 - 28 * Math.SQRT1_2]);
+      await page.mouse.click(st.x, st.y);
+      await expect
+        .poll(
+          () =>
+            page.evaluate(() => {
+              type N = { name: () => string; getClassName: () => string; find: (f: (n: N) => boolean) => N[] };
+              const stage = (window as unknown as { Konva: { stages: N[] } }).Konva.stages[0]!;
+              return stage.find((n) => n.name() === 'train-unit').flatMap((g) => g.find((n) => n.getClassName() === 'Image')).length;
+            }),
+          { timeout: 15000 },
+        )
+        .toBe(1);
+      expect((await driver.trains())!.rollingStock.map((s) => s.id)).toContain(deskId);
     } finally {
       await driver.close();
     }

@@ -14,6 +14,7 @@ import {
   planLayoutParts,
   renamePartInMap,
   renamePartsInBbm,
+  stockPartKeys,
   takeLayoutParts,
   uploadLayoutParts,
   type PartFetcher,
@@ -70,6 +71,15 @@ describe('layout parts', () => {
     const files = await layoutPartFiles(mapOf(['3001.1', 'MINE.1', 'mine.1', 'KIT.1']), CATALOG, fetcher);
     expect(Object.keys(files).sort()).toEqual(['KIT.1.set.gif', 'KIT.1.set.xml', 'MINE.1.png', 'MINE.1.xml']);
     expect(new TextDecoder().decode(files['MINE.1.png'])).toBe('sprite-a');
+  });
+
+  it('carries the part an engine or car is drawn with (an imported model’s), not a plain car’s', async () => {
+    const sidecar = JSON.stringify({ rollingStock: [{ look: { mode: 'model', partKey: 'custom:a' } }, { look: { mode: 'simple', partKey: 'KIT.1' } }] });
+    expect(stockPartKeys(sidecar)).toEqual(['custom:a']);
+    expect(stockPartKeys(null)).toEqual([]);
+    expect(stockPartKeys('not json')).toEqual([]);
+    const files = await layoutPartFiles(mapOf(['3001.1']), CATALOG, fetcher, stockPartKeys(sidecar));
+    expect(Object.keys(files).sort()).toEqual(['MINE.1.png', 'MINE.1.xml']);
   });
 
   it('carries a custom set its groups were placed from, as its XML only', async () => {

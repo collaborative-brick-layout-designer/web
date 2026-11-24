@@ -3,14 +3,18 @@
 // your roster or a club's, save one to a roster, or tick a few and make a
 // train of them. Trains are cars in order: put one on the track with a
 // click, turn it around, take it off again. Every change is one undo step
-// and everyone editing the layout sees it at once. The desktop's
+// and everyone editing the layout sees it at once. Import a model… makes an
+// engine or car of an LDraw, Studio or LDD model: its picture, and its
+// trucks and couplers as guessed and confirmed. The desktop's
 // ui/TrainsPanel.cpp is the twin.
 
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import type * as Y from 'yjs';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { turnedAround, type FitCheck, type PlacedTrain, type RollingStock, type Train, type TrackNetwork } from '@cld/parts-catalog/browser';
 import { api, type PartWire, type RosterStock } from '../api';
+import { ImportDialog, type MadeStock } from '../import/ImportDialog';
+import { canImport, IMPORT_ACCEPT, importApi } from '../import/importApi';
 import { formatLength } from '../venues/designer/units';
 import { useLengthUnit } from '../theme/PrefsProvider';
 import { HelpButton } from '../help/HelpButton';
@@ -32,6 +36,7 @@ import {
   rosterIsNewer,
   saveStock,
   saveTrain,
+  stockFromModel,
   stockLabel,
   trainLength,
   trainState,
@@ -351,6 +356,29 @@ export function TrainsPanel({ doc, net, stock, trains, placed, switchStates, par
   const roster = useQuery({ queryKey: ['rolling-stock'], queryFn: () => api.rollingStock.list(), enabled: canUseRoster && !isViewer && stock.some((s) => !!s.libraryId) });
   const rosterById = useMemo(() => new Map((roster.data?.stock ?? []).map((e) => [e.id, e])), [roster.data]);
   const hasTrack = !!net && net.brickIds.length > 0;
+  // Import a model…: the site must import models, and the part is saved to an account.
+  const importStatus = useQuery({ queryKey: ['imports-status'], queryFn: importApi.status, staleTime: 60_000, enabled: canUseRoster && !isViewer });
+  const canImportModel = canUseRoster && !isViewer && canImport(importStatus.data);
+  const modelInput = useRef<HTMLInputElement>(null);
+  const [modelFile, setModelFile] = useState<File | null>(null);
+  const qc = useQueryClient();
+  const addModelStock = (made: MadeStock) => {
+    setModelFile(null);
+    const s = stockFromModel({ ...made, partKey: `custom:${made.partId}` }, stock);
+    saveStock(doc, s);
+    setTab('stock');
+    setMessage(`Added ${stockLabel(s)}, made from ${made.file}.`);
+    if (made.toRoster) {
+      api.rollingStock
+        .create(forRoster(s), made.saveTo || undefined)
+        .then((e) => {
+          saveStock(doc, { ...s, libraryId: e.id, libraryVersion: e.version });
+          void qc.invalidateQueries({ queryKey: ['rolling-stock'] });
+          setMessage(`Added ${stockLabel(s)}, made from ${made.file}, and put it on the roster.`);
+        })
+        .catch((e: unknown) => setMessage(`Added ${stockLabel(s)}, but it couldn’t go on the roster: ${e instanceof Error ? e.message : 'try Save to roster.'}`));
+    }
+  };
 
   const tabBtn = (id: 'trains' | 'stock', label: string, n: number) => (
     <button
@@ -390,6 +418,27 @@ export function TrainsPanel({ doc, net, stock, trains, placed, switchStates, par
                   From a roster
                 </button>
               )}
+              {canImportModel && (
+                <>
+                  <button type="button" className={btn} data-testid="stock-import" data-tour="trains.importModel" onClick={() => modelInput.current?.click()}>
+                    Import a model…
+                  </button>
+                  <HelpButton helpKey="trains.importModel" />
+                  <input
+                    ref={modelInput}
+                    type="file"
+                    accept={IMPORT_ACCEPT}
+                    aria-label="Import a model as an engine or car"
+                    data-testid="stock-import-input"
+                    className="hidden"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      e.target.value = '';
+                      if (f) setModelFile(f);
+                    }}
+                  />
+                </>
+              )}
             </div>
           )}
           {editingStock && (
@@ -408,7 +457,10 @@ export function TrainsPanel({ doc, net, stock, trains, placed, switchStates, par
           )}
           {rosterOpen && canUseRoster && !isViewer && <RosterPicker doc={doc} stock={stock} onClose={() => setRosterOpen(false)} />}
           {stock.length === 0 ? (
-            <p className="text-muted">No rolling stock yet. Press New car: a number and a length is all a quick car needs.</p>
+            <p className="text-muted">
+              No rolling stock yet. Press New car: a number and a length is all a quick car needs.
+              {canImportModel && ' Or bring in a model you built with Import a model….'}
+            </p>
           ) : (
             <>
               <ul className="flex flex-col gap-1.5" aria-label="Rolling stock">
@@ -617,6 +669,7 @@ export function TrainsPanel({ doc, net, stock, trains, placed, switchStates, par
           )}
         </>
       )}
+      {modelFile && <ImportDialog file={modelFile} purpose="stock" onClose={() => setModelFile(null)} onStock={addModelStock} />}
     </div>
   );
 }

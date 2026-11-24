@@ -228,4 +228,45 @@ describe('ImportDialog in the browser', () => {
     expect((await screen.findByTestId('import-error')).textContent).toContain('import converter');
     expect(m.upload).not.toHaveBeenCalled();
   });
+
+  it('as an engine or car: turned front to the right, the trucks where the model’s wheels are, fixed by hand, and handed back', async () => {
+    // A model built along y: the importer turns it a quarter and found its bogies and magnets.
+    const tall = {
+      ...analysis,
+      suggestedName: 'Santa Fe engine',
+      part: {
+        ...analysis.part!,
+        widthStuds: 6,
+        heightStuds: 32,
+        contentStuds: { x: 0, y: 0, width: 6, height: 32 },
+        connections: [],
+        stock: { quarterTurns: 1 as const, length: 30, width: 6, bodyLength: 28, trucks: [9, -9] as [number, number], trucksFrom: 'bogies' as const, couplersFrom: 'found' as const },
+      },
+    };
+    w.analyse.mockResolvedValue(tall);
+    w.makePart.mockResolvedValue({ type: 'made-part', partKey: 'Santa_Fe', displayName: 'Santa Fe', xml: '<part/>', png: new Blob([new Uint8Array([1])]), widthStuds: 32, heightStuds: 6, connections: 0 });
+    m.client.mockResolvedValue({ mode: 'part', layoutId: null, newLayout: false, part: { id: 'p9', partNumber: 'Santa_Fe', displayName: 'Santa Fe' }, placed: 0, sheetId: null, brickIds: [], stats: analysis.part!.stats, warnings: [], widthStuds: 32, heightStuds: 6, connections: 0, sheets: null });
+    const onStock = vi.fn();
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(h(QueryClientProvider, { client: qc }, h(MemoryRouter, null, h(ImportDialog, { file: new File(['0 x'], 'engine.ldr'), purpose: 'stock', onClose: vi.fn(), onStock }))));
+    await screen.findByTestId('stock-setup');
+    expect(screen.getByTestId('stock-guess-note').textContent).toContain('We found the trucks from the model’s bogies. The couplers are its magnets.');
+    expect((screen.getByLabelText('Kind') as HTMLSelectElement).value).toBe('engine');
+    // No grid lining-up or snap points here: a car isn't track.
+    expect(screen.queryByTestId('import-connections')).toBeNull();
+    // A truck moved by keyboard on the picture, the other end made the front.
+    fireEvent.keyDown(screen.getByTestId('stock-truck-front'), { key: 'ArrowRight', shiftKey: true });
+    expect((screen.getByTestId('stock-front-at') as HTMLInputElement).value).toBe('10');
+    fireEvent.click(screen.getByTestId('stock-turn-around'));
+    expect((screen.getByTestId('stock-front-at') as HTMLInputElement).value).toBe('9');
+    expect((screen.getByTestId('stock-rear-at') as HTMLInputElement).value).toBe('-10');
+    fireEvent.change(screen.getByLabelText('Road number'), { target: { value: 'SF 16' } });
+    fireEvent.click(screen.getByRole('checkbox', { name: /roster/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add to rolling stock' }));
+    await waitFor(() => expect(onStock).toHaveBeenCalled());
+    // Turned a quarter, then round: three quarter turns, lined up automatically, no snap points dropped.
+    expect(w.makePart).toHaveBeenCalledWith(expect.objectContaining({ quarterTurns: 3, align: '', nudge: [0, 0], drop: [] }));
+    expect(m.client.mock.calls[0]![0]).toMatchObject({ category: 'Rolling stock', target: { kind: 'library' } });
+    expect(onStock).toHaveBeenCalledWith({ partId: 'p9', number: 'SF 16', kind: 'engine', setup: { length: 30, width: 6, bodyLength: 28, trucks: [9, -10] }, file: 'engine.ldr', format: 'ldraw', saveTo: '', toRoster: true });
+  });
 });

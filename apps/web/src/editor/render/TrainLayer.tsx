@@ -73,7 +73,7 @@ export function TrainLayer({ trains, placed, stock, partsByKey, zoom, picked, na
               const cx = u.centre.x * PX;
               const cy = u.centre.y * PX;
               const color = s.look.color || t.color;
-              const part = s.look.mode !== 'simple' && s.look.partKey ? partsByKey.get(s.look.partKey) : undefined;
+              const part = s.look.mode !== 'simple' && s.look.partKey ? partsByKey.get(s.look.partKey.toLowerCase()) : undefined;
               const outline = p.offTrack ? TRAIN_PROBLEM_COLOR : picked === t.id ? '#1D4ED8' : darker(color);
               const outlineW = p.offTrack || picked === t.id ? Math.max(0.5 * PX, 3 / zoom) : Math.max(0.25 * PX, 1 / zoom);
               const head = i === 0;

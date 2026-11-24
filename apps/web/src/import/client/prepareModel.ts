@@ -18,6 +18,7 @@ import { Palette } from './palette';
 import { emptyPart, formerNames, friendlyImportWarnings, prepareLDraw, type PrepareOptions, type PreparedPart } from './prepare';
 import { IMPORT_RASTER, rasterizeMeshTopDown } from './rasterize';
 import { readStudioIo } from './studioReader';
+import { stockGuessFor } from './stockGuess';
 
 export type ModelFormat = 'ldraw' | 'studio' | 'ldd';
 
@@ -93,6 +94,7 @@ async function prepareLdd(fileName: string, bytes: Uint8Array, opts: ModelOption
     // track even without one). LDD's mesh frame and the LDraw model's top
     // view line up. With an LDraw library, each part's real centre is checked.
     const ldraw = mapping.toLDraw(read);
+    out.stockGuess = stockGuessFor(haveMapping ? ldraw : read, rast.meshBoundsXZ, rast.spriteStuds);
     let loader: MeshLoader | undefined;
     let moved: Record<string, string[]> = {};
     if (opts.source) {

@@ -190,3 +190,44 @@ export function updatedFromRoster(s: RollingStock, record: Record<string, unknow
 }
 
 export { trainLength };
+
+// ---- model import (trains design 3.3, Phase 6) ---------------------------
+
+/** Today as the record keeps it (YYYY-MM-DD). */
+function today(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+/**
+ * An engine or car made from an imported model: the model's custom part is
+ * its picture (look mode "model"), its trucks and couplers as confirmed.
+ * The desktop's stockFromModel (src/ui/TrainDialogs.cpp) makes the same.
+ */
+export function stockFromModel(
+  made: { partKey: string; number: string; kind: RollingStock['kind']; setup: { length: number; width: number; bodyLength: number; trucks: [number, number] }; file: string; format: string },
+  taken: readonly RollingStock[],
+  date = today(),
+): RollingStock {
+  const [front, rear] = [...made.setup.trucks].sort((a, b) => b - a) as [number, number];
+  const monorail = made.kind === 'monorail';
+  return newStock(
+    {
+      number: made.number,
+      kind: made.kind,
+      trackKind: monorail ? 'monorail' : 'rail',
+      powered: made.kind === 'engine' || made.kind === 'unit',
+      length: made.setup.length,
+      width: made.setup.width,
+      bodyLength: made.setup.bodyLength,
+      trucks: [
+        { at: front, swivelMax: 30 },
+        { at: rear, swivelMax: 30 },
+      ],
+      // (newStock picks its color: the outline, and the box if the picture is missing.)
+      look: { mode: 'model', partKey: made.partKey } as RollingStock['look'],
+      model: { partKey: made.partKey, file: made.file, format: made.format, importedAt: date },
+    },
+    taken,
+  );
+}
