@@ -21,7 +21,7 @@ import { randomUUID } from 'node:crypto';
 import { lookup as dnsLookup, type LookupAddress } from 'node:dns';
 import { Agent } from 'node:https';
 import { isIP } from 'node:net';
-import webpush from 'web-push';
+import * as webpush from 'web-push';
 import { and, asc, eq, isNull, lte } from 'drizzle-orm';
 import { db, schema } from '../db/index.js';
 import { env } from '../env.js';
@@ -122,11 +122,15 @@ export function checkedLookup(host: string, opts: { all?: boolean }, cb: LookupC
     .catch((err: Error) => cb(err, '', 4));
 }
 
-const agent = new Agent({
+const checkedAgent = new Agent({
   keepAlive: false,
   lookup: checkedLookup as unknown as NonNullable<ConstructorParameters<typeof Agent>[0]>['lookup'],
 });
-
+let agent: Agent = checkedAgent;
+/** Tests: connect to a local push service. */
+export function setPushAgentForTests(a: Agent | null): void {
+  agent = a ?? checkedAgent;
+}
 
 // ---- the keys ------------------------------------------------------------
 
