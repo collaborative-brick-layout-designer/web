@@ -91,6 +91,15 @@ export type AuditEventType =
   | 'admin_part_library_delete'
   | 'org_part_library_toggle'
   | 'admin_settings_patch'
+  // Admin › Backups (routes/adminBackups.ts): a backup made on request, one
+  // downloaded or uploaded, a restore asked for, and (written at the next
+  // start, on the restored database) the restore done. Subject is
+  // platform_settings:backups; payload names the file.
+  | 'admin_backup_now'
+  | 'admin_backup_download'
+  | 'admin_backup_upload'
+  | 'admin_backup_restore'
+  | 'admin_backup_restored'
   | 'admin_demo_reset'
   // Usage limits: global values, a person's or club's override, and
   // suspending or lifting it (subject = the person or club).

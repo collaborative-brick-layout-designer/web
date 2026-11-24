@@ -1,3 +1,6 @@
+// First: a database restore waiting from Admin › Backups is put in place
+// before anything below opens the database (ops/pendingRestore.ts).
+import { restoredAtStart } from './ops/pendingRestore.js';
 import { resolve } from 'node:path';
 import { existsSync } from 'node:fs';
 import Fastify from 'fastify';
@@ -9,7 +12,7 @@ import fastifyStatic from '@fastify/static';
 import fastifyMultipart from '@fastify/multipart';
 import { clearJobsAtStart } from './imports/jobs.js';
 import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
-import { db, sqlite } from './db/index.js';
+import { db, schema, sqlite } from './db/index.js';
 import { env, trustProxyWarning } from './env.js';
 import { attachUser } from './auth/cookie.js';
 import { signInEnvWarnings } from './auth/signInSettings.js';
@@ -36,6 +39,9 @@ import { askedFixes, runDataFixes } from './ops/dataFixes.js';
 import { startLog } from './ops/startLog.js';
 import { encryptStoredMailPassword } from './secrets/secretBox.js';
 import { docHub } from './ws/docHub.js';
+import { registerMaintenanceGate, setRestartHandler } from './ops/maintenance.js';
+import { writeAuditEvent } from './audit/writeAuditEvent.js';
+import { eq } from 'drizzle-orm';
 
 // What is said before the server's logger exists goes to it once it does.
 const starting = startLog();
@@ -49,6 +55,18 @@ async function main() {
     console.error('[backup] couldn\'t copy the database before migrating; migrating anyway', err);
   }
   migrate(db, { migrationsFolder: resolve('./migrations') });
+  if (restoredAtStart) {
+    // On the restored database's own log, so the next admin sees it happened.
+    const by = restoredAtStart.by.id;
+    const known = db.select({ id: schema.users.id }).from(schema.users).where(eq(schema.users.id, by)).get();
+    await writeAuditEvent({
+      resourceKind: 'platform_settings',
+      resourceId: 'backups',
+      userId: known ? by : null,
+      eventType: 'admin_backup_restored',
+      payload: { from: restoredAtStart.from, ok: restoredAtStart.ok, message: restoredAtStart.message, by: restoredAtStart.by.name, safety: restoredAtStart.safety },
+    });
+  }
   // One-time data fixes: only those an operator asks for (CBLD_DATA_FIX),
   // before anyone connects. Otherwise one log line when one waits. A fix
   // that writes gets a copy of the database as it was first.
@@ -97,6 +115,8 @@ async function main() {
   registerErrorHandler(app);
   // Browser writes to the API only from this site (crossSite.ts).
   registerCrossSiteGuard(app);
+  // While a restore gets ready to restart, the API answers "maintenance" (ops/maintenance.ts).
+  registerMaintenanceGate(app);
   await app.register(cors, {
     origin: env.publicUrl,
     credentials: true,
@@ -203,6 +223,22 @@ async function main() {
     const saved = await docHub.flushAll();
     if (saved > 0) app.log.info(`saved ${saved} open layout${saved === 1 ? '' : 's'} before stopping`);
     stopRollup();
+  });
+
+  // After a restore (Admin › Backups): close cleanly, then exit so the
+  // container's restart policy starts the server again, which puts the
+  // restored database in place before opening it. Exit code 75 ("try
+  // again") so an on-failure policy restarts it too.
+  setRestartHandler(() => {
+    if (stopping) return;
+    stopping = true;
+    app.log.warn('restarting to finish a database restore');
+    const force = setTimeout(() => process.exit(75), 20_000);
+    force.unref();
+    app.close().then(
+      () => process.exit(75),
+      () => process.exit(75),
+    );
   });
 
   // A container stop or Ctrl+C: close cleanly (the hooks above) before exiting,

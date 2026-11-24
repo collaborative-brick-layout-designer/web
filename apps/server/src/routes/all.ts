@@ -13,6 +13,7 @@ import { versionRoutes } from './version.js';
 import { auditRoutes } from './audit.js';
 import { adminRoutes } from './admin.js';
 import { adminInsightsRoutes } from './adminInsights.js';
+import { adminBackupRoutes } from './adminBackups.js';
 import { adminLimitsRoutes } from './adminLimits.js';
 import { collaboratorRoutes } from './collaborators.js';
 import { customPartRoutes } from './customParts.js';
@@ -100,6 +101,7 @@ export async function registerApiRoutes(app: FastifyInstance): Promise<void> {
   await app.register(auditRoutes);
   await app.register(adminRoutes);
   await app.register(adminInsightsRoutes);
+  await app.register(adminBackupRoutes);
   await app.register(adminLimitsRoutes);
   await app.register(wsRoutes);
   await app.register(eventRoutes);

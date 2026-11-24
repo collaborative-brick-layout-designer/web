@@ -30,6 +30,7 @@ import { PartLibrariesTab, PartsSetupCard } from './tabs/LibrariesTab';
 import { ImportsTab } from './tabs/ImportsTab';
 import { AuditTab } from './tabs/AuditTab';
 import { SettingsTab } from './tabs/SettingsTab';
+import { BackupsTab } from './tabs/BackupsTab';
 
 // The dashboard (graphs, breakdowns, health) is its own lazily loaded
 // chunk: the charts never weigh on the rest of the admin page or the app.
@@ -91,6 +92,7 @@ export function AdminPage() {
           {tab === 'imports' && <ImportsTab />}
           {tab === 'moderation' && <ModerationTab />}
           {tab === 'audit' && <AuditTab />}
+          {tab === 'backups' && <BackupsTab />}
           {tab === 'settings' && <SettingsTab />}
         </main>
       </div>
