@@ -52,6 +52,7 @@ import * as Y from 'yjs';
 import { readSidecarCache, writeSidecarCache } from '@cld/ydoc';
 import { norm360, pivotOf, settleRetired, sharedModulesIn, type PartLookup, type Pt } from '@cld/modules';
 import { guardWork, type DecodedUpdate } from './decoded.js';
+import { pendingMayLand } from './pending.js';
 
 /** sharedLockProblem's answer when the update needs a copy and `mayCopy` says no: slow the sender down. */
 export const LOCK_COPY_BUDGET_SPENT = 'it needs a copy of the layout to check its shared modules, and its sender has used up their copies for now';
@@ -76,8 +77,14 @@ interface Locked {
   follows: string;
   /** Its parts: id → what is locked about each. */
   parts: Map<string, string>;
-  /** Its parts: id → where each is (those that can be read). */
+  /** Its parts: id → where each is (those that can be read; the first of each). */
   poses: Map<string, PartPose>;
+  /** Where its parts are, when an id is on the map more than once: the first of each id, the second, ... */
+  sets: Map<string, PartPose>[];
+  /** How many of each part are on the map (a pair moving it to another sheet at once makes two of each). */
+  counts: Map<string, number>;
+  /** Parts on the map more than once that aren't all the same. */
+  mixed: boolean;
 }
 
 interface PartSnap {
@@ -121,7 +128,9 @@ export function lockState(doc: Y.Doc, keep = false): LockState {
   const wanted = new Set<string>();
   for (const p of placed) for (const id of p.members) wanted.add(id);
   const sig = new Map<string, string>();
-  const poses = new Map<string, PartPose>();
+  const mixed = new Set<string>();
+  const counts = new Map<string, number>();
+  const copies = new Map<string, (PartPose | null)[]>();
   const snaps = keep ? new Map<string, PartSnap>() : undefined;
   const alive = new Set<string>();
   const layerData = doc.getMap<unknown>('layerData');
@@ -135,23 +144,33 @@ export function lockState(doc: Y.Doc, keep = false): LockState {
       if (typeof id !== 'string') continue;
       alive.add(id);
       if (!wanted.has(id)) continue;
-      sig.set(id, `${String(b.get('partNumber'))}\u0000${String(b.get('altitude') ?? 0)}`);
-      const pose = readPose(b);
-      if (pose) poses.set(id, pose);
+      const s = `${String(b.get('partNumber'))}\u0000${String(b.get('altitude') ?? 0)}`;
+      const had = sig.get(id);
+      if (had === undefined) sig.set(id, s);
+      else if (had !== s) mixed.add(id);
+      counts.set(id, (counts.get(id) ?? 0) + 1);
+      const at = copies.get(id);
+      if (at) at.push(readPose(b));
+      else copies.set(id, [readPose(b)]);
       if (snaps && !snaps.has(id)) snaps.set(id, { layerId, fields: b.toJSON() as Record<string, unknown> });
     }
   }
   const shared = new Map<string, Locked>();
   for (const p of placed) {
     const parts = new Map<string, string>();
-    const at = new Map<string, PartPose>();
+    const sets: Map<string, PartPose>[] = [new Map()];
+    const n = new Map<string, number>();
     for (const id of p.members) {
       const s = sig.get(id);
-      if (s !== undefined) parts.set(id, s);
-      const pose = poses.get(id);
-      if (pose) at.set(id, pose);
+      if (s === undefined) continue;
+      parts.set(id, s);
+      n.set(id, counts.get(id)!);
+      for (const [i, pose] of copies.get(id)!.entries()) {
+        while (sets.length <= i) sets.push(new Map());
+        if (pose) sets[i]!.set(id, pose);
+      }
     }
-    shared.set(p.placedId, { follows: p.moduleId, parts, poses: at });
+    shared.set(p.placedId, { follows: p.moduleId, parts, poses: sets[0]!, sets, counts: n, mixed: p.members.some((id) => mixed.has(id)) });
   }
   const all = sidecarModules(doc);
   const out: LockState = { shared, modules: new Set(all.map((m) => m.id as string)), alive };
@@ -181,6 +200,11 @@ function moduleBroken(id: string, was: Locked, after: LockState): string | null 
     if (s === undefined) return 'it swaps a part of a shared module for another';
     if (s !== sig) return 'it changes a part of a shared module';
   }
+  if (now.mixed && !was.mixed) return 'it changes a part of a shared module';
+  // Two people moving it to another sheet at once make two of every part;
+  // more of only some is a part added.
+  const more = [...now.counts].some(([part, k]) => k > was.counts.get(part)!);
+  if (more && new Set(now.counts.values()).size > 1) return 'it adds a part to a shared module';
   return null;
 }
 
@@ -372,17 +396,17 @@ export interface LockBreak {
 export const RETIRED_BACK = 'it brings back a part an update of a shared module took out';
 
 /**
- * Whether `decoded` writes a part id that is in `retired`: a part an
- * update took out, put on the map again (an undo of a change of sheet made
+ * Whether `decoded` writes a part id that is in `ids`: one of a shared
+ * module's parts (its sheet changed, or a second one), or a part an update took out, put on the map again (an undo of a change of sheet made
  * before the update, in an app that doesn't finish it: settle rule 0).
  */
-export function writesRetired(decoded: DecodedUpdate, retired: ReadonlySet<string>): boolean {
-  if (retired.size === 0) return false;
+export function writesId(decoded: DecodedUpdate, ids: ReadonlySet<string>): boolean {
+  if (ids.size === 0) return false;
   for (const s of decoded.structs) {
     if (!(s instanceof Y.Item) || s.parentSub !== 'id') continue;
     const c = s.content;
     const v = c instanceof Y.ContentAny ? c.arr[0] : c instanceof Y.ContentString ? c.str : undefined;
-    if (typeof v === 'string' && retired.has(v)) return true;
+    if (typeof v === 'string' && ids.has(v)) return true;
   }
   return false;
 }
@@ -394,7 +418,14 @@ function breaks(before: LockState, after: LockState, raced: ReadonlySet<string>,
   for (const [id, was] of before.shared) {
     let w = moduleBroken(id, was, after);
     const now = after.shared.get(id);
-    if (!w && now && now.parts.size > 0 && ![...was.parts.keys()].some((p) => raced.has(p))) w = rigidMoveProblem(was.poses, now.poses, partOf);
+    if (!w && now && now.parts.size > 0 && ![...was.parts.keys()].some((p) => raced.has(p))) {
+      // Each set of its parts moved together from one that was there.
+      for (const set of now.sets) {
+        const apart = was.sets.map((from) => rigidMoveProblem(from, set, partOf));
+        if (apart.every((x) => x !== null)) w = apart[0]!;
+        if (w) break;
+      }
+    }
     if (!w) continue;
     why ??= w;
     modules.push(id);
@@ -443,6 +474,17 @@ export function repairShared(doc: Y.Doc, brk: LockBreak, origin: unknown): void 
         if (typeof pid === 'string' && !where.has(pid)) where.set(pid, b);
       }
     }
+    // One of each: an extra part with the id of one of theirs goes.
+    const theirs = new Set(brk.modules.flatMap((id) => [...(brk.before.shared.get(id)?.parts.keys() ?? [])]));
+    for (const layer of layerData.values()) {
+      const bricks = layer instanceof Y.Map ? layer.get('bricks') : undefined;
+      if (!(bricks instanceof Y.Array)) continue;
+      for (let i = bricks.length - 1; i >= 0; i--) {
+        const b = bricks.get(i);
+        const id = b instanceof Y.Map ? b.get('id') : undefined;
+        if (typeof id === 'string' && theirs.has(id) && where.get(id) !== b) bricks.delete(i, 1);
+      }
+    }
     for (const placedId of brk.modules) {
       const was = brk.before.shared.get(placedId);
       if (!was) continue;
@@ -489,6 +531,8 @@ function touchy(doc: Y.Doc, item: Y.Item, members: ReadonlySet<string>): boolean
   if (item.parentSub !== null) {
     const root = rootName(doc, parent);
     if (root !== null) return SIDECAR_ROOTS.has(root) || root === 'layerData';
+    // A sheet's parts list, swapped or taken away whole.
+    if (item.parentSub === 'bricks') return true;
     if (!LOOKED_AT.has(item.parentSub)) return false;
     const id = parent instanceof Y.Map ? parent.get('id') : undefined;
     // A part whose id can't be read is looked at closely.
@@ -510,17 +554,24 @@ function touchy(doc: Y.Doc, item: Y.Item, members: ReadonlySet<string>): boolean
  */
 export function mayTouchShared(doc: Y.Doc, decoded: DecodedUpdate, members: ReadonlySet<string>): boolean {
   try {
+    // Changes the room holds back until others arrive may land with this
+    // one, and which of two structs for one clock Yjs reads isn't told here.
+    if (pendingMayLand(doc, decoded) || decoded.overlapping) return true;
     const known = (id: Y.ID): boolean => id.clock < Y.getState(doc.store, id.client);
+    const sheets = doc.getMap<unknown>('layerData');
     for (const s of decoded.structs) {
       if (!(s instanceof Y.Item)) continue;
       if (typeof s.parent === 'string') {
-        // Written straight into a root: the sidecar's maps matter; a new sheet, part list entry or layer doesn't.
+        // Written straight into a root: the sidecar's maps matter, and a
+        // sheet that is there already; a new sheet, part list entry or layer doesn't.
         if (SIDECAR_ROOTS.has(s.parent)) return true;
+        if (s.parent === 'layerData' && s.parentSub !== null && (sheets as unknown as { _map: Map<string, Y.Item> })._map.has(s.parentSub)) return true;
         continue;
       }
       if (s.parent !== null) {
         // Inside a nested type, named by id: a field of a part (or sheet) that is already in the room?
         const pid = s.parent as unknown as Y.ID;
+        if (s.parentSub === 'bricks' && known(pid)) return true;
         if (s.parentSub !== null && LOOKED_AT.has(s.parentSub) && known(pid)) {
           const holder = Y.getItem(doc.store, pid);
           const type = holder instanceof Y.Item && holder.content instanceof Y.ContentType ? holder.content.type : null;
@@ -574,7 +625,7 @@ export function sharedLockCheck(
     for (const id of p.members) members.add(id);
     for (const id of p.retired ?? []) retired.add(id);
   }
-  if (!mayTouchShared(doc, decoded, members) && !writesRetired(decoded, retired)) return null;
+  if (!mayTouchShared(doc, decoded, members) && !writesId(decoded, retired) && !writesId(decoded, members)) return null;
   if (mayCopy && !mayCopy()) return LOCK_COPY_BUDGET_SPENT;
   guardWork.docCopies += 1;
   const after = new Y.Doc();
