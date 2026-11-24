@@ -7,7 +7,7 @@ import { writeBbm, writeSidecar } from '@cld/bbm';
 import { docToBbm, readSidecarFromDoc } from '@cld/ydoc';
 import type { PartWire } from '../api';
 import { layoutFileDownload, layoutSourceHere, type LayoutImage } from '../layoutFile';
-import { layoutPartFiles } from '../layoutParts';
+import { layoutPartFiles, stockPartKeys } from '../layoutParts';
 import { noticeDownloaded, useEditorStore } from './editorStore';
 import { sameOriginImageUrl } from './background';
 
@@ -55,7 +55,8 @@ export async function downloadLocalLayout(
   try {
     const { map, bbm, sidecar, background } = await localLayoutContents(doc);
     // The custom parts it uses travel with it.
-    const partFiles = parts ? await layoutPartFiles(map, parts) : {};
+    // (Engines and cars drawn with an imported model's part too.)
+    const partFiles = parts ? await layoutPartFiles(map, parts, undefined, stockPartKeys(sidecar)) : {};
     saveFile(
       await layoutFileDownload(title, {
         bbm,

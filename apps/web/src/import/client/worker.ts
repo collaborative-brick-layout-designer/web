@@ -89,6 +89,7 @@ async function analyse(msg: Extract<ToWorker, { type: 'analyse' }>) {
             connections: p.connections,
             stats: p.stats,
             warnings: p.warnings,
+            stock: p.stockGuess,
             preview: await pngOf(p.sprite!),
           }
         : null,

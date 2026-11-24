@@ -1,5 +1,6 @@
 // The website's model import (server routes/imports.ts, docs/model-import.md).
 
+import type { StockGuess } from '@cld/parts-catalog/browser';
 import { apiGet, apiSend, friendlyErrorMessage, noteWrite } from '../api';
 
 export interface ImportStatus {
@@ -46,6 +47,8 @@ export interface ImportAnalysis {
     stats: ImportStats;
     warnings: string[];
     preview: string;
+    /** Where its trucks and couplers seem to be (the browser's import only; Trains › Import a model…). */
+    stock?: StockGuess | null;
   } | null;
   layout: { sheets: number; bricks: number; warnings: string[]; partlyRead: boolean } | null;
   layoutError: string | null;

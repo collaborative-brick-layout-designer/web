@@ -5,7 +5,7 @@
 // venues as JSON; collection and catalog item covers as pictures; the
 // layouts and venues published to the catalog, as they are there.
 
-import { withCustomPartNumbers, type PartViewer } from '../utils/customPartNumbers.js';
+import { stockWithCustomPartNumbers, withCustomPartNumbers, type PartViewer } from '../utils/customPartNumbers.js';
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { and, eq, isNull } from 'drizzle-orm';
@@ -71,6 +71,7 @@ export async function layoutFileBytes(
     if (sidecar) {
       const json = JSON.parse(writeSidecar(sidecar)) as Record<string, unknown>;
       delete json.bbmHashSha256;
+      await stockWithCustomPartNumbers(json, viewer);
       const bg = json.backgroundImage as Record<string, unknown> | undefined;
       if (bg && background) {
         const name = `background.${background.ext}`;

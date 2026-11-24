@@ -55,6 +55,25 @@ function cleanRecord(v: Record<string, unknown>): Record<string, unknown> {
   return rest;
 }
 
+const CUSTOM_KEY = /^custom:([0-9a-f-]{36})$/i;
+
+/**
+ * The custom part an imported model's car is drawn with (trains design 2.6,
+ * Phase 6: `model_part_id`): its look's `custom:<id>` (or its model's), when
+ * that part is on this server. Anything else: none.
+ */
+export async function modelPartIdOf(record: Record<string, unknown>): Promise<string | null> {
+  const look = isObj(record.look) ? record.look : {};
+  const model = isObj(record.model) ? record.model : {};
+  for (const key of [model.partKey, look.partKey]) {
+    const m = typeof key === 'string' ? CUSTOM_KEY.exec(key) : null;
+    if (!m) continue;
+    const part = await db.select({ id: schema.customParts.id }).from(schema.customParts).where(eq(schema.customParts.id, m[1]!.toLowerCase())).get();
+    if (part) return part.id;
+  }
+  return null;
+}
+
 async function canRead(row: { ownerUserId: string | null; ownerOrgId: string | null }, userId: string): Promise<boolean> {
   if (row.ownerUserId === userId) return true;
   if (!row.ownerOrgId) return false;
@@ -78,6 +97,7 @@ function shape(row: schema.RollingStockEntry, canManageIt: boolean) {
     version: row.version,
     updatedAt: row.updatedAt.getTime(),
     canManage: canManageIt,
+    modelPartId: row.modelPartId,
     // What a layout keeps: the record, linked back to this entry.
     record: { ...record, libraryId: row.id, libraryVersion: row.version },
   };
@@ -129,6 +149,7 @@ export async function rollingStockRoutes(app: FastifyInstance): Promise<void> {
       number: String(r.number ?? ''),
       name: String(r.name ?? ''),
       data,
+      modelPartId: await modelPartIdOf(r),
       version: 1,
       createdBy: user.id,
       copiedFromId: typeof r.libraryId === 'string' ? r.libraryId : null,
@@ -136,7 +157,7 @@ export async function rollingStockRoutes(app: FastifyInstance): Promise<void> {
       updatedAt: now,
     };
     await db.insert(schema.rollingStock).values(row);
-    return reply.code(201).send(shape({ ...row, modelPartId: null }, true));
+    return reply.code(201).send(shape(row, true));
   });
 
   app.patch<{ Params: { id: string }; Body: { record?: unknown } }>('/api/rolling-stock/:id', { config: TOKEN_WRITE }, async (req, reply) => {
@@ -149,7 +170,7 @@ export async function rollingStockRoutes(app: FastifyInstance): Promise<void> {
     if (bad) return reply.code(bad === 'record_too_large' ? 413 : 400).send({ error: bad });
     const r = record as Record<string, unknown>;
     const data = JSON.stringify(cleanRecord(r));
-    const updates = { number: String(r.number ?? ''), name: String(r.name ?? ''), data, version: row.version + 1, updatedAt: new Date() };
+    const updates = { number: String(r.number ?? ''), name: String(r.name ?? ''), data, modelPartId: await modelPartIdOf(r), version: row.version + 1, updatedAt: new Date() };
     await db.update(schema.rollingStock).set(updates).where(eq(schema.rollingStock.id, row.id));
     return shape({ ...row, ...updates }, true);
   });

@@ -56,8 +56,8 @@ export interface RollingStock {
     partKey?: string;
     picture?: string;
   };
-  /** An imported model it was made from (model mode, a later phase): its part and file. */
-  model?: { partKey?: string; file?: string; format?: string } | null;
+  /** The imported model it was made from (look mode "model"): its part, its file, the file's kind and the day it came in (YYYY-MM-DD). */
+  model?: { partKey?: string; file?: string; format?: string; importedAt?: string } | null;
   libraryId?: string | null;
   libraryVersion?: number | null;
   notes: string;

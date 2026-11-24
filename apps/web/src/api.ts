@@ -396,6 +396,8 @@ export interface RosterStock {
   /** May change or delete it (yours, or a club where you may edit modules). */
   canManage: boolean;
   owner?: OwnerInfo | null;
+  /** An imported model's custom part it's drawn with (its look's `custom:<id>`), when it has one. */
+  modelPartId?: string | null;
   /** The record a layout keeps, linked back (libraryId, libraryVersion). */
   record: Record<string, unknown>;
 }

@@ -133,4 +133,36 @@ describe('rolling stock rosters', () => {
     expect(stockProblem({ ...BOXCAR, length: -3 })).toMatch(/length/);
     expect(stockProblem(BOXCAR)).toBeNull();
   });
+
+  it('keeps an imported model car’s custom part as its model_part_id, when the part is on this server', async () => {
+    const alice = await registerAndLogin(app, 'alice@example.com');
+    const owner = (await db.select().from(schema.users).where(eq(schema.users.email, 'alice@example.com')).get())!.id;
+    const partId = '0b6f3e52-7d55-4c8f-9a51-3f5bb0f1c2aa';
+    const now = new Date();
+    await db.insert(schema.customParts).values({
+      id: partId,
+      partNumber: 'SANTA_FE',
+      displayName: 'Santa Fe',
+      ownerUserId: owner,
+      createdBy: owner,
+      xmlBlob: Buffer.from('<part/>'),
+      spriteBlob: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1]),
+      spriteMime: 'image/png',
+      createdAt: now,
+      updatedAt: now,
+    });
+    const engine = { ...BOXCAR, kind: 'engine', look: { mode: 'model', color: '#a33', partKey: `custom:${partId}` }, model: { partKey: `custom:${partId}`, file: 'santa-fe.io', format: 'studio' } };
+    const made = await app.inject({ method: 'POST', url: '/api/rolling-stock', headers: { cookie: alice }, payload: { record: engine } });
+    expect(made.statusCode).toBe(201);
+    const car = made.json() as Entry & { modelPartId: string | null };
+    expect(car.modelPartId).toBe(partId);
+    expect(car.record.model).toEqual(engine.model);
+    // Back to a plain box: no model part. A part that isn't here: none either.
+    const plain = await app.inject({ method: 'PATCH', url: `/api/rolling-stock/${car.id}`, headers: { cookie: alice }, payload: { record: BOXCAR } });
+    expect((plain.json() as { modelPartId: string | null }).modelPartId).toBeNull();
+    const elsewhere = await app.inject({ method: 'PATCH', url: `/api/rolling-stock/${car.id}`, headers: { cookie: alice }, payload: { record: { ...BOXCAR, look: { mode: 'model', partKey: 'custom:11111111-2222-3333-4444-555555555555' } } } });
+    expect((elsewhere.json() as { modelPartId: string | null }).modelPartId).toBeNull();
+    const row = await db.select().from(schema.rollingStock).where(eq(schema.rollingStock.id, car.id)).get();
+    expect(row!.modelPartId).toBeNull();
+  });
 });

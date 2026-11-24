@@ -95,6 +95,35 @@ in screen pixels, so they stay sharp. The view is held in the picture's own
 studs, so a nudge keeps the zoom and slides the grid under the model. The
 arrow keys over the picture nudge it, as the desktop's do.
 
+## As an engine or car
+
+Trains › Rolling stock › **Import a model…** (trains design Phase 6;
+the desktop's Trains panel has the same) opens this dialog with
+`purpose: 'stock'`. The model becomes a custom part as above (category
+"Rolling stock"), and an engine or car drawn with it:
+
+- **Truck guess.** While drawing it, the browser's importer looks at the
+  model's parts from above (`client/stockGuess.ts`, the shared
+  `guessStock` in `packages/parts-catalog/src/track/stockGuess.ts`): bogie
+  plates and train motors are the trucks' pivots, else clusters of wheel
+  parts, else a quarter of the length in from each end; the outermost
+  magnet couplers give the length. The part table and vectors on three
+  LDraw OMR models are the shared contract
+  `fixtures/contracts/truck-guess.json`. The analysis carries it as
+  `part.stock`; the server's converter doesn't, so after a fallback the
+  guess is from the footprint alone.
+- **The preview** turns the model to run front to the right (the guess's
+  quarter turn) and shows it with a marker on each truck and coupler
+  (`StockSetup.tsx`): drag one, or type its number, and **Turn around**
+  when the other end is the front. Lining up and snap points aren't
+  offered: a car isn't track.
+- **Add to rolling stock** makes the part, then the record in the open
+  layout (`look.mode` `model`, `look.partKey` `custom:<id>`, `model: {
+  partKey, file, format, importedAt }`), optionally on the roster of
+  whoever the part was saved to; the roster's `model_part_id` names the
+  part. A `.bld-layout` carries the part in `parts/`, and the server's
+  downloads name it by its part number.
+
 ## In the browser
 
 The browser's own importer reads and draws LDraw (`.ldr`, `.mpd`, `.dat`),
