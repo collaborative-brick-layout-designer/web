@@ -107,8 +107,8 @@ importers:
         specifier: 0.35.5
         version: 0.35.5(@types/node@26.6.6)
       web-push:
-        specifier: 3.6.7
-        version: 3.6.7
+        specifier: 4.0.0
+        version: 4.0.0
       y-protocols:
         specifier: 1.0.7
         version: 1.0.7(yjs@13.6.33)
@@ -462,8 +462,8 @@ packages:
     resolution: {integrity: sha512-v+oN26xP4YIlQsbQ/CbTH1WG5m/l/DjKKZNy/Kp3f/AFvbgt7Em/D0FeMM3O2hX0YzeN2M16W8lOpyhIkfCBcQ==}
     engines: {node: '>=6.9.0'}
 
-  '@babel/runtime@7.29.14':
-    resolution: {integrity: sha512-Y5tqevQaUAZhhj82BpYMNC1ssvLQTVAfwKdm8iy8qwmhvC2/CpcAu8OC+QEtjM7pMk7knx83u1Qj8gzkicyelw==}
+  '@babel/runtime@7.29.15':
+    resolution: {integrity: sha512-304gsbbGVmQc+cNGHzwHBlqepYdWLKj3VXCQBGt/EGcV7PUPfKI7kAUNW1FZEOCwlQiLvQjg1JEaAlRQ616h+Q==}
     engines: {node: '>=6.9.0'}
 
   '@babel/template@7.29.7':
@@ -1648,9 +1648,9 @@ packages:
     engines: {node: '>=0.4.0'}
     hasBin: true
 
-  agent-base@7.1.4:
-    resolution: {integrity: sha512-MnA+YT8fwfJPgBx3m60MNqakm30XOkyIoH1y6huTQvC0PwZG7ki8NacLBcrPbNoo8vEZy7Jpuk7+jMO+CUovTQ==}
-    engines: {node: '>= 14'}
+  agent-base@9.0.0:
+    resolution: {integrity: sha512-TQf59BsZnytt8GdJKLPfUZ54g/iaUL2OWDSFCCvMOhsHduDQxO8xC4PNeyIkVcA5KwL2phPSv0douC0fgWzmnA==}
+    engines: {node: '>= 20'}
 
   ajv-formats@3.0.1:
     resolution: {integrity: sha512-8iUql50EUR+uUcdRQ3HDqa6EVyo3docL8g5WJ3FNcWmu62IbkGUue/pEyLBW8VGKKucTPgqeks4fIU1DA4yowQ==}
@@ -2181,13 +2181,13 @@ packages:
     resolution: {integrity: sha512-4FbRdAX+bSdmo4AUFuS0WNiPz8NgFt+r8ThgNWmlrjQjt1Q7ZR9+zTlce2859x4KSXrwIsaeTqDoKQmtP8pLmQ==}
     engines: {node: '>= 0.8'}
 
-  http_ece@1.2.0:
-    resolution: {integrity: sha512-JrF8SSLVmcvc5NducxgyOrKXe3EsyHMgBFgSaIUGmArKe+rwr0uphRkRXvwiom3I+fpIfoItveHrfudL8/rxuA==}
+  http_ece@1.2.1:
+    resolution: {integrity: sha512-+tzLoMYgXvicu60sVFoswTiu6BiQ6EX3DORRJQ3W2dNpNWCyZ3tcmRFZZ3jgVyw8ziWUCeUARKCkYDY6JgFx+w==}
     engines: {node: '>=16'}
 
-  https-proxy-agent@7.0.6:
-    resolution: {integrity: sha512-vK9P5/iUfdl95AI+JVyUuIcVtd4ofvtrOr3HNtM2yxC9bnMbEdp3x01OhQNnjb8IJYi38VlTE3mBXwcfvywuSw==}
-    engines: {node: '>= 14'}
+  https-proxy-agent@9.1.0:
+    resolution: {integrity: sha512-ag87y7cJJ9/3+GxFr8Oy4O5faDsGRGnBGsJj/YjOSsSx/5eadKLYTMPlzuR6obgoCDDm0abAAZitXXQkMOPSpA==}
+    engines: {node: '>= 20'}
 
   ignore@5.3.2:
     resolution: {integrity: sha512-hsBTNUqQTDwkWtcdYI2i06Y/nUBEsNEDJKjWdigLvegy8kDuJAS8uRlpkkcQpyEXL0Z/pjDy5HBmMjRCJ2gq+g==}
@@ -2662,6 +2662,15 @@ packages:
   proper-lockfile@4.1.2:
     resolution: {integrity: sha512-TjNPblN4BwAWMXU8s9AEz4JmQxnD1NNL7bNOY/AKUzyamc379FWASUhc/K1pL2noVb+XmZKLL68cjzLsiOAMaA==}
 
+  proxy-agent-negotiate@1.1.0:
+    resolution: {integrity: sha512-N8IBcM3UgCVzz2L2Lqv8DVntDnnC8/hiV4nEDUPkqq72TPUgYWjQc+bdZlBPZK9LzPAvOY//gAt0S0DApoOXWQ==}
+    engines: {node: '>= 20'}
+    peerDependencies:
+      kerberos: ^2.0.0
+    peerDependenciesMeta:
+      kerberos:
+        optional: true
+
   punycode@2.3.1:
     resolution: {integrity: sha512-vYt7UD1U9Wg6138shLtLOvdAu+8DsC/ilFtEVHcH+wydcSpNE20AfSOduf6MkRFahL5FY7X1oU7nKVZFtfq8Fg==}
     engines: {node: '>=6'}
@@ -3081,8 +3090,8 @@ packages:
     resolution: {integrity: sha512-4Nsy8K5Tr6SPDH9jhKJOHf7ChDrc1zufZTVSF7x72hwuEXBqxqk9G6cK+K2NRUtB3iELRJqjXb4JPDMBjMTl2Q==}
     engines: {node: ^22.22.2 || ^24.15.0 || >=26.0.0}
 
-  web-push@3.6.7:
-    resolution: {integrity: sha512-OpiIUe8cuGjrj3mMBFWY+e4MMIkW3SVT+7vEIjvD9kejGUypv8GPDf84JdPWskK8zMRIJ6xYGm+Kxr8YkPyA0A==}
+  web-push@4.0.0:
+    resolution: {integrity: sha512-iKzGK/q3k+kjoPK+fkbs8ymYvEqu5RJNAypEskW+UAYsC44upqb0f+T8QSYW4naowl9bzjlHRe8CI0NFCBzZeQ==}
     engines: {node: '>= 16'}
     hasBin: true
 
@@ -3305,7 +3314,7 @@ snapshots:
 
   '@babel/runtime@7.29.13': {}
 
-  '@babel/runtime@7.29.14': {}
+  '@babel/runtime@7.29.15': {}
 
   '@babel/template@7.29.7':
     dependencies:
@@ -3995,7 +4004,7 @@ snapshots:
   '@testing-library/dom@10.4.1':
     dependencies:
       '@babel/code-frame': 7.29.7
-      '@babel/runtime': 7.29.14
+      '@babel/runtime': 7.29.15
       '@types/aria-query': 5.0.4
       aria-query: 5.3.0
       dom-accessibility-api: 0.5.16
@@ -4270,7 +4279,7 @@ snapshots:
 
   acorn@8.19.0: {}
 
-  agent-base@7.1.4: {}
+  agent-base@9.0.0: {}
 
   ajv-formats@3.0.1(ajv@8.20.0):
     optionalDependencies:
@@ -4772,13 +4781,15 @@ snapshots:
       statuses: 2.0.2
       toidentifier: 1.0.1
 
-  http_ece@1.2.0: {}
+  http_ece@1.2.1: {}
 
-  https-proxy-agent@7.0.6:
+  https-proxy-agent@9.1.0:
     dependencies:
-      agent-base: 7.1.4
+      agent-base: 9.0.0
       debug: 4.4.3
+      proxy-agent-negotiate: 1.1.0
     transitivePeerDependencies:
+      - kerberos
       - supports-color
 
   ignore@5.3.2: {}
@@ -5196,6 +5207,8 @@ snapshots:
       retry: 0.12.0
       signal-exit: 3.0.7
 
+  proxy-agent-negotiate@1.1.0: {}
+
   punycode@2.3.1: {}
 
   qified@0.10.1:
@@ -5575,14 +5588,14 @@ snapshots:
     dependencies:
       xml-name-validator: 5.0.0
 
-  web-push@3.6.7:
+  web-push@4.0.0:
     dependencies:
       asn1.js: 5.4.1
-      http_ece: 1.2.0
-      https-proxy-agent: 7.0.6
+      http_ece: 1.2.1
+      https-proxy-agent: 9.1.0
       jws: 4.0.1
-      minimist: 1.2.8
     transitivePeerDependencies:
+      - kerberos
       - supports-color
 
   webidl-conversions@8.0.1: {}
