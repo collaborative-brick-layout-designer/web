@@ -452,7 +452,10 @@ way.
 
 The server logs to standard output (`docker compose logs -f`). Its jobs:
 
-- **Daily**: the backup, compacting each layout's edit history, and
+- **Daily**: the backup, compacting each layout's edit history, thinning
+  out each layout's version history (Map › File › Version history…: all of
+  the last day, then the newest per day for 30 days and per week for 26
+  weeks; ones kept before a big change for 30 days; named ones always), and
   clearing out old demo layouts.
 - **Hourly**: the privacy clean-up (old data downloads, accounts and clubs
   whose waiting time is over, expired sign-ins and invites, old records,
