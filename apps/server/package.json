@@ -48,12 +48,12 @@
     "@types/nodemailer": "8.0.2",
     "@types/web-push": "3.6.4",
     "@types/ws": "^8.18.2",
-    "@vitest/coverage-v8": "^5.1.0",
+    "@vitest/coverage-v8": "^5.1.1",
     "drizzle-kit": "0.31.11",
     "esbuild": "0.28.2",
     "tsx": "4.23.15",
     "typescript": "7.0.2",
-    "vitest": "5.1.0",
+    "vitest": "5.1.1",
     "ws": "^8.23.0"
   }
 }
