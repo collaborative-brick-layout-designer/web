@@ -54,8 +54,11 @@ test('a member downloads a backup of their things and restores what they lost', 
   await expect(plan.getByText('You still have this one').first()).toBeVisible();
   await expect(plan.getByLabel(`Restore Hall ${ts}`)).toBeChecked();
   await expect(plan.getByText(`so it comes back as “Hall ${ts} (restored)”`)).toBeVisible();
-  await plan.getByRole('button', { name: 'Restore 2 things' }).click();
-  await expect(section.getByText('Restored 2 things.')).toBeVisible({ timeout: 60_000 });
+  // A copy of one they still have, too: the module and the engine.
+  await plan.getByLabel(`Restore Corner ${ts}`).check();
+  await plan.getByLabel(`Restore 4014 Big Boy ${ts}`).check();
+  await plan.getByRole('button', { name: 'Restore 4 things' }).click();
+  await expect(section.getByText('Restored 4 things.')).toBeVisible({ timeout: 60_000 });
 
   // ── Back as new copies; nothing else changed. ──
   const layouts = ((await (await page.request.get('/api/layouts?owner=me')).json()) as { layouts: { id: string; title: string }[] }).layouts;
@@ -64,6 +67,10 @@ test('a member downloads a backup of their things and restores what they lost', 
   expect(layouts.filter((l) => l.title === `Harbor ${ts}`)).toHaveLength(1);
   const venues = ((await (await page.request.get('/api/venues?owner=me')).json()) as { venues: { name: string }[] }).venues.map((v) => v.name).sort();
   expect(venues).toEqual([`Hall ${ts}`, `Hall ${ts} (restored)`]);
+  const modules = ((await (await page.request.get('/api/modules?owner=me')).json()) as { modules: { title: string }[] }).modules.map((m) => m.title).sort();
+  expect(modules).toEqual([`Corner ${ts}`, `Corner ${ts} (restored)`]);
+  const stock = ((await (await page.request.get('/api/rolling-stock?owner=me')).json()) as { stock: { name: string }[] }).stock.map((x) => x.name).sort();
+  expect(stock).toEqual([`Big Boy ${ts}`, `Big Boy ${ts} (restored)`]);
 
   // The restored layout opens.
   const restored = layouts.find((l) => l.title === `Yard ${ts}`)!;
