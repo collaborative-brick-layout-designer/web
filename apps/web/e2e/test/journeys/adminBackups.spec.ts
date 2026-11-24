@@ -70,7 +70,7 @@ test('an admin backs up the site, downloads it, uploads it again and restores it
   await expect(page.getByRole('status').filter({ hasText: `Restoring ${uploadedName}` })).toBeVisible();
 
   // ── The site restarts; the page comes back by itself and says so. ──
-  await expect(page.getByText(new RegExp(`Restored the database from ${uploadedName.replace(/\./g, '\\.')}`))).toBeVisible({ timeout: 120_000 });
+  await expect(page.getByText(`Restored the database from ${uploadedName}`)).toBeVisible({ timeout: 120_000 });
   await expect(page.locator('tr[data-backup^="cbld-before-restore-"]').first()).toContainText('Before a restore');
 
   const layouts = (await (await page.request.get('/api/layouts')).json()) as { layouts?: { title: string }[] } | { title: string }[];
