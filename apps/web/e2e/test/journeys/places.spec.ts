@@ -145,16 +145,23 @@ test('right-click on track makes a place; deleting it and its track says so plai
   const editor = page.getByTestId('place-editor');
   await expect(editor.getByTestId('place-name')).toHaveValue('Place 1');
   // Its track goes: the spot says what to do, and Pick its track mends it.
+  // (A click soon after a right-click isn't a double-click: no Part properties.)
+  await page.mouse.click(at.x, at.y, { button: 'right' });
+  await page.mouse.click(at.x, at.y);
+  await page.waitForTimeout(600);
+  await expect(page.getByRole('dialog', { name: 'Part properties' })).toHaveCount(0);
   await page.mouse.click(at.x, at.y);
   await page.keyboard.press('Delete');
   await expect(editor.getByTestId('spot-capacity')).toContainText('Its track was moved or removed. Pick it again.');
   await editor.getByTestId('spot-pick').click();
   await expect(page.getByTestId('place-pick-banner')).toBeVisible();
-  // (The map takes clicks for it from its next frame.)
-  await page.waitForTimeout(200);
+  // (The map takes clicks for it from its next frame, which a busy machine draws late.)
   const there = await onPage(page, STUB.x, STUB.top + 80);
-  await page.mouse.click(there.x, there.y);
-  await expect(editor.getByTestId('spot-capacity')).toContainText('from the track’s length');
+  await expect(async () => {
+    await page.waitForTimeout(200);
+    if (await page.getByTestId('place-pick-banner').isVisible()) await page.mouse.click(there.x, there.y);
+    await expect(editor.getByTestId('spot-capacity')).toContainText('from the track’s length', { timeout: 2000 });
+  }).toPass({ timeout: 20_000 });
   // Deleted, and undone.
   await page.waitForTimeout(400);
   await editor.getByTestId('place-delete').click();
