@@ -3,7 +3,7 @@
 // (the copy and its folder stay as they were), and never the server's own.
 
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
+import { cpSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -13,7 +13,7 @@ import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
 import * as Y from 'yjs';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createDefaultLayoutDoc, encodeDoc } from '@cld/ydoc';
-import { SHEET, contents, place } from '../test/sharedWorld.js';
+import { SHEET, contents, oddParts, oddSidecar, place } from '../test/sharedWorld.js';
 
 const SERVER = resolve(fileURLToPath(new URL('.', import.meta.url)), '../..');
 const V1 = contents([{ pn: 'a.1', x: 0, y: 0 }, { pn: 'b.1', x: 4, y: 0 }]);
@@ -26,18 +26,18 @@ afterEach(() => {
 });
 
 /** Two people's database: what each layout places, and whether one of its parts is there twice. */
-function copyOf(layouts: { module: string; twice: boolean | 'whole' }[], version = 1): { dir: string; file: string } {
+function copyOf(layouts: { module: string; twice: boolean | 'whole'; build?: (doc: Y.Doc) => void }[], version = 1, migrations = join(SERVER, 'migrations')): { dir: string; file: string } {
   const dir = mkdtempSync(join(tmpdir(), 'cld-dry-'));
   dirs.push(dir);
   const file = join(dir, 'copy.sqlite');
   const db = new Database(file);
   db.pragma('journal_mode = WAL');
-  migrate(drizzle(db), { migrationsFolder: join(SERVER, 'migrations') });
+  migrate(drizzle(db), { migrationsFolder: migrations });
   const now = Date.now();
   db.prepare('INSERT INTO users (id, email, display_name, created_at) VALUES (?, ?, ?, ?)').run('u1', 'secret@example.com', 'Secret Name', now);
   db.prepare('INSERT INTO modules (id, title, created_by, owner_user_id, created_at, updated_at, doc_snapshot, latest_version) VALUES (?, ?, ?, ?, ?, ?, ?, 1)').run(CRANE, 'Secret Crane', 'u1', 'u1', now, now, V1);
   db.prepare('INSERT INTO module_versions (id, module_id, version, doc_snapshot, created_at) VALUES (?, ?, 1, ?, ?)').run('v1', CRANE, V1, now);
-  layouts.forEach(({ module, twice }, i) => {
+  layouts.forEach(({ module, twice, build }, i) => {
     const doc = createDefaultLayoutDoc();
     const ids = place(doc, { placedId: 'p', moduleId: module, version, bytes: V1, placement: { degrees: 0, x: 100, y: 50 } });
     if (twice) {
@@ -48,6 +48,7 @@ function copyOf(layouts: { module: string; twice: boolean | 'whole' }[], version
         list.push([n]);
       }
     }
+    build?.(doc);
     db.prepare('INSERT INTO layouts (id, title, created_by, owner_user_id, created_at, updated_at, doc_snapshot) VALUES (?, ?, ?, ?, ?, ?, ?)').run(`l${i}`, 'Secret Layout', 'u1', 'u1', now, now, Buffer.from(encodeDoc(doc)));
   });
   db.close();
@@ -69,10 +70,45 @@ describe('the dry run of the shared modules’ repair', () => {
       "  would change: 1 layouts, 1 modules, 1 extra copies taken out, 0 parts made as the owner's version has them",
       '  would skip: 1 modules (1 layouts where nothing changes)',
       '    1: the library module is gone or has no owner',
+      'Layouts put in shape on opening (dry run, nothing written): 0 layouts',
+      "  0 sidecar values, 0 second entries, 0 part fields, 0 entries that aren't parts, 0 sheets, 0 modules whose places are put back",
     ]);
     expect(r.status).toBe(0);
     expect(readFileSync(file).equals(before)).toBe(true);
     expect(readdirSync(dir)).toEqual(files);
+  });
+
+  it('counts what opening would put in shape, on a copy from before migration 0063 too', { timeout: 60_000 }, () => {
+    // The migrations up to 0062, as a server has run them that isn't updated yet.
+    const old = mkdtempSync(join(tmpdir(), 'cld-migrations-'));
+    dirs.push(old);
+    cpSync(join(SERVER, 'migrations'), old, { recursive: true });
+    const journal = JSON.parse(readFileSync(join(old, 'meta/_journal.json'), 'utf8')) as { entries: { tag: string }[] };
+    journal.entries = journal.entries.filter((e) => e.tag < '0063');
+    expect(journal.entries).toHaveLength(63);
+    writeFileSync(join(old, 'meta/_journal.json'), JSON.stringify(journal));
+    for (const migrations of [old, join(SERVER, 'migrations')]) {
+      const { dir, file } = copyOf(
+        [
+          { module: CRANE, twice: false, build: oddSidecar },
+          { module: CRANE, twice: false, build: oddParts },
+          { module: CRANE, twice: true },
+          { module: CRANE, twice: false },
+        ],
+        1,
+        migrations,
+      );
+      const before = readFileSync(file);
+      const files = readdirSync(dir);
+      const r = run(['--db', file]);
+      expect(r.stderr).toBe('');
+      expect(r.stdout).toContain('4 layouts looked at\n');
+      expect(r.stdout).toContain('would change: 1 layouts, 1 modules');
+      expect(r.stdout).toContain('Layouts put in shape on opening (dry run, nothing written): 2 layouts\n');
+      expect(r.stdout).toContain("1 sidecar values, 1 second entries, 1 part fields, 1 entries that aren't parts, 0 sheets, 1 modules whose places are put back\n");
+      expect(readFileSync(file).equals(before)).toBe(true);
+      expect(readdirSync(dir)).toEqual(files);
+    }
   });
 
   it('counts whole sets as left alone', { timeout: 60_000 }, () => {

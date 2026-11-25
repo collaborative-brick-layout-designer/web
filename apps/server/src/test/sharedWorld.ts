@@ -80,3 +80,24 @@ export function moduleOf(doc: Y.Doc, placedId: string): (SidecarModule & { share
   const cache = readSidecarCache(doc);
   return (Array.isArray(cache?.modules) ? (cache.modules as SidecarModule[]) : []).find((m) => m.id === placedId) as never;
 }
+
+/** Values no app writes, in the sidecar of a layout with a shared module: a nested one, a second entry, other places. */
+export function oddSidecar(doc: Y.Doc): void {
+  doc.transact(() => {
+    const items = doc.getMap<unknown>('sidecarItems');
+    const key = [...items.keys()].find((k) => k.startsWith('m:'))!;
+    const value = items.get(key) as Record<string, unknown>;
+    items.set('m:again', { ...value, _order: -1, places: [{ id: 'x', name: 'Other', kind: 'industry', spots: [], accepts: [], ships: [], tags: [], notes: '' }] });
+    items.set('l:label', new Y.Map(Object.entries({ id: 'label', text: 'Hi' })));
+  });
+}
+
+/** Values no app writes, in the parts of a layout with a shared module: a nested field, an entry that isn't a part. */
+export function oddParts(doc: Y.Doc): void {
+  doc.transact(() => {
+    const list = doc.getMap<Y.Map<unknown>>('layerData').get(SHEET)!.get('bricks') as Y.Array<unknown>;
+    const part = list.get(0) as Y.Map<unknown>;
+    part.set('partNumber', new Y.Text(part.get('partNumber') as string));
+    list.push([(list.get(1) as Y.Map<unknown>).toJSON()]);
+  });
+}

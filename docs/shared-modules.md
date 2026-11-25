@@ -324,6 +324,11 @@ placement names. A part
 that is there once and differs is left to the drift check below. Nothing
 changes when the owner's version can't be had.
 
+A layout whose shared modules or their parts hold values no app writes is
+put in shape when it opens (`sharedModules/heal.ts`): kept in its history
+first, always (else nothing is changed), logged and audited the same way.
+`shared-repair:dry-run` counts both on a copy of the database.
+
 **3. Drift check (files and BlueBrick).** A file can be changed anywhere:
 in BlueBrick, by an older desktop, by hand. On opening, both apps compare
 the shared module's parts with its version (`matchesVersion`). If they

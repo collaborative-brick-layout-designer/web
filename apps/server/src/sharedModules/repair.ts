@@ -353,7 +353,7 @@ export async function examine(layoutId: string, owner: LayoutOwner, doc: Y.Doc, 
 }
 
 /** Keep the layout as it is; the one kept for a repair before, when it is the same document. `made`: new just now. */
-async function keepFirst(layoutId: string, state: Uint8Array): Promise<{ id: string; made: boolean } | null> {
+export async function keepFirst(layoutId: string, state: Uint8Array): Promise<{ id: string; made: boolean } | null> {
   const v = schema.layoutVersions;
   const same = await db.select({ id: v.id }).from(v).where(and(eq(v.layoutId, layoutId), eq(v.reason, 'before-repair'), eq(v.docHash, hashOf(state)))).limit(1).get();
   if (same) return { id: same.id, made: false };

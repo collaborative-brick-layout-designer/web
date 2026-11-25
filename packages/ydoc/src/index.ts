@@ -915,6 +915,31 @@ export function writeSidecarCache(doc: Y.Doc, written: Record<string, unknown>):
   if (Array.isArray(out.modules) && (out.modules as unknown[]).some(hasSharedMark)) stampSharedAfter(doc);
 }
 
+/** What repairSidecarShape would put right: values that aren't plain ones, and second entries with a shared module's id. */
+export interface SidecarShapeProblems {
+  nested: number;
+  second: number;
+}
+
+function sidecarShape(doc: Y.Doc) {
+  const items = doc.getMap<unknown>(SIDECAR_ITEMS);
+  const blob = doc.getMap('meta').get('cache');
+  const nestedBlob = blob instanceof Y.AbstractType;
+  const nested = [...items.keys()].filter((k) => items.get(k) instanceof Y.AbstractType);
+  const base = nestedBlob ? (blob.toJSON() as unknown) : blob;
+  const read = nestedBlob ? (isPlainObject(base) ? base : {}) : readSidecarCache(doc);
+  const second = (list: unknown): number => {
+    if (!Array.isArray(list)) return 0;
+    const shared = new Set<unknown>(list.map((v) => (hasSharedMark(v) && isPlainObject(v) ? v.id : undefined)).filter((x) => typeof x === 'string'));
+    return list.filter((v) => isPlainObject(v) && shared.has(v.id)).length - shared.size;
+  };
+  return { items, nested, base, read, problems: { nested: nested.length + (nestedBlob ? 1 : 0), second: ITEM_KINDS.reduce((n, { field }) => n + second(read?.[field]), 0) } };
+}
+
+export function sidecarShapeProblems(doc: Y.Doc): SidecarShapeProblems {
+  return sidecarShape(doc).problems;
+}
+
 /**
  * Put a sidecar that holds what no app writes back in shape: a module's or
  * label's value (or the whole sidecar) that is one of Yjs's own types, and
@@ -923,20 +948,8 @@ export function writeSidecarCache(doc: Y.Doc, written: Record<string, unknown>):
  * no change when there is nothing to put right. Returns true when it did.
  */
 export function repairSidecarShape(doc: Y.Doc, origin?: unknown): boolean {
-  const meta = doc.getMap('meta');
-  const items = doc.getMap<unknown>(SIDECAR_ITEMS);
-  const blob = meta.get('cache');
-  const nestedBlob = blob instanceof Y.AbstractType;
-  const nested = [...items.keys()].filter((k) => items.get(k) instanceof Y.AbstractType);
-  const base = nestedBlob ? ((blob as Y.AbstractType<unknown>).toJSON() as unknown) : blob;
-  const read = nestedBlob ? (isPlainObject(base) ? base : {}) : readSidecarCache(doc);
-  const twice = (list: unknown): boolean => {
-    if (!Array.isArray(list)) return false;
-    const shared = new Set<unknown>(list.map((v) => (hasSharedMark(v) && isPlainObject(v) ? v.id : undefined)).filter((x) => typeof x === 'string'));
-    const ids = list.map((v) => (isPlainObject(v) ? v.id : undefined)).filter((x) => shared.has(x));
-    return shared.size < ids.length;
-  };
-  if (!nestedBlob && nested.length === 0 && !ITEM_KINDS.some(({ field }) => twice(read?.[field]))) return false;
+  const { items, nested, base, read, problems } = sidecarShape(doc);
+  if (problems.nested + problems.second === 0) return false;
   const out: Record<string, unknown> = { ...(read ?? {}) };
   for (const { field, prefix } of ITEM_KINDS) {
     const list: Record<string, unknown>[] = Array.isArray(out[field]) ? [...(out[field] as Record<string, unknown>[])] : [];

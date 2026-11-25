@@ -25,7 +25,7 @@ export const REASON_WORDS: Record<LayoutVersion['reason'], string> = {
   'before-merge': 'Before another layout was added in',
   'before-restore': 'Before a restore',
   'before-bulk-delete': 'Before many parts were deleted',
-  'before-repair': "Before a shared module's extra parts were tidied up",
+  'before-repair': "Before a shared module was tidied up",
 };
 
 const when = (ms: number) => new Date(ms).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
