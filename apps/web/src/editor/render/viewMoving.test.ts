@@ -15,7 +15,8 @@ beforeAll(() => {
       canvas: this,
       getTransform: () => ({ a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 }),
       measureText: () => ({ width: 10 }),
-      getImageData: () => ({ data: new Uint8ClampedArray(400).map((_, i) => (i % 4 === 3 ? 255 : 40)) }),
+      // (Clear pixels: an opaque one is now and then the color Konva gave one of the shapes at random, which is then hit.)
+      getImageData: () => ({ data: new Uint8ClampedArray(400) }),
     };
     return new Proxy(real, { get: (t, k: string) => (k in t ? t[k] : () => undefined), set: (t, k: string, v) => ((t[k] = v), true) });
   } as unknown as typeof HTMLCanvasElement.prototype.getContext;
