@@ -1298,6 +1298,11 @@ function Editor({ layoutId, docState, moduleMode }: { layoutId: string; docState
                     Trains and cars…
                   </button>
                 )}
+                {!moduleMode && (
+                  <button role="menuitem" type="button" data-testid="phone-liveops" onClick={() => openLiveOps()} className="block w-full px-3.5 py-3 text-left hover:bg-soft">
+                    Live Ops…
+                  </button>
+                )}
                 {role !== 'viewer' && (
                   <button role="menuitem" type="button" data-testid="phone-run" onClick={() => useEditorStore.getState().setRunMode(!useEditorStore.getState().runMode)} className="block w-full px-3.5 py-3 text-left hover:bg-soft">
                     {runMode ? 'Stop running trains' : 'Run trains'}

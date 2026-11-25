@@ -158,10 +158,10 @@ function carRecord(doc: Y.Doc, car: string): Y.Map<unknown> | null {
   return rec instanceof Y.Map ? rec : null;
 }
 
-const NONE: Record<'opsWaybill' | 'opsHome' | 'opsAt' | 'opsHold' | 'opsLoad', unknown> = { opsWaybill: '', opsHome: '', opsAt: '', opsHold: false, opsLoad: '' };
+const NONE: Record<'opsWaybill' | 'opsHome' | 'opsAt' | 'opsHold', unknown> = { opsWaybill: '', opsHome: '', opsAt: '', opsHold: false };
 
 /** Set a car's ops fields. One it doesn't have yet is first written as none, outside Undo: what is there can be undone to, a key that isn't can't. */
-function setCar(doc: Y.Doc, car: string, fields: Partial<Record<keyof typeof NONE, unknown>>): void {
+function setCar(doc: Y.Doc, car: string, fields: Partial<Record<keyof typeof NONE | 'opsLoad', unknown>>): void {
   const rec = carRecord(doc, car);
   if (rec) for (const [k, v] of Object.entries(fields)) if (rec.get(k) !== v) rec.set(k, v);
 }
@@ -213,7 +213,6 @@ export function giveWaybill(doc: Y.Doc, id: string, car: string): void {
   if (!w) return;
   const held = readStanding(doc).stock.get(car)?.opsWaybill;
   prepareCars(doc, [car, w.car], ['opsWaybill']);
-  if (currentLeg(w)?.load) prepareCars(doc, [car], ['opsLoad']);
   doc.transact(() => {
     if (w.car && w.car !== car && carRecord(doc, w.car)?.get('opsWaybill') === id) setCar(doc, w.car, { opsWaybill: '' });
     if (car && held && held !== id && waybills.get(held)?.car === car) writeRecord(doc, WAYBILLS_KEY, { id: held, car: '' });
@@ -242,7 +241,7 @@ export function turnCar(doc: Y.Doc, car: string, offTo?: { place: string; net: T
   const w = s ? pocketOf(s, waybills) : null;
   if (!s || !w || currentSlot(w) === 0) return;
   const next = turnedWaybill(w, s.opsLoad ?? '');
-  prepareCars(doc, [car], offTo ? ['opsLoad', 'opsAt'] : ['opsLoad']);
+  if (offTo) prepareCars(doc, [car], ['opsAt']);
   doc.transact(() => {
     if (offTo) {
       const stands = standingIn(car, trains);
@@ -259,7 +258,6 @@ export function restartWaybill(doc: Y.Doc, id: string): void {
   const w = readOps(doc).waybills.get(id);
   if (!w) return;
   const load = currentLeg({ ...w, leg: 1 })?.load;
-  if (w.car && load) prepareCars(doc, [w.car], ['opsLoad']);
   doc.transact(() => {
     writeRecord(doc, WAYBILLS_KEY, { id, leg: 1 });
     if (w.car && load && carRecord(doc, w.car)?.get('opsWaybill') === id) setCar(doc, w.car, { opsLoad: load });
@@ -294,7 +292,7 @@ export function addMadeWaybills(doc: Y.Doc, made: MadeWaybills): number {
     return s && (!w || currentSlot(w) === 0);
   }).slice(0, Math.max(0, room));
   if (list.length === 0) return 0;
-  prepareCars(doc, list.map((m) => m.car), ['opsWaybill', 'opsLoad']);
+  prepareCars(doc, list.map((m) => m.car), ['opsWaybill']);
   doc.transact(() => {
     for (const m of list) {
       const id = makeId();
