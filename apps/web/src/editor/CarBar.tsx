@@ -4,15 +4,18 @@
 
 import { useEffect } from 'react';
 import type * as Y from 'yjs';
-import { loadOf, standingIn, type Load, type RollingStock, type TrackNetwork, type Train } from '@cld/parts-catalog/browser';
+import { asWaybill, currentLeg, loadOf, pocketOf, standingIn, type Load, type RollingStock, type TrackNetwork, type Train } from '@cld/parts-catalog/browser';
 import { HelpButton } from '../help/HelpButton';
 import { setLoad, takeCarOff } from './cuts';
+import { readRecordsFromDoc, WAYBILLS_KEY } from '@cld/ydoc';
+import { legText, openLiveOps, type NamedPlace } from './ops';
+import type { PlaceGroup } from './places';
 import { useEditorStore } from './editorStore';
 import { stockLabel } from './trains';
 
 export const LOAD_LABELS: Record<Load, string> = { '': 'Doesn’t apply', empty: 'Empty', loaded: 'Loaded' };
 
-export function CarBar({ doc, net, trains, stock, states }: { doc: Y.Doc; net: TrackNetwork; trains: readonly Train[]; stock: ReadonlyMap<string, RollingStock>; states: Readonly<Record<string, number>> }) {
+export function CarBar({ doc, net, trains, stock, states, groups }: { doc: Y.Doc; net: TrackNetwork; trains: readonly Train[]; stock: ReadonlyMap<string, RollingStock>; states: Readonly<Record<string, number>>; groups: readonly PlaceGroup[] }) {
   const car = useEditorStore((s) => s.pickedCar);
   const s = car ? stock.get(car) : undefined;
   const at = car ? standingIn(car, trains) : undefined;
@@ -31,6 +34,9 @@ export function CarBar({ doc, net, trains, stock, states }: { doc: Y.Doc; net: T
     return () => window.removeEventListener('keydown', onKey);
   }, [car]);
   if (!car || !s || !at) return null;
+  const pocket = s.opsWaybill ? pocketOf(s, new Map(readRecordsFromDoc(doc, WAYBILLS_KEY).filter((r) => r.id === s.opsWaybill).map((r) => [r.id, asWaybill(r)]))) : null;
+  const leg = pocket ? currentLeg(pocket) : null;
+  const placeById = new Map<string, NamedPlace>(groups.flatMap((g) => g.places).map((p) => [p.id, { id: p.id, name: p.name || '(no name)', place: p, capacity: null }]));
   const others = at.units.length - 1;
   return (
     <div role="group" aria-label={`Car ${stockLabel(s)}`} data-testid="car-bar" data-no-gesture className="pointer-events-auto absolute left-1/2 top-3 z-20 flex max-w-[calc(100%-24px)] -translate-x-1/2 flex-wrap items-center justify-center gap-x-3 gap-y-1 rounded-card border border-line bg-panel px-3 py-2 text-sm shadow-pop">
@@ -48,6 +54,9 @@ export function CarBar({ doc, net, trains, stock, states }: { doc: Y.Doc; net: T
         ))}
         <HelpButton helpKey="ops.load" />
       </div>
+      <button type="button" className="h-9 rounded-control border border-border px-2 text-xs hover:bg-soft" data-testid="car-ops" onClick={() => openLiveOps(pocket ? { waybill: pocket.id } : { tab: 'cars' })}>
+        {leg ? legText({ placeById }, leg) : pocket ? 'Waybill' : 'Live Ops'}
+      </button>
       <button type="button" className="h-9 rounded-control border border-border px-2 text-xs hover:bg-soft" data-testid="car-off" onClick={() => takeCarOff(doc, net, states, s.id)}>
         Take off the track
       </button>

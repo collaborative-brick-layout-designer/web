@@ -136,7 +136,16 @@ const plain = <T extends object>(v: T) => JSON.parse(JSON.stringify(v)) as Recor
 
 /** Save a car (new, or changed fields of one): one undo step. */
 export function saveStock(doc: Y.Doc, s: RollingStock): void {
-  doc.transact(() => writeRecord(doc, ROLLING_STOCK_KEY, plain(s)), LOCAL_ORIGIN);
+  // What a car does in this layout isn't the editor's: someone may have changed it since the editor opened.
+  const there = readRecordsFromDoc(doc, ROLLING_STOCK_KEY).some((r) => r.id === s.id);
+  const record = plain(s);
+  doc.transact(() => writeRecord(doc, ROLLING_STOCK_KEY, there ? ({ ...withoutOps(record), id: s.id }) : record), LOCAL_ORIGIN);
+}
+
+/** A car's fields that are this layout's own (Live Ops): never a roster's. */
+const OPS_FIELDS = ['opsCut', 'opsLoad', 'opsWaybill', 'opsHome', 'opsAt', 'opsHold'] as const;
+function withoutOps(record: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(record).filter(([k]) => !(OPS_FIELDS as readonly string[]).includes(k)));
 }
 
 /** Delete a car, and take it out of every train it's in: one undo step. */
@@ -179,14 +188,13 @@ export function trainsWith(stockId: string, trains: readonly Train[]): Train[] {
 /** What goes to a roster: the record without the layout's own id. */
 export function forRoster(s: RollingStock): Record<string, unknown> {
   // (Where it stands and its load are this layout's.)
-  const { id: _id, opsCut: _cut, opsLoad: _load, ...rest } = plain(s);
-  return rest;
+  const { id: _id, ...rest } = plain(s);
+  return withoutOps(rest);
 }
 
 /** A roster entry copied into the layout (a new id; linked back by libraryId). */
 export function fromRoster(record: Record<string, unknown>): RollingStock {
-  const { opsCut: _cut, opsLoad: _load, ...rest } = record;
-  return asStock({ ...rest, id: makeId() });
+  return asStock({ ...withoutOps(record), id: makeId() });
 }
 
 /** The layout's copy of a roster entry, if it has one. */
@@ -201,8 +209,7 @@ export function rosterIsNewer(s: RollingStock, entry: { id: string; version: num
 
 /** The layout's copy brought up to the roster's version (its id kept, so trains keep it). */
 export function updatedFromRoster(s: RollingStock, record: Record<string, unknown>): RollingStock {
-  const { opsCut: _cut, opsLoad: _load, ...rest } = record;
-  return asStock({ ...rest, id: s.id, opsCut: s.opsCut, opsLoad: s.opsLoad });
+  return asStock({ ...withoutOps(record), id: s.id, ...Object.fromEntries(OPS_FIELDS.flatMap((k) => (s[k] === undefined ? [] : [[k, s[k]]]))) });
 }
 
 export { trainLength };

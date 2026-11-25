@@ -30,6 +30,7 @@ import { ModuleLookDialog } from './ModuleLookDialog';
 import { PlacedModuleSetupDialog } from './ModuleSetupDialog';
 import { setupOf, setupSummary } from '@cld/modules';
 import { modulePlaces, type VenueLengthUnit } from '@cld/bbm';
+import { deletedPlacesText } from './ops';
 import { openPlaces, placesText } from './places';
 import { powerText, summaryPowerText, summaryTableLines, tableText } from './moduleSetupText';
 import { HelpButton } from '../help/HelpButton';
@@ -508,7 +509,7 @@ function ModuleRow({
               setCtxMenu(null);
               const n = module.members.length;
               const ok = await confirmDelete(module.name, {
-                removes: `The module and its ${n === 1 ? 'part' : `${n} parts`} leave the map.`,
+                removes: [`The module and its ${n === 1 ? 'part' : `${n} parts`} leave the map.`, deletedPlacesText(doc, modulePlaces(module).map((p) => p.id))].filter(Boolean).join(' '),
                 keeps: 'The Module library doesn’t change. To keep the parts, choose Ungroup instead.',
                 undoable: 'You can undo this with Ctrl+Z.',
               });

@@ -32,6 +32,8 @@ export interface MapMenuActions {
   importBbm: () => void;
   /** The Places panel (on a phone, its sheet). */
   places: () => void;
+  /** The Live Ops panel (on a phone, its sheet); not in a module. */
+  liveOps?: () => void;
   /** Updates from shared modules… (a layout on the server only). */
   sharedModuleUpdates?: () => void;
   venueDesigner: () => void;
@@ -139,6 +141,7 @@ export function mapMenuEntries(a: MapMenuActions, t: MapMenuToggles, mod = modKe
         { kind: 'item', id: 'save-set', label: 'Save selection as set…', onSelect: a.saveAsSet },
         { kind: 'item', id: 'import-bbm', label: 'Import .bbm as module…', onSelect: a.importBbm },
         { kind: 'item', id: 'places', label: 'Places', onSelect: a.places },
+        { kind: 'item', id: 'live-ops', label: 'Live Ops', hidden: () => !a.liveOps, onSelect: () => a.liveOps?.() },
         sep,
         sharedUpdatesItem(a),
       ],
@@ -217,6 +220,7 @@ export type PhoneMapActions = Pick<
   | 'saveAsSet'
   | 'importBbm'
   | 'places'
+  | 'liveOps'
   | 'sharedModuleUpdates'
   | 'venueDesigner'
   | 'venueDimensions'
@@ -258,6 +262,7 @@ export function phoneMapEntries(a: PhoneMapActions, t: PhoneMapToggles, editing:
     { kind: 'item', id: 'background-image', label: 'Background image…', hidden: viewing, onSelect: a.backgroundImage },
     { kind: 'item', id: 'find', label: 'Find & Replace…', onSelect: a.find },
     { kind: 'item', id: 'places', label: 'Places', onSelect: a.places },
+    { kind: 'item', id: 'live-ops', label: 'Live Ops', hidden: () => !a.liveOps, onSelect: () => a.liveOps?.() },
     sep,
     {
       kind: 'submenu', id: 'insert', label: 'Insert', hidden: viewing, items: [

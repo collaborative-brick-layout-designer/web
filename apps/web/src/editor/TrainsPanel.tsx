@@ -26,6 +26,7 @@ import { StockEditor } from './StockEditor';
 import { kmhToShown, speedToKmh, usesMiles } from './trainRun';
 import { cutName, saveTrainCars, setLoad, takeCarOff, takeCutOff } from './cuts';
 import { LOAD_LABELS } from './CarBar';
+import { deletedCarText } from './ops';
 import {
   copyOf,
   forRoster,
@@ -560,7 +561,7 @@ export function TrainsPanel({ doc, net, stock, trains, placed, switchStates, par
                           )}
                           {confirmDelete === s.id ? (
                             <span className="flex flex-wrap items-center gap-1 text-xs">
-                              {inTrains.length ? `Delete it and take it out of ${inTrains.length === 1 ? inTrains[0]!.name : `${inTrains.length} trains`}?` : `Delete ${stockLabel(s)}?`}
+                              {inTrains.length ? `Delete it and take it out of ${inTrains.length === 1 ? inTrains[0]!.name : `${inTrains.length} trains`}?` : `Delete ${stockLabel(s)}?`} {deletedCarText(doc, s.id)}
                               <button type="button" className="rounded bg-red-700 px-2 py-1 font-semibold text-white" onClick={() => { removeStock(doc, s.id, trains, net, switchStates); setConfirmDelete(null); }}>
                                 Delete
                               </button>

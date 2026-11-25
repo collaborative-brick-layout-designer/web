@@ -320,7 +320,7 @@ describe('on screen', () => {
     useEditorStore.getState().setPickedCar('b');
     const bar = () => {
       const { trains, stock } = readStanding(doc);
-      return <CarBar doc={doc} net={net} trains={trains} stock={stock} states={{}} />;
+      return <CarBar doc={doc} net={net} groups={[]} trains={trains} stock={stock} states={{}} />;
     };
     const view = render(bar());
     expect(screen.getByTestId('car-coupled').textContent).toContain('Coupled to 2 others');

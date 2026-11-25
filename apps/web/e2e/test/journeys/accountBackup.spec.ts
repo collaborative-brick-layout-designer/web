@@ -7,7 +7,8 @@
 //   already use renamed "… (restored)" → Restore → the things are back as
 //   new copies, and nothing they had was changed. A layout's places, its
 //   modules' places and a library module's come back with them, and so do
-//   the cars standing on its track, which a copy of the layout has too.
+//   the cars standing on its track, their waybills and its jobs, which a
+//   copy of the layout has too, and an older version put back.
 
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -22,9 +23,11 @@ const BBM = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '../../..
 const place = (id: string, name: string) => ({ id, name, kind: 'industry', spots: [], accepts: ['reefer'], ships: [], tags: [], notes: 'Ice at\nthe yard' });
 // Two cars coupled on the track, one loaded, and an empty cut another was coupled away from.
 const CARS = [
-  { id: 'c1', number: '101', length: 20, trucks: [{ at: 5, swivelMax: 30 }, { at: -5, swivelMax: 30 }], opsCut: 'ct-1', opsLoad: 'loaded' },
-  { id: 'c2', number: '102', length: 20, trucks: [{ at: 5, swivelMax: 30 }, { at: -5, swivelMax: 30 }], opsCut: 'ct-1' },
+  { id: 'c1', number: '101', length: 20, trucks: [{ at: 5, swivelMax: 30 }, { at: -5, swivelMax: 30 }], opsCut: 'ct-1', opsLoad: 'loaded', opsWaybill: 'wb-1', opsHome: 'pl-1' },
+  { id: 'c2', number: '102', length: 20, trucks: [{ at: 5, swivelMax: 30 }, { at: -5, swivelMax: 30 }], opsCut: 'ct-1', opsHold: true },
 ];
+const WAYBILLS = [{ id: 'wb-1', car: 'c1', from: 'pl-1', leg: 1, to1: 'pl-2', spot1: '', load1: 'loaded', note1: 'Ice first', to2: 'pl-1', spot2: '', load2: 'empty', note2: '' }];
+const JOBS = [{ id: 'jb-1', name: 'Cannery Turn', kind: 'turn', train: '', order: 1, stop_a: { place: 'pl-1', at: 1 }, stop_b: { place: 'pl-2', at: 2 } }];
 const CUTS = [
   { id: 'ct-1', name: '', cut: true, units: [{ stock: 'c1', reversed: false }, { stock: 'c2', reversed: true }], position: { brick: '222', from: 0, to: 1, s: 4, facing: 'to' }, over: { '222/0': 1 }, color: '#B40000', speed: 40, trackKind: 'rail' },
   { id: 'ct-2', name: '', cut: true, units: [], position: { brick: '222', from: 0, to: 1, s: 9, facing: 'from' }, over: {}, emptiedAt: 1.7e12, color: '#B40000', speed: 40, trackKind: 'rail' },
@@ -57,6 +60,8 @@ test('a member downloads a backup of their things and restores what they lost', 
       layoutPlaces: [place('pl-1', 'Acme Cannery')],
       rollingStock: CARS,
       trains: CUTS,
+      waybills: WAYBILLS,
+      opsJobs: JOBS,
     }),
   });
   await post('/api/layouts', { title: `Harbor ${ts}` });
@@ -128,6 +133,8 @@ test('a member downloads a backup of their things and restores what they lost', 
   for (const doc of [yardDoc, await docOf(`/api/layouts/${copy.id}/snapshot`)]) {
     expect(records(doc, 'rollingStock')).toEqual(byId(CARS));
     expect(records(doc, 'trains')).toEqual(byId(CUTS));
+    expect(records(doc, 'waybills')).toEqual(byId(WAYBILLS));
+    expect(records(doc, 'opsJobs')).toEqual(byId(JOBS));
   }
   const cornerCopy = library.find((m) => m.title === `Corner ${ts} (restored)`)!;
   expect(placesIn(await docOf(`/api/modules/${cornerCopy.id}/snapshot`))).toEqual({ 'pl-3': place('pl-3', 'Corner mill') });
