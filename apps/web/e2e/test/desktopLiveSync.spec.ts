@@ -14,7 +14,7 @@ import { createInterface } from 'node:readline';
 import { readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { makeModule, signIn } from '../helpers';
+import { mapMenu, makeModule, signIn } from '../helpers';
 import { engineIo } from '../stockModel';
 
 const DRIVER = process.env.BLD_SYNC_DRIVER;
