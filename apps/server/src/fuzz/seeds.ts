@@ -21,7 +21,7 @@ import { readFileSync } from 'node:fs';
 import * as Y from 'yjs';
 import * as encoding from 'lib0/encoding';
 import * as syncProtocol from 'y-protocols/sync';
-import { deleteRecord, PLACES_KEY, ROLLING_STOCK_KEY, TRAINS_KEY, writePlace, writeRecord } from '@cld/ydoc';
+import { deleteRecord, OPS_JOBS_KEY, PLACES_KEY, ROLLING_STOCK_KEY, TRAINS_KEY, WAYBILLS_KEY, writePlace, writeRecord } from '@cld/ydoc';
 import { fromHex, fuzzData, updateGuardContract } from './common.js';
 import { SHARED_ROOM, convertShape, encodeRoomInput, roomStates } from './room.js';
 
@@ -216,6 +216,27 @@ const EDITS: ((doc: Y.Doc) => void)[] = [
       /* not a map here */
     }
   },
+  // A waybill given to a car, turned and deleted; a job, its stops moved and removed (ops.ts).
+  (doc) => {
+    try {
+      doc.transact(() => {
+        writeRecord(doc, ROLLING_STOCK_KEY, { ...fuzzCar('c1', ''), opsWaybill: 'wb-1', opsHome: 'pl-1', opsAt: '', opsHold: false });
+        writeRecord(doc, WAYBILLS_KEY, fuzzWaybill('wb-1', 'c1'));
+      });
+      doc.transact(() => {
+        writeRecord(doc, WAYBILLS_KEY, { id: 'wb-1', leg: 2 });
+        writeRecord(doc, ROLLING_STOCK_KEY, { id: 'c1', opsLoad: 'empty' });
+      });
+      doc.transact(() => writeRecord(doc, OPS_JOBS_KEY, fuzzJob('jb-1')));
+      doc.transact(() => {
+        writeRecord(doc, OPS_JOBS_KEY, { id: 'jb-1', stop_a: { place: 'pl-1', at: 2.5 }, stop_c: { place: 'pl-2', at: 3 } });
+        (doc.getMap('meta').get(OPS_JOBS_KEY) as Y.Map<Y.Map<unknown>>).get('jb-1')!.delete('stop_b');
+      });
+      doc.transact(() => deleteRecord(doc, WAYBILLS_KEY, 'wb-1'));
+    } catch {
+      /* not a map here */
+    }
+  },
   // Rename the layout (setGeneralInfo).
   (doc) => {
     try {
@@ -232,6 +253,10 @@ const fuzzPlace = (id: string, name: string) => ({ id, name, kind: 'industry', s
 /** A car and a cut as the apps write them. */
 const fuzzCar = (id: string, opsCut: string) => ({ id, number: id, length: 32, trucks: [{ at: 8, swivelMax: 30 }, { at: -8, swivelMax: 30 }], opsCut, opsLoad: 'loaded' });
 const fuzzCut = (id: string, cars: string[]) => ({ id, name: '', cut: true, units: cars.map((stock) => ({ stock, reversed: false })), position: { brick: '1', from: 0, to: 1, s: 2.5, facing: 'to' }, over: { '1/0': 2 } });
+
+/** A waybill and a job as the apps write them. */
+const fuzzWaybill = (id: string, car: string) => ({ id, car, from: 'pl-1', leg: 1, ...Object.fromEntries([1, 2, 3, 4].flatMap((k) => [[`to${k}`, k < 3 ? `pl-${k}` : ''], [`spot${k}`, k === 1 ? 's1' : ''], [`load${k}`, k === 1 ? 'loaded' : ''], [`note${k}`, k === 1 ? 'Ice first' : '']])) });
+const fuzzJob = (id: string) => ({ id, name: 'Cannery Turn', kind: 'turn', train: 'ct-1', order: 1, stop_a: { place: 'pl-1', at: 1 }, stop_b: { place: 'pl-2', at: 2 } });
 
 /** Out of range: refused by the drawing-settings and grid guards. */
 const BAD_EDITS: ((doc: Y.Doc) => void)[] = [
@@ -252,6 +277,10 @@ const BAD_EDITS: ((doc: Y.Doc) => void)[] = [
       doc.transact(() => writeRecord(doc, TRAINS_KEY, { ...fuzzCut('ct-3', []), units: 'none' } as never));
       doc.transact(() => writeRecord(doc, ROLLING_STOCK_KEY, { ...fuzzCar('c3', 'x'), length: 1e9 }));
       doc.transact(() => doc.getMap('meta').set(TRAINS_KEY, { 'ct-4': 1 }));
+      // Waybills and jobs out of theirs.
+      doc.transact(() => writeRecord(doc, WAYBILLS_KEY, { ...fuzzWaybill('wb-2', 'c1'), leg: 9 }));
+      doc.transact(() => writeRecord(doc, OPS_JOBS_KEY, { ...fuzzJob('jb-2'), stop_c: 'pl-1' }));
+      doc.transact(() => doc.getMap('meta').set(WAYBILLS_KEY, { 'wb-3': 1 }));
       doc.transact(() => doc.getMap('sidecarItems').set('m:bad', { id: 'bad', members: [], places: [{ id: 'p' }] }));
     } catch {
       /* not a map here */

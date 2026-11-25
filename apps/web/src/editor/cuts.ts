@@ -7,7 +7,7 @@
 // The desktop's src/edit/CutCommands.cpp does the same.
 
 import * as Y from 'yjs';
-import { deleteRecord, readRecordsFromDoc, ROLLING_STOCK_KEY, TRAINS_KEY, writeRecord } from '@cld/ydoc';
+import { deleteRecord, OPS_JOBS_KEY, readRecordsFromDoc, ROLLING_STOCK_KEY, TRAINS_KEY, WAYBILLS_KEY, writeRecord } from '@cld/ydoc';
 import {
   asStock,
   CUT_LIMITS,
@@ -214,13 +214,15 @@ export function moveText(m: CutMove, trains: readonly Train[], stock: ReadonlyMa
   return null;
 }
 
-/** The fields every car and train has from the start (a car's opsCut: from its first move). */
+/** The fields every car, train, waybill and job has from the start (a car's ops fields: from when they are first set). */
 const ALWAYS: Record<string, readonly string[]> = {
   [TRAINS_KEY]: ['name', 'trackKind', 'units', 'position', 'color', 'speed'],
-  [ROLLING_STOCK_KEY]: ['number', 'name', 'kind', 'type', 'trackKind', 'length', 'width', 'bodyLength', 'trucks', 'couplers', 'look', 'notes', 'opsCut'],
+  [ROLLING_STOCK_KEY]: ['number', 'name', 'kind', 'type', 'trackKind', 'length', 'width', 'bodyLength', 'trucks', 'couplers', 'look', 'notes', 'opsCut', 'opsWaybill', 'opsHome', 'opsAt', 'opsHold'],
+  [WAYBILLS_KEY]: ['car', 'from', 'leg', ...[1, 2, 3, 4].flatMap((k) => [`to${k}`, `spot${k}`, `load${k}`, `note${k}`])],
+  [OPS_JOBS_KEY]: ['name', 'kind', 'train', 'order'],
 };
 
-/** Those fields of every car and train, before an undo or redo. */
+/** Those fields of every one, before an undo or redo. */
 export function trainFields(doc: Y.Doc): Map<string, unknown> {
   const out = new Map<string, unknown>();
   for (const [key, fields] of Object.entries(ALWAYS)) {

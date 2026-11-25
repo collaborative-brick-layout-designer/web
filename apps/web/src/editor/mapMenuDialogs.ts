@@ -14,6 +14,7 @@ export const MAP_MENU_NOT_DIALOGS: Readonly<Record<string, string>> = {
   'make-module': 'needs parts picked first',
   'save-set': 'needs parts picked first',
   places: 'the Places panel (a sheet on a phone: mobileDialogs.spec.ts)',
+  'live-ops': 'the Live Ops panel (a sheet on a phone)',
   'venue-designer': 'the venue designer page',
   'venue-outline': 'a drawing tool on the map',
   'venue-obstacle': 'a drawing tool on the map',

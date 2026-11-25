@@ -13,6 +13,7 @@ import { attachUser } from '../../auth/cookie.js';
 import { passwordRoutes } from '../auth/password.js';
 import { layoutRoutes } from '../layouts.js';
 import { layoutVersionRoutes } from '../layoutVersions.js';
+import { createDefaultLayoutDoc, OPS_JOBS_KEY, readRecordsFromDoc, WAYBILLS_KEY, writeRecord } from '@cld/ydoc';
 import { docHub } from '../../ws/docHub.js';
 import { autoVersion, takeVersion, versionsToDrop } from '../../history/layoutVersions.js';
 import { syncDocTo } from '../../history/syncDoc.js';
@@ -110,6 +111,27 @@ describe('restore and copy', () => {
     expect(await meta('author')).toBe('second');
     const audit = db.select().from(schema.auditEvents).where(and(eq(schema.auditEvents.layoutId, layoutId), eq(schema.auditEvents.eventType, 'restore_version'))).all();
     expect(audit).toHaveLength(2);
+  });
+
+  it('waybills and jobs go back with it; a version from before there were any leaves their maps empty', async () => {
+    const session = await docHub.getOrCreate(layoutId);
+    const bare = createDefaultLayoutDoc();
+    const old = { id: (await takeVersion({ layoutId, state: Y.encodeStateAsUpdate(bare), reason: 'manual', by: owner.id, editors: [] }))! };
+    session.doc.transact(() => {
+      writeRecord(session.doc, WAYBILLS_KEY, { id: 'wb-1', car: 'c1', leg: 1, to1: 'pl-1' });
+      writeRecord(session.doc, OPS_JOBS_KEY, { id: 'jb-1', name: 'Turn', stop_a: { place: 'pl-1', at: 1 } });
+    });
+    await session.flushBatch();
+    const then = (await keep(owner, { label: 'Then' })).json() as { id: string };
+    const restore = async (id: string) => expect((await app.inject({ method: 'POST', url: `/api/layouts/${layoutId}/versions/${id}/restore`, headers: as(owner) })).statusCode).toBe(200);
+    await restore(old.id);
+    for (const key of [WAYBILLS_KEY, OPS_JOBS_KEY] as const) {
+      expect(session.doc.getMap('meta').get(key)).toBeInstanceOf(Y.Map);
+      expect(readRecordsFromDoc(session.doc, key)).toEqual([]);
+    }
+    await restore(then.id);
+    expect(readRecordsFromDoc(session.doc, WAYBILLS_KEY)).toEqual([{ id: 'wb-1', car: 'c1', leg: 1, to1: 'pl-1' }]);
+    expect(readRecordsFromDoc(session.doc, OPS_JOBS_KEY)).toEqual([{ id: 'jb-1', name: 'Turn', stop_a: { place: 'pl-1', at: 1 } }]);
   });
 
   it('copies a version out as a new layout, leaving this one as it is', async () => {

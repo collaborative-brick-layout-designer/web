@@ -984,6 +984,72 @@ test.describe('desktop and web live editing', () => {
     }
   });
 
+  test('Live Ops: waybills and jobs made on the web and the desktop are the same on both, with the same switch lists, and two added at once both stay', async ({ page, request }) => {
+    test.setTimeout(150_000);
+    const stamp = Date.now();
+    await page.setViewportSize({ width: 1400, height: 900 });
+    await signIn(page, `ops-desk-web-${stamp}@example.com`, 'Web Tester');
+    const place = (id: string, brick: string, capacity: number, ships: string[], accepts: string[]) => ({ id, name: id, kind: 'industry', spots: [{ id: 's1', name: 'Dock', track: { brick, from: 0, to: 1 }, capacity }], accepts, ships, tags: [], notes: '' });
+    const car = (id: string, number: string) => ({ id, number, name: '', kind: 'car', type: 'Boxcar', trackKind: 'rail', length: 20, width: 6, bodyLength: 18, trucks: [{ at: 5, swivelMax: 30 }, { at: -5, swivelMax: 30 }], opsCut: `cut-${id}` });
+    const cut = (id: string, brick: string) => ({ id: `cut-${id}`, name: '', cut: true, units: [{ stock: id, reversed: false }], position: { brick, from: 0, to: 1, s: 8, facing: 'to' }, over: {}, color: '#B40000', speed: 40, trackKind: 'rail' });
+    const sidecar = JSON.stringify({ schemaVersion: 1, bbmHashSha256: '', layoutPlaces: [place('cannery', '141', 1, ['boxcar'], []), place('mill', '322', 2, [], ['boxcar'])], rollingStock: [car('c1', '101'), car('c2', '102')], trains: [cut('c1', '1372'), cut('c2', '1339')] });
+    const { id } = (await (await page.request.post('/api/layouts', { data: { title: 'Ops, web and desktop', bbm: TIGHT_CORNER_BBM, sidecar } })).json()) as { id: string };
+    const token = await desktopToken(page, request);
+    const driver = new Driver(DRIVER!, token);
+    type Ops = { waybills: { id: string; car: string; leg: number }[]; opsJobs: { id: string; name: string }[] };
+    type Lists = { job: string; stops: { place: string; setOut: { car: string; spot: string }[]; pickUp: { car: string; to: string }[] }[] }[];
+    const ops = async () => JSON.parse(await driver.run('ops')) as Ops;
+    const lists = async () => JSON.parse(await driver.run('ops-lists')) as Lists;
+    try {
+      await driver.run(`open ${id}`);
+      await driver.run('wait-synced');
+      const has = await driver.run('ops').then(() => true, (e: unknown) => {
+        if (/unknown|no such command|bad command/i.test(String(e))) return false;
+        throw e;
+      });
+      test.skip(!has, 'this bld_sync_driver has no Live Ops commands yet (desktop main is older)');
+      await page.goto(`/editor/${id}`);
+      await expect(page.locator('canvas').first()).toBeVisible({ timeout: 15000 });
+      await page.waitForTimeout(1000);
+      await mapMenu(page, 'Modules & sets', 'Live Ops');
+      const panel = page.getByTestId('ops-panel');
+
+      // The web writes 101's waybill; the desktop adds 102's and a job.
+      await panel.locator('[data-car="c1"]').getByTestId('ops-car-waybill').click();
+      await panel.getByTestId('ops-leg-to').first().selectOption('mill');
+      await expect.poll(async () => (await ops()).waybills.map((w) => w.car), { timeout: 10_000 }).toEqual(['c1']);
+      await driver.run('waybill-add c2 cannery loaded');
+      const job = (await driver.run('job-add Turn cannery mill')).trim();
+      await expect(panel.getByTestId('ops-cant')).toContainText('102: No job goes from mill to cannery.', { timeout: 10_000 });
+      await panel.getByTestId('ops-tab-jobs').click();
+      await panel.getByRole('button', { name: 'Turn', exact: true }).click();
+      await expect(panel.getByTestId('ops-switch-list')).toContainText('Pick up 101 for mill');
+      await expect.poll(async () => (await lists()).find((l) => l.job === job)?.stops, { timeout: 10_000 }).toEqual([
+        { place: 'cannery', setOut: [], pickUp: [{ car: 'c1', to: 'mill' }] },
+        { place: 'mill', setOut: [{ car: 'c1', spot: 's1' }], pickUp: [] },
+      ]);
+
+      // Both add a stop at once: both stay, and both apps list the same.
+      await Promise.all([panel.getByTestId('ops-add-stop').selectOption('cannery'), driver.run(`job-stop ${job} mill`)]);
+      await expect(panel.getByTestId('ops-stops').getByRole('listitem')).toHaveCount(4, { timeout: 10_000 });
+      await expect.poll(async () => (await lists())[0]!.stops.map((s) => s.place).sort(), { timeout: 10_000 }).toEqual(['cannery', 'cannery', 'mill', 'mill']);
+
+      // Both add a waybill at once.
+      await panel.getByTestId('ops-tab-waybills').click();
+      await Promise.all([panel.getByTestId('ops-new-waybill').click(), driver.run('waybill-add - mill empty')]);
+      await expect.poll(async () => (await ops()).waybills.length, { timeout: 10_000 }).toBe(4);
+      await panel.getByTestId('ops-back').click();
+      await expect(panel.locator('[data-waybill]')).toHaveCount(4, { timeout: 10_000 });
+
+      // Delivered on the desktop: finished on the web, and Undo on the web leaves it.
+      await driver.run('waybill-turn c1');
+      await expect(panel.locator('[data-waybill]').filter({ hasText: '101' })).toContainText('Finished', { timeout: 10_000 });
+      await expect.poll(async () => (await driver.trains())!.rollingStock.map((s) => (s as { opsLoad?: string }).opsLoad ?? ''), { timeout: 10_000 }).toEqual(['', 'loaded']);
+    } finally {
+      await driver.close();
+    }
+  });
+
   test('trains from a model: an engine the web imports from a Studio file is the same engine on the desktop, picture and trucks, and the other way round', async ({ page, request }) => {
     test.setTimeout(180_000);
     const stamp = Date.now();

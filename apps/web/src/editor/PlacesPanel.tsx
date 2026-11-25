@@ -12,6 +12,7 @@ import { HelpButton } from '../help/HelpButton';
 import { confirmDelete } from '../ui/ConfirmDialog';
 import { useEditorStore } from './editorStore';
 import { showSpot } from './fitChecks';
+import { deletedPlacesText } from './ops';
 import {
   capacityText, KIND_HINT, KIND_LABEL, kindColor, kindLabel, newPlace, removePlace, ROLE_LABEL, savePlace, spotKey, spotProblem,
   type PlaceGroup, type PlaceOwner, type SpotNow,
@@ -370,7 +371,7 @@ function PlaceEditor({ doc, group, place, spots, readOnly, isViewer, carTypes, t
           data-testid="place-delete"
           className={btn + ' self-start text-red-700 dark:text-red-300'}
           onClick={() => {
-            void confirmDelete(place.name || 'this place', { removes: 'The place and its spots.', keeps: 'The track stays.', undoable: true }).then((ok) => {
+            void confirmDelete(place.name || 'this place', { removes: ['The place and its spots.', deletedPlacesText(doc, [place.id])].filter(Boolean).join(' '), keeps: 'The track stays.', undoable: true }).then((ok) => {
               if (!ok) return;
               removePlace(doc, group.owner, place.id);
               onBack();

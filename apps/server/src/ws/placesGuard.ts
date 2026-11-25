@@ -12,7 +12,7 @@
 //   - a module's `places` (or a sidecar's `layoutPlaces`) that aren't
 //     within the limits, unless the layout already held them so.
 //
-// Cars and trains (carsGuard.ts) are checked along with them, on the same copy.
+// Cars, trains, waybills and jobs (carsGuard.ts) are checked along with them, on the same copy.
 //
 // A value the update itself deletes is never read, and is let through.
 // Only the update's structs are read, and an update that writes nothing of
@@ -152,7 +152,7 @@ const names = (bytes: Uint8Array | null | undefined): boolean => {
   return PLACES_TEXT.some((t) => b.includes(t));
 };
 
-/** Whether the room, what it holds back or the update has places, cars or trains at all (their names are in the bytes). False: certainly not. */
+/** Whether the room, what it holds back or the update has places, cars, trains, waybills or jobs at all (their names are in the bytes). False: certainly not. */
 function mayHoldPlaces(doc: Y.Doc | null, update: Uint8Array): boolean {
   if (livePlaces(doc) || names(update) || names(doc?.store.pendingStructs?.update)) return true;
   const meta = doc?.share.get('meta') as unknown as { _map?: Map<string, Y.Item> } | undefined;

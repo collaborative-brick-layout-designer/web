@@ -33,6 +33,7 @@ import { clampTitle, titleTooLong, trimmed } from '../utils/validate.js';
 import { perPerson } from '../utils/rateLimits.js';
 import { CLIENT_REASONS, LABEL_MAX, listVersions, takeVersion, versionState, type VersionReason } from '../history/layoutVersions.js';
 import { syncDocTo } from '../history/syncDoc.js';
+import { ensureRecordMaps } from '@cld/ydoc';
 import { HISTORY_SETTINGS, historySettings, saveHistorySettings } from '../history/settings.js';
 
 async function adminView() {
@@ -146,6 +147,8 @@ export async function layoutVersionRoutes(app: FastifyInstance): Promise<void> {
       try {
         // The layout as it is now, first: restoring that one undoes this.
         const safety = await takeVersion({ layoutId, state: Y.encodeStateAsUpdate(session.doc), reason: 'before-restore', by: user.id, editors: [{ id: user.id, name: user.displayName }] });
+        // (A version from before there were some of the record maps: they are emptied, not taken away, so two people's next first records both stay.)
+        ensureRecordMaps(target);
         syncDocTo(session.doc, target, SERVER_ORIGIN);
         await session.flushBatch();
         await syncLayoutSharedModules(layoutId, session.doc);

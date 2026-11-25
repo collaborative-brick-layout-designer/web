@@ -12,3 +12,4 @@ export * from './places.js';
 export * from './animation.js';
 export * from './stockGuess.js';
 export * from './cuts.js';
+export * from './ops.js';

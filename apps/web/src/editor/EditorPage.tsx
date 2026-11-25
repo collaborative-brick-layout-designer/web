@@ -57,6 +57,8 @@ import { ElectricCircuitLayer } from './render/ElectricCircuitLayer';
 import { SwitchLayer } from './render/SwitchLayer';
 import { RouteLayer } from './render/RouteLayer';
 import { RoutesPanel } from './RoutesPanel';
+import { LiveOpsPanel, type OpsTab } from './LiveOpsPanel';
+import { openLiveOps, opsView, useOpsRecords } from './ops';
 import { PlacesPanel } from './PlacesPanel';
 import { BottomSheet } from './TouchSheets';
 import { moduleLocked } from './sharedLock';
@@ -362,7 +364,7 @@ function creditLabel(credit: Credit | null | undefined): string | null {
 }
 
 /** Panels a module has no use for (it has no venue and no saved views). */
-const NOT_IN_MODULES = new Set(['views', 'venuelibrary', 'modules']);
+const NOT_IN_MODULES = new Set(['views', 'venuelibrary', 'modules', 'liveops']);
 /** The sheets shown as one moving picture while the view moves (viewBitmap.ts), bottom first. */
 const VIEW_BITMAP_LAYERS = ['background-layer', 'parts-layer', DRAG_LAYER]; // the drag layer holds the module outlines
 /** One empty module list, so a layout without modules doesn't hand the map's layers a new one on every render (and frame of a pan). */
@@ -687,6 +689,8 @@ function Editor({ layoutId, docState, moduleMode }: { layoutId: string; docState
   const placeGroupsNow = usePlaceGroups(doc, docMap);
   const placeSpots = useSpots(editorTrackNet, editorRuns, placeGroupsNow);
   const placeCarTypes = useMemo(() => [...new Set(editorStock.map((s) => s.type).filter((t) => t.trim()))], [editorStock]);
+  // Waybills, jobs and routing (Live Ops design 2.4, 3), worked out while the Live Ops panel shows.
+  const opsRecords = useOpsRecords(doc, docMap);
   // Budget limits live in the doc's meta (shared with collaborators,
   // undoable). A meta change yields a new docMap, so re-read on that.
   const budgetRead = useMemo(
@@ -865,6 +869,24 @@ function Editor({ layoutId, docState, moduleMode }: { layoutId: string; docState
     window.addEventListener('cld:open-places', onOpen);
     return () => window.removeEventListener('cld:open-places', onOpen);
   }, [dock, viewport.isMobile]);
+  const [showOpsSheet, setShowOpsSheet] = useState(false);
+  const [opsOpen, setOpsOpen] = useState<{ tab?: OpsTab; waybill?: string; job?: string; n: number } | null>(null);
+  useEffect(() => {
+    const onOpen = (e: Event) => {
+      const d = (e as CustomEvent<{ tab?: OpsTab; waybill?: string; job?: string }>).detail ?? {};
+      setOpsOpen((was) => ({ ...d, n: (was?.n ?? 0) + 1 }));
+      // (A viewer has no panels beside the map.)
+      if (viewport.isMobile || isViewer) setShowOpsSheet(true);
+      else if (dock.zoneOf('liveops') === 'hidden') dock.setZone('liveops', 'right');
+    };
+    window.addEventListener('cld:open-live-ops', onOpen);
+    return () => window.removeEventListener('cld:open-live-ops', onOpen);
+  }, [dock, viewport.isMobile, isViewer]);
+  const opsShown = showOpsSheet || (!viewport.isMobile && dock.zoneOf('liveops') !== 'hidden');
+  const opsNow = useMemo(
+    () => (opsShown ? opsView({ records: opsRecords, groups: placeGroupsNow, spots: placeSpots, net: editorTrackNet, stock: editorStockById, trains: editorTrains, placed: editorPlaced }) : null),
+    [opsShown, opsRecords, placeGroupsNow, placeSpots, editorTrackNet, editorStockById, editorTrains, editorPlaced],
+  );
   const panelsHere = (ids: readonly string[]) => (moduleMode ? ids.filter((id) => !NOT_IN_MODULES.has(id)) : [...ids]);
   const leftPanels = panelsHere(dock.state.left);
   const rightPanels = panelsHere(dock.state.right);
@@ -902,6 +924,7 @@ function Editor({ layoutId, docState, moduleMode }: { layoutId: string; docState
         <RoutesPanel doc={doc} net={editorTrackNet} routes={editorRoutes} statuses={editorRouteStatuses} hidden={routesHidden.hidden} setShown={routesHidden.setShown} isViewer={isViewer} checks={editorChecks.filter((c) => c.route || c.kind === 'gap')} names={editorNames} />
       );
     if (panelId === 'places') return placesPanel(false);
+    if (panelId === 'liveops') return opsPanel(false);
     if (panelId === 'trains') return trainsPanel(false);
     if (panelId === 'modules') return <Suspense fallback={null}><ModulesPanel doc={doc} isViewer={isViewer} layoutId={moduleMode ? null : layoutId} /></Suspense>;
     if (panelId === 'modlibrary')
@@ -927,6 +950,28 @@ function Editor({ layoutId, docState, moduleMode }: { layoutId: string; docState
         carTypes={placeCarTypes}
         touch={touch}
         {...(touch ? { onPicking: () => setShowPlacesSheet(false) } : {})}
+      />
+    );
+  }
+
+  function opsPanel(touch: boolean): React.ReactNode {
+    if (!doc || !opsNow) return null;
+    return (
+      <LiveOpsPanel
+        doc={doc}
+        net={editorTrackNet}
+        states={editorSwitchStates}
+        view={opsNow}
+        isViewer={isViewer}
+        open={opsOpen}
+        touch={touch}
+        onTrains={() => {
+          if (viewport.isMobile) {
+            setShowOpsSheet(false);
+            setShowTrainsSheet(true);
+          } else window.dispatchEvent(new CustomEvent('cld:show-panel', { detail: 'trains' }));
+        }}
+        {...(touch ? { onShown: () => setShowOpsSheet(false) } : {})}
       />
     );
   }
@@ -1253,6 +1298,11 @@ function Editor({ layoutId, docState, moduleMode }: { layoutId: string; docState
                     Trains and cars…
                   </button>
                 )}
+                {!moduleMode && (
+                  <button role="menuitem" type="button" data-testid="phone-liveops" onClick={() => openLiveOps()} className="block w-full px-3.5 py-3 text-left hover:bg-soft">
+                    Live Ops…
+                  </button>
+                )}
                 {role !== 'viewer' && (
                   <button role="menuitem" type="button" data-testid="phone-run" onClick={() => useEditorStore.getState().setRunMode(!useEditorStore.getState().runMode)} className="block w-full px-3.5 py-3 text-left hover:bg-soft">
                     {runMode ? 'Stop running trains' : 'Run trains'}
@@ -1282,6 +1332,7 @@ function Editor({ layoutId, docState, moduleMode }: { layoutId: string; docState
                         saveAsSet: () => setShowSaveAsSet(true),
                         importBbm: () => setShowImportBbm(true),
                         places: () => openPlaces({ module: null }),
+        ...(moduleMode ? {} : { liveOps: () => openLiveOps() }),
                         ...(moduleMode ? {} : { sharedModuleUpdates: () => setShowSharedUpdates(true) }),
                         venueDesigner: () => setShowVenueDesigner(true),
                         venueDimensions: () => setShowVenueDimensions(true),
@@ -1708,6 +1759,11 @@ function Editor({ layoutId, docState, moduleMode }: { layoutId: string; docState
       {showTrainsSheet && (
         <BottomSheet title="Trains" onClose={() => setShowTrainsSheet(false)}>
           {trainsPanel(true)}
+        </BottomSheet>
+      )}
+      {showOpsSheet && (
+        <BottomSheet title="Live Ops" onClose={() => setShowOpsSheet(false)}>
+          {opsPanel(true)}
         </BottomSheet>
       )}
       {showPlacesSheet && (
@@ -5549,7 +5605,7 @@ function Canvas({
       {runMode && <RunModeBanner />}
       {runMode && <RunPanel doc={doc} trains={runnable} routes={routes} statuses={routeStatuses} placed={placedTrains} scale={trainScale} isViewer={isViewer} top={phone} />}
       {placingTrain && <TrainPlaceBanner name={placingName} />}
-      {carsMove && trackNet && <CarBar doc={doc} net={trackNet} trains={trains} stock={stockById} states={switchStates} />}
+      {carsMove && trackNet && <CarBar doc={doc} net={trackNet} trains={trains} stock={stockById} states={switchStates} groups={placeGroups} />}
       {placePick && <PlacePickBanner newOne={!placePick.place} module={typeof placePick.owner === 'string' ? placeGroups.find((g) => g.owner === placePick.owner)?.name : undefined} />}
       {routeDraft && <RouteDraftBanner doc={doc} draft={routeDraft} found={draftFound} routes={routes} trainName={routeDraft.train ? trains.find((t) => t.id === routeDraft.train)?.name : undefined} />}
       <SetUpdatesBar updates={setUpdates} onUpdate={updatePlacedSets} onShow={showPlacedSets} top={phone} />
@@ -6115,7 +6171,7 @@ function SnapRing() {
  * affordance stays visible.
  */
 // UI words: layers are "Sheets" (the ids stay).
-const PANEL_TITLES: Record<string, string> = { parts: 'Parts', layers: 'Sheets', views: 'Views', usedparts: 'Parts list', modules: 'Modules', modlibrary: 'Module library', venuelibrary: 'Venue library', routes: 'Routes', trains: 'Trains', places: 'Places' };
+const PANEL_TITLES: Record<string, string> = { parts: 'Parts', layers: 'Sheets', views: 'Views', usedparts: 'Parts list', modules: 'Modules', modlibrary: 'Module library', venuelibrary: 'Venue library', routes: 'Routes', trains: 'Trains', places: 'Places', liveops: 'Live Ops' };
 
 /**
  * Renders a vertical stack of panels in one dock column, with:
@@ -6658,6 +6714,7 @@ function MapMenu({
         saveAsSet: onSaveAsSet,
         importBbm: onImportBbm,
         places: () => openPlaces({ module: null }),
+        ...(moduleMode ? {} : { liveOps: () => openLiveOps() }),
         ...(onImportModel ? { importModel: onImportModel } : {}),
         ...(onVersionHistory ? { versionHistory: onVersionHistory } : {}),
         ...(onSharedModuleUpdates ? { sharedModuleUpdates: onSharedModuleUpdates } : {}),

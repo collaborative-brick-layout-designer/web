@@ -96,7 +96,17 @@ Cars standing on the track are cuts: trains with `cut: true`. A car's
 `opsCut` names the cut or train it stands in (`""`: none) and wins over the
 trains' lists, `opsLoad` is `loaded` or `empty`, and a train's `over` keeps
 how it stands over switches. Cuts coupled away stay a day with no cars and
-`emptiedAt`.
+`emptiedAt`. `opsHold: true` sets a car aside, `opsHome` is the place it goes
+back to, `opsAt` the place off the layout it is at while it isn't on the
+track, and `opsWaybill` the waybill in its pocket.
+
+Waybills and jobs are `waybills` and `opsJobs` (Live Ops design 2.4, 2.5),
+live Y.Maps at `meta.waybills` and `meta.opsJobs`, one Y.Map of flat fields a
+record. A waybill is `{ id, car, from, leg, to1, spot1, load1, note1, ...
+note4 }`: four slots, those with a `to` (a place's id) used, `leg` the one it
+is on (0: finished); it is in a car's pocket when the car's `opsWaybill` and
+its `car` name each other. A job is `{ id, name, kind, train, order,
+stop_<id>: { place, at }, ... }`, its stops in `at` order. Never in a `.bbm`.
 
 ## Saved views
 

@@ -19,6 +19,7 @@ export const PANEL_HELP: Record<string, HelpKey> = {
   routes: 'panel.routes',
   trains: 'panel.trains',
   places: 'ops.places',
+  liveops: 'ops.waybill',
 };
 
 const DRAG_MIME = 'application/x-cld-panel';
