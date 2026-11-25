@@ -92,6 +92,12 @@ to date. In the live doc they are Y.Maps at `meta.rollingStock` and
 `meta.trains`, one Y.Map of fields a record. Fields the app doesn't know
 are kept. Never in a `.bbm`.
 
+Cars standing on the track are cuts: trains with `cut: true`. A car's
+`opsCut` names the cut or train it stands in (`""`: none) and wins over the
+trains' lists, `opsLoad` is `loaded` or `empty`, and a train's `over` keeps
+how it stands over switches. Cuts coupled away stay a day with no cars and
+`emptiedAt`.
+
 ## Saved views
 
 `sidecar.json` (and the `.bbm.bld` sidecar, and the live doc's `meta.cache`)

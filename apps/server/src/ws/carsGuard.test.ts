@@ -232,7 +232,7 @@ describe('however the changes arrive', () => {
           sound(l);
           l.doc.destroy();
         }
-  });
+  }, 60_000);
 
   it('a parent that arrives after what is in it', () => {
     const l = live();

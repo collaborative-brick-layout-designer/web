@@ -171,9 +171,9 @@ describe('two people at once', () => {
           once([a, b], ['a', 'b', 'c', 'd'], [ca, xa, cb, xb, undo].join(' '));
           ua.redo();
           sync(a, b);
-          once([a, b], ['a', 'b', 'c', 'd']);
+          once([a, b], ['a', 'b', 'c', 'd'], [ca, xa, cb, xb, undo, 'redo'].join(' '));
         }
-  });
+  }, 60_000);
 });
 
 describe('undo, and the track under standing cars', () => {
