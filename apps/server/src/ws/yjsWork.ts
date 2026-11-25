@@ -15,7 +15,7 @@
 
 import * as Y from 'yjs';
 import { decodeIncoming, type DecodedUpdate, type DeleteSet, type Struct } from './decoded.js';
-import { pendingMayLand } from './pending.js';
+import { pendingMayLand, trimPending } from './pending.js';
 
 /** The most work one update may take, in structs walked plus values copied (about 50 ms). */
 export const MAX_UPDATE_WORK = 4_000_000;
@@ -196,6 +196,7 @@ export function applyStoredUpdate(doc: Y.Doc, bytes: Uint8Array, where: string):
   }
   try {
     Y.applyUpdate(doc, bytes);
+    trimPending(doc);
     return true;
   } catch {
     return false; // corrupt: the snapshot is the source of truth

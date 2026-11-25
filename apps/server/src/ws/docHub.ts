@@ -20,7 +20,7 @@ import { db, schema } from '../db/index.js';
 import { encodeAwarenessUpdate, encodeSyncUpdate, isWsPeer, sendBytes } from './protocol.js';
 import { rollup } from '../metrics/rollup.js';
 import { applyStoredUpdate } from './yjsWork.js';
-import { MAX_PENDING_BYTES, MAX_PENDING_DS_BYTES, dropPending, noteWaitingOnOpen, pendingBytes, pendingDsBytes } from './pending.js';
+import { MAX_PENDING_BYTES, MAX_PENDING_DS_BYTES, dropPending, noteWaitingOnOpen, pendingBytes, pendingDsBytes, trimPending } from './pending.js';
 import { checkUpdate } from './updateGuard.js';
 import { HeldUpdates } from './held.js';
 import type { Sender } from './handler.js';
@@ -117,6 +117,8 @@ export class DocSession {
 
   constructor(public readonly layoutId: string) {
     this.doc = new Y.Doc();
+    // What waits never covers what the room has (ws/pending.ts).
+    this.doc.on('afterTransaction', () => trimPending(this.doc));
     this.awareness = new Awareness(this.doc);
   }
 
