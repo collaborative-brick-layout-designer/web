@@ -3041,7 +3041,7 @@ function Canvas({
     const group = placeGroups.find((g) => g.owner === owner);
     const had = pick.place ? group?.places.find((p) => p.id === pick.place) : undefined;
     if (!had && (group?.places.length ?? 0) >= PLACE_LIMITS.places) {
-      st.showStatusMessage(`There’s room for ${PLACE_LIMITS.places} places here.`, 4000);
+      st.showStatusMessage(`There can be up to ${PLACE_LIMITS.places} places here.`, 4000);
       return false;
     }
     const place = had ? withSpotOn(had, pick.spot, pos) : newPlace(placeGroups, pos);
