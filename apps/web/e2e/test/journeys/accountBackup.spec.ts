@@ -5,27 +5,58 @@
 //   are deleted → Restore from a backup → the list says what comes back:
 //   the deleted ones ticked, what they still have left out, a name they
 //   already use renamed "… (restored)" → Restore → the things are back as
-//   new copies, and nothing they had was changed.
+//   new copies, and nothing they had was changed. A layout's places, its
+//   modules' places and a library module's come back with them.
 
 import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import * as Y from 'yjs';
 import { test, expect } from '@playwright/test';
-import { signIn } from '../../helpers';
+import { mapMenu, signIn } from '../../helpers';
 
 const ts = Date.now();
 const EMAIL = `j-backup-${ts}@example.com`;
+const BBM = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '../../../../../packages/bbm/tests/fixtures/tight-corner.bbm'), 'utf-8');
+const place = (id: string, name: string) => ({ id, name, kind: 'industry', spots: [], accepts: ['reefer'], ships: [], tags: [], notes: 'Ice at\nthe yard' });
 const ROOM = { name: 'Hall', enabled: true, edges: [], obstacles: [], minWalkwayStuds: 0 };
 
 test('a member downloads a backup of their things and restores what they lost', async ({ page }, info) => {
   test.setTimeout(180_000);
   await signIn(page, EMAIL, `Backer ${ts}`);
+  const docOf = async (url: string): Promise<Y.Doc> => {
+    const res = await page.request.get(url);
+    expect(res.ok(), url).toBe(true);
+    const doc = new Y.Doc();
+    Y.applyUpdate(doc, new Uint8Array(await res.body()));
+    return doc;
+  };
+  const placesIn = (doc: Y.Doc) => (doc.getMap('meta').get('places') as Y.Map<unknown> | undefined)?.toJSON() ?? {};
   const post = async (url: string, data: unknown) => {
     const res = await page.request.post(url, { data });
     expect(res.ok(), `${url}: ${await res.text()}`).toBe(true);
     return (await res.json()) as { id: string };
   };
-  const yard = await post('/api/layouts', { title: `Yard ${ts}` });
+  const yard = await post('/api/layouts', {
+    title: `Yard ${ts}`,
+    bbm: BBM,
+    sidecar: JSON.stringify({
+      schemaVersion: 1,
+      bbmHashSha256: '',
+      modules: [{ id: 'depot', name: 'Depot', members: ['222'], transform: [1, 0, 0, 0, 1, 0, 0, 0, 1], places: [place('pl-2', 'Depot dock')] }],
+      layoutPlaces: [place('pl-1', 'Acme Cannery')],
+    }),
+  });
   await post('/api/layouts', { title: `Harbor ${ts}` });
-  await post('/api/modules', { title: `Corner ${ts}` });
+  const corner = await post('/api/modules', { title: `Corner ${ts}` });
+  const cornerDoc = await docOf(`/api/modules/${corner.id}/snapshot`);
+  cornerDoc.transact(() => {
+    const all = new Y.Map<unknown>();
+    cornerDoc.getMap('meta').set('places', all);
+    all.set('pl-3', new Y.Map(Object.entries(place('pl-3', 'Corner mill'))));
+  });
+  const put = await page.request.put(`/api/modules/${corner.id}/snapshot`, { headers: { 'content-type': 'application/octet-stream' }, data: Buffer.from(Y.encodeStateAsUpdate(cornerDoc)) });
+  expect(put.ok(), await put.text()).toBe(true);
   const hall = await post('/api/venues', { name: `Hall ${ts}`, data: ROOM });
   await post('/api/rolling-stock', { record: { number: '4014', name: `Big Boy ${ts}`, length: 36 } });
 
@@ -67,13 +98,23 @@ test('a member downloads a backup of their things and restores what they lost', 
   expect(layouts.filter((l) => l.title === `Harbor ${ts}`)).toHaveLength(1);
   const venues = ((await (await page.request.get('/api/venues?owner=me')).json()) as { venues: { name: string }[] }).venues.map((v) => v.name).sort();
   expect(venues).toEqual([`Hall ${ts}`, `Hall ${ts} (restored)`]);
-  const modules = ((await (await page.request.get('/api/modules?owner=me')).json()) as { modules: { title: string }[] }).modules.map((m) => m.title).sort();
-  expect(modules).toEqual([`Corner ${ts}`, `Corner ${ts} (restored)`]);
+  const library = ((await (await page.request.get('/api/modules?owner=me')).json()) as { modules: { id: string; title: string }[] }).modules;
+  expect(library.map((m) => m.title).sort()).toEqual([`Corner ${ts}`, `Corner ${ts} (restored)`]);
   const stock = ((await (await page.request.get('/api/rolling-stock?owner=me')).json()) as { stock: { name: string }[] }).stock.map((x) => x.name).sort();
   expect(stock).toEqual([`Big Boy ${ts}`, `Big Boy ${ts} (restored)`]);
 
-  // The restored layout opens.
+  // The places came back: the layout's own, its module's, and the library module's.
   const restored = layouts.find((l) => l.title === `Yard ${ts}`)!;
+  const yardDoc = await docOf(`/api/layouts/${restored.id}/snapshot`);
+  expect(placesIn(yardDoc)).toEqual({ 'pl-1': place('pl-1', 'Acme Cannery') });
+  const cache = yardDoc.getMap('meta').get('cache') as { modules: { id: string; places: unknown }[] };
+  expect(cache.modules.map((m) => [m.id, m.places])).toEqual([['depot', [place('pl-2', 'Depot dock')]]]);
+  const cornerCopy = library.find((m) => m.title === `Corner ${ts} (restored)`)!;
+  expect(placesIn(await docOf(`/api/modules/${cornerCopy.id}/snapshot`))).toEqual({ 'pl-3': place('pl-3', 'Corner mill') });
+
+  // The restored layout opens, with its cannery in Places.
   await page.goto(`/editor/${restored.id}`);
   await expect(page.getByText(`Yard ${ts}`).first()).toBeVisible({ timeout: 30_000 });
+  await mapMenu(page, 'Modules & sets', 'Places');
+  await expect(page.getByTestId('places-panel')).toContainText('Acme Cannery');
 });
