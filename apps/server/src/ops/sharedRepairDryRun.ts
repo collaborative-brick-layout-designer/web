@@ -5,6 +5,7 @@
 import { asc, eq, gt, and } from 'drizzle-orm';
 import * as Y from 'yjs';
 import { db, schema } from '../db/index.js';
+import { planHeal, type HealCounts } from '../sharedModules/heal.js';
 import { examine, type SkipReason } from '../sharedModules/repair.js';
 import { forgetSharedGeometry } from '../ws/sharedGeometry.js';
 import { trimPending } from '../ws/pending.js';
@@ -15,12 +16,14 @@ export interface DryRun {
   unreadable: number;
   /** Layouts with at least one module to repair; those modules; copies taken out; parts made their version's. */
   change: { layouts: number; modules: number; removed: number; restored: number };
+  /** Layouts that opening would put in shape, and what in them. */
+  heal: { layouts: number } & HealCounts;
   /** Layouts with extra copies where nothing would change; modules left as they are, by why. */
   skip: { layouts: number; modules: number; why: Partial<Record<SkipReason, number>> };
 }
 
 export async function sharedRepairDryRun(): Promise<DryRun> {
-  const out: DryRun = { layouts: 0, unreadable: 0, change: { layouts: 0, modules: 0, removed: 0, restored: 0 }, skip: { layouts: 0, modules: 0, why: {} } };
+  const out: DryRun = { layouts: 0, unreadable: 0, change: { layouts: 0, modules: 0, removed: 0, restored: 0 }, heal: { layouts: 0, nested: 0, second: 0, fields: 0, entries: 0, sheets: 0, places: 0 }, skip: { layouts: 0, modules: 0, why: {} } };
   let after = '';
   for (;;) {
     const ids = await db.select({ id: schema.layouts.id }).from(schema.layouts).where(gt(schema.layouts.id, after)).orderBy(asc(schema.layouts.id)).limit(200).all();
@@ -37,6 +40,13 @@ export async function sharedRepairDryRun(): Promise<DryRun> {
         const updates = await db.select({ u: schema.layoutUpdates.updateBytes }).from(schema.layoutUpdates).where(and(eq(schema.layoutUpdates.layoutId, id), eq(schema.layoutUpdates.doc, 'main'))).orderBy(asc(schema.layoutUpdates.id)).all();
         for (const { u } of updates) applyStoredUpdate(doc, u as Uint8Array, `layout ${id}`);
         trimPending(doc);
+        // (As opening does: in shape first, then the extra copies.)
+        const heal = await planHeal(id, row, doc);
+        if (heal) {
+          out.heal.layouts += 1;
+          for (const k of Object.keys(heal.counts) as (keyof HealCounts)[]) out.heal[k] += heal.counts[k];
+          heal.apply(doc);
+        }
         const looked = (await examine(id, row, doc))?.plan();
         if (!looked) continue;
         for (const { repair } of looked.repairs) {
@@ -77,5 +87,7 @@ export function dryRunLines(r: DryRun): string[] {
     `  would change: ${r.change.layouts} layouts, ${r.change.modules} modules, ${r.change.removed} extra copies taken out, ${r.change.restored} parts made as the owner's version has them`,
     `  would skip: ${r.skip.modules} modules (${r.skip.layouts} layouts where nothing changes)`,
     ...why.map(([k, n]) => `    ${n}: ${WHY[k as SkipReason]}`),
+    `Layouts put in shape on opening (dry run, nothing written): ${r.heal.layouts} layouts`,
+    `  ${r.heal.nested} sidecar values, ${r.heal.second} second entries, ${r.heal.fields} part fields, ${r.heal.entries} entries that aren't parts, ${r.heal.sheets} sheets, ${r.heal.places} modules whose places are put back`,
   ];
 }

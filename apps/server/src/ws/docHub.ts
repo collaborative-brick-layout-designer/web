@@ -15,8 +15,7 @@ import { Awareness, applyAwarenessUpdate } from 'y-protocols/awareness';
 import * as decoding from 'lib0/decoding';
 import * as encoding from 'lib0/encoding';
 import { eq, and } from 'drizzle-orm';
-import { sharedModulesIn } from '@cld/modules';
-import { readSidecarCache, repairSidecarShape, upgradeDoc } from '@cld/ydoc';
+import { upgradeDoc } from '@cld/ydoc';
 import { db, schema } from '../db/index.js';
 import { encodeAwarenessUpdate, encodeSyncUpdate, isWsPeer, sendBytes } from './protocol.js';
 import { rollup } from '../metrics/rollup.js';
@@ -26,7 +25,7 @@ import { checkUpdate } from './updateGuard.js';
 import { HeldUpdates } from './held.js';
 import type { Sender } from './handler.js';
 import { syncLayoutSharedModules } from '../sharedModules/placed.js';
-import { healSharedParts } from './sharedGuard.js';
+import { needsHeal } from './sharedGuard.js';
 import { warmSharedGeometry } from './sharedGeometry.js';
 
 /**
@@ -482,24 +481,6 @@ const SNAPSHOT_MAX_PENDING = 100;
 /** WS close code sent when the layout is deleted under open sockets. */
 export const CLOSE_LAYOUT_GONE = 4404;
 
-const HEAL_ORIGIN = 'cld-heal';
-
-/** What no app writes, in a layout that has it: put right, and stored, before anyone joins. Never keeps a layout from opening. */
-function healOnOpen(session: DocSession): void {
-  try {
-    const shape = repairSidecarShape(session.doc, HEAL_ORIGIN);
-    if (healSharedParts(session.doc, HEAL_ORIGIN) || shape) console.warn('[ws] put layout %s in shape on opening', session.layoutId);
-    if (!shape) return;
-    const ids = new Set(sharedModulesIn(readSidecarCache(session.doc)).map((p) => p.placedId));
-    if (ids.size === 0) return;
-    void import('../sharedModules/ownerPlaces.js')
-      .then(({ ownersPlaces }) => ownersPlaces(session.layoutId, ids))
-      .catch((err: unknown) => console.error("[ws] couldn't look over the shared modules of layout %s", session.layoutId, err));
-  } catch (err) {
-    console.error("[ws] couldn't put layout %s in shape on opening:", session.layoutId, err);
-  }
-}
-
 class DocHub {
   private sessions = new Map<string, Promise<DocSession>>();
   /** Hydrated sessions, for synchronous lookups (see `peek`). */
@@ -527,9 +508,11 @@ class DocHub {
     const promise = (async () => {
       const session = new DocSession(layoutId);
       await session.hydrate();
+      // What no app writes is put right before anyone joins (sharedModules/heal.ts).
+      const heal = needsHeal(session.doc) ? await (await import('../sharedModules/heal.js')).healOnOpen(layoutId, session.doc) : null;
       session.startBroadcasting((err) => this.onPersistError(session, err));
       this.live.set(layoutId, session);
-      healOnOpen(session);
+      heal?.();
       // The parts' geometry the shared-module guard measures moves with (sharedGeometry.ts).
       void warmSharedGeometry(layoutId, session.doc);
       // Extra copies of a shared module's parts go, after the layout is open (sharedModules/repair.ts).

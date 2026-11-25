@@ -52,7 +52,7 @@
 
 import * as Y from 'yjs';
 import { modulePlaces } from '@cld/bbm';
-import { hasSharedMark, readSidecarCache, repairSidecarShape, writeSidecarCache } from '@cld/ydoc';
+import { hasSharedMark, readSidecarCache, repairSidecarShape, sidecarShapeProblems, writeSidecarCache } from '@cld/ydoc';
 import { norm360, pivotOf, settleRetired, sharedModulesIn, type PartLookup, type Pt } from '@cld/modules';
 import { guardWork, type DecodedUpdate } from './decoded.js';
 import { pendingMayLand } from './pending.js';
@@ -543,6 +543,61 @@ function dropOddEntries(layerData: Y.Map<unknown>, ids: ReadonlySet<string>): vo
   }
 }
 
+/** What healSharedParts would put right: fields that aren't plain values, entries that aren't parts, and sheets that aren't sheets. */
+export interface SharedPartProblems {
+  fields: number;
+  entries: number;
+  sheets: number;
+}
+
+function sharedPartShape(doc: Y.Doc) {
+  // (Read in a transaction: with the parts that aren't where a reader looks.)
+  const cache = doc.transact(() => readSidecarCache(doc));
+  const members = new Set(sharedModulesIn(cache).flatMap((p) => p.members));
+  const layerData = doc.getMap<unknown>('layerData');
+  const nested: Y.Map<unknown>[] = [];
+  const whole = new Set<string>();
+  const sheets = new Set<string>();
+  let fields = 0;
+  let entries = 0;
+  const odd: { layerId: string; id: string; fields: Record<string, unknown> }[] = [];
+  for (const [layerId, layer] of layerData) {
+    const sheet = sheetEntries(layer);
+    for (const b of sheet.list) {
+      const e = entryId(b);
+      if (!e || !members.has(e.id)) continue;
+      if (b instanceof Y.Map && !e.odd && !sheet.odd) {
+        whole.add(e.id);
+        const n = [...LOOKED_AT].filter((k) => b.get(k) instanceof Y.AbstractType).length;
+        fields += n;
+        if (n > 0) nested.push(b as Y.Map<unknown>);
+      } else {
+        if (sheet.odd) sheets.add(layerId);
+        else entries += 1;
+        odd.push({ layerId, id: e.id, fields: (b instanceof Y.AbstractType ? b.toJSON() : structuredClone(b)) as Record<string, unknown> });
+      }
+    }
+  }
+  return { layerData, nested, whole, odd, problems: { fields, entries, sheets: sheets.size } };
+}
+
+export function sharedPartProblems(doc: Y.Doc): SharedPartProblems {
+  return sharedPartShape(doc).problems;
+}
+
+/** Whether a layout holds what no app writes (cheap; sharedModules/heal.ts does the rest). */
+export function needsHeal(doc: Y.Doc): boolean {
+  try {
+    const s = sidecarShapeProblems(doc);
+    if (s.nested + s.second > 0) return true;
+    const p = sharedPartProblems(doc);
+    return p.fields + p.entries + p.sheets > 0;
+  } catch (err) {
+    console.error("[ws] couldn't look a layout over:", err);
+    return false;
+  }
+}
+
 /**
  * The parts of the layout's shared modules, as the apps write parts: a
  * field that is one of Yjs's own types becomes its plain value, and an
@@ -552,27 +607,7 @@ function dropOddEntries(layerData: Y.Map<unknown>, ids: ReadonlySet<string>): vo
  * changed. Returns true when it changed anything.
  */
 export function healSharedParts(doc: Y.Doc, origin: unknown): boolean {
-  // (Read in a transaction: with the parts that aren't where a reader looks.)
-  const cache = doc.transact(() => readSidecarCache(doc));
-  const members = new Set(sharedModulesIn(cache).flatMap((p) => p.members));
-  if (members.size === 0) return false;
-  const layerData = doc.getMap<unknown>('layerData');
-  const nested: Y.Map<unknown>[] = [];
-  const whole = new Set<string>();
-  const odd: { layerId: string; id: string; fields: Record<string, unknown> }[] = [];
-  for (const [layerId, layer] of layerData) {
-    const sheet = sheetEntries(layer);
-    for (const b of sheet.list) {
-      const e = entryId(b);
-      if (!e || !members.has(e.id)) continue;
-      if (b instanceof Y.Map && !e.odd && !sheet.odd) {
-        whole.add(e.id);
-        if ([...LOOKED_AT].some((k) => b.get(k) instanceof Y.AbstractType)) nested.push(b as Y.Map<unknown>);
-      } else {
-        odd.push({ layerId, id: e.id, fields: (b instanceof Y.AbstractType ? b.toJSON() : structuredClone(b)) as Record<string, unknown> });
-      }
-    }
-  }
+  const { layerData, nested, whole, odd } = sharedPartShape(doc);
   if (nested.length === 0 && odd.length === 0) return false;
   doc.transact(() => {
     for (const b of nested) {

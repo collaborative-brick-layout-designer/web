@@ -9,6 +9,7 @@ import * as Y from 'yjs';
 import { modulePlaces, renamePlaceBricks, updatedPlaces, withPlaces, type Place } from '@cld/bbm';
 import { batchPlaces, norm360, pivotOf, placeVersion, resolvePlacement, sharedModulesIn, type ModuleBatch, type PartLookup, type SharedPlaced } from '@cld/modules';
 import { makeId, readSidecarCache, writeSidecarCache } from '@cld/ydoc';
+import { writeAuditEvent } from '../audit/writeAuditEvent.js';
 import { db, schema } from '../db/index.js';
 import { docHub } from '../ws/docHub.js';
 import { sharedPartLookup, warmSharedGeometry } from '../ws/sharedGeometry.js';
@@ -68,44 +69,64 @@ async function newestBytes(moduleId: string): Promise<Uint8Array | null> {
 const stable = (v: unknown): string =>
   JSON.stringify(v, (_k, x: unknown) => (x && typeof x === 'object' && !Array.isArray(x) ? Object.fromEntries(Object.entries(x).sort(([a], [b]) => (a < b ? -1 : 1))) : x));
 
-/** Make the places of placed copies `ids` of the layout's shared modules their owners'. True when any changed. */
-export async function ownersPlaces(layoutId: string, ids: ReadonlySet<string>): Promise<boolean> {
-  const layout = await db.select({ ownerUserId: schema.layouts.ownerUserId, ownerOrgId: schema.layouts.ownerOrgId }).from(schema.layouts).where(eq(schema.layouts.id, layoutId)).get();
-  if (!layout) return false;
-  const session = await docHub.getOrCreate(layoutId);
-  const { doc } = session;
-  const asked = sharedModulesIn(readSidecarCache(doc)).filter((p) => ids.has(p.placedId));
+type LayoutOwner = { ownerUserId: string | null; ownerOrgId: string | null };
+
+/**
+ * Which of placed copies `ids` of `doc`'s shared modules have other places
+ * than their owners'. Everything that has to be awaited is read first; the
+ * answer (placed id → its places) can be asked again as the document changes.
+ */
+export async function examinePlaces(layoutId: string, owner: LayoutOwner, doc: Y.Doc, ids: ReadonlySet<string>): Promise<() => Map<string, Place[]>> {
   const versions = new Map<string, ModuleBatch[]>();
   const key = (p: SharedPlaced) => `${p.moduleId}|${p.version}`;
-  for (const p of asked) {
-    if (versions.has(key(p)) || (await stateFor(layout, p.moduleId)) !== 'shared') continue;
+  for (const p of sharedModulesIn(readSidecarCache(doc))) {
+    if (!ids.has(p.placedId) || versions.has(key(p)) || (await stateFor(owner, p.moduleId)) !== 'shared') continue;
     const batches = (p.version !== null ? batchesOrNull(await versionBytes(p.moduleId, p.version)) : null) ?? batchesOrNull(await newestBytes(p.moduleId));
     if (batches) versions.set(key(p), batches);
   }
   if (versions.size > 0) await warmSharedGeometry(layoutId, doc);
   const partOf = sharedPartLookup(layoutId) ?? (() => undefined);
+  return () => {
+    const out = new Map<string, Place[]>();
+    const cache = readSidecarCache(doc) ?? {};
+    const list = Array.isArray(cache.modules) ? (cache.modules as { id: string }[]) : [];
+    for (const p of sharedModulesIn(cache)) {
+      const batches = ids.has(p.placedId) ? versions.get(key(p)) : undefined;
+      const m = list.find((x) => x.id === p.placedId);
+      const want = batches && m ? placesHere(doc, p, batches, partOf) : null;
+      if (!want || !m) continue;
+      const own = modulePlaces(m);
+      const next = updatedPlaces(own, want, makeId);
+      if (stable(own) !== stable(next) || (own.length === 0 && 'places' in m)) out.set(p.placedId, next);
+    }
+    return out;
+  };
+}
+
+/** Give the placed modules these places (examinePlaces). */
+export function writePlaces(doc: Y.Doc, places: ReadonlyMap<string, readonly Place[]>, origin: unknown): void {
+  if (places.size === 0) return;
+  doc.transact(() => {
+    const cache = readSidecarCache(doc) ?? {};
+    const list = Array.isArray(cache.modules) ? (cache.modules as { id: string }[]) : [];
+    writeSidecarCache(doc, { ...cache, modules: list.map((m) => (places.has(m.id) ? withPlaces(m, places.get(m.id)!) : m)) });
+  }, origin);
+}
+
+/** Make the places of placed copies `ids` of the layout's shared modules their owners'. True when any changed. */
+export async function ownersPlaces(layoutId: string, ids: ReadonlySet<string>): Promise<boolean> {
+  const layout = await db.select({ ownerUserId: schema.layouts.ownerUserId, ownerOrgId: schema.layouts.ownerOrgId }).from(schema.layouts).where(eq(schema.layouts.id, layoutId)).get();
+  if (!layout) return false;
+  const session = await docHub.getOrCreate(layoutId);
+  const plan = await examinePlaces(layoutId, layout, session.doc, ids);
   // (Nothing is awaited from here: what is read is what is written over.)
-  const cache = readSidecarCache(doc) ?? {};
-  const list = Array.isArray(cache.modules) ? (cache.modules as { id: string }[]) : [];
-  const now = new Map(sharedModulesIn(cache).map((p) => [p.placedId, p]));
-  let changed = false;
-  const modules = session.closed
-    ? list
-    : list.map((m) => {
-        const p = ids.has(m.id) ? now.get(m.id) : undefined;
-        const batches = p && versions.get(key(p));
-        const want = batches ? placesHere(doc, p, batches, partOf) : null;
-        if (!want) return m;
-        const own = modulePlaces(m);
-        const next = updatedPlaces(own, want, makeId);
-        if (stable(own) === stable(next) && (own.length > 0 || !('places' in m))) return m;
-        changed = true;
-        return withPlaces(m, next);
-      });
-  if (changed) {
-    doc.transact(() => writeSidecarCache(doc, { ...cache, modules }), SERVER_ORIGIN);
+  const places = session.closed ? new Map<string, Place[]>() : plan();
+  if (places.size > 0) {
+    writePlaces(session.doc, places, SERVER_ORIGIN);
+    console.log('[sharedModules] the places of %d shared modules of layout %s are their owners’ again', places.size, layoutId);
+    await writeAuditEvent({ layoutId, userId: null, eventType: 'shared_module_repair', payload: { places: places.size } });
     await session.flushBatch();
   }
   await docHub.settle(session);
-  return changed;
+  return places.size > 0;
 }
