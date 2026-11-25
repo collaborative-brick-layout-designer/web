@@ -6,7 +6,7 @@ import * as Y from 'yjs';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createDefaultLayoutDoc, decodeDoc, encodeDoc, exportSidecarFromDoc, liveBrickIdReads, readSidecarCache, removeDuplicateBricks, repairSidecarCache, sidecarBlobHash, writeSidecarCache } from './index.js';
+import { createDefaultLayoutDoc, decodeDoc, encodeDoc, exportSidecarFromDoc, liveBrickIdReads, readSidecarCache, removeDuplicateBricks, repairSidecarCache, repairSidecarShape, sidecarBlobHash, writeSidecarCache } from './index.js';
 
 const base = { schemaVersion: 1, bbmHashSha256: '', modules: [{ id: 'm0', name: 'Yard', members: [] }] };
 const sync = (a: Y.Doc, b: Y.Doc) => {
@@ -440,5 +440,31 @@ describe('module lists without deleted parts', () => {
     const a = new Y.Doc();
     a.getMap('meta').set('cache', { ...base, modules: [{ id: 'm1', name: 'Yard', members: ['b1'] }] });
     expect(members(a)).toEqual(['m1:b1']);
+  });
+});
+
+describe('a sidecar with values that are not plain ones', () => {
+  it('is read without them, and put in shape by the next write or repairSidecarShape', () => {
+    for (const how of ['write', 'repair'] as const) {
+      const doc = new Y.Doc();
+      writeSidecarCache(doc, { schemaVersion: 1, modules: [{ id: 'a', name: 'A', members: ['1'] }, { id: 'b', name: 'B', members: ['2'] }] });
+      const items = doc.getMap<unknown>('sidecarItems');
+      items.set('m:a', new Y.Map(Object.entries(items.get('m:a') as object)));
+      const ids = () => ((readSidecarCache(doc)!.modules as { id: string }[]) ?? []).map((m) => m.id).sort();
+      expect(ids()).toEqual(['b']);
+      if (how === 'write') writeSidecarCache(doc, { ...readSidecarCache(doc)!, modules: [{ id: 'a', name: 'A', members: ['1'] }, { id: 'b', name: 'B', members: ['2'] }] });
+      else expect(repairSidecarShape(doc)).toBe(true);
+      expect(ids()).toEqual(['a', 'b']);
+      expect([...items.values()].some((v) => v instanceof Y.AbstractType)).toBe(false);
+      expect(repairSidecarShape(doc)).toBe(false);
+    }
+  });
+
+  it('two ordinary modules with one id (a file may have them) stay as they are', () => {
+    const doc = new Y.Doc();
+    const cache = { schemaVersion: 1, modules: [{ id: 'a', name: 'A', members: ['1'] }, { id: 'a', name: 'B', members: ['2'] }] };
+    doc.getMap('meta').set('cache', cache);
+    expect(repairSidecarShape(doc)).toBe(false);
+    expect(readSidecarCache(doc)).toEqual(cache);
   });
 });

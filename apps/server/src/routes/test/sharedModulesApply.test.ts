@@ -13,18 +13,22 @@ import fastifyMultipart from '@fastify/multipart';
 import { randomUUID } from 'node:crypto';
 import { eq } from 'drizzle-orm';
 import * as Y from 'yjs';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { modulePlaces, type Place } from '@cld/bbm';
-import { createDefaultLayoutDoc, encodeDoc } from '@cld/ydoc';
+import * as encoding from 'lib0/encoding';
+import * as syncProtocol from 'y-protocols/sync';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { modulePlaces, withPlaces, type Place } from '@cld/bbm';
+import { createDefaultLayoutDoc, encodeDoc, readSidecarCache, writeSidecarCache } from '@cld/ydoc';
 import { attachUser } from '../../auth/cookie.js';
 import { registerApiRoutes } from '../all.js';
 import { closeAll } from '../../events/hub.js';
 import { invalidateLimitCaches } from '../../limits/limits.js';
 import { db, loginAs, resetDb, schema } from '../../test/helpers.js';
 import { docHub } from '../../ws/docHub.js';
+import { handleMessage, type Sender } from '../../ws/handler.js';
+import { newPace } from '../../ws/pacing.js';
 import { forgetLayout, syncLayoutSharedModules } from '../../sharedModules/placed.js';
 import { eraseUser } from '../../privacy/accountDeletion.js';
-import { contents, moduleOf, partsOf, place, type Part } from '../../test/sharedWorld.js';
+import { SHEET, contents, moduleOf, partsOf, place, type Part } from '../../test/sharedWorld.js';
 
 type Who = { cookie: string; id: string };
 
@@ -185,6 +189,66 @@ describe('a layout’s shared modules', () => {
     expect(partsOf(await docOf(plan))).toHaveLength(3);
   });
 
+  it('a shared module removed and put back has its owner’s places; one made the layout’s own keeps its own', async () => {
+    const { alice, bob, carol, crane, plan } = await world();
+    const r = await app.inject({
+      method: 'PUT',
+      url: `/api/modules/${crane}/snapshot`,
+      headers: { cookie: alice.cookie, 'content-type': 'application/octet-stream' },
+      payload: contents(V1, (ids) => [{ id: 'lib-1', name: 'Acme Cannery', kind: 'industry', spots: [{ id: 's1', name: 'Dock', track: { brick: ids[1]!, from: 0, to: 1 }, capacity: 2 }], accepts: [], ships: [], tags: [], notes: '' }]),
+    });
+    expect(r.statusCode).toBe(200);
+    expect((await call(carol, 'POST', `/api/layouts/${plan}/shared-modules/placed-1/apply`, { version: 2 })).statusCode).toBe(200);
+    const session = await docHub.getOrCreate(plan);
+    const here = () => modulePlaces(moduleOf(session.doc, 'placed-1')!);
+    const [own] = here();
+    expect(own).toMatchObject({ name: 'Acme Cannery', source: 'lib-1' });
+    const ws = { OPEN: 1, readyState: 1, send() {}, close() {} };
+    const sender: Sender = { layoutId: plan, userId: carol.id, client: 't', noted: new Set(), pace: newPace() };
+    docHub.attach(session, ws, carol.id);
+    /** The module is deleted with its parts, then comes back with `change` made to its record. */
+    const removeAndPutBack = (change: (m: object) => object) => {
+      const c = new Y.Doc();
+      Y.applyUpdate(c, Y.encodeStateAsUpdate(session.doc));
+      const send = (f: () => void) => {
+        const sv = Y.encodeStateVector(c);
+        c.transact(f);
+        const e = encoding.createEncoder();
+        encoding.writeVarUint(e, 0);
+        syncProtocol.writeUpdate(e, Y.encodeStateAsUpdate(c, sv));
+        handleMessage(ws as never, session, encoding.toUint8Array(e), 'editor', sender);
+      };
+      const was = moduleOf(c, 'placed-1')!;
+      const list = c.getMap<Y.Map<unknown>>('layerData').get(SHEET)!.get('bricks') as Y.Array<Y.Map<unknown>>;
+      const parts = list.toArray().map((b) => b.toJSON()).filter((b) => was.members.includes(b.id as string));
+      const modules = () => (readSidecarCache(c)!.modules as { id: string }[]).filter((m) => m.id !== 'placed-1');
+      send(() => {
+        for (let i = list.length - 1; i >= 0; i--) if (was.members.includes(list.get(i).get('id') as string)) list.delete(i, 1);
+        writeSidecarCache(c, { ...readSidecarCache(c)!, modules: modules() });
+      });
+      expect(moduleOf(session.doc, 'placed-1')).toBeUndefined();
+      send(() => {
+        list.push(parts.map((p) => new Y.Map(Object.entries(p))));
+        writeSidecarCache(c, { ...readSidecarCache(c)!, modules: [...modules(), change(was)] });
+      });
+    };
+    // As it was (an undo): nothing changes.
+    removeAndPutBack((m) => m);
+    await new Promise((done) => setTimeout(done, 100));
+    expect(here()).toEqual([own]);
+    // With other places, or none: the owner's, on its parts here.
+    for (const places of [[{ ...own!, name: 'Other' }], [{ ...own!, id: 'x', source: 'y' }], []]) {
+      removeAndPutBack((m) => withPlaces(m, places));
+      await vi.waitFor(() => expect(here()).toMatchObject([{ name: 'Acme Cannery', source: 'lib-1', spots: own!.spots }]));
+    }
+    // Made the layout's own: what it has stays.
+    expect((await call(bob, 'POST', `/api/layouts/${plan}/shared-modules/placed-1/detach`)).statusCode).toBe(200);
+    removeAndPutBack((m) => withPlaces(m, [{ ...own!, name: 'Ours' }]));
+    await new Promise((done) => setTimeout(done, 100));
+    expect(here()).toMatchObject([{ name: 'Ours' }]);
+    await docHub.detach(session, ws);
+  });
+
   it('two people pressing Update at once get the parts once', async () => {
     const { alice, bob, carol, crane, plan } = await world();
     await save(alice, crane, V2);
@@ -290,6 +354,33 @@ describe('a layout’s shared modules', () => {
     expect((await call(carol, 'POST', `/api/layouts/${plan}/shared-modules/placed-1/apply`, {})).statusCode).toBe(403);
     expect(partsOf(await docOf(plan))).toHaveLength(2);
     expect((await call(bob, 'POST', `/api/layouts/${plan}/shared-modules/placed-1/apply`, {})).statusCode).toBe(200);
+  });
+
+  it('a layout whose shared module’s values are not plain ones opens, is put in shape and can be edited', async () => {
+    const { crane, plan } = await world();
+    const row = await db.select({ snap: schema.layouts.docSnapshot }).from(schema.layouts).where(eq(schema.layouts.id, plan)).get();
+    const doc = new Y.Doc();
+    Y.applyUpdate(doc, row!.snap as Uint8Array);
+    const was = partsOf(doc);
+    const list = doc.getMap<Y.Map<unknown>>('layerData').get(SHEET)!.get('bricks') as Y.Array<Y.Map<unknown>>;
+    doc.transact(() => {
+      const items = doc.getMap<unknown>('sidecarItems');
+      const key = [...items.keys()].find((k) => k.startsWith('m:'))!;
+      items.set(key, new Y.Map(Object.entries(items.get(key) as object)));
+      list.get(0).set('partNumber', new Y.Text(list.get(0).get('partNumber') as string));
+    });
+    await db.update(schema.layouts).set({ docSnapshot: Buffer.from(encodeDoc(doc)) }).where(eq(schema.layouts.id, plan));
+    const session = await docHub.getOrCreate(plan);
+    expect(partsOf(session.doc)).toEqual(was);
+    expect(moduleOf(session.doc, 'placed-1')).toMatchObject({ libraryModuleId: crane, shared: { by: 'alice' } });
+    // Stored, so it is so again after a restart.
+    await session.flushBatch();
+    await docHub.close(plan);
+    const again = await docHub.getOrCreate(plan);
+    expect(partsOf(again.doc)).toEqual(was);
+    writeSidecarCache(again.doc, { ...readSidecarCache(again.doc)!, note: 'edited' });
+    expect(readSidecarCache(again.doc)).toMatchObject({ note: 'edited' });
+    expect(moduleOf(again.doc, 'placed-1')).toBeDefined();
   });
 
   it('Make it mine unlocks the copy, keeps its parts and remembers what it was made from', async () => {
