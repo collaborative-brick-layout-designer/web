@@ -15,7 +15,7 @@ import { Awareness, applyAwarenessUpdate } from 'y-protocols/awareness';
 import * as decoding from 'lib0/decoding';
 import * as encoding from 'lib0/encoding';
 import { eq, and } from 'drizzle-orm';
-import { upgradeDoc } from '@cld/ydoc';
+import { ensureRecordMaps, upgradeDoc } from '@cld/ydoc';
 import { db, schema } from '../db/index.js';
 import { encodeAwarenessUpdate, encodeSyncUpdate, isWsPeer, sendBytes } from './protocol.js';
 import { rollup } from '../metrics/rollup.js';
@@ -508,6 +508,8 @@ class DocHub {
       const session = new DocSession(layoutId);
       await session.hydrate();
       session.startBroadcasting((err) => this.onPersistError(session, err));
+      // Stored like an edit: what people write into the maps needs them.
+      ensureRecordMaps(session.doc);
       this.live.set(layoutId, session);
       // The parts' geometry the shared-module guard measures moves with (sharedGeometry.ts).
       void warmSharedGeometry(layoutId, session.doc);
