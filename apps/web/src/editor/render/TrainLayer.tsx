@@ -6,8 +6,8 @@
 // when zoomed in. The desktop draws the same (src/rendering/SceneBuilderTrains.cpp).
 
 import { useEffect, useState } from 'react';
-import { Group, Image as KonvaImage, Line, Rect, Text } from 'react-konva';
-import type { PlacedTrain, RollingStock, Train } from '@cld/parts-catalog/browser';
+import { Circle, Group, Image as KonvaImage, Line, Rect, Text } from 'react-konva';
+import { loadOf, type PlacedTrain, type RollingStock, type Train } from '@cld/parts-catalog/browser';
 import { spriteUrlFor, type PartWire } from '../../api';
 import { ensureSprite, getSpriteSync } from './spriteCache';
 
@@ -109,6 +109,10 @@ export function TrainLayer({ trains, placed, stock, partsByKey, zoom, picked, na
                       opacity={0.9}
                       perfectDrawEnabled={false}
                     />
+                  )}
+                  {showNumbers && loadOf(s) && (
+                    // Its load: a filled mark, or an open one, at its rear.
+                    <Circle name={`car-${loadOf(s)}`} x={-len / 2 + PX * 1.6} y={0} radius={Math.min(wid / 4, PX)} fill={loadOf(s) === 'loaded' ? '#FFFFFF' : 'rgba(0,0,0,0)'} stroke="#FFFFFF" strokeWidth={PX * 0.35} shadowColor="#000" shadowBlur={2} shadowOpacity={0.8} perfectDrawEnabled={false} />
                   )}
                   {showNumbers && s.number && (
                     // Upright whichever way the car runs.

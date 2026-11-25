@@ -304,6 +304,12 @@ export interface EditorState {
    * next click on the track puts its head there. Null when not placing.
    */
   trainPlacing: string | null;
+  /** Putting cars on the track as a cut (Live Ops design 2.3): their ids; the next click on the track puts the first one there. */
+  carsPlacing: readonly string[] | null;
+  setCarsPlacing: (ids: readonly string[] | null) => void;
+  /** The car picked on the map, or null. */
+  pickedCar: string | null;
+  setPickedCar: (id: string | null) => void;
   /** Stamp export watermark on canvas export (`export/watermark`). */
   showExportWatermark: boolean;
   /** Module label font size percent (`view/moduleLabelPercent`). */
@@ -544,6 +550,8 @@ export const useEditorStore = create<EditorState>((set) => ({
   runMode: false,
   routeDraft: null,
   trainPlacing: null,
+  carsPlacing: null,
+  pickedCar: null,
   showExportWatermark: localStorage.getItem('cld:showExportWatermark') === 'true',
   // Desktop `view/moduleLabelPercent`: % of the module's long axis,
   // 5..100, default 35. New storage key — the old one held a different,
@@ -672,12 +680,14 @@ export const useEditorStore = create<EditorState>((set) => ({
   },
   setPlaceOpen: (p, fresh = false) => set({ placeOpen: p, placeFresh: p && fresh ? p.id : null }),
   setPlacesModule: (id) => set({ placesModule: id, placeOpen: null, placeFresh: null }),
-  setPlacePick: (p) => set(p ? { placePick: p, routeDraft: null, trainPlacing: null, runMode: false, selection: [], tool: 'select' } : { placePick: null }),
+  setPlacePick: (p) => set(p ? { placePick: p, routeDraft: null, trainPlacing: null, carsPlacing: null, pickedCar: null, runMode: false, selection: [], tool: 'select' } : { placePick: null }),
   setSpotlight: (p) => set({ spotlight: p ? { ...p, at: Date.now() } : null }),
   // Run mode starts with nothing picked, so no edit key acts on parts.
-  setRunMode: (v) => set(v ? { runMode: true, placePick: null, routeDraft: null, trainPlacing: null, selection: [], tool: 'select' } : { runMode: false }),
-  setRouteDraft: (d) => set(d ? { routeDraft: d, placePick: null, runMode: false, trainPlacing: null, selection: [], tool: 'select' } : { routeDraft: null }),
-  setTrainPlacing: (id) => set(id ? { trainPlacing: id, placePick: null, routeDraft: null, runMode: false, selection: [], tool: 'select' } : { trainPlacing: null }),
+  setRunMode: (v) => set(v ? { runMode: true, placePick: null, routeDraft: null, trainPlacing: null, carsPlacing: null, pickedCar: null, selection: [], tool: 'select' } : { runMode: false }),
+  setRouteDraft: (d) => set(d ? { routeDraft: d, placePick: null, runMode: false, trainPlacing: null, carsPlacing: null, pickedCar: null, selection: [], tool: 'select' } : { routeDraft: null }),
+  setTrainPlacing: (id) => set(id ? { trainPlacing: id, carsPlacing: null, pickedCar: null, placePick: null, routeDraft: null, runMode: false, selection: [], tool: 'select' } : { trainPlacing: null }),
+  setCarsPlacing: (ids) => set(ids && ids.length ? { carsPlacing: ids, trainPlacing: null, pickedCar: null, placePick: null, routeDraft: null, runMode: false, selection: [], tool: 'select' } : { carsPlacing: null }),
+  setPickedCar: (id) => set(id ? { pickedCar: id, selection: [] } : { pickedCar: null }),
   setShowExportWatermark: (v) => {
     localStorage.setItem('cld:showExportWatermark', String(v));
     set({ showExportWatermark: v });
@@ -745,7 +755,7 @@ export const useEditorStore = create<EditorState>((set) => ({
         ? s
         : { editingModuleId, selection: [], annoSelection: EMPTY_ANNO },
     ),
-  setSelection: (selection) => set({ selection: selectionShaper(selection), annoSelection: EMPTY_ANNO }),
+  setSelection: (selection) => set({ selection: selectionShaper(selection), annoSelection: EMPTY_ANNO, pickedCar: null }),
   setMixedSelection: (selection, annoSelection) => set({ selection: selectionShaper(selection), annoSelection }),
   toggleSelected: (id, additive) =>
     set((s) => {

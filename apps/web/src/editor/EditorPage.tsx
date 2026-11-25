@@ -64,7 +64,10 @@ import { PlaceLayer } from './render/PlaceLayer';
 import { groupOfPart, newPlace, openPlaces, savePlace, usePlaceGroups, useSpots, withSpotOn, type PlaceOwner } from './places';
 import { TrainsPanel } from './TrainsPanel';
 import { TrainLayer } from './render/TrainLayer';
-import { saveTrain, usePlacedTrains, useStock, useTrains } from './trains';
+import { useStock, usePlacedTrains, useTrains } from './trains';
+import { fitAt, namedTrains, putCarsOnTrack, putTrainOnTrack } from './cuts';
+import { CarBar } from './CarBar';
+import { CAR_HIT_NAME, CarDragLayer } from './render/CarDragLayer';
 import { namesOf, useFitChecks, useTrackRuns } from './fitChecks';
 import { FitLayer } from './render/FitLayer';
 import { formatLength } from '../venues/designer/units';
@@ -76,7 +79,7 @@ import { legLabel, switchAt, switchMenuItems, useSwitchStates, useTrackNetwork, 
 import { useRunStore, useTrainRunner, useTrainScale } from './trainRun';
 import { RunPanel } from './RunPanel';
 import { RunLayer } from './render/RunLayer';
-import { findRoute, nearestPosition, nextExit, placeTrain } from '@cld/parts-catalog/browser';
+import { findRoute, isEngine, nearestPosition, newCut, nextExit } from '@cld/parts-catalog/browser';
 import { BEND_HANDLE_NAME, BendHandles } from './render/BendHandles';
 import { ModuleOverlay, measureBold, moduleLabelBoundsStuds } from './render/ModuleOverlay';
 import { VenueOverlay } from './render/VenueOverlay';
@@ -679,7 +682,7 @@ function Editor({ layoutId, docState, moduleMode }: { layoutId: string; docState
   // The fit checks (trains design 3.5), for the Trains and Routes panels.
   const editorRuns = useTrackRuns(editorTrackNet);
   const editorChecks = useFitChecks(editorTrackNet, editorRuns, editorTrains, editorStockById, editorRoutes, editorSwitchStates, editorPlaced);
-  const editorNames = useMemo(() => namesOf(editorTrains, editorStockById, editorRoutes), [editorTrains, editorStockById, editorRoutes]);
+  const editorNames = useMemo(() => namesOf(namedTrains(editorTrains, editorStockById), editorStockById, editorRoutes), [editorTrains, editorStockById, editorRoutes]);
   // Places (Live Ops design 6), for the Places panel (the canvas works out the same for the map).
   const placeGroupsNow = usePlaceGroups(doc, docMap);
   const placeSpots = useSpots(editorTrackNet, editorRuns, placeGroupsNow);
@@ -841,13 +844,15 @@ function Editor({ layoutId, docState, moduleMode }: { layoutId: string; docState
   useEffect(() => {
     const onShow = (e: Event) => {
       const id = (e as CustomEvent<string>).detail;
-      if (typeof id === 'string' && dock.zoneOf(id) === 'hidden') dock.setZone(id, 'right');
+      if (viewport.isMobile && id === 'trains') setShowTrainsSheet(true);
+      else if (typeof id === 'string' && dock.zoneOf(id) === 'hidden') dock.setZone(id, 'right');
     };
     window.addEventListener('cld:show-panel', onShow);
     return () => window.removeEventListener('cld:show-panel', onShow);
-  }, [dock]);
+  }, [dock, viewport.isMobile]);
   // Places… (a module's menu, the Map menu, right-click on track): its panel, or its sheet on a phone.
   const [showPlacesSheet, setShowPlacesSheet] = useState(false);
+  const [showTrainsSheet, setShowTrainsSheet] = useState(false);
   useEffect(() => {
     const onOpen = (e: Event) => {
       const d = (e as CustomEvent<{ module?: string | null; place?: { owner: PlaceOwner; id: string } | null; fresh?: boolean }>).detail ?? {};
@@ -897,22 +902,7 @@ function Editor({ layoutId, docState, moduleMode }: { layoutId: string; docState
         <RoutesPanel doc={doc} net={editorTrackNet} routes={editorRoutes} statuses={editorRouteStatuses} hidden={routesHidden.hidden} setShown={routesHidden.setShown} isViewer={isViewer} checks={editorChecks.filter((c) => c.route || c.kind === 'gap')} names={editorNames} />
       );
     if (panelId === 'places') return placesPanel(false);
-    if (panelId === 'trains')
-      return (
-        <TrainsPanel
-          doc={doc}
-          net={editorTrackNet}
-          stock={editorStock}
-          trains={editorTrains}
-          placed={editorPlaced}
-          switchStates={editorSwitchStates}
-          parts={catalog.data?.parts ?? []}
-          isViewer={isViewer}
-          canUseRoster={!!me.data?.user && !me.data.user.isDemoAccount}
-          checks={editorChecks}
-          names={editorNames}
-        />
-      );
+    if (panelId === 'trains') return trainsPanel(false);
     if (panelId === 'modules') return <Suspense fallback={null}><ModulesPanel doc={doc} isViewer={isViewer} layoutId={moduleMode ? null : layoutId} /></Suspense>;
     if (panelId === 'modlibrary')
       return (
@@ -937,6 +927,26 @@ function Editor({ layoutId, docState, moduleMode }: { layoutId: string; docState
         carTypes={placeCarTypes}
         touch={touch}
         {...(touch ? { onPicking: () => setShowPlacesSheet(false) } : {})}
+      />
+    );
+  }
+
+  function trainsPanel(touch: boolean): React.ReactNode {
+    if (!doc) return null;
+    return (
+      <TrainsPanel
+        doc={doc}
+        net={editorTrackNet}
+        stock={editorStock}
+        trains={editorTrains}
+        placed={editorPlaced}
+        switchStates={editorSwitchStates}
+        parts={catalog.data?.parts ?? []}
+        isViewer={isViewer}
+        canUseRoster={!!me.data?.user && !me.data.user.isDemoAccount}
+        checks={editorChecks}
+        names={editorNames}
+        {...(touch ? { onPlacing: () => setShowTrainsSheet(false) } : {})}
       />
     );
   }
@@ -1236,6 +1246,11 @@ function Editor({ layoutId, docState, moduleMode }: { layoutId: string; docState
                   // Also with parts picked (the bar's Sheets button is only there with none): move them to a sheet.
                   <button role="menuitem" type="button" data-testid="phone-sheets" onClick={() => setShowTouchSheets(true)} className="block w-full px-3.5 py-3 text-left hover:bg-soft">
                     Sheets…
+                  </button>
+                )}
+                {role !== 'viewer' && !moduleMode && (
+                  <button role="menuitem" type="button" data-testid="phone-trains" onClick={() => setShowTrainsSheet(true)} className="block w-full px-3.5 py-3 text-left hover:bg-soft">
+                    Trains and cars…
                   </button>
                 )}
                 {role !== 'viewer' && (
@@ -1690,6 +1705,11 @@ function Editor({ layoutId, docState, moduleMode }: { layoutId: string; docState
           }}
         />
       )}
+      {showTrainsSheet && (
+        <BottomSheet title="Trains" onClose={() => setShowTrainsSheet(false)}>
+          {trainsPanel(true)}
+        </BottomSheet>
+      )}
       {showPlacesSheet && (
         <BottomSheet title="Places" onClose={() => setShowPlacesSheet(false)}>
           {placesPanel(true)}
@@ -2005,7 +2025,7 @@ function Canvas({
     return hit?.kind === 'brick' ? hit : null;
   };
   /** The part, anchored label or text cell under a point of the canvas area. */
-  const itemAt = (p: Pt): { kind: 'brick' | 'labels' | 'texts' | 'handle'; id: string; node: Konva.Node } | null => {
+  const itemAt = (p: Pt): { kind: 'brick' | 'labels' | 'texts' | 'handle' | 'car'; id: string; node: Konva.Node } | null => {
     const stage = stageRef.current;
     if (!stage || !touchEl) return null;
     const area = touchEl.getBoundingClientRect();
@@ -2019,6 +2039,8 @@ function Canvas({
     // A bend handle: the finger bends the run (BendHandles), never pans.
     const handle = shape.findAncestor((n: Konva.Node) => n.name() === BEND_HANDLE_NAME);
     if (handle) return { kind: 'handle', id: '', node: handle };
+    // A car on the track: picked, a finger drags it along (CarDragLayer).
+    if (shape.name() === CAR_HIT_NAME) return { kind: 'car', id: shape.id(), node: shape };
     const g = shape.findAncestor((n: Konva.Node) => n.getClassName() === 'Group' && /^(brick|label)-/.test(n.name()));
     if (!g) return null;
     return g.name().startsWith('brick-')
@@ -2031,6 +2053,7 @@ function Canvas({
     if (!hit) return false;
     if (hit.kind === 'handle') return true;
     if (hit.kind === 'brick') return isPicked(hit.id);
+    if (hit.kind === 'car') return useEditorStore.getState().pickedCar === hit.id;
     return hit.kind === 'labels' && useEditorStore.getState().annoSelection.labels.includes(hit.id);
   };
   /** A point of the canvas area in studs. */
@@ -2985,9 +3008,11 @@ function Canvas({
   const trains = useTrains(doc, map);
   const stockById = useMemo(() => new Map(stock.map((s) => [s.id, s])), [stock]);
   const placedTrains = usePlacedTrains(trackNet, trains, stockById, switchStates);
+  // (Cars standing without an engine don't run.)
+  const runnable = useMemo(() => namedTrains(trains, stockById).filter((t) => !t.cut || t.units.some((u) => isEngine(stockById.get(u.stock)))), [trains, stockById]);
   // Running trains (trains design 5): this person's own; the run's cars are drawn on their own layer.
   const trainScale = useTrainScale(doc, map);
-  useTrainRunner({ runMode, net: trackNet, trains, stock: stockById, routes, statuses: routeStatuses, placed: placedTrains, switchStates, scale: trainScale });
+  useTrainRunner({ runMode, net: trackNet, trains: runnable, stock: stockById, routes, statuses: routeStatuses, placed: placedTrains, switchStates, scale: trainScale });
   const activeRun = useRunStore((s) => s.run);
   const runStates = useRunStore((s) => s.states);
   const shownStates = runStates ?? switchStates;
@@ -3075,19 +3100,28 @@ function Canvas({
     return () => window.clearTimeout(t);
   }, [spotlight]);
   const trainPlacing = useEditorStore((s) => s.trainPlacing);
-  const placingTrain = trainPlacing ? trains.find((t) => t.id === trainPlacing) ?? null : null;
+  const carsPlacing = useEditorStore((s) => s.carsPlacing);
+  const newCarsCut = useMemo(() => (carsPlacing ? newCut('', carsPlacing.flatMap((id) => stockById.get(id) ?? []), { brick: '', from: 0, to: 1, s: 0, facing: 'to' }) : null), [carsPlacing, stockById]);
+  const placingTrain = carsPlacing ? newCarsCut : trainPlacing ? trains.find((t) => t.id === trainPlacing) ?? null : null;
+  const placingName = placingTrain ? (placingTrain.name || (placingTrain.cut ? namedTrains([placingTrain], stockById)[0]!.name : '')) : '';
+  // Its cars went away (deleted by someone else, or undone) while being placed.
   useEffect(() => {
-    if (!trainPlacing) return;
+    if (newCarsCut && newCarsCut.units.length === 0) useEditorStore.getState().setCarsPlacing(null);
+  }, [newCarsCut]);
+  useEffect(() => {
+    if (!trainPlacing && !carsPlacing) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') useEditorStore.getState().setTrainPlacing(null);
+      if (e.key === 'Escape') useEditorStore.setState({ trainPlacing: null, carsPlacing: null });
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [trainPlacing]);
+  }, [trainPlacing, carsPlacing]);
   // The train went away (deleted by someone else, or undone) while being placed.
   useEffect(() => {
     if (trainPlacing && !trains.some((t) => t.id === trainPlacing)) useEditorStore.getState().setTrainPlacing(null);
   }, [trainPlacing, trains]);
+  // Cars on the track are dragged along it (Live Ops design 2.3).
+  const carsMove = !isViewer && !runMode && !routeDraft && !placingTrain && !placePick && tool === 'select';
   /** Putting a train on the track: its front goes where the click is, the rest of it the way more track lies. */
   const onPlaceTrainClick = (e: KonvaEventObject<MouseEvent | TouchEvent>) => {
     if ('button' in e.evt && e.evt.button !== 0) return;
@@ -3095,19 +3129,16 @@ function Canvas({
     const t = placingTrain;
     if (!at || !trackNet || !t) return;
     const pos = nearestPosition(trackNet, at, Math.max(3, 24 / (8 * zoom)));
-    const { showStatusMessage, setTrainPlacing } = useEditorStore.getState();
+    const { showStatusMessage } = useEditorStore.getState();
     if (!pos) {
       showStatusMessage('Click on the track.', 3000);
       return;
     }
-    const tries = (['to', 'from'] as const).map((facing) => {
-      const position = { ...pos, facing };
-      return { position, placed: placeTrain(trackNet, { ...t, position }, stockById, switchStates) };
-    });
-    const best = tries.find((x) => x.placed && !x.placed.offTrack) ?? tries.find((x) => x.placed) ?? tries[0]!;
-    saveTrain(doc, { ...t, position: best.position });
-    setTrainPlacing(null);
-    showStatusMessage(best.placed && !best.placed.offTrack ? `${t.name} is on the track.` : `${t.name} runs off the end of the track here.`, 3000);
+    const { position, fits } = fitAt(trackNet, t, pos, stockById, switchStates);
+    if (carsPlacing) putCarsOnTrack(doc, trackNet, switchStates, carsPlacing, position);
+    else putTrainOnTrack(doc, trackNet, switchStates, t, position);
+    useEditorStore.setState({ trainPlacing: null, carsPlacing: null });
+    showStatusMessage(fits ? `${placingName} is on the track.` : `${placingName} runs off the end of the track here.`, 3000);
   };
   useEffect(() => {
     if (!routeDraft) return;
@@ -5078,7 +5109,7 @@ function Canvas({
           skipContextMenuRef.current = false;
           return;
         }
-        if (isViewer || runMode || routeDraft || trainPlacing || placePick) return;
+        if (isViewer || runMode || routeDraft || placingTrain || placePick) return;
         if (tool === 'venueOutline' || tool === 'venueObstacle') {
           finishVenueDraft();
           return;
@@ -5324,8 +5355,8 @@ function Canvas({
       {/* Switches (trains design 6.3): their arrows in Run mode or with View › Switches,
           and in Run mode a cover that takes every click, so a click flips a
           switch and never picks or moves a part. */}
-      {trackNet && (showSwitches || runMode || routeDraft || routes.length > 0 || trainPlacing || placedTrains.size > 0 || showSidingLengths || (showPlaces && anyPlaces) || placePick || spotlight) && (
-        <KonvaLayer name="switch-layer" listening={runMode || !!routeDraft || !!trainPlacing || !!placePick} perfectDrawEnabled={false}>
+      {trackNet && (showSwitches || runMode || routeDraft || routes.length > 0 || placingTrain || placedTrains.size > 0 || showSidingLengths || (showPlaces && anyPlaces) || placePick || spotlight) && (
+        <KonvaLayer name="switch-layer" listening={runMode || !!routeDraft || !!placingTrain || !!placePick || carsMove} perfectDrawEnabled={false}>
           <RouteLayer
             net={trackNet}
             routes={routes}
@@ -5335,13 +5366,14 @@ function Canvas({
             draft={routeDraft ? { ends: [routeDraft.from, ...routeDraft.via, routeDraft.to].filter((p): p is TrackPosition => !!p), route: draftFound && typeof draftFound !== 'string' && routeDraft.from && routeDraft.to ? { steps: draftFound.steps, from: routeDraft.from, to: routeDraft.to } : null } : null}
           />
           <TrainLayer trains={trains} placed={standingTrains} stock={stockById} partsByKey={partsByKey} zoom={zoom} picked={trainPlacing} />
+          {carsMove && <CarDragLayer doc={doc} net={trackNet} trains={trains} placed={placedTrains} stock={stockById} states={switchStates} partsByKey={partsByKey} zoom={zoom} />}
           {showPlaces && anyPlaces && <PlaceLayer spots={shownSpots} zoom={zoom} />}
           <FitLayer runs={showSidingLengths ? runs : []} checks={checks} spotlight={spotlight} zoom={zoom} />
           {(showSwitches || runMode) && <SwitchLayer net={trackNet} states={shownStates} zoom={zoom} />}
           {runMode && (
             <Rect name="run-mode-cover" x={-1e7} y={-1e7} width={2e7} height={2e7} fill="rgba(0,0,0,0)" onClick={onRunClick} onTap={onRunClick} />
           )}
-          {trainPlacing && (
+          {placingTrain && (
             <Rect name="train-place-cover" x={-1e7} y={-1e7} width={2e7} height={2e7} fill="rgba(0,0,0,0)" onClick={onPlaceTrainClick} onTap={onPlaceTrainClick} />
           )}
           {placePick && (
@@ -5515,8 +5547,9 @@ function Canvas({
       )}
       </Suspense>
       {runMode && <RunModeBanner />}
-      {runMode && <RunPanel doc={doc} trains={trains} routes={routes} statuses={routeStatuses} placed={placedTrains} scale={trainScale} isViewer={isViewer} top={phone} />}
-      {placingTrain && <TrainPlaceBanner name={placingTrain.name} />}
+      {runMode && <RunPanel doc={doc} trains={runnable} routes={routes} statuses={routeStatuses} placed={placedTrains} scale={trainScale} isViewer={isViewer} top={phone} />}
+      {placingTrain && <TrainPlaceBanner name={placingName} />}
+      {carsMove && trackNet && <CarBar doc={doc} net={trackNet} trains={trains} stock={stockById} states={switchStates} />}
       {placePick && <PlacePickBanner newOne={!placePick.place} module={typeof placePick.owner === 'string' ? placeGroups.find((g) => g.owner === placePick.owner)?.name : undefined} />}
       {routeDraft && <RouteDraftBanner doc={doc} draft={routeDraft} found={draftFound} routes={routes} trainName={routeDraft.train ? trains.find((t) => t.id === routeDraft.train)?.name : undefined} />}
       <SetUpdatesBar updates={setUpdates} onUpdate={updatePlacedSets} onShow={showPlacedSets} top={phone} />
@@ -7325,7 +7358,7 @@ function TrainPlaceBanner({ name }: { name: string }) {
         Click the track where the front of <b>{name || 'the train'}</b> goes.
       </span>
       <HelpButton helpKey="trains.putOnTrack" />
-      <button type="button" onClick={() => useEditorStore.getState().setTrainPlacing(null)} className="h-8 rounded px-3 text-xs font-semibold hover:bg-soft">
+      <button type="button" onClick={() => useEditorStore.setState({ trainPlacing: null, carsPlacing: null })} className="h-8 rounded px-3 text-xs font-semibold hover:bg-soft">
         Cancel
       </button>
     </div>

@@ -20,6 +20,7 @@ import {
 } from '@cld/parts-catalog/browser';
 import { LOCAL_ORIGIN } from './useLayoutDoc';
 import { makeId } from './mutations';
+import { readStanding, takeCarOff } from './cuts';
 
 /** The colors new cars and trains take in turn. */
 export const STOCK_COLORS = ['#B40000', '#0055BF', '#237841', '#F2CD37', '#6C6E68', '#FE8A18', '#05131D', '#A0A5A9'];
@@ -40,8 +41,12 @@ export function asTrain(r: Record<string, unknown>): Train {
     p && typeof p === 'object' && typeof p.brick === 'string'
       ? { brick: p.brick, from: Number(p.from ?? 0), to: Number(p.to ?? 1), s: Number(p.s ?? 0), facing: p.facing === 'from' ? 'from' : 'to' }
       : null;
+  const { cut, over, emptiedAt, ...rest } = r;
   return {
-    ...r,
+    ...rest,
+    ...(cut === true ? { cut } : {}),
+    ...(over && typeof over === 'object' && !Array.isArray(over) ? { over: Object.fromEntries(Object.entries(over).filter(([, v]) => Number.isInteger(v))) as Record<string, number> } : {}),
+    ...(typeof emptiedAt === 'number' ? { emptiedAt } : {}),
     id: String(r.id),
     name: typeof r.name === 'string' ? r.name : '',
     trackKind: typeof r.trackKind === 'string' ? r.trackKind : 'rail',
@@ -65,10 +70,10 @@ export function useStock(doc: Y.Doc | null, version: unknown): RollingStock[] {
   );
 }
 
-/** The layout's trains, by name. */
+/** The layout's trains, by name, as they stand: each car of a cut in one place (cuts with no cars left are left out). */
 export function useTrains(doc: Y.Doc | null, version: unknown): Train[] {
   return useMemo(
-    () => (doc ? readRecordsFromDoc(doc, TRAINS_KEY).map((r) => asTrain(r)).sort((a, b) => a.name.localeCompare(b.name) || (a.id < b.id ? -1 : 1)) : []),
+    () => (doc ? readStanding(doc).trains.filter((t) => !t.cut || t.units.length > 0).sort((a, b) => a.name.localeCompare(b.name) || (a.id < b.id ? -1 : 1)) : []),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [doc, version],
   );
@@ -135,7 +140,15 @@ export function saveStock(doc: Y.Doc, s: RollingStock): void {
 }
 
 /** Delete a car, and take it out of every train it's in: one undo step. */
-export function removeStock(doc: Y.Doc, id: string, trains: readonly Train[]): void {
+export function removeStock(doc: Y.Doc, id: string, trains: readonly Train[], net?: TrackNetwork | null, states: Readonly<Record<string, number>> = {}): void {
+  // The cars on either side of it stay where they stand.
+  if (net && readStanding(doc).trains.some((t) => t.cut && t.position && t.units.some((u) => u.stock === id))) {
+    doc.transact(() => {
+      takeCarOff(doc, net, states, id);
+      removeStock(doc, id, readStanding(doc).trains);
+    }, LOCAL_ORIGIN);
+    return;
+  }
   doc.transact(() => {
     deleteRecord(doc, ROLLING_STOCK_KEY, id);
     for (const t of trains) {
@@ -165,13 +178,15 @@ export function trainsWith(stockId: string, trains: readonly Train[]): Train[] {
 
 /** What goes to a roster: the record without the layout's own id. */
 export function forRoster(s: RollingStock): Record<string, unknown> {
-  const { id: _id, ...rest } = plain(s);
+  // (Where it stands and its load are this layout's.)
+  const { id: _id, opsCut: _cut, opsLoad: _load, ...rest } = plain(s);
   return rest;
 }
 
 /** A roster entry copied into the layout (a new id; linked back by libraryId). */
 export function fromRoster(record: Record<string, unknown>): RollingStock {
-  return asStock({ ...record, id: makeId() });
+  const { opsCut: _cut, opsLoad: _load, ...rest } = record;
+  return asStock({ ...rest, id: makeId() });
 }
 
 /** The layout's copy of a roster entry, if it has one. */
@@ -186,7 +201,8 @@ export function rosterIsNewer(s: RollingStock, entry: { id: string; version: num
 
 /** The layout's copy brought up to the roster's version (its id kept, so trains keep it). */
 export function updatedFromRoster(s: RollingStock, record: Record<string, unknown>): RollingStock {
-  return asStock({ ...record, id: s.id });
+  const { opsCut: _cut, opsLoad: _load, ...rest } = record;
+  return asStock({ ...rest, id: s.id, opsCut: s.opsCut, opsLoad: s.opsLoad });
 }
 
 export { trainLength };

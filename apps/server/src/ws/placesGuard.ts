@@ -12,6 +12,8 @@
 //   - a module's `places` (or a sidecar's `layoutPlaces`) that aren't
 //     within the limits, unless the layout already held them so.
 //
+// Cars and trains (carsGuard.ts) are checked along with them, on the same copy.
+//
 // A value the update itself deletes is never read, and is let through.
 // Only the update's structs are read, and an update that writes nothing of
 // the kind costs one pass over them. What can't be told from them alone
@@ -23,7 +25,9 @@
 import * as Y from 'yjs';
 import { PLACE_LIMITS, placeSize, validPlace, validPlaces } from '@cld/bbm';
 import { PLACES_KEY, readSidecarCache } from '@cld/ydoc';
-import { decodeIncoming, findStruct, guardWork, type DecodedUpdate } from './decoded.js';
+import { CARS_KEYS, carsProblem, docCarsProblems } from './carsGuard.js';
+import { decodeIncoming, guardWork, type DecodedUpdate } from './decoded.js';
+import { pathsOf } from './mapPaths.js';
 import { pendingMayLand } from './pending.js';
 
 /** More than the apps make (two people may each add the last ones at once). */
@@ -34,9 +38,6 @@ export const MAX_LIVE_PLACE_SIZE = 2 * PLACE_LIMITS.size;
 
 /** placesProblem's answer when the update needs a copy and `mayCopy` says no: slow the sender down. */
 export const PLACES_COPY_BUDGET_SPENT = 'it needs a copy of the layout to check its places, and its sender has used up their copies for now';
-
-/** Where a map value sits: the names from its root map down ([root, key, key...]); null when it isn't a map value, or can't be told. */
-type Path = readonly string[] | null;
 
 /** A whole, valid place but for the fields a test replaces. */
 const BLANK = { id: 'x', name: '', kind: 'industry', spots: [], accepts: [], ships: [], tags: [], notes: '' };
@@ -60,98 +61,15 @@ export function placesProblem(doc: Y.Doc | null, decoded: DecodedUpdate, update:
     if (mayCopy && !mayCopy()) return PLACES_COPY_BUDGET_SPENT;
     return placesProblemOnCopy(doc, update);
   }
-  const { structs, ds, byClient } = decoded;
+  const { structs } = decoded;
+  const badCars = carsProblem(doc, decoded);
+  if (badCars !== null) return badCars;
   // Cheap first: does the update say anything a place could be in?
   const holdsPlaces = !!(doc?.share.get('meta') as unknown as { _map?: Map<string, Y.Item> } | undefined)?._map?.has(PLACES_KEY);
   const suspect = structs.some((s) => s instanceof Y.Item && (s.parentSub === PLACES_KEY || (s.content instanceof Y.ContentAny && s.content.arr.some((v) => listsOf(v).length > 0))));
   if (!holdsPlaces && !suspect) return null;
 
-  const known = (id: Y.ID): boolean => !!doc && id.clock < Y.getState(doc.store, id.client);
-  const paths = new Map<Y.Item, Path>();
-  /** The path of an item that is in the room already. */
-  const inRoom = (item: Y.Item): Path => {
-    const out: string[] = [];
-    let at: Y.Item | null = item;
-    for (let depth = 0; at && depth < 8; depth++) {
-      if (at.parentSub === null) return null;
-      out.unshift(at.parentSub);
-      const parent = at.parent as Y.AbstractType<unknown> | null;
-      if (!parent) return null;
-      if (parent._item === null) {
-        for (const [name, t] of doc!.share) if (t === parent) return [name, ...out];
-        return null;
-      }
-      at = parent._item;
-    }
-    return null;
-  };
-  const itemAt = (id: Y.ID): Y.Item | null => {
-    if (known(id)) {
-      try {
-        const there = Y.getItem(doc!.store, id);
-        return there instanceof Y.Item ? there : null;
-      } catch {
-        return null;
-      }
-    }
-    const there = findStruct(byClient.get(id.client), id.clock);
-    return there instanceof Y.Item ? there : null;
-  };
-  const pathOf = (start: Y.Item, depth = 0): Path => {
-    // Deeper than any place is (a hand-made update may nest without end).
-    if (depth > 6) return null;
-    // The chain of neighbours, then of parents, to one whose place is known.
-    const memo = paths.get(start);
-    if (memo !== undefined) return memo;
-    const chain: Y.Item[] = [];
-    const seen = new Set<Y.Item>();
-    let at: Y.Item | null = start;
-    let path: Path = null;
-    while (at && !seen.has(at)) {
-      const had = paths.get(at);
-      if (had !== undefined) {
-        path = had;
-        break;
-      }
-      seen.add(at);
-      chain.push(at);
-      if (typeof at.parent === 'string') {
-        path = at.parentSub === null ? null : [at.parent, at.parentSub];
-        break;
-      }
-      if (at.parent !== null) {
-        if (at.parentSub === null) break;
-        const id = at.parent as unknown as Y.ID;
-        const holder = itemAt(id);
-        if (!holder) break;
-        const up: Path = known(id) ? inRoom(holder) : seen.has(holder) ? null : pathOf(holder, depth + 1);
-        path = up && up.length < 5 ? [...up, at.parentSub] : null;
-        break;
-      }
-      const ref: Y.ID | null = at.origin ?? at.rightOrigin;
-      if (!ref) break;
-      if (known(ref)) {
-        const there = itemAt(ref);
-        path = there ? inRoom(there) : null;
-        break;
-      }
-      at = itemAt(ref);
-    }
-    // (Neighbours in one map share its key: Yjs gives an item its neighbour's.)
-    for (const c of chain) paths.set(c, path);
-    return path;
-  };
-  const deleted = (item: Y.Item): boolean => {
-    const end = item.id.clock + item.length;
-    let covered = item.id.clock;
-    const ranges = [...(ds.clients.get(item.id.client) ?? [])].sort((a, b) => a.clock - b.clock);
-    for (const r of ranges) {
-      if (r.clock > covered) break;
-      covered = Math.max(covered, r.clock + r.len);
-      if (covered >= end) return true;
-    }
-    return false;
-  };
+  const { pathOf, deleted } = pathsOf(doc, decoded);
   /** The places the layout held before, as text, read only when a bad one turns up. */
   let before: Set<string> | null = null;
   const heldBefore = (v: unknown): boolean => {
@@ -227,18 +145,18 @@ function livePlaces(doc: Y.Doc | null): Y.Map<unknown> | null {
   return item && !item.deleted && item.content instanceof Y.ContentType && item.content.type instanceof Y.Map ? (item.content.type as Y.Map<unknown>) : null;
 }
 
-const PLACES_TEXT = [PLACES_KEY, 'layoutPlaces'];
+const PLACES_TEXT = [PLACES_KEY, 'layoutPlaces', ...CARS_KEYS];
 const names = (bytes: Uint8Array | null | undefined): boolean => {
   if (!bytes) return false;
   const b = Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   return PLACES_TEXT.some((t) => b.includes(t));
 };
 
-/** Whether the room, what it holds back or the update has places at all (their names are in the bytes). False: certainly not. */
+/** Whether the room, what it holds back or the update has places, cars or trains at all (their names are in the bytes). False: certainly not. */
 function mayHoldPlaces(doc: Y.Doc | null, update: Uint8Array): boolean {
   if (livePlaces(doc) || names(update) || names(doc?.store.pendingStructs?.update)) return true;
   const meta = doc?.share.get('meta') as unknown as { _map?: Map<string, Y.Item> } | undefined;
-  return !!meta?._map?.has(PLACES_KEY);
+  return [PLACES_KEY, ...CARS_KEYS].some((k) => !!meta?._map?.has(k));
 }
 
 /** Everything about places outside the limits in a document as it is, each as a text of its own. */
@@ -273,7 +191,7 @@ export function placesProblemOnCopy(doc: Y.Doc | null, update: Uint8Array): stri
   guardWork.docCopies += 1;
   const after = new Y.Doc();
   try {
-    const before = doc ? docPlacesProblems(doc) : new Set<string>();
+    const before = doc ? new Set([...docPlacesProblems(doc), ...docCarsProblems(doc)]) : new Set<string>();
     if (doc) {
       const state = Y.encodeStateAsUpdate(doc);
       guardWork.copyBytes += state.length;
@@ -287,9 +205,9 @@ export function placesProblemOnCopy(doc: Y.Doc | null, update: Uint8Array): stri
     }
     let now: Set<string>;
     try {
-      now = docPlacesProblems(after);
+      now = new Set([...docPlacesProblems(after), ...docCarsProblems(after)]);
     } catch {
-      return 'it makes the layout’s places unreadable';
+      return 'it makes the layout’s places or cars unreadable';
     }
     for (const p of now) if (!before.has(p)) return p.slice(0, 160);
     return null;

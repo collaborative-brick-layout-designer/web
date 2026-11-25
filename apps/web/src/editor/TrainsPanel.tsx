@@ -11,7 +11,7 @@
 import { useMemo, useRef, useState } from 'react';
 import type * as Y from 'yjs';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { turnedAround, type FitCheck, type PlacedTrain, type RollingStock, type Train, type TrackNetwork } from '@cld/parts-catalog/browser';
+import { CUT_LIMITS, loadOf, standingIn, turnStanding, type FitCheck, type PlacedTrain, type RollingStock, type Train, type TrackNetwork } from '@cld/parts-catalog/browser';
 import { api, type PartWire, type RosterStock } from '../api';
 import { ImportDialog, type MadeStock } from '../import/ImportDialog';
 import { canImport, IMPORT_ACCEPT, importApi } from '../import/importApi';
@@ -24,6 +24,8 @@ import { FitChecksList } from './FitChecksList';
 import type { namesOf } from './fitChecks';
 import { StockEditor } from './StockEditor';
 import { kmhToShown, speedToKmh, usesMiles } from './trainRun';
+import { cutName, saveTrainCars, setLoad, takeCarOff, takeCutOff } from './cuts';
+import { LOAD_LABELS } from './CarBar';
 import {
   copyOf,
   forRoster,
@@ -59,6 +61,8 @@ interface Props {
   /** The fit checks for the trains on the map (routes' are in the Routes panel). */
   checks: readonly FitCheck[];
   names: ReturnType<typeof namesOf>;
+  /** On a phone's sheet: putting something on the track closes it, so the map shows. */
+  onPlacing?: () => void;
 }
 
 const btn = 'rounded border border-border px-2 py-1 text-xs hover:bg-soft disabled:opacity-50';
@@ -167,7 +171,7 @@ function TrainEditor({
               </option>
             ))}
           </select>
-          <button type="button" className={btn} data-testid="train-add-unit" disabled={!adding} onClick={() => setT({ ...t, units: [...t.units, { stock: adding, reversed: false }] })}>
+          <button type="button" className={btn} data-testid="train-add-unit" disabled={!adding || t.units.length >= CUT_LIMITS.units} onClick={() => setT({ ...t, units: [...t.units, { stock: adding, reversed: false }] })}>
             Add to the end
           </button>
         </div>
@@ -341,8 +345,9 @@ function SaveToRoster({ doc, s, onClose }: { doc: Y.Doc; s: RollingStock; onClos
   );
 }
 
-export function TrainsPanel({ doc, net, stock, trains, placed, switchStates, parts, isViewer, canUseRoster, checks, names }: Props) {
+export function TrainsPanel({ doc, net, stock, trains, placed, switchStates, parts, isViewer, canUseRoster, checks, names, onPlacing }: Props) {
   const unit = useLengthUnit();
+  const carsPlacing = useEditorStore((s) => s.carsPlacing);
   const placing = useEditorStore((s) => s.trainPlacing);
   const [tab, setTab] = useState<'trains' | 'stock'>(() => (stock.length === 0 ? 'stock' : 'trains'));
   const [editingStock, setEditingStock] = useState<{ s: RollingStock; isNew: boolean } | null>(null);
@@ -355,6 +360,9 @@ export function TrainsPanel({ doc, net, stock, trains, placed, switchStates, par
   const byId = useMemo(() => new Map(stock.map((s) => [s.id, s])), [stock]);
   const roster = useQuery({ queryKey: ['rolling-stock'], queryFn: () => api.rollingStock.list(), enabled: canUseRoster && !isViewer && stock.some((s) => !!s.libraryId) });
   const rosterById = useMemo(() => new Map((roster.data?.stock ?? []).map((e) => [e.id, e])), [roster.data]);
+  // Trains someone made, and the cars standing on the track on their own.
+  const made = trains.filter((t) => !t.cut);
+  const cuts = trains.filter((t) => t.cut);
   const hasTrack = !!net && net.brickIds.length > 0;
   // Import a model…: the site must import models, and the part is saved to an account.
   const importStatus = useQuery({ queryKey: ['imports-status'], queryFn: importApi.status, staleTime: 60_000, enabled: canUseRoster && !isViewer });
@@ -396,7 +404,7 @@ export function TrainsPanel({ doc, net, stock, trains, placed, switchStates, par
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-2 text-sm" data-testid="trains-panel">
       <div role="tablist" aria-label="Trains or rolling stock" data-tour="trainsPanel.tabs" className="flex gap-1">
-        {tabBtn('trains', 'Trains', trains.length)}
+        {tabBtn('trains', 'Trains', made.length)}
         {tabBtn('stock', 'Rolling stock', stock.length)}
       </div>
       {message && (
@@ -409,7 +417,7 @@ export function TrainsPanel({ doc, net, stock, trains, placed, switchStates, par
         <>
           {!isViewer && !editingStock && (
             <div className="flex flex-wrap items-center gap-2">
-              <button type="button" className={primary} data-testid="stock-new" onClick={() => setEditingStock({ s: newStock({}, stock), isNew: true })}>
+              <button type="button" className={primary} data-testid="stock-new" onClick={() => (stock.length >= CUT_LIMITS.records ? setMessage(`A layout can have up to ${CUT_LIMITS.records} cars.`) : setEditingStock({ s: newStock({}, stock), isNew: true }))}>
                 New car
               </button>
               <HelpButton helpKey="trains.newStock" />
@@ -465,7 +473,10 @@ export function TrainsPanel({ doc, net, stock, trains, placed, switchStates, par
             <>
               <ul className="flex flex-col gap-1.5" aria-label="Rolling stock">
                 {stock.map((s) => {
-                  const inTrains = trainsWith(s.id, trains);
+                  const inTrains = trainsWith(s.id, trains.filter((t) => !t.cut));
+                  const standing = standingIn(s.id, trains);
+                  const load = loadOf(s);
+                  const isPlacing = carsPlacing?.includes(s.id) ?? false;
                   const entry = s.libraryId ? rosterById.get(s.libraryId) : undefined;
                   return (
                     <li key={s.id} data-stock={s.id} className="rounded-card border border-line bg-panel p-2">
@@ -488,11 +499,45 @@ export function TrainsPanel({ doc, net, stock, trains, placed, switchStates, par
                       </div>
                       <div className="mt-1 flex flex-wrap gap-2 text-xs text-muted">
                         <span>{KIND_LABELS[s.kind]}</span>
+                        <span data-testid="car-standing">{!standing ? 'Not on the map' : !standing.cut ? 'On the track' : standing.units.length === 1 ? 'On the track, on its own' : `On the track, coupled to ${standing.units.length - 1} other${standing.units.length === 2 ? '' : 's'}`}</span>
                         {inTrains.length > 0 && <span>In {inTrains.map((t) => t.name).join(', ')}</span>}
                         {s.libraryId && <span>{entry && rosterIsNewer(s, entry) ? 'The roster has a newer version' : 'From a roster'}</span>}
                       </div>
                       {!isViewer && (
-                        <div className="mt-1.5 flex flex-wrap gap-1">
+                        <div className="mt-1.5 flex flex-wrap items-center gap-1">
+                          <span className="flex items-center gap-0.5">
+                            <button
+                              type="button"
+                              className={btn}
+                              data-testid="car-place"
+                              aria-pressed={isPlacing}
+                              disabled={!hasTrack}
+                              title={hasTrack ? undefined : 'There’s no track on this layout yet.'}
+                              onClick={() => {
+                                useEditorStore.getState().setCarsPlacing(isPlacing ? null : [s.id]);
+                                if (!isPlacing) onPlacing?.();
+                              }}
+                            >
+                              {isPlacing ? 'Click the track…' : standing ? 'Move' : 'Put on the track'}
+                            </button>
+                            <HelpButton helpKey="ops.cut" />
+                          </span>
+                          {standing && net && (
+                            <button type="button" className={quiet} data-testid="car-take-off" onClick={() => takeCarOff(doc, net, switchStates, s.id)}>
+                              Take off the track
+                            </button>
+                          )}
+                          <label className="flex items-center gap-1 text-xs">
+                            <span className="text-muted">Load</span>
+                            <select className="h-8 rounded border border-border bg-bg px-1 text-xs" aria-label={`Load of ${stockLabel(s)}`} value={load} onChange={(e) => setLoad(doc, s.id, e.target.value as typeof load)}>
+                              {(['', 'empty', 'loaded'] as const).map((l) => (
+                                <option key={l} value={l}>
+                                  {LOAD_LABELS[l]}
+                                </option>
+                              ))}
+                            </select>
+                            <HelpButton helpKey="ops.load" />
+                          </label>
                           <button type="button" className={quiet} onClick={() => setEditingStock({ s, isNew: false })}>
                             Change
                           </button>
@@ -516,7 +561,7 @@ export function TrainsPanel({ doc, net, stock, trains, placed, switchStates, par
                           {confirmDelete === s.id ? (
                             <span className="flex flex-wrap items-center gap-1 text-xs">
                               {inTrains.length ? `Delete it and take it out of ${inTrains.length === 1 ? inTrains[0]!.name : `${inTrains.length} trains`}?` : `Delete ${stockLabel(s)}?`}
-                              <button type="button" className="rounded bg-red-700 px-2 py-1 font-semibold text-white" onClick={() => { removeStock(doc, s.id, trains); setConfirmDelete(null); }}>
+                              <button type="button" className="rounded bg-red-700 px-2 py-1 font-semibold text-white" onClick={() => { removeStock(doc, s.id, trains, net, switchStates); setConfirmDelete(null); }}>
                                 Delete
                               </button>
                               <button type="button" className={quiet} onClick={() => setConfirmDelete(null)}>
@@ -536,12 +581,27 @@ export function TrainsPanel({ doc, net, stock, trains, placed, switchStates, par
                 })}
               </ul>
               {!isViewer && ticked.length > 0 && (
+                <>
+                <button
+                  type="button"
+                  className={btn}
+                  data-testid="cars-place"
+                  disabled={!hasTrack}
+                  title={hasTrack ? undefined : 'There’s no track on this layout yet.'}
+                  onClick={() => {
+                    useEditorStore.getState().setCarsPlacing(ticked.filter((id) => byId.has(id)));
+                    setTicked([]);
+                    onPlacing?.();
+                  }}
+                >
+                  Put {ticked.length === 1 ? 'this car' : `these ${ticked.length} cars`} on the track, coupled
+                </button>
                 <button
                   type="button"
                   className={primary}
                   data-testid="train-from-ticked"
                   onClick={() => {
-                    const t = newTrain(`Train ${trains.length + 1}`, ticked.filter((id) => byId.has(id)).map((id) => ({ stock: id, reversed: false })), trains);
+                    const t = newTrain(`Train ${made.length + 1}`, ticked.filter((id) => byId.has(id)).map((id) => ({ stock: id, reversed: false })), trains);
                     saveTrain(doc, t);
                     setTicked([]);
                     setTab('trains');
@@ -550,6 +610,7 @@ export function TrainsPanel({ doc, net, stock, trains, placed, switchStates, par
                 >
                   Make a train of {ticked.length === 1 ? 'this car' : `these ${ticked.length} cars`}
                 </button>
+                </>
               )}
             </>
           )}
@@ -573,7 +634,7 @@ export function TrainsPanel({ doc, net, stock, trains, placed, switchStates, par
               stock={stock}
               onCancel={() => setEditingTrain(null)}
               onSave={(t) => {
-                saveTrain(doc, t);
+                saveTrainCars(doc, net, switchStates, t);
                 setEditingTrain(null);
                 setMessage(`Saved ${t.name}.`);
               }}
@@ -582,13 +643,13 @@ export function TrainsPanel({ doc, net, stock, trains, placed, switchStates, par
           {trains.some((t) => t.position) && (
             <FitChecksList checks={checks.filter((c) => c.train)} names={names} allClear="Every train on the track fits: nothing too long, too tight or too close." />
           )}
-          {trains.length === 0 ? (
+          {made.length === 0 ? (
             <p className="text-muted">
               No trains yet. {stock.length === 0 ? 'Make a car or two in Rolling stock first, then put them together here.' : 'Press New train, or tick cars in Rolling stock and make a train of them.'}
             </p>
           ) : (
             <ul className="flex flex-col gap-1.5" aria-label="Trains">
-              {trains.map((t) => {
+              {made.map((t) => {
                 const p = placed.get(t.id);
                 const state = trainState(t, p);
                 const isPlacing = placing === t.id;
@@ -615,7 +676,10 @@ export function TrainsPanel({ doc, net, stock, trains, placed, switchStates, par
                             aria-pressed={isPlacing}
                             disabled={!hasTrack || t.units.length === 0}
                             title={hasTrack ? undefined : 'There’s no track on this layout yet.'}
-                            onClick={() => useEditorStore.getState().setTrainPlacing(isPlacing ? null : t.id)}
+                            onClick={() => {
+                              useEditorStore.getState().setTrainPlacing(isPlacing ? null : t.id);
+                              if (!isPlacing) onPlacing?.();
+                            }}
                           >
                             {isPlacing ? 'Click the track…' : t.position ? 'Move' : 'Put on the track'}
                           </button>
@@ -628,7 +692,7 @@ export function TrainsPanel({ doc, net, stock, trains, placed, switchStates, par
                               className={btn}
                               data-testid="train-turn"
                               onClick={() => {
-                                saveTrain(doc, turnedAround(net, t, byId, switchStates));
+                                saveTrain(doc, turnStanding(net, t, byId, switchStates));
                                 setMessage(`${t.name} turned around.`);
                               }}
                             >
@@ -666,6 +730,56 @@ export function TrainsPanel({ doc, net, stock, trains, placed, switchStates, par
                 );
               })}
             </ul>
+          )}
+          {cuts.length > 0 && (
+            <>
+              <h3 className="mt-2 flex items-center gap-1 text-xs font-semibold">
+                Cars on the track
+                <HelpButton helpKey="ops.cut" />
+              </h3>
+              <ul className="flex flex-col gap-1.5" aria-label="Cars on the track">
+                {cuts.map((t) => {
+                  const state = trainState(t, placed.get(t.id));
+                  return (
+                    <li key={t.id} data-cut={t.id} className="rounded-card border border-line bg-panel p-2">
+                      <div className="flex items-center gap-2">
+                        <Dot color={t.color} />
+                        <span className="min-w-0 flex-1 truncate font-semibold">{cutName(t, byId)}</span>
+                        <span className="text-xs text-muted">{formatLength(trainLength(t, byId), unit)}</span>
+                      </div>
+                      <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted">
+                        <StateChip state={state} />
+                        <span>{t.units.length === 1 ? '1 car' : `${t.units.length} cars`}</span>
+                      </div>
+                      {!isViewer && (
+                        <div className="mt-1.5 flex flex-wrap gap-1">
+                          <button
+                            type="button"
+                            className={btn}
+                            data-testid="cut-move"
+                            disabled={!hasTrack}
+                            onClick={() => {
+                              useEditorStore.getState().setTrainPlacing(t.id);
+                              onPlacing?.();
+                            }}
+                          >
+                            {placing === t.id ? 'Click the track…' : 'Move'}
+                          </button>
+                          {net && state !== 'lost' && (
+                            <button type="button" className={btn} data-testid="cut-turn" onClick={() => saveTrain(doc, turnStanding(net, t, byId, switchStates))}>
+                              Turn around
+                            </button>
+                          )}
+                          <button type="button" className={quiet} data-testid="cut-off" onClick={() => takeCutOff(doc, t.id)}>
+                            Take off the track
+                          </button>
+                        </div>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            </>
           )}
         </>
       )}
