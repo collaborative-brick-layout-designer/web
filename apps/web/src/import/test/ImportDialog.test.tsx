@@ -251,8 +251,9 @@ describe('ImportDialog', () => {
     const left = () => Number(pic.getAttribute('data-grid-left'));
     const k = () => Number(pic.getAttribute('data-px-per-stud'));
     // Fitted: 8 × 2 studs in the stand-in 640 × 400 room.
+    // (The picture is there a moment before it is measured and fitted.)
+    await waitFor(() => expect(zoom()).toBe(Math.round((608 / 8 / 32) * 100)));
     const fitted = zoom();
-    expect(fitted).toBe(Math.round((608 / 8 / 32) * 100));
     fireEvent.click(screen.getByRole('button', { name: 'Zoom in' }));
     expect(zoom()).toBeGreaterThan(fitted);
     expect(screen.getByTestId('import-zoom').textContent).toBe(`${zoom()}%`);
