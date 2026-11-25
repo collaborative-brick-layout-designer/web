@@ -742,10 +742,11 @@ packages/
 
 GitHub Actions workflows:
 
-- **`ci.yml`**: on every pull request, lint, typecheck, build, unit tests,
-  the Docker build, the OSV scan and the conventional-commit check.
-- **`journeys.yml`**: the end-to-end journeys on every pull request, and
-  every e2e spec nightly, split into shards of about 12 minutes by how long
+- **`ci.yml`**: on every pull request, and on `main` after every merge, lint,
+  typecheck, build, unit tests, the Docker build and the OSV scan; on pull
+  requests also the conventional-commit check.
+- **`journeys.yml`**: the end-to-end journeys on every pull request and on
+  `main` after every merge, and every e2e spec nightly, split into shards of about 12 minutes by how long
   each spec took the night before (`.github/scripts/e2e-shards.mjs`), with
   their reports merged into one summary on the run page. Run it by hand with
   `gh workflow run journeys.yml --ref <branch> -f full=true`.
