@@ -73,9 +73,7 @@ jobs:
         with:
           # As the desktop repo's CI: aqtinstall 3.3.0 cannot find Qt >= 6.11.
           aqtsource: git+https://github.com/miurahr/aqtinstall.git@076e1659807d0b362a3ed684d54c2e9c775eb9c7
-          # Pinned to 6.12.0: Qt's mirror has no checksums for the 6.12.1 packages it
-          # published on 2026-11-18, so aqtinstall stops. Go back to '6.12.*' once it does.
-          version: '6.12.0'
+          version: '6.12.*'
           modules: qtwebsockets qtimageformats
           cache: true
 
