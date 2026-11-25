@@ -496,12 +496,19 @@ const ITEM_KINDS = [
   { field: 'anchoredLabels', prefix: 'l:' },
 ] as const;
 
+/** A plain object, as every app writes the sidecar's values (never one of Yjs's own types). */
+function isPlainObject(v: unknown): v is Record<string, unknown> {
+  return !!v && typeof v === 'object' && !Array.isArray(v) && !(v instanceof Y.AbstractType);
+}
+
 /**
  * JSON with every object's keys in sorted order (by UTF-16 code unit), so the
  * text, and the hash, don't depend on the order a writer gave the keys: the
  * desktop's yrs keeps an object's keys in no fixed order.
  */
 function stableStringify(v: unknown): string {
+  // (Not a value any app writes: never equal to one that is.)
+  if (v instanceof Y.AbstractType) return 'nested';
   if (Array.isArray(v)) return `[${v.map((x) => (x === undefined ? 'null' : stableStringify(x))).join(',')}]`;
   if (v && typeof v === 'object') {
     const o = v as Record<string, unknown>;
@@ -536,8 +543,8 @@ function blobHash(blob: unknown): string {
  */
 export function readSidecarCache(doc: Y.Doc): Record<string, unknown> | null {
   const blob = doc.getMap('meta').get('cache');
-  if (!blob || typeof blob !== 'object') return null;
-  const cache = blob as Record<string, unknown>;
+  if (!isPlainObject(blob)) return null;
+  const cache = blob;
   // Inside a transaction a change may be half made (a module's parts
   // deleted before the new ones go in, replaceModuleParts): the write at
   // its end leaves out what's gone.
@@ -825,7 +832,7 @@ function mergedSidecar(cache: Record<string, unknown>, items: Y.Map<unknown>): R
   for (const { field, prefix } of ITEM_KINDS) {
     const entries: { order: number; id: string; value: Record<string, unknown> }[] = [];
     items.forEach((v, k) => {
-      if (!k.startsWith(prefix) || !v || typeof v !== 'object') return;
+      if (!k.startsWith(prefix) || !isPlainObject(v)) return;
       const { _order, ...value } = v as Record<string, unknown>;
       // A module's parts: its starting list with what the `p:` keys changed.
       const keys = field === 'modules' ? memberKeys.get(k.slice(prefix.length)) : undefined;
@@ -855,7 +862,7 @@ export function writeSidecarCache(doc: Y.Doc, written: Record<string, unknown>):
   // or shared), each module starts again from the list written here.
   const splittable = idsUnique(cache);
   const current =
-    splittable && items.size > 0 && !!blob && typeof blob === 'object' && items.get('__blob') === blobHash(blob) && idsUnique(blob as Record<string, unknown>);
+    splittable && items.size > 0 && isPlainObject(blob) && items.get('__blob') === blobHash(blob) && idsUnique(blob);
   const memberKeys = memberKeysByModule(items);
   const dropMemberKeys = (moduleId: string): void => {
     for (const k of [...items.keys()]) if (k.startsWith(MEMBER_PREFIX) && parseMemberKey(k)?.moduleId === moduleId) items.delete(k);
@@ -872,7 +879,7 @@ export function writeSidecarCache(doc: Y.Doc, written: Record<string, unknown>):
         return;
       }
       const had = items.get(k);
-      if (!current || !had || typeof had !== 'object') {
+      if (!current || !isPlainObject(had)) {
         // A new module (or one read from meta.cache): the list is its starting list.
         if (memberKeys.has(v.id)) dropMemberKeys(v.id);
         want.set(k, { ...v, _order: i });
@@ -906,6 +913,53 @@ export function writeSidecarCache(doc: Y.Doc, written: Record<string, unknown>):
   if (wroteMemberKey) stampMemberKeysAfter(doc);
   // And builds that don't know a shared module is locked (sharedShape.ts).
   if (Array.isArray(out.modules) && (out.modules as unknown[]).some(hasSharedMark)) stampSharedAfter(doc);
+}
+
+/**
+ * Put a sidecar that holds what no app writes back in shape: a module's or
+ * label's value (or the whole sidecar) that is one of Yjs's own types, and
+ * a second entry with a shared module's id. Each is then there as a plain
+ * value, a shared module once (the first that is shared); for a nested value, what `meta.cache` has for it, else its fields. Makes
+ * no change when there is nothing to put right. Returns true when it did.
+ */
+export function repairSidecarShape(doc: Y.Doc, origin?: unknown): boolean {
+  const meta = doc.getMap('meta');
+  const items = doc.getMap<unknown>(SIDECAR_ITEMS);
+  const blob = meta.get('cache');
+  const nestedBlob = blob instanceof Y.AbstractType;
+  const nested = [...items.keys()].filter((k) => items.get(k) instanceof Y.AbstractType);
+  const base = nestedBlob ? ((blob as Y.AbstractType<unknown>).toJSON() as unknown) : blob;
+  const read = nestedBlob ? (isPlainObject(base) ? base : {}) : readSidecarCache(doc);
+  const twice = (list: unknown): boolean => {
+    if (!Array.isArray(list)) return false;
+    const shared = new Set<unknown>(list.map((v) => (hasSharedMark(v) && isPlainObject(v) ? v.id : undefined)).filter((x) => typeof x === 'string'));
+    const ids = list.map((v) => (isPlainObject(v) ? v.id : undefined)).filter((x) => shared.has(x));
+    return shared.size < ids.length;
+  };
+  if (!nestedBlob && nested.length === 0 && !ITEM_KINDS.some(({ field }) => twice(read?.[field]))) return false;
+  const out: Record<string, unknown> = { ...(read ?? {}) };
+  for (const { field, prefix } of ITEM_KINDS) {
+    const list: Record<string, unknown>[] = Array.isArray(out[field]) ? [...(out[field] as Record<string, unknown>[])] : [];
+    const had = new Set(list.map((v) => (isPlainObject(v) ? v.id : undefined)));
+    for (const k of nested) {
+      const id = k.slice(prefix.length);
+      if (!k.startsWith(prefix) || had.has(id)) continue;
+      const kept = isPlainObject(base) && Array.isArray(base[field]) ? (base[field] as unknown[]).find((v) => isPlainObject(v) && v.id === id) : undefined;
+      const value = kept ?? (items.get(k) as Y.AbstractType<unknown>).toJSON();
+      if (!isPlainObject(value)) continue;
+      const { _order, ...rest } = value;
+      list.push({ ...rest, id });
+      had.add(id);
+    }
+    const keep = new Map<unknown, Record<string, unknown>>();
+    for (const v of list) if (isPlainObject(v) && hasSharedMark(v) && !keep.has(v.id)) keep.set(v.id, v);
+    if (list.length > 0 || Array.isArray(out[field])) out[field] = list.filter((v) => !isPlainObject(v) || !keep.has(v.id) || keep.get(v.id) === v);
+  }
+  doc.transact(() => {
+    for (const k of nested) items.delete(k);
+    writeSidecarCache(doc, structuredClone(out));
+  }, origin);
+  return true;
 }
 
 /**

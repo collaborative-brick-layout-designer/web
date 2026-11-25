@@ -65,8 +65,8 @@ export function memberKeyProblem(doc: Y.Doc | null, decoded: DecodedUpdate): str
           const there = Y.getItem(doc!.store, ref);
           if (there instanceof Y.Item && there.parentSub !== null) {
             const parent = there.parent as Y.AbstractType<unknown> | null;
-            const isItems = !!parent && parent._item === null && doc!.share.get(SIDECAR_ITEMS) === parent;
-            place = { root: isItems ? SIDECAR_ITEMS : null, key: there.parentSub };
+            const root = !parent || parent._item !== null ? null : [SIDECAR_ITEMS, 'meta'].find((name) => doc!.share.get(name) === parent);
+            place = { root: root ?? null, key: there.parentSub };
           }
         } catch {
           place = NOWHERE;
@@ -95,8 +95,13 @@ export function memberKeyProblem(doc: Y.Doc | null, decoded: DecodedUpdate): str
   for (const s of structs) {
     if (!(s instanceof Y.Item)) continue;
     const { root, key } = placeOf(s);
-    if (root !== SIDECAR_ITEMS || key === null || !key.startsWith(MEMBER_PREFIX)) continue;
+    if (key === null) continue;
     const c = s.content;
+    // The sidecar's values are plain ones in every app (one this update deletes is never read).
+    if (((root === SIDECAR_ITEMS && !key.startsWith(MEMBER_PREFIX)) || (root === 'meta' && key === 'cache')) && (c instanceof Y.ContentType || c instanceof Y.ContentDoc) && !deleted(s)) {
+      return 'it writes a sidecar value that is not a plain one';
+    }
+    if (root !== SIDECAR_ITEMS || !key.startsWith(MEMBER_PREFIX)) continue;
     // Already deleted where it came from, or deleted by this update.
     if (c instanceof Y.ContentDeleted || deleted(s)) continue;
     if (!parseMemberKey(key)) return "it writes a module part key that names no module and part";

@@ -36,7 +36,8 @@
 // connection instead (as the other guards do) would leave the change in
 // the app's copy, and a desktop sends its saved copy again each time the
 // layout is opened: refused again and again. Putting it back works the
-// same for every app, old ones included.
+// same for every app, old ones included. It is tried on the copy first: an
+// update whose changes can't be put back isn't taken.
 //
 // What is compared is what the layout reads as before and after, not the
 // keys an update happens to write, so two apps racing (one removing the
@@ -51,13 +52,16 @@
 
 import * as Y from 'yjs';
 import { modulePlaces } from '@cld/bbm';
-import { readSidecarCache, writeSidecarCache } from '@cld/ydoc';
+import { hasSharedMark, readSidecarCache, repairSidecarShape, writeSidecarCache } from '@cld/ydoc';
 import { norm360, pivotOf, settleRetired, sharedModulesIn, type PartLookup, type Pt } from '@cld/modules';
 import { guardWork, type DecodedUpdate } from './decoded.js';
 import { pendingMayLand } from './pending.js';
 
 /** sharedLockProblem's answer when the update needs a copy and `mayCopy` says no: slow the sender down. */
 export const LOCK_COPY_BUDGET_SPENT = 'it needs a copy of the layout to check its shared modules, and its sender has used up their copies for now';
+
+/** sharedLockCheck's answer when the modules it changes couldn't be put back after it: it isn't taken. */
+export const LOCK_NOT_PUT_BACK = 'it changes a shared module in a way that cannot be put back';
 
 /** A part's fields that are its owner's: which part it is, and its height. */
 const LOCKED_FIELDS = new Set(['id', 'partNumber', 'altitude']);
@@ -85,8 +89,32 @@ interface Locked {
   sets: Map<string, PartPose>[];
   /** Its places (Live Ops), as text. */
   places: string;
+  /** How many entries the sidecar has with its id (one, in every app), and whether the first is it. */
+  entries: number;
+  first: boolean;
+  /** Copies of its parts whose place can't be read. */
+  unread: Map<string, number>;
   /** How many of each part are on the map (a pair moving it to another sheet at once makes two of each). */
   counts: Map<string, number>;
+}
+
+/** A field as text; one of Yjs's own types (no app writes one there) is never the same as a plain value. */
+function fieldText(v: unknown): string {
+  return v instanceof Y.AbstractType ? `\u0002${JSON.stringify(v.toJSON())}` : String(v);
+}
+
+/** A part entry's id, in whatever shape it was written; `odd`: not one the apps write. */
+function entryId(b: unknown): { id: string; odd: boolean } | null {
+  const v = b instanceof Y.Map ? b.get('id') : b && typeof b === 'object' && !(b instanceof Y.AbstractType) ? (b as { id?: unknown }).id : undefined;
+  if (v instanceof Y.AbstractType) return { id: v instanceof Y.Text ? v.toString() : JSON.stringify(v.toJSON()), odd: true };
+  return typeof v === 'string' ? { id: v, odd: !(b instanceof Y.Map) } : null;
+}
+
+/** A sheet's parts, in whatever shape the sheet is (the apps write a Y.Map with a Y.Array). */
+function sheetEntries(layer: unknown): { list: unknown[]; odd: boolean } {
+  const bricks = layer instanceof Y.Map ? layer.get('bricks') : layer && typeof layer === 'object' && !(layer instanceof Y.AbstractType) ? (layer as { bricks?: unknown }).bricks : undefined;
+  if (bricks instanceof Y.Array) return { list: bricks.toArray(), odd: !(layer instanceof Y.Map) };
+  return { list: Array.isArray(bricks) ? bricks : bricks instanceof Y.Map ? [...bricks.values()] : [], odd: true };
 }
 
 interface PartSnap {
@@ -144,29 +172,31 @@ export function lockState(doc: Y.Doc, keep = false): LockState {
   const sig = new Map<string, string>();
   const counts = new Map<string, number>();
   const copies = new Map<string, (PartPose | null)[]>();
+  const unread = new Map<string, number>();
   const snaps = keep ? new Map<string, PartSnap[]>() : undefined;
   const alive = new Set<string>();
   const layerData = doc.getMap<unknown>('layerData');
   for (const [layerId, layer] of layerData) {
-    if (!(layer instanceof Y.Map)) continue;
-    const bricks = layer.get('bricks');
-    if (!(bricks instanceof Y.Array)) continue;
-    for (const b of bricks) {
-      if (!(b instanceof Y.Map)) continue;
-      const id = b.get('id');
-      if (typeof id !== 'string') continue;
+    const sheet = sheetEntries(layer);
+    for (const b of sheet.list) {
+      const e = entryId(b);
+      if (!e) continue;
+      const { id } = e;
       alive.add(id);
       if (!wanted.has(id)) continue;
-      const s = `${String(b.get('partNumber'))}\u0000${String(b.get('altitude') ?? 0)}`;
+      const odd = e.odd || sheet.odd;
+      const s = odd || !(b instanceof Y.Map) ? '\u0002' : `${fieldText(b.get('partNumber'))}\u0000${fieldText(b.get('altitude') ?? 0)}`;
       const had = sig.get(id);
       if (had === undefined) sig.set(id, s);
       // Copies that aren't all the same: each kind, in an order of its own.
       else if (had !== s) sig.set(id, [...new Set([...had.split('\u0001'), s])].sort().join('\u0001'));
       counts.set(id, (counts.get(id) ?? 0) + 1);
+      const pose = b instanceof Y.Map && !odd ? readPose(b) : null;
+      if (!pose) unread.set(id, (unread.get(id) ?? 0) + 1);
       const at = copies.get(id);
-      if (at) at.push(readPose(b));
-      else copies.set(id, [readPose(b)]);
-      if (snaps) {
+      if (at) at.push(pose);
+      else copies.set(id, [pose]);
+      if (snaps && b instanceof Y.Map && !odd) {
         const snap = { layerId, fields: b.toJSON() as Record<string, unknown> };
         const list = snaps.get(id);
         if (list) list.push(snap);
@@ -174,9 +204,13 @@ export function lockState(doc: Y.Doc, keep = false): LockState {
       }
     }
   }
-  const placesById = new Map(sidecarModules(doc).map((m) => [m.id as string, placesText(m)]));
+  const all = sidecarModules(doc);
   const shared = new Map<string, Locked>();
   for (const p of placed) {
+    // Of several with one id, the first that is shared.
+    if (shared.has(p.placedId)) continue;
+    const entries = all.filter((m) => m.id === p.placedId);
+    const own = entries.find(hasSharedMark);
     const parts = new Map<string, string>();
     const sets: Map<string, PartPose>[] = [new Map()];
     const n = new Map<string, number>();
@@ -190,12 +224,22 @@ export function lockState(doc: Y.Doc, keep = false): LockState {
         if (pose) sets[i]!.set(id, pose);
       }
     }
-    shared.set(p.placedId, { follows: p.moduleId, parts, poses: sets[0]!, sets, counts: n, places: placesById.get(p.placedId) ?? '' });
+    shared.set(p.placedId, {
+      follows: p.moduleId,
+      parts,
+      poses: sets[0]!,
+      sets,
+      counts: n,
+      unread: new Map([...parts.keys()].map((id) => [id, unread.get(id) ?? 0])),
+      places: own ? placesText(own) : '',
+      entries: entries.length,
+      first: entries[0] === own,
+    });
   }
-  const all = sidecarModules(doc);
   const out: LockState = { shared, modules: new Set(all.map((m) => m.id as string)), alive };
   if (snaps) {
-    out.values = new Map(all.filter((m) => shared.has(m.id as string)).map((m) => [m.id as string, structuredClone(m)]));
+    out.values = new Map();
+    for (const m of all) if (shared.has(m.id as string) && hasSharedMark(m) && !out.values.has(m.id as string)) out.values.set(m.id as string, structuredClone(m));
     out.snaps = snaps;
   }
   return out;
@@ -211,6 +255,7 @@ function moduleBroken(id: string, was: Locked, after: LockState): string | null 
     }
     return null;
   }
+  if (now.entries > Math.max(1, was.entries) || (was.first && !now.first)) return 'it puts a second module in a shared module’s place';
   if (now.follows !== was.follows) return 'it makes a shared module follow another module';
   if (now.places !== was.places) return 'it changes the places of a shared module';
   // Removed whole, its record left by a change made at the same moment.
@@ -220,6 +265,7 @@ function moduleBroken(id: string, was: Locked, after: LockState): string | null 
     const s = now.parts.get(part);
     if (s === undefined) return 'it swaps a part of a shared module for another';
     if (s !== sig) return 'it changes a part of a shared module';
+    if ((now.unread.get(part) ?? 0) > (was.unread.get(part) ?? 0)) return 'it leaves a part of a shared module with no place';
   }
   // Two people moving it to another sheet at once make two of every part;
   // more of only some is a part added.
@@ -423,12 +469,25 @@ export const RETIRED_BACK = 'it brings back a part an update of a shared module 
 export function writesId(decoded: DecodedUpdate, ids: ReadonlySet<string>): boolean {
   if (ids.size === 0) return false;
   for (const s of decoded.structs) {
-    if (!(s instanceof Y.Item) || s.parentSub !== 'id') continue;
+    if (!(s instanceof Y.Item)) continue;
     const c = s.content;
+    // A part (or a sheet with parts) written as a plain value: no app does that.
+    if (c instanceof Y.ContentAny && s.parentSub !== 'cache' && c.arr.some((v) => v !== null && typeof v === 'object' && holdsId(v, ids, 4))) return true;
+    if (s.parentSub !== 'id') continue;
+    // An id that isn't a plain text: looked at closely.
+    if (c instanceof Y.ContentType) return true;
     const v = c instanceof Y.ContentAny ? c.arr[0] : c instanceof Y.ContentString ? c.str : undefined;
     if (typeof v === 'string' && ids.has(v)) return true;
   }
   return false;
+}
+
+/** Whether a plain value is, or holds within `depth` steps, an entry with one of `ids`. */
+function holdsId(v: unknown, ids: ReadonlySet<string>, depth: number): boolean {
+  if (v === null || typeof v !== 'object' || v instanceof Uint8Array || depth === 0) return false;
+  const id = (v as { id?: unknown }).id;
+  if (typeof id === 'string' && ids.has(id)) return true;
+  return Object.values(v).some((x) => holdsId(x, ids, depth - 1));
 }
 
 /** Every shared module `after` breaks the lock of (parts, link, or moved apart), and why. */
@@ -453,6 +512,89 @@ function breaks(before: LockState, after: LockState, raced: ReadonlySet<string>,
   return why ? { why, modules } : null;
 }
 
+/** Take out the entries of sheets with one of `ids` that aren't parts as the apps write them. */
+function dropOddEntries(layerData: Y.Map<unknown>, ids: ReadonlySet<string>): void {
+  const odd = (b: unknown, sheetOdd: boolean): boolean => {
+    const e = entryId(b);
+    return !!e && ids.has(e.id) && (e.odd || sheetOdd);
+  };
+  for (const [layerId, layer] of [...layerData]) {
+    const sheet = sheetEntries(layer);
+    if (!sheet.list.some((b) => odd(b, sheet.odd))) continue;
+    const bricks = layer instanceof Y.Map ? layer.get('bricks') : undefined;
+    if (bricks instanceof Y.Array && !sheet.odd) {
+      for (let i = bricks.length - 1; i >= 0; i--) if (odd(bricks.get(i), false)) bricks.delete(i, 1);
+      continue;
+    }
+    // The sheet as the apps keep one, without them.
+    const asMap = (b: unknown) => (b instanceof Y.AbstractType ? (b.toJSON() as unknown) : b);
+    const isObject = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
+    const list = (xs: unknown[]) => Y.Array.from(xs.map(asMap).filter(isObject).map((o) => new Y.Map(Object.entries(structuredClone(o)))));
+    const kept = list(sheet.list.filter((b) => !odd(b, true)));
+    if (layer instanceof Y.Map) {
+      layer.set('bricks', kept);
+      continue;
+    }
+    const fields = asMap(layer);
+    const y = new Y.Map<unknown>();
+    if (isObject(fields)) for (const [k, v] of Object.entries(fields)) if (k !== 'bricks') y.set(k, k === 'groups' ? list(Array.isArray(v) ? v : []) : structuredClone(v));
+    y.set('bricks', kept);
+    layerData.set(layerId, y);
+  }
+}
+
+/**
+ * The parts of the layout's shared modules, as the apps write parts: a
+ * field that is one of Yjs's own types becomes its plain value, and an
+ * entry that isn't a part goes when the part is there as well (else it
+ * becomes one). For a layout that already holds such values, when it opens.
+ * What they hold isn't judged: a part that isn't its owner's shows as
+ * changed. Returns true when it changed anything.
+ */
+export function healSharedParts(doc: Y.Doc, origin: unknown): boolean {
+  // (Read in a transaction: with the parts that aren't where a reader looks.)
+  const cache = doc.transact(() => readSidecarCache(doc));
+  const members = new Set(sharedModulesIn(cache).flatMap((p) => p.members));
+  if (members.size === 0) return false;
+  const layerData = doc.getMap<unknown>('layerData');
+  const nested: Y.Map<unknown>[] = [];
+  const whole = new Set<string>();
+  const odd: { layerId: string; id: string; fields: Record<string, unknown> }[] = [];
+  for (const [layerId, layer] of layerData) {
+    const sheet = sheetEntries(layer);
+    for (const b of sheet.list) {
+      const e = entryId(b);
+      if (!e || !members.has(e.id)) continue;
+      if (b instanceof Y.Map && !e.odd && !sheet.odd) {
+        whole.add(e.id);
+        if ([...LOOKED_AT].some((k) => b.get(k) instanceof Y.AbstractType)) nested.push(b as Y.Map<unknown>);
+      } else {
+        odd.push({ layerId, id: e.id, fields: (b instanceof Y.AbstractType ? b.toJSON() : structuredClone(b)) as Record<string, unknown> });
+      }
+    }
+  }
+  if (nested.length === 0 && odd.length === 0) return false;
+  doc.transact(() => {
+    for (const b of nested) {
+      for (const k of LOOKED_AT) {
+        const v = b.get(k);
+        if (v instanceof Y.AbstractType) b.set(k, v.toJSON());
+      }
+    }
+    if (odd.length === 0) return;
+    dropOddEntries(layerData, new Set(odd.map((o) => o.id)));
+    for (const o of odd) {
+      if (whole.has(o.id)) continue;
+      const sheet = layerData.get(o.layerId);
+      const list = sheet instanceof Y.Map ? (sheet.get('bricks') as unknown) : null;
+      if (!(list instanceof Y.Array)) continue;
+      whole.add(o.id);
+      list.push([new Y.Map(Object.entries({ ...o.fields, id: o.id }))]);
+    }
+  }, origin);
+  return true;
+}
+
 /**
  * Put the modules `brk` names back as they were before the update: each
  * one's sidecar value (its parts, its link), and each of its parts' fields
@@ -468,6 +610,7 @@ export function repairShared(doc: Y.Doc, brk: LockBreak, origin: unknown): void 
     if (brk.retiredBack.length > 0) {
       const back = new Set(brk.retiredBack);
       const data = doc.getMap<unknown>('layerData');
+      dropOddEntries(data, back);
       for (const layer of data.values()) {
         const bricks = layer instanceof Y.Map ? layer.get('bricks') : undefined;
         if (!(bricks instanceof Y.Array)) continue;
@@ -479,6 +622,8 @@ export function repairShared(doc: Y.Doc, brk: LockBreak, origin: unknown): void 
     }
     if (brk.modules.length === 0) return;
     const layerData = doc.getMap<unknown>('layerData');
+    const theirs = new Set(brk.modules.flatMap((id) => [...(brk.before.shared.get(id)?.parts.keys() ?? [])]));
+    dropOddEntries(layerData, theirs);
     const sheets = doc
       .getArray<string>('layers')
       .toArray()
@@ -486,7 +631,6 @@ export function repairShared(doc: Y.Doc, brk: LockBreak, origin: unknown): void 
         const l = layerData.get(id);
         return l instanceof Y.Map && l.get('bricks') instanceof Y.Array;
       });
-    const theirs = new Set(brk.modules.flatMap((id) => [...(brk.before.shared.get(id)?.parts.keys() ?? [])]));
     const where = new Map<string, Y.Map<unknown>[]>();
     const extra = new Set<Y.Map<unknown>>();
     for (const [layerId, layer] of layerData) {
@@ -518,7 +662,7 @@ export function repairShared(doc: Y.Doc, brk: LockBreak, origin: unknown): void 
       for (const [k, snap] of (snaps.get(partId) ?? []).entries()) {
         const now = where.get(partId)?.[k];
         if (now) {
-          for (const [f, v] of Object.entries(snap.fields)) if (JSON.stringify(now.get(f) ?? null) !== JSON.stringify(v ?? null)) now.set(f, structuredClone(v));
+          for (const [f, v] of Object.entries(snap.fields)) if (now.get(f) instanceof Y.AbstractType || JSON.stringify(now.get(f) ?? null) !== JSON.stringify(v ?? null)) now.set(f, structuredClone(v));
           continue;
         }
         const sheet = sheets.includes(snap.layerId) ? snap.layerId : sheets[0];
@@ -528,11 +672,22 @@ export function repairShared(doc: Y.Doc, brk: LockBreak, origin: unknown): void 
         ((layerData.get(sheet) as Y.Map<unknown>).get('bricks') as Y.Array<unknown>).push([y]);
       }
     }
+    // Values no app writes first, as plain ones: what is read below is all there is.
+    repairSidecarShape(doc, origin);
     const cache = readSidecarCache(doc) ?? {};
     const list = sidecarModules(doc);
     const back = new Set(brk.modules.filter((id) => values.has(id)));
-    const modules = list.map((m) => (back.has(m.id as string) ? structuredClone(values.get(m.id as string)!) : m));
-    for (const id of back) if (!list.some((m) => m.id === id)) modules.push(structuredClone(values.get(id)!));
+    const put = new Set<string>();
+    const modules: Record<string, unknown>[] = [];
+    for (const m of list) {
+      const id = m.id as string;
+      if (!back.has(id)) modules.push(m);
+      else if (!put.has(id)) {
+        put.add(id);
+        modules.push(structuredClone(values.get(id)!));
+      }
+    }
+    for (const id of back) if (!put.has(id)) modules.push(structuredClone(values.get(id)!));
     writeSidecarCache(doc, { ...cache, modules });
   }, origin);
 }
@@ -542,6 +697,20 @@ function rootName(doc: Y.Doc, type: Y.AbstractType<unknown> | null): string | nu
   if (!type || type._item !== null) return null;
   for (const [name, t] of doc.share) if (t === type) return name;
   return null;
+}
+
+/** Whether `type` is inside a shared module's part, or a sidecar value, at any depth (the apps nest nothing there). */
+function insideShared(doc: Y.Doc, type: unknown, members: ReadonlySet<string>): boolean {
+  let t = type as Y.AbstractType<unknown> | null;
+  for (let n = 0; t && n < 300; n++) {
+    if (t instanceof Y.Map) {
+      const e = entryId(t);
+      if (e && members.has(e.id)) return true;
+    }
+    if (t._item === null) return rootName(doc, t as Y.AbstractType<unknown>) === 'sidecarItems';
+    t = t._item.parent as Y.AbstractType<unknown> | null;
+  }
+  return false;
 }
 
 /**
@@ -557,17 +726,18 @@ function touchy(doc: Y.Doc, item: Y.Item, members: ReadonlySet<string>): boolean
     if (root !== null) return SIDECAR_ROOTS.has(root) || root === 'layerData';
     // A sheet's parts list, swapped or taken away whole.
     if (item.parentSub === 'bricks') return true;
-    if (!LOOKED_AT.has(item.parentSub)) return false;
+    if (!LOOKED_AT.has(item.parentSub)) return !!parent?._item && insideShared(doc, parent._item.parent, members);
     const id = parent instanceof Y.Map ? parent.get('id') : undefined;
     // A part whose id can't be read is looked at closely.
     return typeof id !== 'string' || members.has(id);
   }
   const c = item.content;
   if (c instanceof Y.ContentType && c.type instanceof Y.Map) {
-    const id = c.type.get('id');
-    return typeof id === 'string' && members.has(id);
+    const e = entryId(c.type);
+    if (e && members.has(e.id)) return true;
   }
-  return false;
+  if (c instanceof Y.ContentAny && c.arr.some((v) => holdsId(v, members, 4))) return true;
+  return insideShared(doc, parent, members);
 }
 
 /**
@@ -602,13 +772,18 @@ export function mayTouchShared(doc: Y.Doc, decoded: DecodedUpdate, members: Read
           const id = type instanceof Y.Map ? type.get('id') : undefined;
           if (typeof id !== 'string' || members.has(id)) return true;
         }
+        // Inside a value that is itself inside a part.
+        if (known(pid)) {
+          const holder = Y.getItem(doc.store, pid);
+          if (holder instanceof Y.Item && !holder.deleted && insideShared(doc, holder.parent, members)) return true;
+        }
         continue;
       }
       // Its place comes from its neighbour (a value that replaces one, or a list entry next to one).
       const ref: Y.ID | null = s.origin ?? s.rightOrigin;
       if (!ref || !known(ref)) continue;
       const there = Y.getItem(doc.store, ref);
-      if (there instanceof Y.Item && there.parentSub !== null && touchy(doc, there, members)) return true;
+      if (there instanceof Y.Item && (there.parentSub !== null ? touchy(doc, there, members) : insideShared(doc, there.parent, members))) return true;
     }
     for (const [client, ranges] of decoded.ds.clients) {
       const state = Y.getState(doc.store, client);
@@ -640,7 +815,7 @@ export function sharedLockCheck(
   decoded: DecodedUpdate,
   mayCopy?: () => boolean,
   partOf?: PartLookup,
-): LockBreak | typeof LOCK_COPY_BUDGET_SPENT | null {
+): LockBreak | typeof LOCK_COPY_BUDGET_SPENT | typeof LOCK_NOT_PUT_BACK | null {
   const placed = sharedModulesIn(readSidecarCache(doc));
   if (placed.length === 0) return null;
   const members = new Set<string>();
@@ -663,14 +838,29 @@ export function sharedLockCheck(
       // Yjs throws part-way through some hand-made updates and keeps what
       // it applied before (the room would too): that is what is checked.
     }
-    const before = lockState(doc);
-    const now = lockState(after);
-    const found = breaks(before, now, racedParts(doc, decoded, members), partOf);
-    // Parts an update took out, brought back (settle rule 0, for apps that don't finish their undo).
-    const retiredBack = settleRetired(retired, before.alive, now.alive);
-    if (!found && retiredBack.length === 0) return null;
-    // What it takes to put them back, read now, while the room is as it was.
-    return { ...(found ?? { why: RETIRED_BACK, modules: [] }), before: lockState(doc, true), retiredBack };
+    let before: LockState;
+    try {
+      before = lockState(doc);
+    } catch (err) {
+      // The layout was like that already: an edit isn't to blame for it.
+      console.error('[ws] a layout has shared modules that cannot be read:', err);
+      return null;
+    }
+    try {
+      const now = lockState(after);
+      const found = breaks(before, now, racedParts(doc, decoded, members), partOf);
+      // Parts an update took out, brought back (settle rule 0, for apps that don't finish their undo).
+      const retiredBack = settleRetired(retired, before.alive, now.alive);
+      if (!found && retiredBack.length === 0) return null;
+      // What it takes to put them back, read now, while the room is as it was.
+      const brk: LockBreak = { ...(found ?? { why: RETIRED_BACK, modules: [] }), before: lockState(doc, true), retiredBack };
+      // Tried here first: an update whose changes can't be put back isn't taken.
+      repairShared(after, brk, null);
+      return lockBroken(before, lockState(after)) === null ? brk : LOCK_NOT_PUT_BACK;
+    } catch (err) {
+      console.error('[ws] the shared modules an update changes could not be put back:', err);
+      return LOCK_NOT_PUT_BACK;
+    }
   } catch {
     return null; // the room's own document can't be copied: nothing to compare
   } finally {

@@ -49,7 +49,9 @@ import { COPY_BUDGET_SPENT, checkGridSizesDecoded, heldValueProblem } from './gr
 import { backgroundUrlProblem } from './backgroundGuard.js';
 import { memberKeyProblem } from './memberGuard.js';
 import { PLACES_COPY_BUDGET_SPENT, placesProblem } from './placesGuard.js';
-import { LOCK_COPY_BUDGET_SPENT, repairShared, sharedLockCheck, type LockBreak } from './sharedGuard.js';
+import { readSidecarCache } from '@cld/ydoc';
+import { sharedModulesIn } from '@cld/modules';
+import { LOCK_COPY_BUDGET_SPENT, LOCK_NOT_PUT_BACK, repairShared, sharedLockCheck, type LockBreak } from './sharedGuard.js';
 import { sharedPartLookup } from './sharedGeometry.js';
 import { decodeIncoming, guardWork, type DecodedUpdate } from './decoded.js';
 import { MAX_HELD_UPDATES, deletesPresent, waitsOn } from './held.js';
@@ -454,6 +456,10 @@ function takeUpdate(ws: WebSocket, session: DocSession, sender: Sender, update: 
     slowDown(ws, session, sender, update.length);
     return false;
   }
+  if (lockCheck === LOCK_NOT_PUT_BACK) {
+    refuseUpdate(ws, session, sender, update.length, 'unreadable', lockCheck);
+    return false;
+  }
   const broken: LockBreak | null = lockCheck;
   const check = checkIncomingDecoded(session.doc, update, decoded);
   if (check.refuse) {
@@ -461,6 +467,7 @@ function takeUpdate(ws: WebSocket, session: DocSession, sender: Sender, update: 
     return false;
   }
   if (check.suspicious) flagUpdate(session, sender, check);
+  const sharedBefore = sharedPlacedIds(session.doc);
   const pending = savePending(session.doc);
   // Many parts deleted at once: the layout as it was goes in its history first.
   if (decoded) keepBeforeBulkDelete(session, decoded, sender.userId);
@@ -476,6 +483,7 @@ function takeUpdate(ws: WebSocket, session: DocSession, sender: Sender, update: 
     }
   }
   if (broken) putSharedBack(session, sender, update.length, broken);
+  lookOverNewShared(session, sharedBefore);
   // What it left waiting for changes the room doesn't have is kept up
   // to a limit (ws/pending.ts), with the updates the room holds back
   // (ws/held.ts). Past it, what this update left goes; what it
@@ -637,6 +645,27 @@ export const SHARED_REPAIR_ORIGIN = 'cld-shared-repair';
  * open: closing it would leave the change in the app's copy, sent again
  * and again (sharedGuard.ts).
  */
+/** The shared placed modules of a room, with the sidecar they were read from. */
+function sharedPlacedIds(doc: Y.Doc): { cache: unknown; ids: Set<string> } {
+  try {
+    const cache = readSidecarCache(doc);
+    return { cache, ids: new Set(sharedModulesIn(cache).map((p) => p.placedId)) };
+  } catch {
+    return { cache: null, ids: new Set() };
+  }
+}
+
+/** Shared modules that came in with an update (placed, or put back): their places are their owners' (sharedModules/ownerPlaces.ts). */
+function lookOverNewShared(session: DocSession, before: { cache: unknown; ids: Set<string> }): void {
+  const now = sharedPlacedIds(session.doc);
+  if (now.cache === before.cache) return;
+  const came = new Set([...now.ids].filter((id) => !before.ids.has(id)));
+  if (came.size === 0) return;
+  void import('../sharedModules/ownerPlaces.js')
+    .then(({ ownersPlaces }) => ownersPlaces(session.layoutId, came))
+    .catch((err: unknown) => console.error("[ws] couldn't look over the shared modules of layout %s", session.layoutId, err));
+}
+
 function putSharedBack(session: DocSession, sender: Sender, updateBytes: number, broken: LockBreak): void {
   guardWork.sharedPutBack += 1;
   try {
