@@ -48,7 +48,7 @@ import { concerns, onAccessChanged, suspendedIn } from './liveAccess.js';
 import { COPY_BUDGET_SPENT, checkGridSizesDecoded, heldValueProblem } from './gridGuard.js';
 import { backgroundUrlProblem } from './backgroundGuard.js';
 import { memberKeyProblem } from './memberGuard.js';
-import { placesProblem } from './placesGuard.js';
+import { PLACES_COPY_BUDGET_SPENT, placesProblem } from './placesGuard.js';
 import { LOCK_COPY_BUDGET_SPENT, repairShared, sharedLockCheck, type LockBreak } from './sharedGuard.js';
 import { sharedPartLookup } from './sharedGeometry.js';
 import { decodeIncoming, guardWork, type DecodedUpdate } from './decoded.js';
@@ -434,7 +434,13 @@ function takeUpdate(ws: WebSocket, session: DocSession, sender: Sender, update: 
     return false;
   }
   // Places stay within their limits (placesGuard.ts).
-  const badPlaces = decoded ? placesProblem(session.doc, decoded) : null;
+  const copiedForPlaces = guardWork.copyBytes;
+  const badPlaces = decoded ? placesProblem(session.doc, decoded, update, payer.available) : null;
+  payer.charge(guardWork.copyBytes - copiedForPlaces);
+  if (badPlaces === PLACES_COPY_BUDGET_SPENT) {
+    slowDown(ws, session, sender, update.length);
+    return false;
+  }
   if (badPlaces !== null) {
     refuseUpdate(ws, session, sender, update.length, 'unreadable', badPlaces);
     return false;

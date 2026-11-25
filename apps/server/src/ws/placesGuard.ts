@@ -14,15 +14,26 @@
 //
 // A value the update itself deletes is never read, and is let through.
 // Only the update's structs are read, and an update that writes nothing of
-// the kind costs one pass over them.
+// the kind costs one pass over them. What can't be told from them alone
+// (changes the room holds back that may land with it, two structs for one
+// id) is worked out on a copy of the layout, against the sender's copy
+// budget (ws/pacing.ts), like the grid guard, and only when places may be
+// in it.
 
 import * as Y from 'yjs';
-import { PLACE_LIMITS, validPlace, validPlaces } from '@cld/bbm';
+import { PLACE_LIMITS, placeSize, validPlace, validPlaces } from '@cld/bbm';
 import { PLACES_KEY, readSidecarCache } from '@cld/ydoc';
-import { decodeIncoming, findStruct, type DecodedUpdate } from './decoded.js';
+import { decodeIncoming, findStruct, guardWork, type DecodedUpdate } from './decoded.js';
+import { pendingMayLand } from './pending.js';
 
 /** More than the apps make (two people may each add the last ones at once). */
 export const MAX_LAYOUT_PLACES = 2 * PLACE_LIMITS.places;
+
+/** One place as a layout's document may hold it: two people may each add to it at once. */
+export const MAX_LIVE_PLACE_SIZE = 2 * PLACE_LIMITS.size;
+
+/** placesProblem's answer when the update needs a copy and `mayCopy` says no: slow the sender down. */
+export const PLACES_COPY_BUDGET_SPENT = 'it needs a copy of the layout to check its places, and its sender has used up their copies for now';
 
 /** Where a map value sits: the names from its root map down ([root, key, key...]); null when it isn't a map value, or can't be told. */
 type Path = readonly string[] | null;
@@ -40,9 +51,15 @@ export function validPlaceField(field: string, value: unknown): boolean {
 /**
  * Null when every place `update` writes is within the limits; else why
  * not, for the log. `doc` is the room's document, or null for a whole
- * document on its own.
+ * document on its own. `update` is its bytes, and `mayCopy`, when given,
+ * is asked before working it out on a copy of the room's document; no
+ * gives PLACES_COPY_BUDGET_SPENT.
  */
-export function placesProblem(doc: Y.Doc | null, decoded: DecodedUpdate): string | null {
+export function placesProblem(doc: Y.Doc | null, decoded: DecodedUpdate, update: Uint8Array, mayCopy?: () => boolean): string | null {
+  if ((decoded.overlapping || pendingMayLand(doc, decoded)) && mayHoldPlaces(doc, update)) {
+    if (mayCopy && !mayCopy()) return PLACES_COPY_BUDGET_SPENT;
+    return placesProblemOnCopy(doc, update);
+  }
   const { structs, ds, byClient } = decoded;
   // Cheap first: does the update say anything a place could be in?
   const holdsPlaces = !!(doc?.share.get('meta') as unknown as { _map?: Map<string, Y.Item> } | undefined)?._map?.has(PLACES_KEY);
@@ -149,6 +166,8 @@ export function placesProblem(doc: Y.Doc | null, decoded: DecodedUpdate): string
   const badList = (v: unknown): boolean => v !== undefined && !validPlaces(v) && !heldBefore(v);
 
   const added = new Set<string>();
+  /** How much each place's fields take, as written here. */
+  const sizes = new Map<string, number>();
   for (const s of structs) {
     if (!(s instanceof Y.Item)) continue;
     const c = s.content;
@@ -171,13 +190,16 @@ export function placesProblem(doc: Y.Doc | null, decoded: DecodedUpdate): string
         continue;
       }
       if (path.length > 4 || !(c instanceof Y.ContentAny) || c.arr.length !== 1 || !validPlaceField(field!, c.arr[0])) return 'it gives a place a value outside its limits';
+      sizes.set(id!, (sizes.get(id!) ?? 0) + field!.length + 3 + placeSize(c.arr[0]));
       continue;
     }
   }
+  const now = livePlaces(doc);
+  for (const [id, size] of sizes) {
+    const had = now?.get(id);
+    if (size + (had instanceof Y.Map ? placeSize(had.toJSON()) : 0) > MAX_LIVE_PLACE_SIZE) return 'it makes a place too big';
+  }
   if (added.size > 0) {
-    const meta = doc?.share.get('meta') as unknown as { _map?: Map<string, Y.Item> } | undefined;
-    const item = meta?._map?.get(PLACES_KEY);
-    const now = item && !item.deleted && item.content instanceof Y.ContentType && item.content.type instanceof Y.Map ? (item.content.type as Y.Map<unknown>) : null;
     let total = added.size;
     if (now) for (const k of now.keys()) if (!added.has(k)) total++;
     if (total > MAX_LAYOUT_PLACES) return `it would leave the layout with more than ${MAX_LAYOUT_PLACES} places`;
@@ -198,8 +220,88 @@ function listsOf(v: unknown): unknown[] {
   return out;
 }
 
+/** The layout's own places in a document as it is, or null when it has no map of them. */
+function livePlaces(doc: Y.Doc | null): Y.Map<unknown> | null {
+  const meta = doc?.share.get('meta') as unknown as { _map?: Map<string, Y.Item> } | undefined;
+  const item = meta?._map?.get(PLACES_KEY);
+  return item && !item.deleted && item.content instanceof Y.ContentType && item.content.type instanceof Y.Map ? (item.content.type as Y.Map<unknown>) : null;
+}
+
+const PLACES_TEXT = [PLACES_KEY, 'layoutPlaces'];
+const names = (bytes: Uint8Array | null | undefined): boolean => {
+  if (!bytes) return false;
+  const b = Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  return PLACES_TEXT.some((t) => b.includes(t));
+};
+
+/** Whether the room, what it holds back or the update has places at all (their names are in the bytes). False: certainly not. */
+function mayHoldPlaces(doc: Y.Doc | null, update: Uint8Array): boolean {
+  if (livePlaces(doc) || names(update) || names(doc?.store.pendingStructs?.update)) return true;
+  const meta = doc?.share.get('meta') as unknown as { _map?: Map<string, Y.Item> } | undefined;
+  return !!meta?._map?.has(PLACES_KEY);
+}
+
+/** Everything about places outside the limits in a document as it is, each as a text of its own. */
+export function docPlacesProblems(doc: Y.Doc): Set<string> {
+  const out = new Set<string>();
+  const meta = doc.getMap('meta');
+  const live = meta.get(PLACES_KEY);
+  if (live !== undefined) {
+    if (!(live instanceof Y.Map)) out.add('it makes the layout’s places something other than a map');
+    else {
+      if (live.size > MAX_LAYOUT_PLACES) out.add(`it would leave the layout with more than ${MAX_LAYOUT_PLACES} places`);
+      for (const [id, v] of live.entries()) {
+        if (!(v instanceof Y.Map) || id.length > PLACE_LIMITS.id) {
+          out.add(`it writes a place that isn’t one (${id.slice(0, PLACE_LIMITS.id)})`);
+          continue;
+        }
+        for (const [field, value] of v.entries()) if (!validPlaceField(field, value)) out.add(`it gives a place a value outside its limits (${id}.${field.slice(0, PLACE_LIMITS.kind)})`);
+        if (placeSize(v.toJSON()) > MAX_LIVE_PLACE_SIZE) out.add(`it makes a place too big (${id})`);
+      }
+    }
+  }
+  const values = [meta.get('cache'), ...doc.getMap('sidecarItems').values()];
+  for (const v of values) {
+    if (v instanceof Y.AbstractType) continue;
+    for (const list of listsOf(v)) if (!validPlaces(list)) out.add(`it gives a module places outside their limits ${JSON.stringify(list)}`);
+  }
+  return out;
+}
+
+/** placesProblem worked out on a copy of the room's document (exact for any update; costs the layout's size). */
+export function placesProblemOnCopy(doc: Y.Doc | null, update: Uint8Array): string | null {
+  guardWork.docCopies += 1;
+  const after = new Y.Doc();
+  try {
+    const before = doc ? docPlacesProblems(doc) : new Set<string>();
+    if (doc) {
+      const state = Y.encodeStateAsUpdate(doc);
+      guardWork.copyBytes += state.length;
+      Y.applyUpdate(after, state);
+    }
+    try {
+      Y.applyUpdate(after, update);
+    } catch {
+      // Yjs throws part-way through some hand-made updates and keeps what
+      // it applied before (the room would too): that is what is checked.
+    }
+    let now: Set<string>;
+    try {
+      now = docPlacesProblems(after);
+    } catch {
+      return 'it makes the layout’s places unreadable';
+    }
+    for (const p of now) if (!before.has(p)) return p.slice(0, 160);
+    return null;
+  } catch {
+    return null; // the room's own document can't be copied: nothing to compare
+  } finally {
+    after.destroy();
+  }
+}
+
 /** placesProblem for a whole document on its own (a snapshot). Unreadable: the update guard refuses it. */
 export function snapshotPlacesProblem(bytes: Uint8Array): string | null {
   const decoded = decodeIncoming(bytes);
-  return decoded ? placesProblem(null, decoded) : null;
+  return decoded ? placesProblem(null, decoded, bytes) : null;
 }

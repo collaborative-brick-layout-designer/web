@@ -10,8 +10,8 @@ import * as Y from 'yjs';
 import { describe, expect, it } from 'vitest';
 import { modulePlaces, PLACE_LIMITS, withPlaces, type Place } from '@cld/bbm';
 import { createDefaultLayoutDoc, deleteRecord, PLACES_KEY, readPlacesFromDoc, readSidecarCache, writePlace, writeSidecarCache } from '@cld/ydoc';
-import { decodeIncoming } from './decoded.js';
-import { MAX_LAYOUT_PLACES, placesProblem, snapshotPlacesProblem } from './placesGuard.js';
+import { decodeIncoming, guardWork } from './decoded.js';
+import { MAX_LAYOUT_PLACES, PLACES_COPY_BUDGET_SPENT, placesProblem, snapshotPlacesProblem } from './placesGuard.js';
 import { repairShared, sharedLockCheck } from './sharedGuard.js';
 import { checkUpdate } from './updateGuard.js';
 import { contents, place as placeShared } from '../test/sharedWorld.js';
@@ -48,7 +48,7 @@ function updateOf(doc: Y.Doc, edit: () => void): Uint8Array {
 }
 const problem = (server: Y.Doc | null, update: Uint8Array): string | null => {
   expect(checkUpdate(update)).toBeNull();
-  return placesProblem(server, decodeIncoming(update)!);
+  return placesProblem(server, decodeIncoming(update)!, update);
 };
 /** What `edit` makes of a layout that is there already (and, separately, of a whole new document). */
 const refused = (edit: (doc: Y.Doc) => void): string | null => {
@@ -175,6 +175,90 @@ describe('a place outside the limits is refused', () => {
       }
     });
     expect(problem(server, deep)).toBeNull();
+  });
+});
+
+describe('changes that arrive out of order, and two structs for one id', () => {
+  const noDeletes = (u: Uint8Array): Uint8Array => {
+    const d = Y.decodeUpdate(u);
+    for (let cut = 1; cut < u.length; cut++) {
+      const t = new Uint8Array([...u.slice(0, cut), 0]);
+      try {
+        const r = Y.decodeUpdate(t);
+        if (r.structs.length === d.structs.length && r.ds.clients.size === 0) return t;
+      } catch {
+        /* not there */
+      }
+    }
+    throw new Error('no cut');
+  };
+  /** Two edits of one client; the second arrives first (without its deletions, so the room doesn't hold it whole). */
+  const late = (first: (d: Y.Doc) => void, second: (d: Y.Doc) => void) => {
+    const server = room();
+    const c = client(server);
+    const a = updateOf(c, () => first(c));
+    const b = noDeletes(updateOf(c, () => second(c)));
+    Y.applyUpdate(server, b);
+    return { server, a };
+  };
+
+  it('a bad place that waits is refused when it would land; a good one isn’t', () => {
+    const own = (d: Y.Doc) => raw(d).get('pl-1') as Y.Map<unknown>;
+    const bad = late((d) => own(d).set('name', 'Mill'), (d) => own(d).set('name', 'x'.repeat(200)));
+    expect(problem(bad.server, bad.a)).toMatch(/place a value/);
+    const good = late((d) => own(d).set('name', 'Mill'), (d) => own(d).set('name', 'Cannery Row'));
+    expect(problem(good.server, good.a)).toBeNull();
+    const list = late((d) => d.getMap('meta').set('x', 1), (d) => writePlace(d, { ...cannery, id: 'pl-9', kind: 'k'.repeat(99) }));
+    expect(problem(list.server, list.a)).toMatch(/place/);
+  });
+
+  it('a copy is made only when places may be in it, and only while the sender may have one', () => {
+    const { server, a } = late((d) => d.getMap('meta').set('x', 1), (d) => writePlace(d, { ...cannery, id: 'pl-9' }));
+    expect(placesProblem(server, decodeIncoming(a)!, a, () => false)).toBe(PLACES_COPY_BUDGET_SPENT);
+    expect(placesProblem(server, decodeIncoming(a)!, a, () => true)).toBeNull();
+    // Nothing about places anywhere: no copy.
+    const plain = new Y.Doc();
+    const c = client(plain);
+    const one = updateOf(c, () => c.getMap('meta').set('x', 1));
+    Y.applyUpdate(plain, updateOf(c, () => c.getMap('meta').set('y', 2)));
+    const copies = guardWork.docCopies;
+    expect(placesProblem(plain, decodeIncoming(one)!, one, () => false)).toBeNull();
+    expect(guardWork.docCopies).toBe(copies);
+  });
+
+  it('two blocks of one client, in either order', () => {
+    for (const swap of [false, true]) {
+      const server = room();
+      const c = client(server);
+      c.clientID = 9001;
+      const bad = noDeletes(updateOf(c, () => (raw(c).get('pl-1') as Y.Map<unknown>).set('name', 'x'.repeat(200))));
+      const gone = new Y.Doc();
+      gone.clientID = 9001;
+      gone.getMap('m').set('k', 1);
+      const other = Y.encodeStateAsUpdate(gone);
+      const a = bad.subarray(1, bad.length - 1);
+      const b = other.subarray(1, other.length - 1);
+      const u = new Uint8Array([2, ...(swap ? [...b, ...a] : [...a, ...b]), 0]);
+      expect(decodeIncoming(u)!.overlapping).toBe(true);
+      const why = placesProblem(server, decodeIncoming(u)!, u);
+      // (Yjs reads one of the two blocks: refused whenever that leaves a bad place.)
+      Y.applyUpdate(server, u);
+      const left = (raw(server).get('pl-1') as Y.Map<unknown>).get('name') as string;
+      expect(why !== null).toBe(left.length > PLACE_LIMITS.name);
+    }
+  });
+
+  it('many small fields can’t make one place too big', () => {
+    const server = room();
+    let refusedAt = 0;
+    for (let i = 0; i < 12 && !refusedAt; i++) {
+      const c = client(server);
+      const u = updateOf(c, () => (raw(c).get('pl-1') as Y.Map<unknown>).set(`f${i}`, 'e'.repeat(20_000)));
+      if (problem(server, u)) refusedAt = i;
+      else Y.applyUpdate(server, u);
+    }
+    expect(refusedAt).toBeGreaterThan(3);
+    expect(refusedAt).toBeLessThan(8);
   });
 });
 
