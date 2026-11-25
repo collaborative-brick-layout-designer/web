@@ -12,7 +12,7 @@
 //   Pat's email as confirmed.
 
 import { test, expect } from '@playwright/test';
-import { PASS, adminSection, signIn, submitAuthForm } from '../../helpers';
+import { PASS, adminSection, postAuth, signIn, submitAuthForm } from '../../helpers';
 import { makeGlobalAdmin, setRequireEmailVerification, siteSettingsAtDefaults, useSmtp } from '../../dbHelpers';
 import { startMailSink } from '../../mailSink';
 
@@ -43,7 +43,7 @@ test('an account made with checks off sees an invite to its address only once it
     // ── Pat signs up while the site doesn't ask for confirmation: signed in at once. ──
     restoreChecks = setRequireEmailVerification(false);
     const home = await pat.newPage();
-    const reg = await home.request.post('/api/auth/password/register', { data: { email: PAT, password: PASS, displayName: 'Pat Newbie' } });
+    const reg = await postAuth(home.request, '/api/auth/password/register', { email: PAT, password: PASS, displayName: 'Pat Newbie' });
     expect(await reg.json()).toEqual({ ok: true, verificationRequired: false });
 
     await home.goto('/');

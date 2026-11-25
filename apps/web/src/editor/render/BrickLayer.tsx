@@ -1414,6 +1414,11 @@ const BrickGlyph = memo(function BrickGlyph({
       flexMovedRef.current = false;
       return;
     }
+    // Konva counts two quick right-clicks, or a right-click (its menu) and a
+    // quick click, as a double-click. Of a real one the second left press was
+    // seen (handleMouseDown).
+    if (!byTouch && (e.evt as MouseEvent).button !== 0) return;
+    if (!byTouch && lastPress.id === brick.id) return;
     // Already acted on by the flex session that the second press started.
     if (performance.now() - doubleClickDoneAt.current < DOUBLE_CLICK_MS) return;
     doubleClickAction(byTouch);
