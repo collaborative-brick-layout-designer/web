@@ -138,7 +138,7 @@ export function mapMenuEntries(a: MapMenuActions, t: MapMenuToggles, mod = modKe
         { kind: 'item', id: 'make-module', label: 'Make a module…', onSelect: a.createModule },
         { kind: 'item', id: 'save-set', label: 'Save selection as set…', onSelect: a.saveAsSet },
         { kind: 'item', id: 'import-bbm', label: 'Import .bbm as module…', onSelect: a.importBbm },
-        { kind: 'item', id: 'places', label: 'Places…', onSelect: a.places },
+        { kind: 'item', id: 'places', label: 'Places', onSelect: a.places },
         sep,
         sharedUpdatesItem(a),
       ],
@@ -257,7 +257,7 @@ export function phoneMapEntries(a: PhoneMapActions, t: PhoneMapToggles, editing:
     { kind: 'item', id: 'background-color', label: 'Background color…', hidden: viewing, onSelect: a.backgroundColor },
     { kind: 'item', id: 'background-image', label: 'Background image…', hidden: viewing, onSelect: a.backgroundImage },
     { kind: 'item', id: 'find', label: 'Find & Replace…', onSelect: a.find },
-    { kind: 'item', id: 'places', label: 'Places…', onSelect: a.places },
+    { kind: 'item', id: 'places', label: 'Places', onSelect: a.places },
     sep,
     {
       kind: 'submenu', id: 'insert', label: 'Insert', hidden: viewing, items: [

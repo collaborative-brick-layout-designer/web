@@ -52,7 +52,7 @@ test('a cannery named on a module goes along to the Module library and to anothe
   await page.keyboard.press('f');
 
   // New place, then the stub's track.
-  await mapMenu(page, 'Modules & sets', 'Places…');
+  await mapMenu(page, 'Modules & sets', 'Places');
   const panel = page.getByTestId('places-panel');
   await expect(panel).toContainText('No places yet.');
   await panel.getByTestId('place-new').click();
@@ -120,7 +120,7 @@ test('a cannery named on a module goes along to the Module library and to anothe
   await expect(libRow.getByTestId('module-library-places')).toHaveText('1 industry');
   await libRow.getByRole('button', { name: 'Add to layout' }).click();
   await expect.poll(async () => (await labels(page)).some((t) => t.startsWith('Acme Cannery\n')), { timeout: 20000 }).toBe(true);
-  await mapMenu(page, 'Modules & sets', 'Places…');
+  await mapMenu(page, 'Modules & sets', 'Places');
   await panel.getByRole('button', { name: 'Acme Cannery' }).click();
   await expect(editor).toContainText(`On Depot ${stamp}`);
   await expect(editor.getByTestId('place-accepts')).toContainText('reefer');
@@ -179,7 +179,7 @@ test.describe('on a phone', () => {
     const open = async () => {
       await page.getByRole('button', { name: /Phone places/ }).first().tap();
       await page.getByTestId('phone-map').tap();
-      await page.getByRole('menuitem', { name: 'Places…' }).tap();
+      await page.getByRole('menuitem', { name: 'Places', exact: true }).tap();
     };
     await open();
     const sheet = page.getByRole('dialog', { name: 'Places' });

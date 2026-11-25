@@ -781,7 +781,7 @@ test.describe('desktop and web live editing', () => {
       await page.keyboard.press('f');
 
       // The web names a place on the stub: the desktop has it, with its spot.
-      await mapMenu(page, 'Modules & sets', 'Places…');
+      await mapMenu(page, 'Modules & sets', 'Places');
       const panel = page.getByTestId('places-panel');
       await panel.getByTestId('place-new').click();
       await expect(page.getByTestId('place-pick-banner')).toBeVisible();
