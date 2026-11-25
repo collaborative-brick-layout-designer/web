@@ -15,7 +15,7 @@ import { Awareness, applyAwarenessUpdate } from 'y-protocols/awareness';
 import * as decoding from 'lib0/decoding';
 import * as encoding from 'lib0/encoding';
 import { eq, and } from 'drizzle-orm';
-import { upgradeDoc } from '@cld/ydoc';
+import { ensureRecordMaps, upgradeDoc } from '@cld/ydoc';
 import { db, schema } from '../db/index.js';
 import { encodeAwarenessUpdate, encodeSyncUpdate, isWsPeer, sendBytes } from './protocol.js';
 import { rollup } from '../metrics/rollup.js';
@@ -322,6 +322,19 @@ export class DocSession {
   /** When a live edit last moved the layout's updatedAt (persistUpdate). */
   private touchedAt = 0;
 
+  /** The maps the room opened with and its layout hadn't (makeRecordMaps), until they are stored. */
+  private recordMaps: Uint8Array | null = null;
+
+  /**
+   * The maps records go in, before anyone joins (@cld/ydoc recordMaps.ts).
+   * Opening a layout stores nothing: they go in with its first edit, whose
+   * own records may be in them, or with the room's snapshot.
+   */
+  makeRecordMaps(): void {
+    const before = Y.encodeStateVector(this.doc);
+    if (ensureRecordMaps(this.doc)) this.recordMaps = Y.encodeStateAsUpdate(this.doc, before);
+  }
+
   /**
    * Store a live update. Updates arriving within PERSIST_BATCH_MS of each
    * other (or until PERSIST_BATCH_BYTES) go into one layout_updates row,
@@ -330,7 +343,8 @@ export class DocSession {
    * edits and send them again with their next sync step 2.
    */
   queuePersist(update: Uint8Array): void {
-    this.batch.push(update);
+    this.batch.push(this.recordMaps ? Y.mergeUpdates([this.recordMaps, update]) : update);
+    this.recordMaps = null;
     this.batchBytes += update.length;
     if (this.batchBytes >= PERSIST_BATCH_BYTES) {
       void this.flushBatch();
@@ -510,6 +524,7 @@ class DocHub {
       await session.hydrate();
       // What no app writes is put right before anyone joins (sharedModules/heal.ts).
       const heal = needsHeal(session.doc) ? await (await import('../sharedModules/heal.js')).healOnOpen(layoutId, session.doc) : null;
+      session.makeRecordMaps();
       session.startBroadcasting((err) => this.onPersistError(session, err));
       this.live.set(layoutId, session);
       heal?.();

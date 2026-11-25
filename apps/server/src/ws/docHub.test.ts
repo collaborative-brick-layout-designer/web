@@ -5,7 +5,7 @@ import { eq } from 'drizzle-orm';
 import * as Y from 'yjs';
 import { db, resetDb, schema } from '../test/helpers.js';
 import { docHub, DocSession } from './docHub.js';
-import { bbmToDoc, encodeDoc } from '@cld/ydoc';
+import { bbmToDoc, encodeDoc, readPlacesFromDoc, writePlace } from '@cld/ydoc';
 import { readBbm } from '@cld/bbm';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -197,5 +197,28 @@ describe('live edits and the layout\'s "updated" time', () => {
       now.mockRestore();
     }
     expect(await at()).toBeGreaterThan(old.getTime());
+  });
+});
+
+describe('a room that opens', () => {
+  beforeEach(() => resetDb());
+
+  it('has the maps its records go in before anyone joins, stored with it: two people’s first places both stay', async () => {
+    const { layoutId } = await makeUserAndLayout();
+    const session = await docHub.getOrCreate(layoutId);
+    const [a, b] = [new Y.Doc(), new Y.Doc()];
+    for (const [d, n] of [[a, 'a'], [b, 'b']] as const) {
+      Y.applyUpdate(d, Y.encodeStateAsUpdate(session.doc));
+      const v = Y.encodeStateVector(d);
+      d.transact(() => writePlace(d, { id: n, name: n, kind: 'industry', spots: [], accepts: [], ships: [], tags: [], notes: '' }));
+      Y.applyUpdate(session.doc, Y.encodeStateAsUpdate(d, v));
+    }
+    expect(readPlacesFromDoc(session.doc).map((p) => p.id)).toEqual(['a', 'b']);
+    // A restart before the room was saved: the same.
+    await session.flushBatch();
+    const again = new DocSession(layoutId);
+    await again.hydrate();
+    expect(readPlacesFromDoc(again.doc).map((p) => p.id)).toEqual(['a', 'b']);
+    await docHub.close(layoutId);
   });
 });

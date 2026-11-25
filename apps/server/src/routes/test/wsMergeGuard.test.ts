@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 import Fastify, { type FastifyInstance } from 'fastify';
 import cookie from '@fastify/cookie';
 import * as Y from 'yjs';
+import { ensureRecordMaps } from '@cld/ydoc';
 import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { db, loginAs, resetDb, schema } from '../../test/helpers.js';
@@ -60,6 +61,7 @@ describe('WS merge guard', () => {
     const stored = await db.select({ snap: schema.layouts.docSnapshot }).from(schema.layouts).where(eq(schema.layouts.id, b)).get();
     const original = new Y.Doc();
     Y.applyUpdate(original, stored!.snap as Uint8Array);
+    ensureRecordMaps(original); // (as its room does when it opens)
 
     // One doc kept across both (the desktop before #171).
     const doc = new Y.Doc();

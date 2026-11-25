@@ -32,6 +32,7 @@ export {
   validMemberValue,
   type MemberWrites,
 } from './moduleMembers.js';
+export { RECORD_MAPS, ensureRecordMaps } from './recordMaps.js';
 export { DOC_MIN_READABLE, DOC_SCHEMA_VERSION, canReadDoc, makeId, upgradeDoc } from './ids.js';
 export { DOC_SHAPE_SHARED, hasSharedMark, holdsSharedModule, stampShared, stampSharedAfter } from './sharedShape.js';
 export { DOC_SHAPE_KEEP_IDS, KEPT_IDS_MARK, restampKeepIds, stampKeepIds } from './keepIdsShape.js';
