@@ -48,13 +48,14 @@ function live() {
   open.push(s);
   resetCopyBudgets();
   let closed = false;
-  const ws = { OPEN: 1, readyState: 1, send() {}, close: () => void (closed = true) };
+  let code = 0;
+  const ws = { OPEN: 1, readyState: 1, send() {}, close: (c: number) => void ((closed = true), (code = c)) };
   s.clients.add(ws as never);
   s.clientUsers.set(ws as never, 'alice');
   const sender: Sender = { layoutId: s.layoutId, userId: 'alice', client: 't', noted: new Set(), pace: newPace() };
   return {
     doc: s.doc,
-    refused: () => closed,
+    code: () => code,
     send(u: Uint8Array) {
       closed = false;
       const enc = encoding.createEncoder();
@@ -298,5 +299,41 @@ describe('however the changes arrive', () => {
       }
     });
     expect(carsProblem(live().doc, decodeIncoming(u)!)).toBeNull();
+  });
+});
+
+describe('an edit that is too much work only with what waits in the room', () => {
+  /** A change of `client` after one `waitsOn` hasn't made, then `n` more inside one long block of client 77. */
+  const waiting = (client: number, waitsOn: number, n: number) => {
+    const e = encoding.createEncoder();
+    for (const v of [1, n + 1, client, 0]) encoding.writeVarUint(e, v);
+    for (let k = 0; k <= n; k++) {
+      encoding.writeUint8(e, 8 | 0x80); // values, after an origin
+      for (const v of k === 0 ? [waitsOn, 50] : [77, k * 3]) encoding.writeVarUint(e, v);
+      encoding.writeVarUint(e, 1);
+      encoding.writeUint8(e, 119);
+      encoding.writeVarString(e, 'x');
+    }
+    encoding.writeVarUint(e, 0);
+    return encoding.toUint8Array(e);
+  };
+
+  it('what waits goes, the sender is asked to try again, and then it is taken', () => {
+    const l = live();
+    const long = new Y.Doc();
+    long.clientID = 77;
+    long.getArray('long').insert(0, Array.from({ length: 150_000 }, () => 1));
+    Y.applyUpdate(l.doc, Y.encodeStateAsUpdate(long));
+    const c = l.client(4321);
+    const edit = updateOf(c, () => c.getMap('meta').set('author', 'me'));
+    // Left waiting behind edits that client hasn't made: each within the limit, together past it.
+    for (const other of [5000, 6000]) expect(l.send(waiting(other, 4321, 20))).toBe(false);
+    expect(l.doc.store.pendingStructs).not.toBeNull();
+    expect(l.send(edit)).toBe(true);
+    expect(l.code()).toBe(1013);
+    expect(l.doc.store.pendingStructs).toBeNull();
+    expect(l.doc.getMap('meta').get('author')).not.toBe('me');
+    expect(l.send(edit)).toBe(false);
+    expect(l.doc.getMap('meta').get('author')).toBe('me');
   });
 });

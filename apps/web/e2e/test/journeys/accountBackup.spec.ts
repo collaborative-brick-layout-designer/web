@@ -6,7 +6,8 @@
 //   the deleted ones ticked, what they still have left out, a name they
 //   already use renamed "… (restored)" → Restore → the things are back as
 //   new copies, and nothing they had was changed. A layout's places, its
-//   modules' places and a library module's come back with them.
+//   modules' places and a library module's come back with them, and so do
+//   the cars standing on its track, which a copy of the layout has too.
 
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -19,6 +20,15 @@ const ts = Date.now();
 const EMAIL = `j-backup-${ts}@example.com`;
 const BBM = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '../../../../../packages/bbm/tests/fixtures/tight-corner.bbm'), 'utf-8');
 const place = (id: string, name: string) => ({ id, name, kind: 'industry', spots: [], accepts: ['reefer'], ships: [], tags: [], notes: 'Ice at\nthe yard' });
+// Two cars coupled on the track, one loaded, and an empty cut another was coupled away from.
+const CARS = [
+  { id: 'c1', number: '101', length: 20, trucks: [{ at: 5, swivelMax: 30 }, { at: -5, swivelMax: 30 }], opsCut: 'ct-1', opsLoad: 'loaded' },
+  { id: 'c2', number: '102', length: 20, trucks: [{ at: 5, swivelMax: 30 }, { at: -5, swivelMax: 30 }], opsCut: 'ct-1' },
+];
+const CUTS = [
+  { id: 'ct-1', name: '', cut: true, units: [{ stock: 'c1', reversed: false }, { stock: 'c2', reversed: true }], position: { brick: '222', from: 0, to: 1, s: 4, facing: 'to' }, over: { '222/0': 1 }, color: '#B40000', speed: 40, trackKind: 'rail' },
+  { id: 'ct-2', name: '', cut: true, units: [], position: { brick: '222', from: 0, to: 1, s: 9, facing: 'from' }, over: {}, emptiedAt: 1.7e12, color: '#B40000', speed: 40, trackKind: 'rail' },
+];
 const ROOM = { name: 'Hall', enabled: true, edges: [], obstacles: [], minWalkwayStuds: 0 };
 
 test('a member downloads a backup of their things and restores what they lost', async ({ page }, info) => {
@@ -45,6 +55,8 @@ test('a member downloads a backup of their things and restores what they lost', 
       bbmHashSha256: '',
       modules: [{ id: 'depot', name: 'Depot', members: ['222'], transform: [1, 0, 0, 0, 1, 0, 0, 0, 1], places: [place('pl-2', 'Depot dock')] }],
       layoutPlaces: [place('pl-1', 'Acme Cannery')],
+      rollingStock: CARS,
+      trains: CUTS,
     }),
   });
   await post('/api/layouts', { title: `Harbor ${ts}` });
@@ -109,6 +121,14 @@ test('a member downloads a backup of their things and restores what they lost', 
   expect(placesIn(yardDoc)).toEqual({ 'pl-1': place('pl-1', 'Acme Cannery') });
   const cache = yardDoc.getMap('meta').get('cache') as { modules: { id: string; places: unknown }[] };
   expect(cache.modules.map((m) => [m.id, m.places])).toEqual([['depot', [place('pl-2', 'Depot dock')]]]);
+  const byId = (list: readonly { id: string }[]) => Object.fromEntries(list.map((x) => [x.id, x]));
+  const records = (doc: Y.Doc, key: string) => (doc.getMap('meta').get(key) as Y.Map<unknown> | undefined)?.toJSON() ?? {};
+  // Its cars stand where they did, coupled and loaded; a copy of the layout has them too.
+  const copy = await post(`/api/layouts/${restored.id}/copy`, {});
+  for (const doc of [yardDoc, await docOf(`/api/layouts/${copy.id}/snapshot`)]) {
+    expect(records(doc, 'rollingStock')).toEqual(byId(CARS));
+    expect(records(doc, 'trains')).toEqual(byId(CUTS));
+  }
   const cornerCopy = library.find((m) => m.title === `Corner ${ts} (restored)`)!;
   expect(placesIn(await docOf(`/api/modules/${cornerCopy.id}/snapshot`))).toEqual({ 'pl-3': place('pl-3', 'Corner mill') });
 
