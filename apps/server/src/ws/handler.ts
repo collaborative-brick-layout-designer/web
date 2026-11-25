@@ -631,6 +631,12 @@ function putSharedBack(session: DocSession, sender: Sender, updateBytes: number,
   } catch (err) {
     console.error(`[ws] could not put the shared modules of layout ${session.layoutId} back: ${String(err)}`);
   }
+  // Extra copies that were there already: the owner's version says which one goes (sharedModules/repair.ts).
+  if ([...broken.before.shared.values()].some((m) => [...m.counts.values()].some((n) => n > 1))) {
+    void import('../sharedModules/repair.js')
+      .then(({ repairSharedParts }) => repairSharedParts(session, { wholeSets: true }))
+      .catch((err: unknown) => console.error("[ws] couldn't look over the shared modules of layout %s", session.layoutId, err));
+  }
   if (!once(sender, 'shared_put_back')) return;
   console.warn(
     `[ws] put shared modules back in layout ${session.layoutId} after an update from user ${sender.userId} (${sender.client || 'unknown client'}): ${broken.why} (${updateBytes} bytes)`,

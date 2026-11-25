@@ -463,6 +463,16 @@ export class DocSession {
  * after the last client disconnects (giving brief reconnect grace before
  * we drop the in-memory doc).
  */
+async function repairOnOpen(session: DocSession): Promise<void> {
+  try {
+    // (Read here, not at the top: repair.ts is built on this file.)
+    const { repairSharedParts } = await import('../sharedModules/repair.js');
+    await repairSharedParts(session);
+  } catch (err) {
+    console.error("[docHub] couldn't look over the shared modules of layout %s", session.layoutId, err);
+  }
+}
+
 const IDLE_MS = 60_000;
 const SNAPSHOT_INTERVAL_MS = 30_000;
 const SNAPSHOT_MAX_PENDING = 100;
@@ -501,6 +511,8 @@ class DocHub {
       this.live.set(layoutId, session);
       // The parts' geometry the shared-module guard measures moves with (sharedGeometry.ts).
       void warmSharedGeometry(layoutId, session.doc);
+      // Extra copies of a shared module's parts go, after the layout is open (sharedModules/repair.ts).
+      void repairOnOpen(session);
       return session;
     })();
     this.sessions.set(layoutId, promise);

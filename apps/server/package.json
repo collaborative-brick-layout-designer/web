@@ -14,6 +14,7 @@
     "db:migrate": "tsx --env-file-if-exists=../../.env src/db/migrate.ts",
     "docs:env": "tsx scripts/gen-env-docs.ts",
     "data-fix:clamp-drawing-values": "tsx src/ops/clampDrawingValuesCli.ts",
+    "shared-repair:dry-run": "tsx src/ops/sharedRepairDryRunCli.ts",
     "fuzz": "node scripts/fuzz.mjs"
   },
   "dependencies": {

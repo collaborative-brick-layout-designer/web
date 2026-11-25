@@ -311,6 +311,17 @@ layout is opened, so it would be refused again every time. Putting the
 module back works the same for every app, old ones included. It is logged
 and audited (`layout_update_refused`, kind `locked`, `putBack`).
 
+A part that is on the map more than once (two people putting the module on
+another sheet at the same moment) goes back to one, the owner's, when the
+layout opens, before an update goes in and after a put-back
+(`sharedModules/repair.ts`). The layout as it was is kept in its version
+history first, always, and it is audited (`shared_module_repair`). On opening,
+whole sets that are each the owner's version stay (which sheet was meant
+can't be told); the other two keep the set on the sheet the module's
+placement names. A part
+that is there once and differs is left to the drift check below. Nothing
+changes when the owner's version can't be had.
+
 **3. Drift check (files and BlueBrick).** A file can be changed anywhere:
 in BlueBrick, by an older desktop, by hand. On opening, both apps compare
 the shared module's parts with its version (`matchesVersion`). If they

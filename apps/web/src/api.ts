@@ -422,7 +422,7 @@ export interface VenueSummary {
 /** One version in a layout's history. */
 export interface LayoutVersion {
   id: string;
-  reason: 'auto' | 'manual' | 'before-import' | 'before-merge' | 'before-restore' | 'before-bulk-delete';
+  reason: 'auto' | 'manual' | 'before-import' | 'before-merge' | 'before-restore' | 'before-bulk-delete' | 'before-repair';
   title: string;
   label: string | null;
   summary: { parts: number; sheets: number; modules: number; labels: number };
