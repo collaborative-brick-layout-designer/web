@@ -24,7 +24,7 @@
 
 import { createHash } from 'node:crypto';
 import * as Y from 'yjs';
-import { repairSidecarCache } from '@cld/ydoc';
+import { RECORD_MAPS, repairSidecarCache } from '@cld/ydoc';
 
 export interface UnmergeInput {
   id: string;
@@ -262,6 +262,8 @@ function homeOfSidecarValue(ctx: Context, value: unknown): Home {
  * the name it carries.
  */
 function homeOf(ctx: Context, client: number, clock: number, root: string | null, key: string | null, value: unknown): Home {
+  // The maps every layout's room makes are the same struct in each (ydoc recordMaps.ts).
+  if (RECORD_MAPS.some(([, c]) => c === client)) return OWN;
   const owners = refOwners(ctx, client, clock);
   if (owners.includes(ctx.self.id)) return OWN;
   if (owners.length > 0) return { kind: 'foreign', from: ctx.titles.get(owners[0]!)! };
