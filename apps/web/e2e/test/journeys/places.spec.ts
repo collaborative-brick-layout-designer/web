@@ -57,6 +57,7 @@ test('a cannery named on a module goes along to the Module library and to anothe
   await expect(panel).toContainText('No places yet.');
   await panel.getByTestId('place-new').click();
   await expect(page.getByTestId('place-pick-banner')).toContainText('click the track where cars stand');
+  await page.waitForTimeout(200);
   const at = await onPage(page, STUB.x, STUB.top + 48);
   await page.mouse.click(at.x, at.y);
   const editor = page.getByTestId('place-editor');
@@ -68,6 +69,8 @@ test('a cannery named on a module goes along to the Module library and to anothe
   await expect.poll(() => labels(page)).toEqual(['Acme Cannery\n3 cars']);
 
   // Typed capacity wins, at once, on the map too; undo takes it back.
+  // (Edits within 0.2 s of each other are one undo step: wait for this one to be its own.)
+  await page.waitForTimeout(400);
   await editor.getByTestId('spot-cars').fill('2');
   await editor.getByTestId('spot-cars').press('Enter');
   await expect(editor.getByTestId('spot-capacity')).toHaveText('2 cars');
@@ -146,10 +149,14 @@ test('right-click on track makes a place; deleting it and its track says so plai
   await page.keyboard.press('Delete');
   await expect(editor.getByTestId('spot-capacity')).toContainText('Its track was moved or removed. Pick it again.');
   await editor.getByTestId('spot-pick').click();
+  await expect(page.getByTestId('place-pick-banner')).toBeVisible();
+  // (The map takes clicks for it from its next frame.)
+  await page.waitForTimeout(200);
   const there = await onPage(page, STUB.x, STUB.top + 80);
   await page.mouse.click(there.x, there.y);
   await expect(editor.getByTestId('spot-capacity')).toContainText('from the track’s length');
   // Deleted, and undone.
+  await page.waitForTimeout(400);
   await editor.getByTestId('place-delete').click();
   await page.getByRole('alertdialog').or(page.getByRole('dialog')).getByRole('button', { name: 'Delete', exact: true }).click();
   await expect(page.getByTestId('places-panel')).toContainText('No places yet.');
@@ -178,6 +185,7 @@ test.describe('on a phone', () => {
     const sheet = page.getByRole('dialog', { name: 'Places' });
     await sheet.getByTestId('place-new').tap();
     await expect(sheet).toHaveCount(0);
+    await page.waitForTimeout(200);
     const at = await onPage(page, STUB.x, STUB.top + 48);
     await page.touchscreen.tap(at.x, at.y);
     await expect(sheet.getByTestId('place-editor')).toBeVisible();

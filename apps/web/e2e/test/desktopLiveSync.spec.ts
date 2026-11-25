@@ -784,6 +784,8 @@ test.describe('desktop and web live editing', () => {
       await mapMenu(page, 'Modules & sets', 'Places…');
       const panel = page.getByTestId('places-panel');
       await panel.getByTestId('place-new').click();
+      await expect(page.getByTestId('place-pick-banner')).toBeVisible();
+      await page.waitForTimeout(200);
       const at = await page.evaluate(() => {
         type St = { getAbsoluteTransform: () => { point: (p: { x: number; y: number }) => { x: number; y: number } }; container: () => HTMLElement };
         const st = (window as unknown as { Konva: { stages: St[] } }).Konva.stages[0]!;
