@@ -189,7 +189,7 @@ const EDITS: ((doc: Y.Doc) => void)[] = [
   },
   // Name a place, change it, add another and delete it (writePlace, deleteRecord).
   (doc) => {
-    const place = (id: string, name: string) => ({ id, name, kind: 'industry', spots: [{ id: 's1', name: 'Dock', track: { brick: '1', from: 0, to: 1 }, capacity: 3 }], accepts: ['reefer'], ships: [], tags: [], notes: 'Ice at\nthe yard' });
+    const place = fuzzPlace;
     try {
       doc.transact(() => writePlace(doc, place('pl-1', 'Acme Cannery')));
       doc.transact(() => writePlace(doc, { ...place('pl-1', 'Cannery'), notes: '' }));
@@ -208,6 +208,9 @@ const EDITS: ((doc: Y.Doc) => void)[] = [
     }
   },
 ];
+
+/** A place as the apps write one. */
+const fuzzPlace = (id: string, name: string) => ({ id, name, kind: 'industry', spots: [{ id: 's1', name: 'Dock', track: { brick: '1', from: 0, to: 1 }, capacity: 3 }], accepts: ['reefer'], ships: [], tags: [], notes: 'Ice at\nthe yard' });
 
 /** Out of range: refused by the drawing-settings and grid guards. */
 const BAD_EDITS: ((doc: Y.Doc) => void)[] = [
@@ -298,6 +301,19 @@ export function taggedRoomSeeds(): RoomSeed[] {
       const [u1, ...rest] = a.edits;
       other(encodeRoomInput(r, 0, [...rest.map((u): Msg => [0, msgUpdate(u)]), [1, msgUpdate(u1!)]]));
     });
+    // A place's edits out of order (the second waits for the first): good ones, and one out of its limits.
+    for (const name of ['Cannery Row', 'x'.repeat(5000)]) {
+      const p = client(state, 7095 + r * 100 + (name.length > 80 ? 1 : 0));
+      try {
+        p.doc.transact(() => writePlace(p.doc, fuzzPlace('pl-1', 'Acme Cannery')));
+        p.doc.transact(() => p.doc.getMap('meta').set('title', 'In between'));
+        p.doc.transact(() => writePlace(p.doc, fuzzPlace('pl-1', name)));
+      } catch {
+        /* not a map here */
+      }
+      const [first, ...rest] = p.edits;
+      if (first && rest.length) (name.length > 80 ? other : real)(encodeRoomInput(r, 0, [...rest.map((u): Msg => [0, msgUpdate(u)]), [0, msgUpdate(first)]]));
+    }
     // A viewer's edit (dropped), and a viewer asking for the layout.
     if (b.edits.length) real(encodeRoomInput(r, 0b10, [[1, msgStep1(empty)], [1, msgUpdate(b.edits[0]!)]]));
     // Values out of range.
