@@ -61,6 +61,10 @@ export interface RollingStock {
   libraryId?: string | null;
   libraryVersion?: number | null;
   notes: string;
+  /** The cut or train on the track it stands in (Live Ops design 2.3, cuts.ts): the layout's own, never a roster's. */
+  opsCut?: string;
+  /** 'loaded', 'empty', or none: it doesn't apply. */
+  opsLoad?: string;
   [extra: string]: unknown;
 }
 
@@ -80,6 +84,12 @@ export interface Train {
   color: string;
   /** Scale km/h, for animation (a later phase). */
   speed: number;
+  /** A cut: cars standing on the track, not a train someone made (cuts.ts). */
+  cut?: boolean;
+  /** How it stands over switches ("<brick>/<heel>" -> the exit its cars are on), however they are set now. */
+  over?: Record<string, number>;
+  /** When its last car left it (ms); such a cut is kept a while. */
+  emptiedAt?: number;
   [extra: string]: unknown;
 }
 
@@ -121,9 +131,12 @@ export function asStock(r: Record<string, unknown>): RollingStock {
   const trucks = Array.isArray(r.trucks)
     ? (r.trucks as Partial<Truck>[]).map((t) => ({ at: num(t?.at, 0), swivelMax: num(t?.swivelMax, 30) }))
     : simpleStock('', { length }).trucks;
+  const { opsCut, opsLoad, ...rest } = r;
   return {
     ...base,
-    ...r,
+    ...rest,
+    ...(typeof opsCut === 'string' && opsCut ? { opsCut } : {}),
+    ...(typeof opsLoad === 'string' && opsLoad ? { opsLoad } : {}),
     id: String(r.id ?? ''),
     number: typeof r.number === 'string' ? r.number : '',
     name: typeof r.name === 'string' ? r.name : '',
@@ -282,12 +295,12 @@ function runningGeometry(s: RollingStock, reversed: boolean) {
  */
 export function placeTrain(
   net: TrackNetwork,
-  train: Pick<Train, 'units' | 'position'>,
+  train: Pick<Train, 'units' | 'position' | 'over'>,
   stock: ReadonlyMap<string, RollingStock>,
   states: Readonly<Record<string, number>> = {},
 ): PlacedTrain | null {
   if (!train.position) return null;
-  const line = trackBehind(net, train.position, trainLength(train, stock) + 64, states);
+  const line = trackBehind(net, train.position, trainLength(train, stock) + 64, train.over ? { ...states, ...train.over } : states);
   if (line.pts.length < 2) return null;
   return placeOnLine(line, train.units, stock);
 }
@@ -342,7 +355,8 @@ export function placeOnLine(line: TrackLine, trainUnits: Train['units'], stock: 
       const first = Math.max(0, along);
       let bestD = first;
       let best: number = gap(first);
-      for (let d = first; d <= first + (g.half - g.front) + 8; d += 0.25) {
+      const end = line.pts.length ? line.pts[line.pts.length - 1]!.d : 0; // past it nothing can be placed
+      for (let d = first; d <= Math.min(first + (g.half - g.front) + 8, end + 0.25); d += 0.25) {
         const v = gap(d);
         if (v < best) {
           best = v;

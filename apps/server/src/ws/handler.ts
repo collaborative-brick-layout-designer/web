@@ -412,8 +412,12 @@ function takeUpdate(ws: WebSocket, session: DocSession, sender: Sender, update: 
   // that lands changes waiting on another editor counts against the
   // room's and theirs instead (ws/pending.ts copyPayer).
   const payer = copyPayer(session.doc, decoded, sender.userId);
+  // (Asked once: an update its checks may work out on a copy is worked out
+  // by all of them, rather than slowed down by what its own first copy cost.)
+  const mayPay = payer.available();
+  const mayCopy = () => mayPay;
   const copied = guardWork.copyBytes;
-  const badGrid = decoded ? checkGridSizesDecoded(session.doc, update, decoded, payer.available) : null;
+  const badGrid = decoded ? checkGridSizesDecoded(session.doc, update, decoded, mayCopy) : null;
   payer.charge(guardWork.copyBytes - copied);
   if (badGrid === COPY_BUDGET_SPENT) {
     slowDown(ws, session, sender, update.length);
@@ -437,7 +441,7 @@ function takeUpdate(ws: WebSocket, session: DocSession, sender: Sender, update: 
   }
   // Places stay within their limits (placesGuard.ts).
   const copiedForPlaces = guardWork.copyBytes;
-  const badPlaces = decoded ? placesProblem(session.doc, decoded, update, payer.available) : null;
+  const badPlaces = decoded ? placesProblem(session.doc, decoded, update, mayCopy) : null;
   payer.charge(guardWork.copyBytes - copiedForPlaces);
   if (badPlaces === PLACES_COPY_BUDGET_SPENT) {
     slowDown(ws, session, sender, update.length);
@@ -450,7 +454,7 @@ function takeUpdate(ws: WebSocket, session: DocSession, sender: Sender, update: 
   // A shared module's parts stay its owner's (sharedGuard.ts): one this
   // breaks is put back once it is in (below).
   const copiedForLock = guardWork.copyBytes;
-  const lockCheck = decoded ? sharedLockCheck(session.doc, update, decoded, payer.available, sharedPartLookup(session.layoutId)) : null;
+  const lockCheck = decoded ? sharedLockCheck(session.doc, update, decoded, mayCopy, sharedPartLookup(session.layoutId)) : null;
   payer.charge(guardWork.copyBytes - copiedForLock);
   if (lockCheck === LOCK_COPY_BUDGET_SPENT) {
     slowDown(ws, session, sender, update.length);

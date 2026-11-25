@@ -25,6 +25,7 @@ import { useEditorStore } from './editorStore';
 import { isEditableTarget } from './keyboardGuard';
 import { brickIdsInDoc } from './mixedSelection';
 import type { PartLookup } from '@cld/modules';
+import { keepTrainFields, trainFields } from './cuts';
 import { finishShared, sharedBefore } from './sharedSettle';
 
 export interface UndoState {
@@ -96,6 +97,12 @@ export function undoAndPick(doc: Y.Doc, manager: Y.UndoManager, which: 'undo' | 
  * as one step, so redoing it puts all of it back.
  */
 export function stepWhole(doc: Y.Doc, manager: Y.UndoManager, which: 'undo' | 'redo', partOf?: PartLookup): void {
+  const trainsBefore = trainFields(doc);
+  step(doc, manager, which, partOf);
+  keepTrainFields(doc, trainsBefore);
+}
+
+function step(doc: Y.Doc, manager: Y.UndoManager, which: 'undo' | 'redo', partOf?: PartLookup): void {
   const before = sharedBefore(doc, partOf);
   if (before.modules.size === 0) {
     if (which === 'undo') manager.undo();

@@ -884,6 +884,106 @@ test.describe('desktop and web live editing', () => {
       await driver.close();
     }
   });
+  test('cars: one split off a cut on the web shows on the desktop at once, the desktop couples it again, and both moving the same car leave it in one place', async ({ page, request, browser }) => {
+    test.setTimeout(150_000);
+    const stamp = Date.now();
+    await page.setViewportSize({ width: 1400, height: 900 });
+    await signIn(page, `cars-desk-web-${stamp}@example.com`, 'Web Tester');
+    const { id } = (await (await page.request.post('/api/layouts', { data: { title: 'Cars, web and desktop', bbm: TIGHT_CORNER_BBM } })).json()) as { id: string };
+    const deskEmail = `cars-desk-driver-${stamp}@example.com`;
+    const desk = await browser.newContext();
+    await signIn(desk, deskEmail, 'Desktop Driver');
+    const deskPage = await desk.newPage();
+    const invite = await page.request.post(`/api/layouts/${id}/invites`, { data: { email: deskEmail, role: 'editor' } });
+    expect((await deskPage.request.post(`/api/invites/${((await invite.json()) as { token: string }).token}`)).ok()).toBe(true);
+    const token = await desktopToken(deskPage, request);
+    await desk.close();
+    const driver = new Driver(DRIVER!, token);
+    // The stub of 9V track: 96 studs from (456, 144) down, open at both ends.
+    type N = { name: () => string; id: () => string; x: () => number; y: () => number; find: (f: (n: N) => boolean) => N[] };
+    const webCars = () =>
+      page.evaluate(() => {
+        const st = (window as unknown as { Konva?: { stages: N[] } }).Konva?.stages[0];
+        return st ? Object.fromEntries(st.find((n) => n.name() === 'car-hit').map((n) => [n.id(), n.y() / 8])) : {};
+      });
+    const onPage = (x: number, y: number) =>
+      page.evaluate(([sx, sy]) => {
+        type St = { getAbsoluteTransform: () => { point: (p: { x: number; y: number }) => { x: number; y: number } }; container: () => HTMLElement };
+        const st = (window as unknown as { Konva: { stages: St[] } }).Konva.stages[0]!;
+        const p = st.getAbsoluteTransform().point({ x: sx! * 8, y: sy! * 8 });
+        const box = st.container().getBoundingClientRect();
+        return { x: box.left + p.x, y: box.top + p.y };
+      }, [x, y]);
+    /** The desktop's cuts as their cars' numbers, as settled (a car is in the cut its own opsCut names). */
+    const cuts = async () => {
+      const d = (await driver.trains()) as unknown as { rollingStock: { id: string; number: string; opsCut?: string }[]; trains: { id: string; cut?: boolean; units: { stock: string }[] }[] };
+      return d.trains
+        .filter((t) => t.cut)
+        .map((t) => d.rollingStock.filter((c) => c.opsCut === t.id).map((c) => c.number).sort().join(' '))
+        .filter(Boolean)
+        .sort();
+    };
+    const webDrag = async (car: string, dy: number) => {
+      const y = (await webCars())[car]!;
+      const a = await onPage(456, y);
+      const b = await onPage(456, y + dy);
+      await page.mouse.move(a.x, a.y);
+      await page.mouse.down();
+      await page.mouse.move(b.x, b.y, { steps: 6 });
+      await page.mouse.up();
+    };
+    try {
+      await driver.run(`open ${id}`);
+      await driver.run('wait-synced');
+      const ids: string[] = [];
+      for (const number of ['101', '102', '103']) {
+        await driver.run(`stock-add ${number} 20`);
+        ids.push((await driver.trains())!.rollingStock.find((s) => s.number === number)!.id);
+      }
+      const placed = await driver.run(`cars-place ${ids.join(' ')} 456 154`).then(
+        () => true,
+        (e: unknown) => {
+          if (/unknown|no such command|bad command/i.test(String(e))) return false;
+          throw e;
+        },
+      );
+      test.skip(!placed, 'this bld_sync_driver has no car commands yet (desktop main is older)');
+      await page.goto(`/editor/${id}`);
+      await expect(page.locator('canvas').first()).toBeVisible({ timeout: 15000 });
+      await page.waitForTimeout(1000);
+      await page.keyboard.press('f');
+      await expect.poll(async () => Object.keys(await webCars()).length, { timeout: 15_000 }).toBe(3);
+      expect(await cuts()).toEqual(['101 102 103']);
+
+      // The web drags an end car off: the desktop sees it; Undo brings it back there too.
+      const all = Object.entries(await webCars()).sort((a, b) => a[1] - b[1]);
+      const [last, lastY] = all.at(-1)!;
+      const number = (await driver.trains())!.rollingStock.find((s) => s.id === last)!.number;
+      await webDrag(last, 14);
+      await expect.poll(cuts, { timeout: 10_000 }).toContain(number);
+      await page.keyboard.press('Control+z');
+      await expect.poll(cuts, { timeout: 10_000 }).toEqual(['101 102 103']);
+
+      // The desktop drags it off, and loads it: the web shows both.
+      await driver.run(`car-drag ${last} 456 ${lastY + 12}`);
+      await driver.run(`car-load ${last} loaded`);
+      await expect.poll(async () => Math.round((await webCars())[last]! - lastY), { timeout: 10_000 }).toBe(12);
+
+      // Both move the same car at once: it stands in one place, the same one on both.
+      await Promise.all([webDrag(last, 8), driver.run(`car-drag ${last} 456 ${lastY + 4}`).catch(() => undefined)]);
+      await driver.run('wait-synced');
+      await expect.poll(async () => (await cuts()).join(' ').split(' ').sort(), { timeout: 10_000 }).toEqual(['101', '102', '103']);
+      await expect.poll(async () => Object.keys(await webCars()).length).toBe(3);
+
+      // Back against the others, from the desktop: they are one cut again on the web.
+      await driver.run(`car-drag ${last} 456 ${lastY - 10}`);
+      await expect.poll(cuts, { timeout: 10_000 }).toEqual(['101 102 103']);
+      await expect.poll(async () => Math.round((await webCars())[last]! - lastY), { timeout: 10_000 }).toBe(0);
+    } finally {
+      await driver.close();
+    }
+  });
+
   test('trains from a model: an engine the web imports from a Studio file is the same engine on the desktop, picture and trucks, and the other way round', async ({ page, request }) => {
     test.setTimeout(180_000);
     const stamp = Date.now();

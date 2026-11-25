@@ -21,7 +21,7 @@ import { readFileSync } from 'node:fs';
 import * as Y from 'yjs';
 import * as encoding from 'lib0/encoding';
 import * as syncProtocol from 'y-protocols/sync';
-import { deleteRecord, PLACES_KEY, writePlace } from '@cld/ydoc';
+import { deleteRecord, PLACES_KEY, ROLLING_STOCK_KEY, TRAINS_KEY, writePlace, writeRecord } from '@cld/ydoc';
 import { fromHex, fuzzData, updateGuardContract } from './common.js';
 import { SHARED_ROOM, convertShape, encodeRoomInput, roomStates } from './room.js';
 
@@ -199,6 +199,23 @@ const EDITS: ((doc: Y.Doc) => void)[] = [
       /* not a map here */
     }
   },
+  // A car put on the track as a cut, loaded, coupled to another and its cut emptied (writeCutChange).
+  (doc) => {
+    try {
+      doc.transact(() => {
+        writeRecord(doc, ROLLING_STOCK_KEY, fuzzCar('c1', 'ct-1'));
+        writeRecord(doc, TRAINS_KEY, fuzzCut('ct-1', ['c1']));
+      });
+      doc.transact(() => {
+        writeRecord(doc, ROLLING_STOCK_KEY, fuzzCar('c1', 'ct-2'));
+        writeRecord(doc, TRAINS_KEY, fuzzCut('ct-2', ['c2', 'c1']));
+        writeRecord(doc, TRAINS_KEY, { ...fuzzCut('ct-1', []), emptiedAt: 1.7e12 });
+      });
+      doc.transact(() => deleteRecord(doc, TRAINS_KEY, 'ct-1'));
+    } catch {
+      /* not a map here */
+    }
+  },
   // Rename the layout (setGeneralInfo).
   (doc) => {
     try {
@@ -211,6 +228,10 @@ const EDITS: ((doc: Y.Doc) => void)[] = [
 
 /** A place as the apps write one. */
 const fuzzPlace = (id: string, name: string) => ({ id, name, kind: 'industry', spots: [{ id: 's1', name: 'Dock', track: { brick: '1', from: 0, to: 1 }, capacity: 3 }], accepts: ['reefer'], ships: [], tags: [], notes: 'Ice at\nthe yard' });
+
+/** A car and a cut as the apps write them. */
+const fuzzCar = (id: string, opsCut: string) => ({ id, number: id, length: 32, trucks: [{ at: 8, swivelMax: 30 }, { at: -8, swivelMax: 30 }], opsCut, opsLoad: 'loaded' });
+const fuzzCut = (id: string, cars: string[]) => ({ id, name: '', cut: true, units: cars.map((stock) => ({ stock, reversed: false })), position: { brick: '1', from: 0, to: 1, s: 2.5, facing: 'to' }, over: { '1/0': 2 } });
 
 /** Out of range: refused by the drawing-settings and grid guards. */
 const BAD_EDITS: ((doc: Y.Doc) => void)[] = [
@@ -227,6 +248,10 @@ const BAD_EDITS: ((doc: Y.Doc) => void)[] = [
     try {
       doc.transact(() => writePlace(doc, { id: 'pl-3', name: 'x'.repeat(5000), kind: 'yard', spots: [], accepts: [], ships: [], tags: [], notes: '' }));
       doc.transact(() => doc.getMap('meta').set(PLACES_KEY, 'text'));
+      // Cars and trains out of theirs (carsGuard.ts).
+      doc.transact(() => writeRecord(doc, TRAINS_KEY, { ...fuzzCut('ct-3', []), units: 'none' } as never));
+      doc.transact(() => writeRecord(doc, ROLLING_STOCK_KEY, { ...fuzzCar('c3', 'x'), length: 1e9 }));
+      doc.transact(() => doc.getMap('meta').set(TRAINS_KEY, { 'ct-4': 1 }));
       doc.transact(() => doc.getMap('sidecarItems').set('m:bad', { id: 'bad', members: [], places: [{ id: 'p' }] }));
     } catch {
       /* not a map here */
