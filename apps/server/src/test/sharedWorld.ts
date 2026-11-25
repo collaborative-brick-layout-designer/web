@@ -2,8 +2,8 @@
 // layout document with a module placed in it the way the apps place one.
 
 import * as Y from 'yjs';
-import type { SidecarModule } from '@cld/bbm';
-import { createDefaultLayoutDoc, encodeDoc, readSidecarCache, writeSidecarCache } from '@cld/ydoc';
+import type { Place, SidecarModule } from '@cld/bbm';
+import { createDefaultLayoutDoc, encodeDoc, readSidecarCache, writePlace, writeSidecarCache } from '@cld/ydoc';
 import { appendBricks, moduleBatchesFromBytes, placeVersion, type Placement } from '@cld/modules';
 
 export interface Part {
@@ -15,11 +15,12 @@ export interface Part {
 /** The default layout's one parts sheet. */
 export const SHEET = 'brick-1';
 
-/** A library module's contents: 2 x 2 stud parts at (x, y) on a sheet named "Layout". */
-export function contents(parts: readonly Part[]): Buffer {
+/** A library module's contents: 2 x 2 stud parts at (x, y) on a sheet named "Layout", and the places `places` names on them. */
+export function contents(parts: readonly Part[], places?: (ids: readonly string[]) => Place[]): Buffer {
   const doc = createDefaultLayoutDoc();
   doc.transact(() => {
-    appendBricks(doc, SHEET, parts.map((p) => ({ partNumber: p.pn, displayArea: { x: p.x, y: p.y, width: 2, height: 2 } })));
+    const ids = appendBricks(doc, SHEET, parts.map((p) => ({ partNumber: p.pn, displayArea: { x: p.x, y: p.y, width: 2, height: 2 } })));
+    for (const p of places?.(ids) ?? []) writePlace(doc, p);
   });
   const bytes = Buffer.from(encodeDoc(doc));
   doc.destroy();

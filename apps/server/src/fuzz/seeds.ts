@@ -21,6 +21,7 @@ import { readFileSync } from 'node:fs';
 import * as Y from 'yjs';
 import * as encoding from 'lib0/encoding';
 import * as syncProtocol from 'y-protocols/sync';
+import { deleteRecord, PLACES_KEY, writePlace } from '@cld/ydoc';
 import { fromHex, fuzzData, updateGuardContract } from './common.js';
 import { SHARED_ROOM, convertShape, encodeRoomInput, roomStates } from './room.js';
 
@@ -186,6 +187,18 @@ const EDITS: ((doc: Y.Doc) => void)[] = [
       });
     }
   },
+  // Name a place, change it, add another and delete it (writePlace, deleteRecord).
+  (doc) => {
+    const place = (id: string, name: string) => ({ id, name, kind: 'industry', spots: [{ id: 's1', name: 'Dock', track: { brick: '1', from: 0, to: 1 }, capacity: 3 }], accepts: ['reefer'], ships: [], tags: [], notes: 'Ice at\nthe yard' });
+    try {
+      doc.transact(() => writePlace(doc, place('pl-1', 'Acme Cannery')));
+      doc.transact(() => writePlace(doc, { ...place('pl-1', 'Cannery'), notes: '' }));
+      doc.transact(() => writePlace(doc, place('pl-2', 'Mill')));
+      doc.transact(() => deleteRecord(doc, PLACES_KEY, 'pl-2'));
+    } catch {
+      /* not a map here */
+    }
+  },
   // Rename the layout (setGeneralInfo).
   (doc) => {
     try {
@@ -205,6 +218,16 @@ const BAD_EDITS: ((doc: Y.Doc) => void)[] = [
   (doc) => {
     const sheet = sheets(doc)[0];
     if (sheet) doc.transact(() => sheet.set('transparency', 500));
+  },
+  // Places out of their limits (placesGuard.ts): a field, an entry, the list, a module's.
+  (doc) => {
+    try {
+      doc.transact(() => writePlace(doc, { id: 'pl-3', name: 'x'.repeat(5000), kind: 'yard', spots: [], accepts: [], ships: [], tags: [], notes: '' }));
+      doc.transact(() => doc.getMap('meta').set(PLACES_KEY, 'text'));
+      doc.transact(() => doc.getMap('sidecarItems').set('m:bad', { id: 'bad', members: [], places: [{ id: 'p' }] }));
+    } catch {
+      /* not a map here */
+    }
   },
 ];
 

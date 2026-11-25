@@ -252,7 +252,7 @@ export function forClipboard(m: SidecarModule, sheetName: (layerId: string) => s
  * sheets the one its parts were pasted on (`sheetId`, by the name the
  * clipboard kept). Its review, if any, stays with the original.
  */
-export function pastedShared(m: SidecarModule, members: string[], dx: number, dy: number, sheetId: (name: string) => string | undefined): SidecarModule {
+export function pastedShared(m: SidecarModule, members: string[], dx: number, dy: number, sheetId: (name: string) => string | undefined, renamed: ReadonlyMap<string, string> = new Map()): SidecarModule {
   const s = sharedPlaced(m)!;
   const { review: _review, ...link } = ((m as WithShared).shared ?? {}) as Record<string, unknown>;
   let placement: Placement | undefined;
@@ -265,7 +265,7 @@ export function pastedShared(m: SidecarModule, members: string[], dx: number, dy
     placement = { ...movedPlacement(s.placement, dx, dy), sheets };
   }
   return {
-    ...moduleCopy(m, members),
+    ...moduleCopy(m, members, undefined, renamed),
     name: m.name,
     libraryModuleId: s.moduleId,
     ...(s.version ? { libraryVersion: s.version } : {}),

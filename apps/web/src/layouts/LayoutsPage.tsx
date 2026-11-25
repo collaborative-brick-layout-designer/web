@@ -6,6 +6,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { LibraryModuleSetupDialog } from '../editor/ModuleSetupDialog';
 import { useLengthUnit } from '../theme/PrefsProvider';
 import { powerText, tableText } from '../editor/moduleSetupText';
+import { countsText } from '../editor/places';
 import { api, lowResThumbnail, type LayoutSummary, type ModuleSummary, type OrgSummary } from '../api';
 import { defaultSaveTo, matchesOwnerFilter, useOwnerFilter, type OwnedItem } from '../owners/owners';
 import { CreditLine, MoveCopyDialog, OwnerChip, OwnerFilterBar, ReturnMenuItems, SaveToPicker } from '../owners/OwnerControls';
@@ -277,6 +278,11 @@ export function LayoutsPage() {
                   <p className="text-xs text-muted">
                     {m.latestVersion ? `version ${m.latestVersion} · ` : ''}updated {new Date(m.updatedAt).toLocaleString()}
                   </p>
+                  {m.placeCounts && m.placeCounts.length > 0 && (
+                    <p data-testid="module-row-places" className="text-xs text-muted">
+                      {countsText(m.placeCounts)}
+                    </p>
+                  )}
                   {(m.setup?.table || m.setup?.power) && (
                     <p data-testid="module-row-setup" className="text-xs text-muted">
                       {[m.setup.table ? tableText(m.setup.table, lengthUnit) : null, m.setup.power ? powerText(m.setup.power) : null].filter(Boolean).join(' · ')}

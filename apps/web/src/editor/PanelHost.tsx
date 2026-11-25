@@ -18,6 +18,7 @@ export const PANEL_HELP: Record<string, HelpKey> = {
   views: 'panel.views',
   routes: 'panel.routes',
   trains: 'panel.trains',
+  places: 'ops.places',
 };
 
 const DRAG_MIME = 'application/x-cld-panel';

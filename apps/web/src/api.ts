@@ -2351,6 +2351,8 @@ export interface ModuleSummary {
   latestVersion?: number;
   /** Its table and power; null or missing (older servers): not set. */
   setup?: ModuleSetup | null;
+  /** How many places (Live Ops) of each kind it has; missing on older servers. */
+  placeCounts?: { kind: string; count: number }[];
   createdAt: number;
   updatedAt: number;
   credit?: Credit | null;

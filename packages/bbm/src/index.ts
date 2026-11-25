@@ -40,6 +40,7 @@ export {
   type VenueDimension,
   type WriteSidecarOptions,
 } from './sidecar.js';
+export * from './places.js';
 // `hashBbmBytes` lives at `@cld/bbm/hash` because it imports `node:crypto`.
 // Browser callers MUST NOT import that subpath; server routes do so
 // explicitly. See sidecarHash.ts for the rationale.

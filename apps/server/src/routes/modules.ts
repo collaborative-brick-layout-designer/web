@@ -20,7 +20,8 @@ import { checkGrowth, type Subject } from '../limits/limits.js';
 import { requireUser } from '../auth/cookie.js';
 import { hasAtLeast, resolveResourceRole, type Role } from '../access/resolveResourceRole.js';
 import * as Y from 'yjs';
-import { createDefaultLayoutDoc, decodeDoc, encodeDoc } from '@cld/ydoc';
+import { placeCounts } from '@cld/bbm';
+import { createDefaultLayoutDoc, decodeDoc, encodeDoc, PLACES_KEY } from '@cld/ydoc';
 import { writeAuditEvent } from '../audit/writeAuditEvent.js';
 import { destinationOrg, matchesOwner, ownerLookup, resolveOwnerFilter } from './owners.js';
 import { clampTitle, titleTooLong, trimmed } from '../utils/validate.js';
@@ -34,6 +35,7 @@ import { creditLookup, withCredits } from './credits.js';
 import { checkUpdate } from '../ws/updateGuard.js';
 import { checkGridSizes } from '../ws/gridGuard.js';
 import { snapshotMemberKeyProblem } from '../ws/memberGuard.js';
+import { snapshotPlacesProblem } from '../ws/placesGuard.js';
 import { snapshotBackgroundProblem } from '../ws/backgroundGuard.js';
 import { snapshotWork } from '../ws/yjsWork.js';
 import { trashModule } from '../trash/trash.js';
@@ -42,7 +44,7 @@ import { moduleSharesChanged } from '../sharedModules/lifecycle.js';
 import { refreshStatesForModule } from '../sharedModules/placed.js';
 import { updateAutomatically } from '../sharedModules/auto.js';
 import { notifyUpdateWaiting } from '../notifications/sharedModules.js';
-import { parseStoredSetup, setupOf, validSetup, type ModuleSetup } from '@cld/modules';
+import { docPlaces, parseStoredSetup, setupOf, validSetup, type ModuleSetup } from '@cld/modules';
 
 type ModuleRow = typeof schema.modules.$inferSelect;
 
@@ -369,7 +371,7 @@ export async function moduleRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(413).send({ error: 'snapshot_too_large' });
     }
     // Only a document both apps can read (the live editor's check).
-    if (checkUpdate(bytes) !== null || checkGridSizes(null, bytes) !== null || snapshotMemberKeyProblem(bytes) !== null || snapshotWork(bytes) !== null) return reply.code(400).send({ error: 'unreadable_snapshot' });
+    if (checkUpdate(bytes) !== null || checkGridSizes(null, bytes) !== null || snapshotMemberKeyProblem(bytes) !== null || snapshotPlacesProblem(bytes) !== null || snapshotWork(bytes) !== null) return reply.code(400).send({ error: 'unreadable_snapshot' });
     // A module has no background picture of its own: none, or the one it already had (ws/backgroundGuard.ts).
     const badBackground = await snapshotBackgroundProblem(bytes, req.params.id, async () => {
       const row = await db.select({ docSnapshot: schema.modules.docSnapshot }).from(schema.modules).where(eq(schema.modules.id, req.params.id)).get();
@@ -728,6 +730,32 @@ function cleanNote(raw: unknown): string | null | undefined {
   return t.length > MAX_NOTE ? undefined : t;
 }
 
+/** How many places of each kind a module's contents have, as its `place_counts` column keeps it; null for none (or contents that can't be read). */
+export function placeCountsOf(bytes: Uint8Array): string | null {
+  // (The key's name is in the bytes of a document that has any: most are never opened here.)
+  if (!Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength).includes(PLACES_KEY)) return null;
+  try {
+    const doc = decodeDoc(bytes);
+    try {
+      const counts = placeCounts(docPlaces(doc));
+      return counts.length > 0 ? JSON.stringify(counts) : null;
+    } finally {
+      doc.destroy();
+    }
+  } catch {
+    return null;
+  }
+}
+
+function parsePlaceCounts(text: string | null | undefined): { kind: string; count: number }[] {
+  try {
+    const v = text ? (JSON.parse(text) as unknown) : null;
+    return Array.isArray(v) ? (v as { kind: string; count: number }[]) : [];
+  } catch {
+    return [];
+  }
+}
+
 /** Keep `bytes` as the module's next version; drop the oldest past MODULE_VERSIONS_KEPT. Returns its number. */
 export async function recordVersion(
   moduleId: string,
@@ -754,7 +782,7 @@ export async function recordVersion(
     authorId,
     createdAt: new Date(),
   });
-  await db.update(schema.modules).set({ latestVersion: version }).where(eq(schema.modules.id, moduleId));
+  await db.update(schema.modules).set({ latestVersion: version, placeCounts: placeCountsOf(bytes) }).where(eq(schema.modules.id, moduleId));
   const old = await db
     .select({ id: schema.moduleVersions.id })
     .from(schema.moduleVersions)
@@ -832,6 +860,7 @@ const moduleListColumns = {
   thumbnailHead: sql<Buffer | null>`substr(${schema.modules.thumbnail}, 1, ${HEAD_BYTES})`,
   latestVersion: schema.modules.latestVersion,
   setup: schema.modules.setup,
+  placeCounts: schema.modules.placeCounts,
   createdAt: schema.modules.createdAt,
   updatedAt: schema.modules.updatedAt,
 };
@@ -847,7 +876,7 @@ function toListItem(
   m: Pick<
     typeof schema.modules.$inferSelect,
     'id' | 'title' | 'ownerUserId' | 'ownerOrgId' | 'docVersion' | 'thumbnailAt' | 'latestVersion' | 'createdAt' | 'updatedAt'
-  > & { setup?: string | null } & { hasSidecar: number; smallDoc?: Buffer | Uint8Array | null; thumbnailHead?: Buffer | Uint8Array | null },
+  > & { setup?: string | null; placeCounts?: string | null } & { hasSidecar: number; smallDoc?: Buffer | Uint8Array | null; thumbnailHead?: Buffer | Uint8Array | null },
 ) {
   return {
     id: m.id,
@@ -866,6 +895,8 @@ function toListItem(
     latestVersion: m.latestVersion,
     /** Its table and power (@cld/modules setup.ts); null when neither is set. */
     setup: parseStoredSetup(m.setup),
+    /** How many places of each kind its newest contents have (Live Ops); [] for none. */
+    placeCounts: parsePlaceCounts(m.placeCounts),
     createdAt: m.createdAt.getTime(),
     updatedAt: m.updatedAt.getTime(),
   };

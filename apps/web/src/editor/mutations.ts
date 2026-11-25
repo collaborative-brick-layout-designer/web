@@ -8,7 +8,7 @@
 // distinguish "this user's edits" from "other users' edits" using the
 // y-websocket clientID; for Phase 3 single-user, LOCAL_ORIGIN is enough.
 
-import { readSidecarCache as readMergedSidecar, readSwitchStatesFromDoc, writeSidecarCache as writeMergedSidecar, writeSwitchStates } from '@cld/ydoc';
+import { deleteRecord, PLACES_KEY, readPlacesFromDoc, readSidecarCache as readMergedSidecar, readSwitchStatesFromDoc, writePlace, writeSidecarCache as writeMergedSidecar, writeSwitchStates } from '@cld/ydoc';
 import * as Y from 'yjs';
 import type { ColorSpec, FontSpec, Group, Layer, RectangleF } from '@cld/model';
 import type { AnchoredLabel, BackgroundImage, SavedView, SidecarModule } from '@cld/bbm';
@@ -33,7 +33,8 @@ import { connectedTurn, type TurnBrick } from './rotateTurn';
 import { cloneGroups, topGroupId, type ExpandedSet, type SetModule } from './sets';
 import { findPartsSheet, type SheetChoices } from './moduleSheets';
 import { textBoxStuds, type LineWidthAt } from './render/mapText';
-import { movedPlacement, replaceModuleParts as replacePlacedModuleParts, sharedPlaced, withLibrarySetup, withShared, type ModuleBatch, type ModuleSetup, type Placement } from '@cld/modules';
+import { adoptPlaces, copyPlaces, modulePlaces, releasePlaces, withPlaces } from '@cld/bbm';
+import { placesOn, movedPlacement, replaceModuleParts as replacePlacedModuleParts, sharedPlaced, withLibrarySetup, withShared, type ModuleBatch, type ModuleSetup, type Placement } from '@cld/modules';
 import { keepsLock, moduleLocked, partsLocked } from './sharedLock';
 import { followedPlacement, partPoses, sharedShapes } from './sharedPlacement';
 
@@ -2561,12 +2562,23 @@ export function createSidecarModule(doc: Y.Doc, name: string, memberIds: string[
   const members = [...new Set(memberIds)];
   if (members.length === 0) return null;
   const id = makeId();
-  addSidecarModule(doc, {
-    id,
-    name: name.trim() || 'New Module',
-    members,
-    transform: [1, 0, 0, 0, 1, 0, 0, 0, 1],
-  });
+  doc.transact(() => {
+    // The layout's places that are all on these parts go with the module.
+    const { module: own } = adoptPlaces(readPlacesFromDoc(doc), new Set(members));
+    for (const p of own) deleteRecord(doc, PLACES_KEY, p.id);
+    addSidecarModule(
+      doc,
+      withPlaces(
+        {
+          id,
+          name: name.trim() || 'New Module',
+          members,
+          transform: [1, 0, 0, 0, 1, 0, 0, 0, 1],
+        },
+        own,
+      ),
+    );
+  }, LOCAL_ORIGIN);
   return id;
 }
 
@@ -2703,7 +2715,9 @@ export function importBricksAsModule(
           }
         : {}),
     }, opts.library?.setup);
-    writeSidecarCache(doc, { ...cache, modules: [...getSidecarModules(cache), mod] });
+    // Its places come along (Live Ops design 2.1), as this placed copy's own.
+    const places = copyPlaces(placesOn(nonEmpty, ids), (id) => id, makeId);
+    writeSidecarCache(doc, { ...cache, modules: [...getSidecarModules(cache), withPlaces(mod, places)] });
   }, LOCAL_ORIGIN);
   return { moduleId, ids };
 }
@@ -2719,15 +2733,22 @@ export function renameSidecarModule(doc: Y.Doc, id: string, name: string): void 
   }, LOCAL_ORIGIN);
 }
 
-export function deleteSidecarModule(doc: Y.Doc, id: string): void {
+/** Take the module apart (its parts stay); `keepPlaces` false: its places go with it. */
+export function deleteSidecarModule(doc: Y.Doc, id: string, keepPlaces = true): void {
   // (deleteModuleWithParts removes a shared module, parts and all.)
   if (moduleLocked(doc, id, 'dissolve')) return;
   doc.transact(() => {
     const cache = readSidecarCache(doc);
+    const gone = getSidecarModules(cache).find((m) => m.id === id);
     writeSidecarCache(doc, {
       ...cache,
       modules: getSidecarModules(cache).filter((m) => m.id !== id),
     });
+    // Its parts stay, so its places do too: the layout's own now.
+    if (gone && keepPlaces) {
+      const had = readPlacesFromDoc(doc);
+      for (const p of releasePlaces(had, modulePlaces(gone), makeId).slice(had.length)) writePlace(doc, p);
+    }
   }, LOCAL_ORIGIN);
 }
 
@@ -2751,7 +2772,7 @@ export function deleteModuleWithParts(doc: Y.Doc, id: string): void {
       });
       if (ids.length > 0) deleteBricks(doc, layerId, ids);
     }
-    deleteSidecarModule(doc, id);
+    deleteSidecarModule(doc, id, false);
   }, LOCAL_ORIGIN);
 }
 
@@ -2912,6 +2933,7 @@ export function cloneModuleBricks(doc: Y.Doc, module: SidecarModule): void {
   const offsetX = Number.isFinite(maxX) ? maxX - minX + 2 : 4;
 
   const newMemberIds: string[] = [];
+  const renamed = new Map<string, string>();
   doc.transact(() => {
     for (const layerId of layerOrder.toArray()) {
       const layerData = doc.getMap('layerData').get(layerId);
@@ -2935,6 +2957,7 @@ export function cloneModuleBricks(doc: Y.Doc, module: SidecarModule): void {
         const area = src.get('displayArea') as RectangleF;
         const newId = makeId();
         newMemberIds.push(newId);
+        renamed.set(src.get('id') as string, newId);
         const yNew = new Y.Map<unknown>();
         yNew.set('id', newId);
         yNew.set('displayArea', { ...area, x: area.x + offsetX });
@@ -2960,7 +2983,7 @@ export function cloneModuleBricks(doc: Y.Doc, module: SidecarModule): void {
     }
 
     const cache = readSidecarCache(doc);
-    let cloned = moduleCopy(module, newMemberIds);
+    let cloned = moduleCopy(module, newMemberIds, makeId, renamed);
     // A shared module's copy is another shared placement: the owner's name, the same link and lock, moved along.
     const shared = sharedPlaced(module);
     if (shared) {

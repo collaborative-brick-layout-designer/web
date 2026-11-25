@@ -30,6 +30,8 @@ export interface MapMenuActions {
   createModule: () => void;
   saveAsSet: () => void;
   importBbm: () => void;
+  /** The Places panel (on a phone, its sheet). */
+  places: () => void;
   /** Updates from shared modules… (a layout on the server only). */
   sharedModuleUpdates?: () => void;
   venueDesigner: () => void;
@@ -71,6 +73,8 @@ export interface MapMenuToggles {
   switches: Toggle;
   /** View › Siding lengths: each run of track labeled with the length a train can stand in. */
   sidingLengths: Toggle;
+  /** View › Places: the places' brackets and names. */
+  places: Toggle;
   statusBar: Toggle;
   budgetLimit: Toggle;
   budgetOnly: Toggle;
@@ -134,6 +138,7 @@ export function mapMenuEntries(a: MapMenuActions, t: MapMenuToggles, mod = modKe
         { kind: 'item', id: 'make-module', label: 'Make a module…', onSelect: a.createModule },
         { kind: 'item', id: 'save-set', label: 'Save selection as set…', onSelect: a.saveAsSet },
         { kind: 'item', id: 'import-bbm', label: 'Import .bbm as module…', onSelect: a.importBbm },
+        { kind: 'item', id: 'places', label: 'Places', onSelect: a.places },
         sep,
         sharedUpdatesItem(a),
       ],
@@ -166,6 +171,7 @@ export function mapMenuEntries(a: MapMenuActions, t: MapMenuToggles, mod = modKe
         check('show-electric', 'Electric circuits', t.electricCircuits),
         check('show-switches', 'Switches', t.switches),
         check('show-siding-lengths', 'Siding lengths', t.sidingLengths),
+        check('show-places', 'Places', t.places),
         check('show-ruler-points', 'Ruler attach points', t.rulerAttachPoints),
         check('show-hulls', 'Brick hulls', t.brickHulls),
         check('show-elevation', 'Brick elevation labels', t.brickElevation),
@@ -210,6 +216,7 @@ export type PhoneMapActions = Pick<
   | 'insertLabel'
   | 'saveAsSet'
   | 'importBbm'
+  | 'places'
   | 'sharedModuleUpdates'
   | 'venueDesigner'
   | 'venueDimensions'
@@ -250,6 +257,7 @@ export function phoneMapEntries(a: PhoneMapActions, t: PhoneMapToggles, editing:
     { kind: 'item', id: 'background-color', label: 'Background color…', hidden: viewing, onSelect: a.backgroundColor },
     { kind: 'item', id: 'background-image', label: 'Background image…', hidden: viewing, onSelect: a.backgroundImage },
     { kind: 'item', id: 'find', label: 'Find & Replace…', onSelect: a.find },
+    { kind: 'item', id: 'places', label: 'Places', onSelect: a.places },
     sep,
     {
       kind: 'submenu', id: 'insert', label: 'Insert', hidden: viewing, items: [
@@ -288,6 +296,7 @@ export function phoneMapEntries(a: PhoneMapActions, t: PhoneMapToggles, editing:
         check('show-electric', 'Electric circuits', t.electricCircuits),
         check('show-switches', 'Switches', t.switches),
         check('show-siding-lengths', 'Siding lengths', t.sidingLengths),
+        check('show-places', 'Places', t.places),
         check('show-ruler-points', 'Ruler attach points', t.rulerAttachPoints),
         check('show-hulls', 'Brick hulls', t.brickHulls),
         check('show-elevation', 'Brick elevation labels', t.brickElevation),

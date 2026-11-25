@@ -25,6 +25,8 @@ interface ClipboardEntry {
   sourceLayerName: string;
   /** Verbatim copy of the brick's serialisable fields. */
   brick: Pick<Brick, 'partNumber' | 'displayArea' | 'orientation' | 'altitude' | 'activeConnectionPointIndex'> & { myGroup?: string };
+  /** Its id in the layout it was copied from (a copied module's places name it by that). */
+  sourceId?: string;
   /** The groups (sets) the brick is in, innermost first, so a pasted set stays a set. */
   groups?: Group[];
   /** The brick is the anchor part of a placed custom set: its link, so the pasted set keeps track of its version. */

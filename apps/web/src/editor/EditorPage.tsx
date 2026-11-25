@@ -57,6 +57,11 @@ import { ElectricCircuitLayer } from './render/ElectricCircuitLayer';
 import { SwitchLayer } from './render/SwitchLayer';
 import { RouteLayer } from './render/RouteLayer';
 import { RoutesPanel } from './RoutesPanel';
+import { PlacesPanel } from './PlacesPanel';
+import { BottomSheet } from './TouchSheets';
+import { moduleLocked } from './sharedLock';
+import { PlaceLayer } from './render/PlaceLayer';
+import { groupOfPart, newPlace, openPlaces, savePlace, usePlaceGroups, useSpots, withSpotOn, type PlaceOwner } from './places';
 import { TrainsPanel } from './TrainsPanel';
 import { TrainLayer } from './render/TrainLayer';
 import { saveTrain, usePlacedTrains, useStock, useTrains } from './trains';
@@ -196,7 +201,7 @@ import { ViewsPanel, PictureIcon } from './ViewsPanel';
 import { downloadAllViews } from './sharePicture';
 import { NoticeToast } from './NoticeToast';
 import { DropSheetTag } from './DropSheetTag';
-import { writeBbm, type SavedView, type SidecarModule } from '@cld/bbm';
+import { PLACE_LIMITS, writeBbm, type SavedView, type SidecarModule } from '@cld/bbm';
 import { LOCAL_ORIGIN } from './useLayoutDoc';
 import { hiddenPartNotice } from './hiddenParts';
 import { contentBoundsStuds, EXPORT_HIDE, exportRegionStuds, unionStudRects, type StudRect, exportSceneSize, renderMapToCanvas, watermarkText } from './exportRender';
@@ -675,6 +680,10 @@ function Editor({ layoutId, docState, moduleMode }: { layoutId: string; docState
   const editorRuns = useTrackRuns(editorTrackNet);
   const editorChecks = useFitChecks(editorTrackNet, editorRuns, editorTrains, editorStockById, editorRoutes, editorSwitchStates, editorPlaced);
   const editorNames = useMemo(() => namesOf(editorTrains, editorStockById, editorRoutes), [editorTrains, editorStockById, editorRoutes]);
+  // Places (Live Ops design 6), for the Places panel (the canvas works out the same for the map).
+  const placeGroupsNow = usePlaceGroups(doc, docMap);
+  const placeSpots = useSpots(editorTrackNet, editorRuns, placeGroupsNow);
+  const placeCarTypes = useMemo(() => [...new Set(editorStock.map((s) => s.type).filter((t) => t.trim()))], [editorStock]);
   // Budget limits live in the doc's meta (shared with collaborators,
   // undoable). A meta change yields a new docMap, so re-read on that.
   const budgetRead = useMemo(
@@ -837,6 +846,20 @@ function Editor({ layoutId, docState, moduleMode }: { layoutId: string; docState
     window.addEventListener('cld:show-panel', onShow);
     return () => window.removeEventListener('cld:show-panel', onShow);
   }, [dock]);
+  // Places… (a module's menu, the Map menu, right-click on track): its panel, or its sheet on a phone.
+  const [showPlacesSheet, setShowPlacesSheet] = useState(false);
+  useEffect(() => {
+    const onOpen = (e: Event) => {
+      const d = (e as CustomEvent<{ module?: string | null; place?: { owner: PlaceOwner; id: string } | null; fresh?: boolean }>).detail ?? {};
+      const st = useEditorStore.getState();
+      if (d.module !== undefined) st.setPlacesModule(d.module);
+      if (d.place) st.setPlaceOpen(d.place, !!d.fresh);
+      if (viewport.isMobile) setShowPlacesSheet(true);
+      else if (dock.zoneOf('places') === 'hidden') dock.setZone('places', 'right');
+    };
+    window.addEventListener('cld:open-places', onOpen);
+    return () => window.removeEventListener('cld:open-places', onOpen);
+  }, [dock, viewport.isMobile]);
   const panelsHere = (ids: readonly string[]) => (moduleMode ? ids.filter((id) => !NOT_IN_MODULES.has(id)) : [...ids]);
   const leftPanels = panelsHere(dock.state.left);
   const rightPanels = panelsHere(dock.state.right);
@@ -873,6 +896,7 @@ function Editor({ layoutId, docState, moduleMode }: { layoutId: string; docState
       return (
         <RoutesPanel doc={doc} net={editorTrackNet} routes={editorRoutes} statuses={editorRouteStatuses} hidden={routesHidden.hidden} setShown={routesHidden.setShown} isViewer={isViewer} checks={editorChecks.filter((c) => c.route || c.kind === 'gap')} names={editorNames} />
       );
+    if (panelId === 'places') return placesPanel(false);
     if (panelId === 'trains')
       return (
         <TrainsPanel
@@ -899,6 +923,22 @@ function Editor({ layoutId, docState, moduleMode }: { layoutId: string; docState
     if (panelId === 'views') return viewsPanel(false);
     if (panelId === 'venuelibrary') return <Suspense fallback={null}><VenueLibraryPanel doc={doc} isViewer={isViewer} onDesigner={() => setShowVenueDesigner(true)} onDimensions={() => setShowVenueDimensions(true)} onDrawOutline={() => useEditorStore.getState().setTool('venueOutline')} /></Suspense>;
     return null;
+  }
+
+  function placesPanel(touch: boolean): React.ReactNode {
+    if (!doc) return null;
+    return (
+      <PlacesPanel
+        doc={doc}
+        groups={placeGroupsNow}
+        spots={placeSpots}
+        hasTrack={!!editorTrackNet && editorTrackNet.brickIds.length > 0}
+        isViewer={isViewer}
+        carTypes={placeCarTypes}
+        touch={touch}
+        {...(touch ? { onPicking: () => setShowPlacesSheet(false) } : {})}
+      />
+    );
   }
 
   function viewsPanel(touch: boolean): React.ReactNode {
@@ -1226,6 +1266,7 @@ function Editor({ layoutId, docState, moduleMode }: { layoutId: string; docState
                         insertLabel: () => setShowAddLabel(true),
                         saveAsSet: () => setShowSaveAsSet(true),
                         importBbm: () => setShowImportBbm(true),
+                        places: () => openPlaces({ module: null }),
                         ...(moduleMode ? {} : { sharedModuleUpdates: () => setShowSharedUpdates(true) }),
                         venueDesigner: () => setShowVenueDesigner(true),
                         venueDimensions: () => setShowVenueDimensions(true),
@@ -1648,6 +1689,11 @@ function Editor({ layoutId, docState, moduleMode }: { layoutId: string; docState
             return makeModuleThumbnail(exportImageRef.current, projectDoc(doc), readSidecarFromDoc(doc));
           }}
         />
+      )}
+      {showPlacesSheet && (
+        <BottomSheet title="Places" onClose={() => setShowPlacesSheet(false)}>
+          {placesPanel(true)}
+        </BottomSheet>
       )}
       {sharePicture && docMap && (
         <SharePictureDialog
@@ -2953,7 +2999,63 @@ function Canvas({
   // Fit checks (trains design 3.5): the siding lengths, and a ring at each spot a check is about.
   const showSidingLengths = useEditorStore((s) => s.showSidingLengths);
   const spotlight = useEditorStore((s) => s.spotlight);
-  const runs = useTrackRuns(placedTrains.size > 0 || routes.length > 0 || showSidingLengths ? trackNet : null);
+  // Places (Live Ops design 6): their brackets and names.
+  const showPlaces = useEditorStore((s) => s.showPlaces);
+  const placePick = useEditorStore((s) => s.placePick);
+  const placeGroups = usePlaceGroups(doc, map);
+  const anyPlaces = placeGroups.some((g) => g.places.length > 0);
+  const runs = useTrackRuns(placedTrains.size > 0 || routes.length > 0 || showSidingLengths || (showPlaces && anyPlaces) ? trackNet : null);
+  const shownSpots = useSpots(showPlaces && anyPlaces ? trackNet : null, runs, placeGroups);
+  useEffect(() => {
+    if (!placePick) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') useEditorStore.getState().setPlacePick(null);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [placePick]);
+  // The place being picked for went away (deleted by someone else, or undone).
+  useEffect(() => {
+    if (placePick?.place && !placeGroups.some((g) => g.owner === placePick.owner && g.places.some((p) => p.id === placePick.place))) useEditorStore.getState().setPlacePick(null);
+  }, [placePick, placeGroups]);
+  /** Put a spot on the track nearest `at` (studs); says why when it can't. Returns whether it did. */
+  const pickPlaceTrack = (at: { x: number; y: number }, pick: NonNullable<typeof placePick>): boolean => {
+    const st = useEditorStore.getState();
+    const pos = trackNet ? nearestPosition(trackNet, at, Math.max(3, 24 / (8 * zoom))) : null;
+    if (!pos) {
+      st.showStatusMessage('Click on the track.', 3000);
+      return false;
+    }
+    const on = groupOfPart(doc, placeGroups, pos.brick);
+    if (on?.locked) {
+      moduleLocked(doc, on.owner!, 'places');
+      return false;
+    }
+    if (typeof pick.owner === 'string' && on?.owner !== pick.owner) {
+      const name = placeGroups.find((g) => g.owner === pick.owner)?.name;
+      st.showStatusMessage(`That track isn’t part of ${name ? `“${name}”` : 'the module'}. Click the module’s own track.`, 5000);
+      return false;
+    }
+    // A new place goes where its track is: on the module, or the layout's own.
+    const owner = pick.owner === undefined ? (on?.owner ?? null) : pick.owner;
+    const group = placeGroups.find((g) => g.owner === owner);
+    const had = pick.place ? group?.places.find((p) => p.id === pick.place) : undefined;
+    if (!had && (group?.places.length ?? 0) >= PLACE_LIMITS.places) {
+      st.showStatusMessage(`There can be up to ${PLACE_LIMITS.places} places here.`, 4000);
+      return false;
+    }
+    const place = had ? withSpotOn(had, pick.spot, pos) : newPlace(placeGroups, pos);
+    savePlace(doc, owner, place);
+    st.setPlacePick(null);
+    if (!st.showPlaces) st.setShowPlaces(true);
+    openPlaces({ ...(typeof pick.owner === 'string' || pick.place ? {} : { module: null }), place: { owner, id: place.id }, fresh: !had });
+    return true;
+  };
+  const onPlacePickClick = (e: KonvaEventObject<MouseEvent | TouchEvent>) => {
+    if ('button' in e.evt && e.evt.button !== 0) return;
+    const at = pointerStuds();
+    if (at && placePick) pickPlaceTrack(at, placePick);
+  };
   const checks = useFitChecks(trackNet, runs, trains, stockById, routes, switchStates, placedTrains);
   // "Show me": bring the spot into view (not closer than 2:1) and ring it.
   useEffect(() => {
@@ -4085,6 +4187,7 @@ function Canvas({
         if (!sel.has(b.id)) continue;
         entries.push({
           sourceLayerName: layer.name,
+          sourceId: b.id,
           brick: {
             partNumber: b.partNumber,
             displayArea: { ...b.displayArea },
@@ -4117,9 +4220,9 @@ function Canvas({
   }
 
   /** Register `ids` as a copy of `module` ("X (copy)", its look, unlinked, unpinned). */
-  function addModuleCopy(module: SidecarModule, ids: string[]): void {
+  function addModuleCopy(module: SidecarModule, ids: string[], renamed?: ReadonlyMap<string, string>): void {
     if (ids.length === 0 || useEditorStore.getState().editingModuleId) return;
-    addSidecarModule(doc, moduleCopy(module, ids));
+    addSidecarModule(doc, moduleCopy(module, ids, undefined, renamed));
   }
 
   async function cutSelection(): Promise<SystemClipboard | null> {
@@ -4296,6 +4399,8 @@ function Canvas({
     const keepShared = sharedCopy ? await followsHere(sharedCopy.moduleId) : false;
     const sheetByName = new Map<string, string>();
     const newIds: string[] = [];
+    // Each part's id here, by the id it was copied under (for a module's places).
+    const renamed = new Map<string, string>();
     const pastedOn: string[] = [];
     // One undo step: the parts, and the module copy when a whole module was copied.
     doc.transact(() => {
@@ -4318,11 +4423,12 @@ function Canvas({
       );
       const ids = insertBricks(doc, targetLayerId, copied.bricks, { dx, dy }, copied.groups);
       newIds.push(...ids);
+      layerEntries.forEach((e, i) => e.sourceId && ids[i] && renamed.set(e.sourceId, ids[i]));
       copyPlacedSets(doc, layerEntries.flatMap((e, i) => (e.placedSet && ids[i] ? [{ brick: ids[i], link: e.placedSet }] : [])));
     }
     if (read.module && entries.length === clipped.length) {
-      if (sharedCopy && keepShared) addSidecarModule(doc, pastedShared(read.module, newIds, dx, dy, (n) => sheetByName.get(n)));
-      else addModuleCopy(read.module, newIds);
+      if (sharedCopy && keepShared) addSidecarModule(doc, pastedShared(read.module, newIds, dx, dy, (n) => sheetByName.get(n), renamed));
+      else addModuleCopy(read.module, newIds, renamed);
     }
     }, LOCAL_ORIGIN);
     if (sharedCopy && !keepShared && newIds.length > 0) useEditorStore.getState().showNotice(pastedLooseText(read.module!, sharedCopy.by), 'done', 12000);
@@ -4440,8 +4546,9 @@ function Canvas({
       ids = insertBricksAcrossLayers(doc, perLayer, offset, groupsPerLayer);
       if (whole && kept === whole.members.length) {
         // A shared module's duplicate is another shared placement, on the same sheets.
-        if (sharedPlaced(whole)) addSidecarModule(doc, pastedShared(whole, ids, offset.dx, offset.dy, (id) => id));
-        else addModuleCopy(whole, ids);
+        const renamed = new Map([...perLayer.values()].flat().flatMap((b, i): [string, string][] => (ids[i] ? [[sourceOf.get(b) ?? '', ids[i]]] : [])));
+        if (sharedPlaced(whole)) addSidecarModule(doc, pastedShared(whole, ids, offset.dx, offset.dy, (id) => id, renamed));
+        else addModuleCopy(whole, ids, renamed);
       }
       // (insertBricksAcrossLayers adds the layers' parts in this order.)
       const originals = [...perLayer.values()].flat().map((b) => sourceOf.get(b) ?? '');
@@ -4971,7 +5078,7 @@ function Canvas({
           skipContextMenuRef.current = false;
           return;
         }
-        if (isViewer || runMode || routeDraft || trainPlacing) return;
+        if (isViewer || runMode || routeDraft || trainPlacing || placePick) return;
         if (tool === 'venueOutline' || tool === 'venueObstacle') {
           finishVenueDraft();
           return;
@@ -5217,8 +5324,8 @@ function Canvas({
       {/* Switches (trains design 6.3): their arrows in Run mode or with View › Switches,
           and in Run mode a cover that takes every click, so a click flips a
           switch and never picks or moves a part. */}
-      {trackNet && (showSwitches || runMode || routeDraft || routes.length > 0 || trainPlacing || placedTrains.size > 0 || showSidingLengths || spotlight) && (
-        <KonvaLayer name="switch-layer" listening={runMode || !!routeDraft || !!trainPlacing} perfectDrawEnabled={false}>
+      {trackNet && (showSwitches || runMode || routeDraft || routes.length > 0 || trainPlacing || placedTrains.size > 0 || showSidingLengths || (showPlaces && anyPlaces) || placePick || spotlight) && (
+        <KonvaLayer name="switch-layer" listening={runMode || !!routeDraft || !!trainPlacing || !!placePick} perfectDrawEnabled={false}>
           <RouteLayer
             net={trackNet}
             routes={routes}
@@ -5228,6 +5335,7 @@ function Canvas({
             draft={routeDraft ? { ends: [routeDraft.from, ...routeDraft.via, routeDraft.to].filter((p): p is TrackPosition => !!p), route: draftFound && typeof draftFound !== 'string' && routeDraft.from && routeDraft.to ? { steps: draftFound.steps, from: routeDraft.from, to: routeDraft.to } : null } : null}
           />
           <TrainLayer trains={trains} placed={standingTrains} stock={stockById} partsByKey={partsByKey} zoom={zoom} picked={trainPlacing} />
+          {showPlaces && anyPlaces && <PlaceLayer spots={shownSpots} zoom={zoom} />}
           <FitLayer runs={showSidingLengths ? runs : []} checks={checks} spotlight={spotlight} zoom={zoom} />
           {(showSwitches || runMode) && <SwitchLayer net={trackNet} states={shownStates} zoom={zoom} />}
           {runMode && (
@@ -5235,6 +5343,9 @@ function Canvas({
           )}
           {trainPlacing && (
             <Rect name="train-place-cover" x={-1e7} y={-1e7} width={2e7} height={2e7} fill="rgba(0,0,0,0)" onClick={onPlaceTrainClick} onTap={onPlaceTrainClick} />
+          )}
+          {placePick && (
+            <Rect name="place-pick-cover" x={-1e7} y={-1e7} width={2e7} height={2e7} fill="rgba(0,0,0,0)" onClick={onPlacePickClick} onTap={onPlacePickClick} />
           )}
           {routeDraft && (
             <Rect name="route-draft-cover" x={-1e7} y={-1e7} width={2e7} height={2e7} fill="rgba(0,0,0,0)" onClick={onDraftClick} onTap={onDraftClick} />
@@ -5406,6 +5517,7 @@ function Canvas({
       {runMode && <RunModeBanner />}
       {runMode && <RunPanel doc={doc} trains={trains} routes={routes} statuses={routeStatuses} placed={placedTrains} scale={trainScale} isViewer={isViewer} top={phone} />}
       {placingTrain && <TrainPlaceBanner name={placingTrain.name} />}
+      {placePick && <PlacePickBanner newOne={!placePick.place} module={typeof placePick.owner === 'string' ? placeGroups.find((g) => g.owner === placePick.owner)?.name : undefined} />}
       {routeDraft && <RouteDraftBanner doc={doc} draft={routeDraft} found={draftFound} routes={routes} trainName={routeDraft.train ? trains.find((t) => t.id === routeDraft.train)?.name : undefined} />}
       <SetUpdatesBar updates={setUpdates} onUpdate={updatePlacedSets} onShow={showPlacedSets} top={phone} />
       <SharedModulesHost doc={doc} layoutId={sharedLayoutId} isViewer={isViewer} onShowParts={showParts} parts={partsByKey} top={phone} />
@@ -5449,6 +5561,12 @@ function Canvas({
             switchStates,
             (trackNet && switchAt(trackNet, switchStates, { x: ctxMenu.studX, y: ctxMenu.studY }, Math.max(3, 20 / (8 * zoom)))?.brick) ?? ctxMenu.brickIdUnderCursor,
           )}
+          onMakePlace={
+            trackNet && nearestPosition(trackNet, { x: ctxMenu.studX, y: ctxMenu.studY }, Math.max(3, 20 / (8 * zoom)))
+              ? () => pickPlaceTrack({ x: ctxMenu.studX, y: ctxMenu.studY }, { owner: undefined, place: null, spot: null })
+              : null
+          }
+          onModulePlaces={(id) => openPlaces({ module: id })}
           onSetSwitch={(it) => {
             const sw = trackNet?.switchAt(it.key);
             setSwitch(doc, it.key, sw && it.exit === sw.default ? null : it.exit);
@@ -5575,7 +5693,7 @@ function ScaleBarHud({ zoom, right = false }: { zoom: number; right?: boolean })
  */
 function CanvasContextMenu({
   x, y, onBrick, selection, map, doc, undo,
-  textCellRef, onEditText, rulerRef, brickIdUnderCursor, switchItems, onSetSwitch, selectedRulerId, onAttachRuler,
+  textCellRef, onEditText, rulerRef, brickIdUnderCursor, switchItems, onSetSwitch, onMakePlace, onModulePlaces, selectedRulerId, onAttachRuler,
   onClose, onCopy, onCut, onPaste, onDuplicate, onDelete,
   onRotateCCW, onRotateCW, onBringToFront, onSendToBack, onMoveToSheet,
   onGroup, onUngroup, ungroup, onSelectConnected, onAddTextHere, onProperties, onMakeModule,
@@ -5600,6 +5718,9 @@ function CanvasContextMenu({
   /** The part under the cursor is a switch: the ways it can be set (trackSwitches.ts). */
   switchItems: SwitchMenuItem[];
   onSetSwitch: (item: SwitchMenuItem) => void;
+  /** The click was on track: make a place there (null: it wasn't). */
+  onMakePlace: (() => void) | null;
+  onModulePlaces: (id: string) => void;
   selectedRulerId: string | null;
   onAttachRuler: (which: 0 | 1) => void;
   onEditText: (ref: TextCellRef) => void;
@@ -5678,6 +5799,7 @@ function CanvasContextMenu({
     entries.push(item(module.showName === false ? 'Show name' : 'Hide name', () => onModuleShowName(module.id, module.showName === false)));
     entries.push(item('Colors…', () => onModuleLook(module.id)));
     entries.push(item('Table and power…', () => onModuleSetup(module.id)));
+    entries.push(item('Places…', () => onModulePlaces(module.id)));
     entries.push(sep('sm1'));
     for (const e of libraryEntries(module)) entries.push(item(e.label, e.onSelect, !!e.disabled));
     entries.push(sep('sm2'));
@@ -5706,6 +5828,12 @@ function CanvasContextMenu({
       );
     }
     entries.push(sep('sw1'));
+  }
+
+  // Track: name a place where cars go (Live Ops design 2.1).
+  if (onMakePlace) {
+    entries.push(item('Make a place…', onMakePlace));
+    entries.push(sep('pl1'));
   }
 
   // A placed custom set whose set changed since: Update available.
@@ -5954,7 +6082,7 @@ function SnapRing() {
  * affordance stays visible.
  */
 // UI words: layers are "Sheets" (the ids stay).
-const PANEL_TITLES: Record<string, string> = { parts: 'Parts', layers: 'Sheets', views: 'Views', usedparts: 'Parts list', modules: 'Modules', modlibrary: 'Module library', venuelibrary: 'Venue library', routes: 'Routes', trains: 'Trains' };
+const PANEL_TITLES: Record<string, string> = { parts: 'Parts', layers: 'Sheets', views: 'Views', usedparts: 'Parts list', modules: 'Modules', modlibrary: 'Module library', venuelibrary: 'Venue library', routes: 'Routes', trains: 'Trains', places: 'Places' };
 
 /**
  * Renders a vertical stack of panels in one dock column, with:
@@ -6496,6 +6624,7 @@ function MapMenu({
         createModule: onCreateModule,
         saveAsSet: onSaveAsSet,
         importBbm: onImportBbm,
+        places: () => openPlaces({ module: null }),
         ...(onImportModel ? { importModel: onImportModel } : {}),
         ...(onVersionHistory ? { versionHistory: onVersionHistory } : {}),
         ...(onSharedModuleUpdates ? { sharedModuleUpdates: onSharedModuleUpdates } : {}),
@@ -6544,6 +6673,7 @@ function useMapMenuToggles(): MapMenuToggles {
       showElectricCircuits: s.showElectricCircuits, setShowElectricCircuits: s.setShowElectricCircuits,
       showSwitches: s.showSwitches, setShowSwitches: s.setShowSwitches,
       showSidingLengths: s.showSidingLengths, setShowSidingLengths: s.setShowSidingLengths,
+      showPlaces: s.showPlaces, setShowPlaces: s.setShowPlaces,
       showStatusBar: s.showStatusBar, setShowStatusBar: s.setShowStatusBar,
       useBudgetLimitation: s.useBudgetLimitation, setUseBudgetLimitation: s.setUseBudgetLimitation,
       showOnlyBudgetedParts: s.showOnlyBudgetedParts, setShowOnlyBudgetedParts: s.setShowOnlyBudgetedParts,
@@ -6562,6 +6692,7 @@ function useMapMenuToggles(): MapMenuToggles {
     electricCircuits: toggle(store.showElectricCircuits, store.setShowElectricCircuits),
     switches: toggle(store.showSwitches, store.setShowSwitches),
     sidingLengths: toggle(store.showSidingLengths, store.setShowSidingLengths),
+    places: toggle(store.showPlaces, store.setShowPlaces),
     statusBar: toggle(store.showStatusBar, store.setShowStatusBar),
     budgetLimit: toggle(store.useBudgetLimitation, store.setUseBudgetLimitation),
     budgetOnly: toggle(store.showOnlyBudgetedParts, store.setShowOnlyBudgetedParts),
@@ -7215,6 +7346,28 @@ function RunModeBanner() {
         className="h-8 rounded-control bg-accent px-3 text-xs font-bold text-accent-ink hover:bg-accent-hover"
       >
         Stop
+      </button>
+    </div>
+  );
+}
+
+/** Picking track for a place (Live Ops design 6): what to click, and Cancel. */
+function PlacePickBanner({ newOne, module }: { newOne: boolean; module?: string | undefined }) {
+  return (
+    <div role="status" data-testid="place-pick-banner" className="pointer-events-auto absolute left-1/2 top-3 z-20 flex max-w-[95%] -translate-x-1/2 flex-wrap items-center gap-2 rounded-2xl border border-line bg-panel px-4 py-2 text-sm shadow-pop">
+      <span>
+        <b>{newOne ? 'New place:' : 'Spot:'}</b> click the track where cars stand{module ? ` on ${module}` : ''}.
+      </span>
+      <HelpButton helpKey="ops.spot" />
+      <button
+        type="button"
+        onClick={() => {
+          useEditorStore.getState().setPlacePick(null);
+          openPlaces();
+        }}
+        className="h-8 rounded-control border border-border px-3 text-xs font-semibold hover:bg-soft"
+      >
+        Cancel
       </button>
     </div>
   );

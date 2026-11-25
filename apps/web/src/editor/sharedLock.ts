@@ -13,10 +13,10 @@
 import type * as Y from 'yjs';
 import { readSidecarCache } from '@cld/ydoc';
 import { sharedModulesIn, sharedPlaced, type SharedPlaced } from '@cld/modules';
-import type { SidecarModule } from '@cld/bbm';
+import { modulePlaces, type SidecarModule } from '@cld/bbm';
 
 /** What was asked of a shared module (for the reason given). */
-export type LockedAction = 'parts' | 'edit' | 'rename' | 'members' | 'dissolve' | 'bend';
+export type LockedAction = 'parts' | 'edit' | 'rename' | 'members' | 'dissolve' | 'bend' | 'places';
 
 /** Why it can't be done, in plain words. */
 export function lockMessage(s: Pick<SharedPlaced, 'name' | 'by'>, what: LockedAction): string {
@@ -32,6 +32,8 @@ export function lockMessage(s: Pick<SharedPlaced, 'name' | 'by'>, what: LockedAc
       return `${name} is ${by}, so it stays one module. You can remove it from this layout, or its layout’s owner can make it theirs.`;
     case 'bend':
       return `${name} is ${by}, so its track can’t be bent here. You can move and turn the whole module.`;
+    case 'places':
+      return `${name} is ${by}, so its places are ${whose}. They change here with ${whose} updates.`;
     case 'edit':
     case 'parts':
       return `${name} is ${by}, so its parts can’t be changed here. You can move it, turn it or remove it as a whole.`;
@@ -98,5 +100,6 @@ export function keepsLock(was: SidecarModule, next: SidecarModule): LockedAction
   if (!b || b.moduleId !== a.moduleId) return 'dissolve';
   if (b.members.length !== a.members.length || b.members.some((id, i) => id !== a.members[i])) return 'members';
   if ((next.name ?? '') !== (was.name ?? '')) return 'rename';
+  if (JSON.stringify(modulePlaces(next)) !== JSON.stringify(modulePlaces(was))) return 'places';
   return null;
 }

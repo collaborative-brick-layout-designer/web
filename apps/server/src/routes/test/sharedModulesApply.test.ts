@@ -14,6 +14,7 @@ import { randomUUID } from 'node:crypto';
 import { eq } from 'drizzle-orm';
 import * as Y from 'yjs';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { modulePlaces, type Place } from '@cld/bbm';
 import { createDefaultLayoutDoc, encodeDoc } from '@cld/ydoc';
 import { attachUser } from '../../auth/cookie.js';
 import { registerApiRoutes } from '../all.js';
@@ -123,6 +124,43 @@ describe('a layout’s shared modules', () => {
     // Someone who can't open the layout learns nothing.
     expect((await call(eve, 'GET', `/api/layouts/${plan}/shared-modules`)).statusCode).toBe(404);
     expect((await call(null, 'GET', `/api/layouts/${plan}/shared-modules`)).statusCode).toBe(401);
+  });
+
+  it('Update brings the owner’s places (Live Ops): on the placed parts, with ids of their own that later updates keep', async () => {
+    const { alice, carol, crane, plan } = await world();
+    const cannery = (name: string, i: number) => (ids: readonly string[]): Place[] => [
+      { id: 'lib-1', name, kind: 'industry', spots: [{ id: 's1', name: 'Dock', track: { brick: ids[i]!, from: 0, to: 1 }, capacity: 2 }], accepts: ['reefer'], ships: [], tags: [], notes: '' },
+    ];
+    const saveWith = async (parts: Part[], places?: (ids: readonly string[]) => Place[]) => {
+      const r = await app.inject({ method: 'PUT', url: `/api/modules/${crane}/snapshot`, headers: { cookie: alice.cookie, 'content-type': 'application/octet-stream' }, payload: contents(parts, places) });
+      expect(r.statusCode).toBe(200);
+    };
+    const counts = async () => ((await call(alice, 'GET', `/api/modules/${crane}`)).json() as { module: { placeCounts: unknown } }).module.placeCounts;
+    const update = async (version: number) => expect((await call(carol, 'POST', `/api/layouts/${plan}/shared-modules/placed-1/apply`, { version })).statusCode).toBe(200);
+    const here = async () => modulePlaces(moduleOf(await docOf(plan), 'placed-1')!);
+
+    await saveWith(V2, cannery('Cannery', 1));
+    expect(await counts()).toEqual([{ kind: 'industry', count: 1 }]);
+    await update(2);
+    const [first] = await here();
+    expect(first).toMatchObject({ name: 'Cannery', source: 'lib-1', accepts: ['reefer'] });
+    const b = partsOf(await docOf(plan)).find((p) => p.pn === 'b.1')!;
+    expect(first!.spots).toEqual([{ id: 's1', name: 'Dock', track: { brick: b.id, from: 0, to: 1 }, capacity: 2 }]);
+
+    // A later version renames it and moves its spot: the same place here (other things may name it by its id).
+    await saveWith(V2, cannery('Cannery Row', 2));
+    await update(3);
+    const [second] = await here();
+    expect(second).toMatchObject({ id: first!.id, name: 'Cannery Row' });
+    expect(second!.spots[0]!.track!.brick).toBe(partsOf(await docOf(plan)).find((p) => p.pn === 'c.1')!.id);
+
+    // Going back brings that version's; a version without places has none.
+    await update(2);
+    expect((await here()).map((p) => p.name)).toEqual(['Cannery']);
+    await saveWith(V2);
+    expect(await counts()).toEqual([]);
+    await update(4);
+    expect(await here()).toEqual([]);
   });
 
   it('Update puts the new version where the module sits, once', async () => {

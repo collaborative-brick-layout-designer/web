@@ -29,7 +29,8 @@ import { askConfirm, confirmDelete } from '../ui/ConfirmDialog';
 import { ModuleLookDialog } from './ModuleLookDialog';
 import { PlacedModuleSetupDialog } from './ModuleSetupDialog';
 import { setupOf, setupSummary } from '@cld/modules';
-import type { VenueLengthUnit } from '@cld/bbm';
+import { modulePlaces, type VenueLengthUnit } from '@cld/bbm';
+import { openPlaces, placesText } from './places';
 import { powerText, summaryPowerText, summaryTableLines, tableText } from './moduleSetupText';
 import { HelpButton } from '../help/HelpButton';
 import { useLengthUnit } from '../theme/PrefsProvider';
@@ -197,6 +198,7 @@ function ModuleRow({
   const [lookOpen, setLookOpen] = useState(false);
   const [setupOpen, setSetupOpen] = useState(false);
   const setup = setupOf(module);
+  const places = modulePlaces(module);
   const menuRef = useRef<HTMLDivElement>(null);
   const menuStyle = useOnScreen(menuRef, ctxMenu);
   useMenuRoles(menuRef, !!ctxMenu, `Module ${module.name}`, () => setCtxMenu(null));
@@ -295,6 +297,11 @@ function ModuleRow({
             {setup && (
               <span data-testid="module-setup-note" className="block text-xs text-muted">
                 {[setup.table ? tableText(setup.table, unit) : null, setup.power ? powerText(setup.power) : null].filter(Boolean).join(' · ')}
+              </span>
+            )}
+            {places.length > 0 && (
+              <span data-testid="module-places-note" className="block text-xs text-muted">
+                {placesText(places)}
               </span>
             )}
             {hiddenNote && (
@@ -437,6 +444,13 @@ function ModuleRow({
             onClick={() => { setCtxMenu(null); setSetupOpen(true); }}
           >
             Table and power…
+          </button>
+          <button
+            data-testid="module-menu-places"
+            className="block w-full px-3 py-1 text-left hover:bg-neutral-700"
+            onClick={() => { setCtxMenu(null); openPlaces({ module: module.id }); }}
+          >
+            Places…
           </button>
           <button
             className="block w-full px-3 py-1 text-left hover:bg-neutral-700"

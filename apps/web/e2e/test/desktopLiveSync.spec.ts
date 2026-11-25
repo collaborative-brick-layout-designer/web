@@ -14,7 +14,7 @@ import { createInterface } from 'node:readline';
 import { readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { makeModule, signIn } from '../helpers';
+import { mapMenu, makeModule, signIn } from '../helpers';
 import { engineIo } from '../stockModel';
 
 const DRIVER = process.env.BLD_SYNC_DRIVER;
@@ -112,6 +112,15 @@ class Driver {
   async trains(): Promise<{ rollingStock: { id: string; number: string; length: number; kind?: string; trucks?: { at: number }[]; look?: { mode: string; partKey?: string }; model?: { partKey?: string; file?: string; format?: string } }[]; trains: { id: string; name: string; units: { stock: string }[]; position: { brick: string; facing: string } | null }[] } | null> {
     try {
       return JSON.parse(await this.run('trains'));
+    } catch {
+      return null;
+    }
+  }
+
+  /** The desktop's places, the layout's own and each module's, or null when this driver has none (older desktop). */
+  async places(): Promise<{ layout: Place[]; modules: { id: string; name: string; places: Place[] }[] } | null> {
+    try {
+      return JSON.parse(await this.run('places'));
     } catch {
       return null;
     }
@@ -260,6 +269,13 @@ function movedBrick(before: Poses, after: Poses): string[] {
     const b = before.get(id)!;
     return b.x !== p.x || b.y !== p.y || norm(b.orientation) !== norm(p.orientation);
   }).map(([id]) => id);
+}
+
+interface Place {
+  id: string;
+  name: string;
+  kind: string;
+  spots: { id: string; name: string; track?: { brick: string; from: number; to: number }; capacity?: number }[];
 }
 
 test.describe('desktop and web live editing', () => {
@@ -735,6 +751,73 @@ test.describe('desktop and web live editing', () => {
       // Mended on the web: the desktop has the new way.
       await item.getByRole('button', { name: 'Find a new way' }).click();
       await expect.poll(async () => (await driver.routes())![0]!.broken, { timeout: 10_000 }).toBe(false);
+    } finally {
+      await driver.close();
+    }
+  });
+
+  test('places: a place the web names reaches the desktop, and one the desktop names shows on the web, on the layout and on a module', async ({ page, request, browser }) => {
+    test.setTimeout(150_000);
+    const stamp = Date.now();
+    await page.setViewportSize({ width: 1400, height: 900 });
+    await signIn(page, `places-desk-web-${stamp}@example.com`, 'Web Tester');
+    const { id } = (await (await page.request.post('/api/layouts', { data: { title: 'Places, web and desktop', bbm: TIGHT_CORNER_BBM } })).json()) as { id: string };
+    const deskEmail = `places-desk-driver-${stamp}@example.com`;
+    const desk = await browser.newContext();
+    await signIn(desk, deskEmail, 'Desktop Driver');
+    const deskPage = await desk.newPage();
+    const invite = await page.request.post(`/api/layouts/${id}/invites`, { data: { email: deskEmail, role: 'editor' } });
+    expect((await deskPage.request.post(`/api/invites/${((await invite.json()) as { token: string }).token}`)).ok()).toBe(true);
+    const token = await desktopToken(deskPage, request);
+    await desk.close();
+    const driver = new Driver(DRIVER!, token);
+    try {
+      await driver.run(`open ${id}`);
+      await driver.run('wait-synced');
+      test.skip((await driver.places()) === null, 'this bld_sync_driver has no place commands yet (desktop main is older)');
+      await page.goto(`/editor/${id}`);
+      await expect(page.locator('canvas').first()).toBeVisible({ timeout: 15000 });
+      await page.waitForTimeout(1000);
+      await page.keyboard.press('f');
+
+      // The web names a place on the stub: the desktop has it, with its spot.
+      await mapMenu(page, 'Modules & sets', 'Places');
+      const panel = page.getByTestId('places-panel');
+      await panel.getByTestId('place-new').click();
+      await expect(page.getByTestId('place-pick-banner')).toBeVisible();
+      await page.waitForTimeout(200);
+      const at = await page.evaluate(() => {
+        type St = { getAbsoluteTransform: () => { point: (p: { x: number; y: number }) => { x: number; y: number } }; container: () => HTMLElement };
+        const st = (window as unknown as { Konva: { stages: St[] } }).Konva.stages[0]!;
+        const p = st.getAbsoluteTransform().point({ x: 456 * 8, y: 192 * 8 });
+        const box = st.container().getBoundingClientRect();
+        return { x: box.left + p.x, y: box.top + p.y };
+      });
+      await page.mouse.click(at.x, at.y);
+      const editor = page.getByTestId('place-editor');
+      await editor.getByTestId('place-name').fill('Acme Cannery');
+      await editor.getByTestId('place-name').press('Enter');
+      await expect.poll(async () => (await driver.places())!.layout.map((p) => [p.name, p.kind, p.spots.length]), { timeout: 15_000 }).toEqual([['Acme Cannery', 'industry', 1]]);
+      const made = (await driver.places())!.layout[0]!;
+      const brick = made.spots[0]!.track!.brick;
+
+      // The desktop renames it and adds another: the web shows both, with nothing to refresh.
+      await driver.run(`place-set layout ${JSON.stringify({ ...made, name: 'Cannery Row' })}`);
+      await expect(editor.getByTestId('place-name')).toHaveValue('Cannery Row', { timeout: 10_000 });
+      await driver.run(`place-set layout ${JSON.stringify({ ...made, id: 'pl-desk', name: 'Desk Yard', kind: 'yard' })}`);
+      await editor.getByTestId('place-back').click();
+      await expect(panel).toContainText('Desk Yard', { timeout: 10_000 });
+
+      // On a module (the desktop makes one of the spot's track): both places are the module's on both sides.
+      await driver.run(`place-module Depot ${brick}`);
+      await expect(panel.getByRole('region', { name: 'Depot' })).toContainText('Cannery Row', { timeout: 10_000 });
+      await expect.poll(async () => (await driver.places())!.modules.map((m) => m.places.map((p) => p.name).sort()), { timeout: 10_000 }).toEqual([['Cannery Row', 'Desk Yard']]);
+
+      // The web deletes one: gone on the desktop.
+      await panel.getByRole('button', { name: 'Desk Yard' }).click();
+      await editor.getByTestId('place-delete').click();
+      await page.getByRole('alertdialog').or(page.getByRole('dialog')).getByRole('button', { name: 'Delete', exact: true }).click();
+      await expect.poll(async () => (await driver.places())!.modules.flatMap((m) => m.places.map((p) => p.name)), { timeout: 10_000 }).toEqual(['Cannery Row']);
     } finally {
       await driver.close();
     }

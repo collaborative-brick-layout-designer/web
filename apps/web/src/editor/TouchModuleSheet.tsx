@@ -1,6 +1,6 @@
 // A picked module's menu on a phone or tablet (the touch bar's Module
 import { lazyRetry } from '../ui/lazyRetry';
-// button): Edit module, Pin in place, Show / Hide name, Colors…, Table and power… and the
+// button): Edit module, Pin in place, Show / Hide name, Colors…, Table and power…, Places… and the
 // Module library entries (Save to library…, Update Module library version…,
 // Update from Module library), as the map's right-click menu has them.
 
@@ -11,6 +11,7 @@ import { enterModuleEdit, setModulePinned } from './moduleActions';
 import { useLibraryEntries, type ModuleMenuEntry } from './moduleLibraryMenu';
 import { updateSidecarModule } from './mutations';
 import { withShowName } from './moduleLook';
+import { openPlaces } from './places';
 
 const ModuleLookDialog = lazyRetry(() => import('./ModuleLookDialog').then((m) => ({ default: m.ModuleLookDialog })));
 const PlacedModuleSetupDialog = lazyRetry(() => import('./ModuleSetupDialog').then((m) => ({ default: m.PlacedModuleSetupDialog })));
@@ -56,6 +57,7 @@ export function TouchModuleSheet({ doc, moduleId, onClose }: { doc: Y.Doc; modul
     { id: 'name', label: hidden ? 'Show name' : 'Hide name', onSelect: () => updateSidecarModule(doc, mod.id, (m) => withShowName(m, hidden)) },
     { id: 'look', label: 'Colors…', keepOpen: true, onSelect: () => setLook(true) },
     { id: 'setup', label: 'Table and power…', keepOpen: true, onSelect: () => setSetup(true) },
+    { id: 'places', label: 'Places…', onSelect: () => openPlaces({ module: mod.id }) },
     ...library(mod),
   ];
   return (

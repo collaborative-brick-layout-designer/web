@@ -107,6 +107,7 @@ const DIALOGS: DialogCase[] = [
     ['Find & Replace…'],
     ['Insert', 'Text…'],
     ['Insert', 'Anchored label…'],
+    ['Places'],
     ['Modules & sets', 'Save selection as set…'],
     ['Modules & sets', 'Import .bbm as module…'],
     ['Venue', 'Draw outline by dimensions…'],

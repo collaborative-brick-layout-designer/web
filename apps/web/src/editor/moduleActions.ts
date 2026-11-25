@@ -5,7 +5,7 @@
 // "Also save to my Module library").
 
 import type * as Y from 'yjs';
-import type { SidecarModule } from '@cld/bbm';
+import { modulePlaces, PLACE_LIMITS, withPlaces, type SidecarModule } from '@cld/bbm';
 import { readSidecarFromDoc } from '@cld/ydoc';
 import { useEditorStore } from './editorStore';
 import { bricksByLayer, deleteSidecarModule, updateSidecarModule } from './mutations';
@@ -88,7 +88,12 @@ export function absorbIntoEditedModule(doc: Y.Doc, ids: readonly string[]): void
   const placed = new Set(ids);
   doc.transact(() => {
     for (const m of readSidecarFromDoc(doc)?.modules ?? []) {
-      if (m.id !== editing && m.members.length > 0 && m.members.every((id) => placed.has(id))) deleteSidecarModule(doc, m.id);
+      if (m.id !== editing && m.members.length > 0 && m.members.every((id) => placed.has(id))) {
+        // Its places become the edited module's.
+        const places = modulePlaces(m);
+        deleteSidecarModule(doc, m.id, false);
+        if (places.length > 0) updateSidecarModule(doc, editing, (e) => withPlaces(e, [...modulePlaces(e), ...places].slice(0, PLACE_LIMITS.places)));
+      }
     }
     joinEditedModule(doc, ids);
   });

@@ -215,7 +215,7 @@ export async function copySamplesTo(userId: string, now = new Date()): Promise<v
   const base = { ownerUserId: userId, ownerOrgId: null, createdBy: userId, createdAt: now, updatedAt: now, docVersion: 0, sidecarSnapshot: null };
   db.transaction((tx) => {
     if (layout) tx.insert(schema.layouts).values({ ...base, id: randomUUID(), title: layout.title, docSnapshot: layout.docSnapshot, copiedFromId: layout.id }).run();
-    if (module) tx.insert(schema.modules).values({ ...base, id: randomUUID(), title: module.title, docSnapshot: module.docSnapshot, copiedFromId: module.id }).run();
+    if (module) tx.insert(schema.modules).values({ ...base, id: randomUUID(), title: module.title, docSnapshot: module.docSnapshot, placeCounts: module.placeCounts, copiedFromId: module.id }).run();
     if (venue) tx.insert(schema.venueLibrary).values({ id: randomUUID(), ownerUserId: userId, ownerOrgId: null, name: venue.name, data: venue.data, createdBy: userId, copiedFromId: venue.id, createdAt: now }).run();
   });
 }

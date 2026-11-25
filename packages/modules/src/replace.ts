@@ -6,9 +6,9 @@
 
 import * as Y from 'yjs';
 import type { Group } from '@cld/model';
-import type { SidecarModule } from '@cld/bbm';
+import { modulePlaces, renamePlaceBricks, updatedPlaces, withPlaces, type SidecarModule } from '@cld/bbm';
 import { hasZOrder, itemsInOrder, makeId, pushOnTop, readSidecarCache, reorderByZ, stampKeepIds, writeSidecarCache } from '@cld/ydoc';
-import type { BatchBrick, ModuleBatch } from './batches.js';
+import { placesOn, type BatchBrick, type ModuleBatch } from './batches.js';
 import type { PartLookup } from './geometry.js';
 import { planKeep, versionKey, type PlanSheet } from './keepIds.js';
 import { moreRetired, sharedPlaced, withShared } from './shared.js';
@@ -94,6 +94,22 @@ export function appendBricks(doc: Y.Doc, layerId: string, bricks: readonly Batch
   return ids;
 }
 
+/**
+ * A placed module (`next`, its parts now `members`, `was` before) with the
+ * version's places (Live Ops design 2.1): they replace its own. A version
+ * without any leaves an ordinary module its own (on parts that went, only
+ * their track goes); a shared one has exactly its owner's.
+ */
+function withVersionPlaces(next: SidecarModule, was: SidecarModule, batches: readonly ModuleBatch[], members: readonly string[]): SidecarModule {
+  const own = modulePlaces(was);
+  const version = placesOn(batches, members);
+  if (version.length > 0) return withPlaces(next, updatedPlaces(own, version, makeId));
+  if (own.length === 0) return next;
+  if (sharedPlaced(next as SidecarModule & { shared?: unknown })) return withPlaces(next, []);
+  const here = new Set(members);
+  return withPlaces(next, renamePlaceBricks(own, (id) => (here.has(id) ? id : null)));
+}
+
 function sidecarModules(cache: Record<string, unknown> | null): SidecarModule[] {
   return Array.isArray(cache?.modules) ? (cache.modules as SidecarModule[]) : [];
 }
@@ -147,7 +163,7 @@ export function replaceModuleParts(
       modules: sidecarModules(cache).map((m) => {
         if (m.id !== moduleId) return m;
         const next = typeof patch === 'function' ? patch(m) : { ...m, ...patch };
-        return { ...next, id: m.id, members: ids };
+        return withVersionPlaces({ ...next, id: m.id, members: ids }, m, batches, ids);
       }),
     });
   }, origin);
@@ -345,7 +361,7 @@ export function updateModuleParts(
         // A shared module remembers the parts its updates took out (settle.ts settleRetired).
         const shared = sharedPlaced(out as SidecarModule & { shared?: unknown });
         const kept = shared && plan.removed.length > 0 ? withShared(out, { retired: moreRetired(shared.retired ?? [], plan.removed) }) : out;
-        return { ...kept, id: m.id, members };
+        return withVersionPlaces({ ...kept, id: m.id, members }, m, batches, members);
       }),
     });
   }, origin);
