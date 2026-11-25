@@ -175,7 +175,7 @@ export function readBudgetLimitsFromDoc(doc: Y.Doc): Record<string, number> | un
  * budget in the sidecar, the doc's budget is left as it is.
  */
 export function importSidecarIntoDoc(doc: Y.Doc, sidecar: Sidecar): void {
-  const { budgetLimits, switchStates, routes, rollingStock, trains, trainScale, layoutPlaces, ...rest } = sidecar;
+  const { budgetLimits, switchStates, routes, rollingStock, trains, trainScale, layoutPlaces, waybills, opsJobs, ...rest } = sidecar;
   const meta = doc.getMap('meta');
   meta.set('cache', rest as unknown as Record<string, unknown>);
   if (trainScale !== undefined) meta.set(TRAIN_SCALE_KEY, trainScale);
@@ -184,7 +184,7 @@ export function importSidecarIntoDoc(doc: Y.Doc, sidecar: Sidecar): void {
     for (const r of routes) y.set(r.id, routeMap(r));
     meta.set(ROUTES_KEY, y);
   }
-  for (const [key, list] of [[ROLLING_STOCK_KEY, rollingStock], [TRAINS_KEY, trains], [PLACES_KEY, layoutPlaces]] as const) {
+  for (const [key, list] of [[ROLLING_STOCK_KEY, rollingStock], [TRAINS_KEY, trains], [PLACES_KEY, layoutPlaces], [WAYBILLS_KEY, waybills], [OPS_JOBS_KEY, opsJobs]] as const) {
     if (!list || list.length === 0) continue;
     const y = new Y.Map<Y.Map<unknown>>();
     for (const r of list) y.set(r.id, routeMap(r as SidecarRoute));
@@ -212,6 +212,8 @@ function withBudget(doc: Y.Doc, cache: Record<string, unknown> | null): Sidecar 
   const trainList = readRecordsFromDoc(doc, TRAINS_KEY);
   const trainScale = readTrainScaleFromDoc(doc);
   const layoutPlaces = readPlacesFromDoc(doc);
+  const waybills = readRecordsFromDoc(doc, WAYBILLS_KEY);
+  const opsJobs = readRecordsFromDoc(doc, OPS_JOBS_KEY);
   const live = {
     ...(budgetLimits ? { budgetLimits } : {}),
     ...(switchStates ? { switchStates } : {}),
@@ -220,13 +222,15 @@ function withBudget(doc: Y.Doc, cache: Record<string, unknown> | null): Sidecar 
     ...(trainList.length ? { trains: trainList } : {}),
     ...(trainScale !== undefined ? { trainScale } : {}),
     ...(layoutPlaces.length ? { layoutPlaces } : {}),
+    ...(waybills.length ? { waybills } : {}),
+    ...(opsJobs.length ? { opsJobs } : {}),
   };
   if (!cache) {
-    if (!budgetLimits && !switchStates && !routes && !stockList.length && !trainList.length && trainScale === undefined && !layoutPlaces.length) return null;
+    if (!budgetLimits && !switchStates && !routes && !stockList.length && !trainList.length && trainScale === undefined && !layoutPlaces.length && !waybills.length && !opsJobs.length) return null;
     return { schemaVersion: 1, bbmHashSha256: '', ...live };
   }
-  const { budgetLimits: _inCache, switchStates: _statesInCache, routes: _routesInCache, rollingStock: _stockInCache, trains: _trainsInCache, trainScale: _scaleInCache, layoutPlaces: _placesInCache, ...rest } = cache;
-  return { ...withoutPlacesExtra(rest), ...live } as unknown as Sidecar;
+  const { budgetLimits: _inCache, switchStates: _statesInCache, routes: _routesInCache, rollingStock: _stockInCache, trains: _trainsInCache, trainScale: _scaleInCache, layoutPlaces: _placesInCache, waybills: _waybillsInCache, opsJobs: _jobsInCache, ...rest } = cache;
+  return { ...withoutMovedExtras(rest), ...live } as unknown as Sidecar;
 }
 
 // ---------------------------------------------------------------------------
@@ -348,7 +352,10 @@ export const TRAINS_KEY = 'trains';
  * meta.cache's extras: read from there until the first write moves them.
  */
 export const PLACES_KEY = 'places';
-type RecordsKey = typeof ROLLING_STOCK_KEY | typeof TRAINS_KEY | typeof PLACES_KEY;
+/** Waybills and jobs (Live Ops design 2.4, 2.5): flat fields, kept like trains; an older web build kept a file's in the cache's extras too. */
+export const WAYBILLS_KEY = 'waybills';
+export const OPS_JOBS_KEY = 'opsJobs';
+type RecordsKey = typeof ROLLING_STOCK_KEY | typeof TRAINS_KEY | typeof PLACES_KEY | typeof WAYBILLS_KEY | typeof OPS_JOBS_KEY;
 
 /** The doc's own places, each within the limits (@cld/bbm places.ts), by name then id. */
 export function readPlacesFromDoc(doc: Y.Doc): Place[] {
@@ -365,18 +372,23 @@ export function writePlace(doc: Y.Doc, place: Place): void {
   if (cur instanceof Y.Map) for (const k of [...cur.keys()]) if (!(k in place)) cur.delete(k);
 }
 
-/** The cache's extras without the places an older build left there (they are read above). */
-function withoutPlacesExtra(cache: Record<string, unknown>): Record<string, unknown> {
+/** The kinds of records an older build, not knowing them, left in the cache's extras, and their name there. */
+const IN_EXTRAS: Partial<Record<RecordsKey, string>> = { [PLACES_KEY]: 'layoutPlaces', [WAYBILLS_KEY]: 'waybills', [OPS_JOBS_KEY]: 'opsJobs' };
+
+/** The cache's extras without those records (they are read above). */
+function withoutMovedExtras(cache: Record<string, unknown>): Record<string, unknown> {
   const extras = cache.extras;
-  if (!extras || typeof extras !== 'object' || !('layoutPlaces' in extras)) return cache;
-  const { layoutPlaces: _read, ...rest } = extras as Record<string, unknown>;
+  if (!extras || typeof extras !== 'object' || !Object.values(IN_EXTRAS).some((k) => k in extras)) return cache;
+  const rest = Object.fromEntries(Object.entries(extras).filter(([k]) => !Object.values(IN_EXTRAS).includes(k)));
   const { extras: _extras, ...out } = cache;
   return Object.keys(rest).length > 0 ? { ...out, extras: rest } : out;
 }
 
-function placesInCache(cache: Record<string, unknown> | undefined): unknown {
+function recordsInCache(cache: Record<string, unknown> | undefined, key: RecordsKey): unknown {
+  const name = IN_EXTRAS[key];
+  if (!name) return cache?.[key];
   const extras = cache?.extras;
-  return cache?.layoutPlaces ?? (extras && typeof extras === 'object' ? (extras as Record<string, unknown>).layoutPlaces : undefined);
+  return cache?.[name] ?? (extras && typeof extras === 'object' ? (extras as Record<string, unknown>)[name] : undefined);
 }
 
 /** The doc's rolling stock or trains, in id order ([] when none); an older build's copy in meta.cache is read too. */
@@ -385,7 +397,7 @@ export function readRecordsFromDoc(doc: Y.Doc, key: RecordsKey): SidecarRecord[]
   const y = meta.get(key);
   if (!(y instanceof Y.Map)) {
     const cache = meta.get('cache') as Record<string, unknown> | undefined;
-    return readRecordsField(key === PLACES_KEY ? placesInCache(cache) : cache?.[key]) ?? [];
+    return readRecordsField(recordsInCache(cache, key)) ?? [];
   }
   const out: SidecarRecord[] = [];
   for (const [id, v] of y.entries()) if (v instanceof Y.Map) out.push({ ...(v.toJSON() as Record<string, unknown>), id });

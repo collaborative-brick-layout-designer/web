@@ -304,6 +304,10 @@ export interface Sidecar {
    * in `meta.places`, one Y.Map a place. Never in a .bbm.
    */
   layoutPlaces?: Place[];
+  /** Waybills (Live Ops design 2.4): `{ id, car, from, leg, to1, spot1, load1, note1, ... note4 }`. Live: `meta.waybills`. Never in a .bbm. */
+  waybills?: SidecarRecord[];
+  /** Jobs (Live Ops design 2.5): `{ id, name, kind, train, order, stop_<id>: { place, at } ... }`. Live: `meta.opsJobs`. Never in a .bbm. */
+  opsJobs?: SidecarRecord[];
   /** Unknown top-level fields preserved verbatim across round-trip. */
   extras?: Record<string, unknown>;
 }
@@ -415,6 +419,10 @@ export function readSidecar(raw: string): Sidecar {
   if (trainScale !== undefined) sidecar.trainScale = trainScale;
   const layoutPlaces = readPlaces(parsed.layoutPlaces);
   if (layoutPlaces.length > 0) sidecar.layoutPlaces = layoutPlaces;
+  const waybills = readRecordsField(parsed.waybills);
+  if (waybills) sidecar.waybills = waybills;
+  const opsJobs = readRecordsField(parsed.opsJobs);
+  if (opsJobs) sidecar.opsJobs = opsJobs;
 
   const knownKeys = new Set([
     'schemaVersion',
@@ -432,6 +440,8 @@ export function readSidecar(raw: string): Sidecar {
     'trains',
     'trainScale',
     'layoutPlaces',
+    'waybills',
+    'opsJobs',
   ]);
   const extras: Record<string, unknown> = {};
   for (const key of Object.keys(parsed)) {
@@ -484,6 +494,8 @@ export function writeSidecar(sidecar: Sidecar, opts: WriteSidecarOptions = {}): 
   if (sidecar.trains && sidecar.trains.length > 0) out.trains = sidecar.trains;
   if (sidecar.trainScale !== undefined) out.trainScale = sidecar.trainScale;
   if (sidecar.layoutPlaces && sidecar.layoutPlaces.length > 0) out.layoutPlaces = sidecar.layoutPlaces;
+  if (sidecar.waybills && sidecar.waybills.length > 0) out.waybills = sidecar.waybills;
+  if (sidecar.opsJobs && sidecar.opsJobs.length > 0) out.opsJobs = sidecar.opsJobs;
   if (sidecar.extras) {
     for (const [k, v] of Object.entries(sidecar.extras)) out[k] = v;
   }

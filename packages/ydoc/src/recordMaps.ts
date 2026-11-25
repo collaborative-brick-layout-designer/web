@@ -1,5 +1,5 @@
 // The maps a layout keeps its records in (places, routes, rolling stock,
-// trains, switch settings), made once, when its room opens.
+// trains, switch settings, waybills, jobs), made once, when its room opens.
 //
 // Each is a Y.Map at its own key of `meta`, and an app makes it with the
 // first record. Two people adding the first one at the same moment each
@@ -24,15 +24,18 @@ export const RECORD_MAPS: ReadonlyArray<readonly [key: string, client: number]> 
   ['rollingStock', 3],
   ['trains', 4],
   ['switchStates', 5],
+  ['waybills', 6],
+  ['opsJobs', 7],
 ];
 
 /** An older web build that imported a file kept them in `meta.cache`: the first write moves those over, as before. */
 function inCache(cache: unknown, key: string): boolean {
   if (cache === null || typeof cache !== 'object') return false;
   const c = cache as Record<string, unknown>;
-  if (key !== 'places') return c[key] !== undefined;
+  if (key !== 'places' && key !== 'waybills' && key !== 'opsJobs') return c[key] !== undefined;
+  const name = key === 'places' ? 'layoutPlaces' : key;
   const extras = c.extras as Record<string, unknown> | null | undefined;
-  return c.layoutPlaces !== undefined || (!!extras && typeof extras === 'object' && extras.layoutPlaces !== undefined);
+  return c[name] !== undefined || (!!extras && typeof extras === 'object' && extras[name] !== undefined);
 }
 
 /** Make the maps a seeded doc doesn't have. Makes no change when it has them. Returns true when it changed anything. */

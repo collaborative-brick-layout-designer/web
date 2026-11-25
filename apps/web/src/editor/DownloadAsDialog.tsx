@@ -54,6 +54,8 @@ export function blueBrickLeavesOut(sidecar: Sidecar | null | undefined): string[
   if (sidecar?.trains?.length) lost.push('trains');
   if (sidecar?.rollingStock?.length) lost.push('rolling stock');
   if (sidecar?.layoutPlaces?.length || sidecar?.modules?.some((m) => m.places?.length)) lost.push('places');
+  if (sidecar?.waybills?.length) lost.push('waybills');
+  if (sidecar?.opsJobs?.length) lost.push('jobs');
   if (sidecar?.trainScale !== undefined) lost.push('the train scale');
   return lost;
 }

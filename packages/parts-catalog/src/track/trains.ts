@@ -65,6 +65,14 @@ export interface RollingStock {
   opsCut?: string;
   /** 'loaded', 'empty', or none: it doesn't apply. */
   opsLoad?: string;
+  /** The waybill in its pocket (ops.ts): only when that names this car too. */
+  opsWaybill?: string;
+  /** The place it goes back to with no waybill. */
+  opsHome?: string;
+  /** Off the track: the place off the layout it is at. */
+  opsAt?: string;
+  /** Set aside: not routed. */
+  opsHold?: boolean;
   [extra: string]: unknown;
 }
 
@@ -131,12 +139,16 @@ export function asStock(r: Record<string, unknown>): RollingStock {
   const trucks = Array.isArray(r.trucks)
     ? (r.trucks as Partial<Truck>[]).map((t) => ({ at: num(t?.at, 0), swivelMax: num(t?.swivelMax, 30) }))
     : simpleStock('', { length }).trucks;
-  const { opsCut, opsLoad, ...rest } = r;
+  const { opsCut, opsLoad, opsWaybill, opsHome, opsAt, opsHold, ...rest } = r;
   return {
     ...base,
     ...rest,
     ...(typeof opsCut === 'string' && opsCut ? { opsCut } : {}),
     ...(typeof opsLoad === 'string' && opsLoad ? { opsLoad } : {}),
+    ...(typeof opsWaybill === 'string' && opsWaybill ? { opsWaybill } : {}),
+    ...(typeof opsHome === 'string' && opsHome ? { opsHome } : {}),
+    ...(typeof opsAt === 'string' && opsAt ? { opsAt } : {}),
+    ...(opsHold === true ? { opsHold } : {}),
     id: String(r.id ?? ''),
     number: typeof r.number === 'string' ? r.number : '',
     name: typeof r.name === 'string' ? r.name : '',
