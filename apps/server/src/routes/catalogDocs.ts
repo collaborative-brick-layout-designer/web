@@ -24,7 +24,7 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { and, eq, inArray } from 'drizzle-orm';
 import sharp from 'sharp';
-import { venueOwnLengthUnit, writeBbm, type Sidecar, type Venue } from '@cld/bbm';
+import { modulePlaces, venueOwnLengthUnit, withPlaces, writeBbm, type Sidecar, type Venue } from '@cld/bbm';
 import type { BbmMap } from '@cld/model';
 import { BUDGET_LIMITS_KEY, decodeDoc, encodeDoc, exportBbmFromDoc, exportSidecarFromDoc, importSidecarIntoDoc, seedFromBbm } from '@cld/ydoc';
 import { db, schema } from '../db/index.js';
@@ -77,7 +77,8 @@ export function publicSidecar(s: Sidecar): Sidecar {
   if (s.modules?.length) {
     out.modules = s.modules.map((m) => {
       const { sourceFile: _sourceFile, importedAt: _importedAt, ...rest } = m;
-      return rest;
+      // (Its places without their notes, which are for the people who run it.)
+      return withPlaces(rest, modulePlaces(rest).map((p) => ({ ...p, notes: '' }))) as typeof rest;
     });
   }
   if (s.venue) out.venue = publicVenue(s.venue);

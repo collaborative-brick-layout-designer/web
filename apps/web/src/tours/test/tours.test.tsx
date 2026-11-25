@@ -34,7 +34,7 @@ const CENTRED = new Set(['clubs.join', 'club.partners']);
 describe('the tour catalogue', () => {
   it('has the welcome card and the nine tours, with ids the server accepts', () => {
     expect(WELCOME_ID).toBe('welcome');
-    expect(TOURS.map((t) => t.id)).toEqual(['editor', 'rooms', 'clubs', 'modules', 'routes', 'trains', 'view', 'import', 'history']);
+    expect(TOURS.map((t) => t.id)).toEqual(['editor', 'rooms', 'clubs', 'modules', 'routes', 'ops', 'trains', 'view', 'import', 'history']);
     // The import dialog and the version history page start their own tours (Show me around); the Help menu doesn't list them.
     for (const id of ['import', 'history']) {
       expect(toursFor(false).map((t) => t.id)).not.toContain(id);
@@ -128,7 +128,7 @@ describe('the tour catalogue', () => {
 
   it('offers phones the View tour instead of the editor tour', () => {
     expect(toursFor(true).map((t) => t.id)).toEqual(['rooms', 'clubs', 'view']);
-    expect(toursFor(false).map((t) => t.id)).toEqual(['editor', 'rooms', 'clubs', 'modules', 'routes', 'trains']);
+    expect(toursFor(false).map((t) => t.id)).toEqual(['editor', 'rooms', 'clubs', 'modules', 'routes', 'ops', 'trains']);
     expect(forDevice('editor', true)).toBe('view');
     expect(forDevice('view', false)).toBe('editor');
     expect(forDevice('clubs', true)).toBe('clubs');

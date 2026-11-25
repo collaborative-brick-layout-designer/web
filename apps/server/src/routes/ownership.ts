@@ -181,6 +181,7 @@ export async function returnToAuthor(
           docVersion: 0,
           sidecarSnapshot: src.sidecarSnapshot,
           setup: src.setup,
+          placeCounts: src.placeCounts,
           thumbnail: src.thumbnail,
           thumbnailMime: src.thumbnailMime,
           thumbnailAt: src.thumbnailAt,

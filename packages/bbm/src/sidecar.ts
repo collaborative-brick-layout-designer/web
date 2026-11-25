@@ -18,6 +18,8 @@
 // import the readers/writers and the type definitions without a Node-only
 // shim. The hash helper imports `node:crypto` lazily; it's server-side only.
 
+import { readPlaces, type Place } from './places.js';
+
 export const CURRENT_SCHEMA_VERSION = 1;
 
 /** What a sidecar saved by a newer version says when it opens (the desktop's words). */
@@ -84,6 +86,8 @@ export interface SidecarModule {
   libraryModuleId?: string;
   /** The library version this placed module matches (absent: unknown). */
   libraryVersion?: number;
+  /** Its places (Live Ops design 2.1, places.ts): they go where the module goes. */
+  places?: Place[];
   /** Fields a newer build added; kept as they are. */
   [extra: string]: unknown;
 }
@@ -294,6 +298,12 @@ export interface Sidecar {
    * Never in a .bbm.
    */
   trainScale?: number;
+  /**
+   * The layout's own places, on track that is in no module (Live Ops design
+   * 2.1, places.ts); a module's are in its `places`. The live doc keeps them
+   * in `meta.places`, one Y.Map a place. Never in a .bbm.
+   */
+  layoutPlaces?: Place[];
   /** Unknown top-level fields preserved verbatim across round-trip. */
   extras?: Record<string, unknown>;
 }
@@ -351,6 +361,14 @@ export function readTrainScaleField(v: unknown): number | undefined {
   return typeof v === 'number' && Number.isInteger(v) && v >= 10 && v <= 220 ? v : undefined;
 }
 
+/** A module with its places within the limits (the server refuses others, ws/placesGuard.ts). */
+function withReadPlaces(m: SidecarModule): SidecarModule {
+  if (!m || typeof m !== 'object' || (m as { places?: unknown }).places === undefined) return m;
+  const { places, ...rest } = m;
+  const kept = readPlaces(places);
+  return (kept.length > 0 ? { ...rest, places: kept } : rest) as SidecarModule;
+}
+
 export function readSidecar(raw: string): Sidecar {
   const parsed = JSON.parse(raw) as Record<string, unknown>;
   // Files the web wrote before 2026-10 could leave schemaVersion out (a
@@ -368,7 +386,7 @@ export function readSidecar(raw: string): Sidecar {
     sidecar.anchoredLabels = parsed.anchoredLabels as AnchoredLabel[];
   }
   if (Array.isArray(parsed.modules)) {
-    sidecar.modules = parsed.modules as SidecarModule[];
+    sidecar.modules = (parsed.modules as SidecarModule[]).map(withReadPlaces);
   }
   if (parsed.venue && typeof parsed.venue === 'object') {
     sidecar.venue = parsed.venue as Venue;
@@ -395,6 +413,8 @@ export function readSidecar(raw: string): Sidecar {
   if (trains) sidecar.trains = trains;
   const trainScale = readTrainScaleField(parsed.trainScale);
   if (trainScale !== undefined) sidecar.trainScale = trainScale;
+  const layoutPlaces = readPlaces(parsed.layoutPlaces);
+  if (layoutPlaces.length > 0) sidecar.layoutPlaces = layoutPlaces;
 
   const knownKeys = new Set([
     'schemaVersion',
@@ -411,6 +431,7 @@ export function readSidecar(raw: string): Sidecar {
     'rollingStock',
     'trains',
     'trainScale',
+    'layoutPlaces',
   ]);
   const extras: Record<string, unknown> = {};
   for (const key of Object.keys(parsed)) {
@@ -462,6 +483,7 @@ export function writeSidecar(sidecar: Sidecar, opts: WriteSidecarOptions = {}): 
   if (sidecar.rollingStock && sidecar.rollingStock.length > 0) out.rollingStock = sidecar.rollingStock;
   if (sidecar.trains && sidecar.trains.length > 0) out.trains = sidecar.trains;
   if (sidecar.trainScale !== undefined) out.trainScale = sidecar.trainScale;
+  if (sidecar.layoutPlaces && sidecar.layoutPlaces.length > 0) out.layoutPlaces = sidecar.layoutPlaces;
   if (sidecar.extras) {
     for (const [k, v] of Object.entries(sidecar.extras)) out[k] = v;
   }

@@ -48,6 +48,7 @@ import { concerns, onAccessChanged, suspendedIn } from './liveAccess.js';
 import { COPY_BUDGET_SPENT, checkGridSizesDecoded, heldValueProblem } from './gridGuard.js';
 import { backgroundUrlProblem } from './backgroundGuard.js';
 import { memberKeyProblem } from './memberGuard.js';
+import { placesProblem } from './placesGuard.js';
 import { LOCK_COPY_BUDGET_SPENT, repairShared, sharedLockCheck, type LockBreak } from './sharedGuard.js';
 import { sharedPartLookup } from './sharedGeometry.js';
 import { decodeIncoming, guardWork, type DecodedUpdate } from './decoded.js';
@@ -430,6 +431,12 @@ function takeUpdate(ws: WebSocket, session: DocSession, sender: Sender, update: 
   const badMember = decoded ? memberKeyProblem(session.doc, decoded) : null;
   if (badMember !== null) {
     refuseUpdate(ws, session, sender, update.length, 'unreadable', badMember);
+    return false;
+  }
+  // Places stay within their limits (placesGuard.ts).
+  const badPlaces = decoded ? placesProblem(session.doc, decoded) : null;
+  if (badPlaces !== null) {
+    refuseUpdate(ws, session, sender, update.length, 'unreadable', badPlaces);
     return false;
   }
   // A shared module's parts stay its owner's (sharedGuard.ts): one this

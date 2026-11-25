@@ -32,6 +32,7 @@ import { HelpButton } from '../help/HelpButton';
 import type { VenueLengthUnit } from '@cld/bbm';
 import { LibraryModuleSetupDialog } from './ModuleSetupDialog';
 import { powerText, tableText } from './moduleSetupText';
+import { countsText } from './places';
 import { useLengthUnit } from '../theme/PrefsProvider';
 export { MODULE_MIME };
 
@@ -363,6 +364,11 @@ function ModuleLibraryRow({
           <p className="text-[11px] text-muted">
             v{shownVersion(module, !!sharedVia)} · {new Date(module.updatedAt).toLocaleDateString()}
           </p>
+          {module.placeCounts && module.placeCounts.length > 0 && (
+            <p className="text-[11px] text-muted" data-testid="module-library-places">
+              {countsText(module.placeCounts)}
+            </p>
+          )}
           {(module.setup?.table || module.setup?.power) && (
             <p className="text-[11px] text-muted" data-testid="module-library-setup">
               {[module.setup.table ? tableText(module.setup.table, unit) : null, module.setup.power ? powerText(module.setup.power) : null]

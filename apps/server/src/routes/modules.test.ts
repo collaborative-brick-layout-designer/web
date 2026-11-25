@@ -4,7 +4,8 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import sharp from 'sharp';
 import { eq } from 'drizzle-orm';
 import * as Y from 'yjs';
-import { exportBbmFromDoc } from '@cld/ydoc';
+import type { Place } from '@cld/bbm';
+import { createDefaultLayoutDoc, encodeDoc, exportBbmFromDoc, writePlace } from '@cld/ydoc';
 import { db, resetDb, schema, testVerificationToken } from '../test/helpers.js';
 import { attachUser } from '../auth/cookie.js';
 import { passwordRoutes } from './auth/password.js';
@@ -339,6 +340,46 @@ describe('modules', () => {
       await patch(alice, id, { setup: SETUP });
       const copied = await app.inject({ method: 'POST', url: `/api/modules/${id}/copy`, headers: { cookie: alice }, payload: {} });
       expect((await listed(alice, (copied.json() as { id: string }).id))?.setup).toEqual(SETUP);
+    });
+  });
+
+  describe('places (Live Ops)', () => {
+    const PLACES: Place[] = [
+      { id: 'a', name: 'Cannery', kind: 'industry', spots: [], accepts: [], ships: [], tags: [], notes: 'secret' },
+      { id: 'b', name: 'Mill', kind: 'industry', spots: [], accepts: [], ships: [], tags: [], notes: '' },
+      { id: 'c', name: 'Yard', kind: 'yard', spots: [], accepts: [], ships: [], tags: [], notes: '' },
+    ];
+    const bytes = (places: Place[]) => {
+      const doc = createDefaultLayoutDoc();
+      doc.transact(() => places.forEach((p) => writePlace(doc, p)));
+      return Buffer.from(encodeDoc(doc));
+    };
+    const put = (cookie: string, id: string, payload: Buffer) =>
+      app.inject({ method: 'PUT', url: `/api/modules/${id}/snapshot`, headers: { cookie, 'content-type': 'application/octet-stream' }, payload });
+    const counts = async (cookie: string, id: string) =>
+      ((await app.inject({ method: 'GET', url: '/api/modules', headers: { cookie } })).json() as { modules: { id: string; placeCounts: unknown }[] }).modules.find((m) => m.id === id)?.placeCounts;
+
+    it('are counted with each save, a copy’s and a restored version’s too', async () => {
+      const alice = await registerAndLogin(app, 'alice@example.com');
+      const { id } = (await app.inject({ method: 'POST', url: '/api/modules', headers: { cookie: alice }, payload: { title: 'Yard' } })).json() as { id: string };
+      expect(await counts(alice, id)).toEqual([]);
+      expect((await put(alice, id, bytes(PLACES))).statusCode).toBe(200);
+      const two = [{ kind: 'industry', count: 2 }, { kind: 'yard', count: 1 }];
+      expect(await counts(alice, id)).toEqual(two);
+      const copied = (await app.inject({ method: 'POST', url: `/api/modules/${id}/copy`, headers: { cookie: alice }, payload: {} })).json() as { id: string };
+      expect(await counts(alice, copied.id)).toEqual(two);
+      expect((await put(alice, id, bytes([]))).statusCode).toBe(200);
+      expect(await counts(alice, id)).toEqual([]);
+      expect((await app.inject({ method: 'POST', url: `/api/modules/${id}/versions/1/restore`, headers: { cookie: alice } })).statusCode).toBe(200);
+      expect(await counts(alice, id)).toEqual(two);
+    });
+
+    it('outside their limits aren’t taken', async () => {
+      const alice = await registerAndLogin(app, 'alice@example.com');
+      const { id } = (await app.inject({ method: 'POST', url: '/api/modules', headers: { cookie: alice }, payload: { title: 'Yard' } })).json() as { id: string };
+      const res = await put(alice, id, bytes([{ ...PLACES[0]!, name: 'x'.repeat(81) }]));
+      expect(res.statusCode).toBe(400);
+      expect(res.json()).toEqual({ error: 'unreadable_snapshot' });
     });
   });
 

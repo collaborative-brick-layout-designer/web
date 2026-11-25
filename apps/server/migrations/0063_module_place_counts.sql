@@ -1,0 +1,1 @@
+ALTER TABLE `modules` ADD `place_counts` text;

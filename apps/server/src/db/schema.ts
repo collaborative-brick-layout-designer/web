@@ -929,6 +929,12 @@ export const modules = sqliteTable(
    * copy when it is added to a layout or updated from the library.
    */
   setup: text('setup'),
+  /**
+   * How many places (Live Ops) of each kind its newest contents have (0063):
+   * JSON [{ kind, count }], or null for none. The places themselves are in
+   * the contents (doc_snapshot), so each version has its own.
+   */
+  placeCounts: text('place_counts'),
   createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
   updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
   },

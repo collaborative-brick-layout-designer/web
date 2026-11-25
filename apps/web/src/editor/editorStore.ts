@@ -275,6 +275,19 @@ export interface EditorState {
   showSwitches: boolean;
   /** View › Siding lengths (trains design 6.2): each run of track labeled with its usable length (`cld:showSidingLengths`). */
   showSidingLengths: boolean;
+  /** View › Places (Live Ops design 6): the places' brackets and names on the map (`cld:showPlaces`). */
+  showPlaces: boolean;
+  /** The place open in the Places panel, and the one just made (its name is picked for typing). */
+  placeOpen: { owner: string | null; id: string } | null;
+  placeFresh: string | null;
+  /** The Places panel shows only this module's (its ⋯ menu › Places…); null: every place. */
+  placesModule: string | null;
+  /**
+   * Picking track for a place: `place` null makes a new one, `spot` null a
+   * new spot of it. `owner` is the module it is on, null the layout's own,
+   * undefined whichever the track is in. Null when not picking.
+   */
+  placePick: { owner: string | null | undefined; place: string | null; spot: string | null } | null;
   /** "Show me" on a fit check: a ring the map draws at this spot (studs) for a moment. */
   spotlight: { x: number; y: number; at: number } | null;
   /** Run mode (trains design 6.3): a click on a switch flips it, and parts can't be moved. Not kept. */
@@ -389,6 +402,10 @@ export interface EditorState {
   setShowElectricCircuits: (v: boolean) => void;
   setShowSwitches: (v: boolean) => void;
   setShowSidingLengths: (v: boolean) => void;
+  setShowPlaces: (v: boolean) => void;
+  setPlaceOpen: (p: { owner: string | null; id: string } | null, fresh?: boolean) => void;
+  setPlacesModule: (id: string | null) => void;
+  setPlacePick: (p: EditorState['placePick']) => void;
   setSpotlight: (p: { x: number; y: number } | null) => void;
   setRunMode: (v: boolean) => void;
   setRouteDraft: (d: RouteDraft | null) => void;
@@ -518,6 +535,11 @@ export const useEditorStore = create<EditorState>((set) => ({
   showElectricCircuits: localStorage.getItem('cld:showElectricCircuits') === 'true',
   showSwitches: localStorage.getItem('cld:showSwitches') === 'true',
   showSidingLengths: localStorage.getItem('cld:showSidingLengths') === 'true',
+  showPlaces: localStorage.getItem('cld:showPlaces') !== 'false',
+  placeOpen: null,
+  placeFresh: null,
+  placesModule: null,
+  placePick: null,
   spotlight: null,
   runMode: false,
   routeDraft: null,
@@ -644,11 +666,18 @@ export const useEditorStore = create<EditorState>((set) => ({
     localStorage.setItem('cld:showSidingLengths', String(v));
     set({ showSidingLengths: v });
   },
+  setShowPlaces: (v) => {
+    localStorage.setItem('cld:showPlaces', String(v));
+    set({ showPlaces: v });
+  },
+  setPlaceOpen: (p, fresh = false) => set({ placeOpen: p, placeFresh: p && fresh ? p.id : null }),
+  setPlacesModule: (id) => set({ placesModule: id, placeOpen: null, placeFresh: null }),
+  setPlacePick: (p) => set(p ? { placePick: p, routeDraft: null, trainPlacing: null, runMode: false, selection: [], tool: 'select' } : { placePick: null }),
   setSpotlight: (p) => set({ spotlight: p ? { ...p, at: Date.now() } : null }),
   // Run mode starts with nothing picked, so no edit key acts on parts.
-  setRunMode: (v) => set(v ? { runMode: true, routeDraft: null, trainPlacing: null, selection: [], tool: 'select' } : { runMode: false }),
-  setRouteDraft: (d) => set(d ? { routeDraft: d, runMode: false, trainPlacing: null, selection: [], tool: 'select' } : { routeDraft: null }),
-  setTrainPlacing: (id) => set(id ? { trainPlacing: id, routeDraft: null, runMode: false, selection: [], tool: 'select' } : { trainPlacing: null }),
+  setRunMode: (v) => set(v ? { runMode: true, placePick: null, routeDraft: null, trainPlacing: null, selection: [], tool: 'select' } : { runMode: false }),
+  setRouteDraft: (d) => set(d ? { routeDraft: d, placePick: null, runMode: false, trainPlacing: null, selection: [], tool: 'select' } : { routeDraft: null }),
+  setTrainPlacing: (id) => set(id ? { trainPlacing: id, placePick: null, routeDraft: null, runMode: false, selection: [], tool: 'select' } : { trainPlacing: null }),
   setShowExportWatermark: (v) => {
     localStorage.setItem('cld:showExportWatermark', String(v));
     set({ showExportWatermark: v });

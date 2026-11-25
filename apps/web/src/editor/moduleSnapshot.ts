@@ -3,9 +3,8 @@
 // drag to canvas) and the Insert Module dialog.
 
 import * as Y from 'yjs';
-import { docToBbm } from '@cld/ydoc';
 import type { ModuleBatch } from './mutations';
-import { moduleBatchesFromMap } from './moduleDrop';
+import { moduleBatchesFromDoc } from '@cld/modules';
 import { api, reach } from '../api';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -22,7 +21,7 @@ export async function fetchModuleBatches(moduleId: string): Promise<ModuleBatch[
   const moduleDoc = new Y.Doc();
   try {
     Y.applyUpdate(moduleDoc, new Uint8Array(buf));
-    const batches = moduleBatchesFromMap(docToBbm(moduleDoc));
+    const batches = moduleBatchesFromDoc(moduleDoc);
     if (batches.length === 0) throw new Error(EMPTY_MODULE);
     return batches;
   } catch (e) {

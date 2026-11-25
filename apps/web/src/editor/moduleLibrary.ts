@@ -14,8 +14,8 @@
 
 import type * as Y from 'yjs';
 import type { BbmMap, Brick } from '@cld/model';
-import type { SidecarModule } from '@cld/bbm';
-import { encodeDoc, readSidecarFromDoc, seedFromBbm } from '@cld/ydoc';
+import { libraryPlaces, modulePlaces, type Place, type SidecarModule } from '@cld/bbm';
+import { encodeDoc, readSidecarFromDoc, seedFromBbm, writePlace } from '@cld/ydoc';
 import {
   alignToPlaced as alignPlacement,
   matchesVersion as sameAsVersion,
@@ -123,15 +123,19 @@ async function sendSetup(id: string, mod: SidecarModule): Promise<void> {
 type Thumb = { mime: 'image/png' | 'image/webp'; data: string };
 export type MakeThumbnail = (region: { x: number; y: number; width: number; height: number }) => Promise<Thumb | null>;
 
-/** A module's parts as a library module's contents (centred, sheets kept or one sheet). */
+/** A module's parts and places as a library module's contents (centred, sheets kept or one sheet). */
 export function moduleContents(
   map: BbmMap,
   members: readonly string[],
   oneSheet = false,
+  places: readonly Place[] = [],
 ): { bytes: Uint8Array; region: { x: number; y: number; width: number; height: number }; count: number } | null {
   const built = moduleMapFromSelection(map, members, { oneSheet });
   if (!built) return null;
   const d = seedFromBbm(built.moduleMap);
+  // Its places are the module's contents too, so each version has its own (Live Ops design 2.1).
+  const own = libraryPlaces(places, new Set(members));
+  if (own.length > 0) d.transact(() => own.forEach((x) => writePlace(d, x)));
   const bytes = encodeDoc(d);
   d.destroy();
   return { bytes, region: built.region, count: built.count };
@@ -187,7 +191,7 @@ export async function saveModuleToLibrary(
 ): Promise<{ id: string; title: string; version: number | undefined }> {
   const mod = findModule(doc, moduleId);
   const map = projectDoc(doc);
-  const contents = map ? moduleContents(map, mod.members, o.oneSheet) : null;
+  const contents = map ? moduleContents(map, mod.members, o.oneSheet, modulePlaces(mod)) : null;
   if (!contents) throw new Error('This module has no parts to save.');
   let id: string;
   let title: string;
@@ -224,7 +228,7 @@ export async function publishModuleVersion(
   const link = libraryLink(mod);
   if (!link) throw new Error('Save this module to the Module library first.');
   const map = projectDoc(doc);
-  const contents = map ? moduleContents(map, mod.members, o.oneSheet) : null;
+  const contents = map ? moduleContents(map, mod.members, o.oneSheet, modulePlaces(mod)) : null;
   if (!contents) throw new Error('This module has no parts to save.');
   const version = await versionOf(link.id, await api.modules.saveSnapshot(link.id, contents.bytes, o.note));
   await picture(link.id, contents.region, o.makeThumbnail);

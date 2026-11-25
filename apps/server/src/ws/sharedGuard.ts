@@ -11,6 +11,7 @@
 //   - with different parts: one added, one taken out (deleted without the
 //     whole module going), or one whose part number (its color too) or
 //     height changed;
+//   - with different places (Live Ops): they are its owner's too;
 //   - no longer shared, or following another library module, while it is
 //     still in the layout ("Make it mine" is the server's step, for the
 //     people who may);
@@ -49,6 +50,7 @@
 // against the sender's copy budget (ws/pacing.ts), like the grid guard.
 
 import * as Y from 'yjs';
+import { modulePlaces } from '@cld/bbm';
 import { readSidecarCache, writeSidecarCache } from '@cld/ydoc';
 import { norm360, pivotOf, settleRetired, sharedModulesIn, type PartLookup, type Pt } from '@cld/modules';
 import { guardWork, type DecodedUpdate } from './decoded.js';
@@ -81,6 +83,8 @@ interface Locked {
   poses: Map<string, PartPose>;
   /** Where its parts are, when an id is on the map more than once: the first of each id, the second, ... */
   sets: Map<string, PartPose>[];
+  /** Its places (Live Ops), as text. */
+  places: string;
   /** How many of each part are on the map (a pair moving it to another sheet at once makes two of each). */
   counts: Map<string, number>;
 }
@@ -107,6 +111,18 @@ export interface LockState {
 function sidecarModules(doc: Y.Doc): Record<string, unknown>[] {
   const cache = readSidecarCache(doc);
   return Array.isArray(cache?.modules) ? (cache.modules as Record<string, unknown>[]).filter((m) => m && typeof m.id === 'string') : [];
+}
+
+/** A module's places, as text that doesn't depend on the order of their fields ('' for none). */
+function placesText(m: Record<string, unknown>): string {
+  const list = modulePlaces(m);
+  const stable = (v: unknown): unknown =>
+    Array.isArray(v)
+      ? v.map(stable)
+      : v && typeof v === 'object'
+        ? Object.fromEntries(Object.entries(v).sort(([a], [b]) => (a < b ? -1 : 1)).map(([k, x]) => [k, stable(x)]))
+        : v;
+  return list.length > 0 ? JSON.stringify(stable(list)) : '';
 }
 
 function readPose(b: Y.Map<unknown>): PartPose | null {
@@ -158,6 +174,7 @@ export function lockState(doc: Y.Doc, keep = false): LockState {
       }
     }
   }
+  const placesById = new Map(sidecarModules(doc).map((m) => [m.id as string, placesText(m)]));
   const shared = new Map<string, Locked>();
   for (const p of placed) {
     const parts = new Map<string, string>();
@@ -173,7 +190,7 @@ export function lockState(doc: Y.Doc, keep = false): LockState {
         if (pose) sets[i]!.set(id, pose);
       }
     }
-    shared.set(p.placedId, { follows: p.moduleId, parts, poses: sets[0]!, sets, counts: n });
+    shared.set(p.placedId, { follows: p.moduleId, parts, poses: sets[0]!, sets, counts: n, places: placesById.get(p.placedId) ?? '' });
   }
   const all = sidecarModules(doc);
   const out: LockState = { shared, modules: new Set(all.map((m) => m.id as string)), alive };
@@ -195,6 +212,7 @@ function moduleBroken(id: string, was: Locked, after: LockState): string | null 
     return null;
   }
   if (now.follows !== was.follows) return 'it makes a shared module follow another module';
+  if (now.places !== was.places) return 'it changes the places of a shared module';
   // Removed whole, its record left by a change made at the same moment.
   if (now.parts.size === 0) return null;
   if (now.parts.size !== was.parts.size) return now.parts.size < was.parts.size ? 'it takes a part out of a shared module' : 'it adds a part to a shared module';
