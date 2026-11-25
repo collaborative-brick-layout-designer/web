@@ -103,7 +103,7 @@ function readPlaced(doc: Y.Doc, members: ReadonlySet<string>): { sheets: { id: s
  * sheet of the same name, else the sheet most of the module's parts are on
  * now, else the layout's first parts sheet.
  */
-function sheetChooser(
+export function sheetChooser(
   sheets: readonly { id: string; name: string }[],
   bricks: readonly PlacedBrick[],
   kept: Record<string, string> | undefined,
@@ -139,7 +139,7 @@ export async function versionBytes(moduleId: string, version: number): Promise<U
   return row ? (row.docSnapshot as Uint8Array) : null;
 }
 
-function batchesOrNull(bytes: Uint8Array | null): ModuleBatch[] | null {
+export function batchesOrNull(bytes: Uint8Array | null): ModuleBatch[] | null {
   if (!bytes) return null;
   try {
     return moduleBatchesFromBytes(bytes);
@@ -180,6 +180,9 @@ export async function applyVersion(
   // Everything that has to be awaited is read before the step: nothing
   // may come between reading the module's state and writing it.
   const session = await docHub.getOrCreate(layoutId);
+  // Extra copies of its parts go first (repair.ts), so the new version replaces one of each.
+  const { repairSharedParts } = await import('./repair.js');
+  await repairSharedParts(session, { placedId, wait: true, wholeSets: true });
   const before = modulesOf(session.doc).find((m) => m.id === placedId);
   const hadVersion = typeof before?.libraryVersion === 'number' ? before.libraryVersion : null;
   const current = hadVersion && hadVersion !== version ? batchesOrNull(await versionBytes(moduleId, hadVersion)) : hadVersion === version ? next : null;

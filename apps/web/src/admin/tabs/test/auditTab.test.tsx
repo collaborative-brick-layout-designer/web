@@ -46,6 +46,17 @@ vi.mock('../../../api', () => ({
             payload: { kind: 'unreadable', why: 'a string has a NUL character in it', client: 'Mozilla/5.0' },
             createdAt: Date.now(),
           },
+          {
+            id: 4,
+            layoutId: 'layout-e',
+            resourceKind: null,
+            resourceId: null,
+            userId: null,
+            userName: null,
+            eventType: 'shared_module_repair',
+            payload: { placedId: 'p', removed: 2, restored: 0 },
+            createdAt: Date.now(),
+          },
         ],
       }),
     },
@@ -66,6 +77,7 @@ describe('AuditTab', () => {
         'Refused a live update that would have mixed another layout into this one: it brought 7 layers from elsewhere (from BrickLayoutDesigner/1.2.0 (desktop)). Nothing was changed, and that connection was closed.',
       ),
     ).toBeTruthy();
+    expect(screen.getByText(/Tidied up a shared module: 2 extra copies of parts were taken out/)).toBeTruthy();
     expect(screen.getByText(/came from 5 editors this layout had never seen at once/)).toBeTruthy();
     expect(
       screen.getByText(

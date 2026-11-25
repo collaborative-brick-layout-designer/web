@@ -106,6 +106,10 @@ jobs:
           docker inspect -f '{{json .State.Health}}' cbld-ci | jq .
           [ "$status" = healthy ]
           curl -sf http://localhost:3000/api/health/ready
+          # The dry run that works on a copy of the database runs in the image.
+          docker exec -w /app/apps/server cbld-ci node --input-type=module -e "import D from 'better-sqlite3'; await new D('/data/cbld.sqlite').backup('/tmp/copy.sqlite')"
+          docker exec -w /app/apps/server cbld-ci node dist/ops/sharedRepairDryRunCli.js --db /tmp/copy.sqlite | tee dry-run.log
+          grep -q 'dry run, nothing written' dry-run.log
           # It runs as node (1000:1000), not root.
           [ "$(docker exec cbld-ci id -u):$(docker exec cbld-ci id -g)" = "1000:1000" ]
           docker rm -f cbld-ci >/dev/null

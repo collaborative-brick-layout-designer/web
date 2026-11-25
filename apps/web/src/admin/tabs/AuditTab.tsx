@@ -9,7 +9,7 @@ const AUDIT_PAGE = 50;
 
 /** Events an admin should read in words, not as a type name. */
 export function auditSentence(e: AdminAuditEvent): string | null {
-  const p = (e.payload ?? {}) as { foreignLayers?: number; unseenClients?: number; client?: string; kind?: string; why?: string };
+  const p = (e.payload ?? {}) as { foreignLayers?: number; unseenClients?: number; client?: string; kind?: string; why?: string; removed?: number };
   const from = p.client ? ` (from ${p.client})` : '';
   switch (e.eventType) {
     case 'layout_delete': {
@@ -30,6 +30,8 @@ export function auditSentence(e: AdminAuditEvent): string | null {
       return p.kind === 'incomplete'
         ? `Refused a live update that depended on changes this layout doesn't have, past what a layout keeps waiting${from}. What was waiting from it was dropped, and that connection was closed.`
         : `Refused a live update the apps can't read${p.why ? ` (${p.why})` : ''}${from}. Nothing was changed, and that connection was closed.`;
+    case 'shared_module_repair':
+      return `Tidied up a shared module: ${Number(p.removed) === 1 ? '1 extra copy of a part was' : `${p.removed ?? 'Some'} extra copies of parts were`} taken out, so it matches its owner's version. How the layout was just before is kept in its version history.`;
     default:
       return null;
   }

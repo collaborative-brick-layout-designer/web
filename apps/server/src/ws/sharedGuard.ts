@@ -83,8 +83,6 @@ interface Locked {
   sets: Map<string, PartPose>[];
   /** How many of each part are on the map (a pair moving it to another sheet at once makes two of each). */
   counts: Map<string, number>;
-  /** Parts on the map more than once that aren't all the same. */
-  mixed: boolean;
 }
 
 interface PartSnap {
@@ -103,7 +101,7 @@ export interface LockState {
   alive: Set<string>;
   /** The shared modules' sidecar values, and their parts as they were (the before side only, to put them back). */
   values?: Map<string, Record<string, unknown>>;
-  snaps?: Map<string, PartSnap>;
+  snaps?: Map<string, PartSnap[]>;
 }
 
 function sidecarModules(doc: Y.Doc): Record<string, unknown>[] {
@@ -128,10 +126,9 @@ export function lockState(doc: Y.Doc, keep = false): LockState {
   const wanted = new Set<string>();
   for (const p of placed) for (const id of p.members) wanted.add(id);
   const sig = new Map<string, string>();
-  const mixed = new Set<string>();
   const counts = new Map<string, number>();
   const copies = new Map<string, (PartPose | null)[]>();
-  const snaps = keep ? new Map<string, PartSnap>() : undefined;
+  const snaps = keep ? new Map<string, PartSnap[]>() : undefined;
   const alive = new Set<string>();
   const layerData = doc.getMap<unknown>('layerData');
   for (const [layerId, layer] of layerData) {
@@ -147,12 +144,18 @@ export function lockState(doc: Y.Doc, keep = false): LockState {
       const s = `${String(b.get('partNumber'))}\u0000${String(b.get('altitude') ?? 0)}`;
       const had = sig.get(id);
       if (had === undefined) sig.set(id, s);
-      else if (had !== s) mixed.add(id);
+      // Copies that aren't all the same: each kind, in an order of its own.
+      else if (had !== s) sig.set(id, [...new Set([...had.split('\u0001'), s])].sort().join('\u0001'));
       counts.set(id, (counts.get(id) ?? 0) + 1);
       const at = copies.get(id);
       if (at) at.push(readPose(b));
       else copies.set(id, [readPose(b)]);
-      if (snaps && !snaps.has(id)) snaps.set(id, { layerId, fields: b.toJSON() as Record<string, unknown> });
+      if (snaps) {
+        const snap = { layerId, fields: b.toJSON() as Record<string, unknown> };
+        const list = snaps.get(id);
+        if (list) list.push(snap);
+        else snaps.set(id, [snap]);
+      }
     }
   }
   const shared = new Map<string, Locked>();
@@ -170,7 +173,7 @@ export function lockState(doc: Y.Doc, keep = false): LockState {
         if (pose) sets[i]!.set(id, pose);
       }
     }
-    shared.set(p.placedId, { follows: p.moduleId, parts, poses: sets[0]!, sets, counts: n, mixed: p.members.some((id) => mixed.has(id)) });
+    shared.set(p.placedId, { follows: p.moduleId, parts, poses: sets[0]!, sets, counts: n });
   }
   const all = sidecarModules(doc);
   const out: LockState = { shared, modules: new Set(all.map((m) => m.id as string)), alive };
@@ -200,7 +203,6 @@ function moduleBroken(id: string, was: Locked, after: LockState): string | null 
     if (s === undefined) return 'it swaps a part of a shared module for another';
     if (s !== sig) return 'it changes a part of a shared module';
   }
-  if (now.mixed && !was.mixed) return 'it changes a part of a shared module';
   // Two people moving it to another sheet at once make two of every part;
   // more of only some is a part added.
   const more = [...now.counts].some(([part, k]) => k > was.counts.get(part)!);
@@ -466,42 +468,46 @@ export function repairShared(doc: Y.Doc, brk: LockBreak, origin: unknown): void 
         const l = layerData.get(id);
         return l instanceof Y.Map && l.get('bricks') instanceof Y.Array;
       });
-    const where = new Map<string, Y.Map<unknown>>();
-    for (const id of sheets) {
-      for (const b of (layerData.get(id) as Y.Map<unknown>).get('bricks') as Y.Array<unknown>) {
-        if (!(b instanceof Y.Map)) continue;
-        const pid = b.get('id');
-        if (typeof pid === 'string' && !where.has(pid)) where.set(pid, b);
-      }
-    }
-    // One of each: an extra part with the id of one of theirs goes.
     const theirs = new Set(brk.modules.flatMap((id) => [...(brk.before.shared.get(id)?.parts.keys() ?? [])]));
-    for (const layer of layerData.values()) {
+    const where = new Map<string, Y.Map<unknown>[]>();
+    const extra = new Set<Y.Map<unknown>>();
+    for (const [layerId, layer] of layerData) {
       const bricks = layer instanceof Y.Map ? layer.get('bricks') : undefined;
       if (!(bricks instanceof Y.Array)) continue;
-      for (let i = bricks.length - 1; i >= 0; i--) {
-        const b = bricks.get(i);
+      for (const b of bricks) {
         const id = b instanceof Y.Map ? b.get('id') : undefined;
-        if (typeof id === 'string' && theirs.has(id) && where.get(id) !== b) bricks.delete(i, 1);
+        if (typeof id !== 'string' || !theirs.has(id)) continue;
+        // On a sheet the layout doesn't list (any more), nobody sees it.
+        if (!sheets.includes(layerId)) {
+          extra.add(b as Y.Map<unknown>);
+          continue;
+        }
+        const list = where.get(id);
+        if (list) list.push(b as Y.Map<unknown>);
+        else where.set(id, [b as Y.Map<unknown>]);
       }
     }
-    for (const placedId of brk.modules) {
-      const was = brk.before.shared.get(placedId);
-      if (!was) continue;
-      for (const partId of was.parts.keys()) {
-        const snap = snaps.get(partId);
-        if (!snap) continue;
-        const now = where.get(partId);
+    // As many of each part as there were: more go.
+    for (const [id, list] of where) for (const b of list.slice(snaps.get(id)?.length ?? list.length)) extra.add(b);
+    if (extra.size > 0) {
+      for (const layer of layerData.values()) {
+        const bricks = layer instanceof Y.Map ? layer.get('bricks') : undefined;
+        if (!(bricks instanceof Y.Array)) continue;
+        for (let i = bricks.length - 1; i >= 0; i--) if (extra.has(bricks.get(i) as Y.Map<unknown>)) bricks.delete(i, 1);
+      }
+    }
+    for (const partId of theirs) {
+      for (const [k, snap] of (snaps.get(partId) ?? []).entries()) {
+        const now = where.get(partId)?.[k];
         if (now) {
-          for (const [k, v] of Object.entries(snap.fields)) if (JSON.stringify(now.get(k) ?? null) !== JSON.stringify(v ?? null)) now.set(k, structuredClone(v));
+          for (const [f, v] of Object.entries(snap.fields)) if (JSON.stringify(now.get(f) ?? null) !== JSON.stringify(v ?? null)) now.set(f, structuredClone(v));
           continue;
         }
         const sheet = sheets.includes(snap.layerId) ? snap.layerId : sheets[0];
         if (sheet === undefined) continue;
         const y = new Y.Map<unknown>();
-        for (const [k, v] of Object.entries(snap.fields)) y.set(k, structuredClone(v));
+        for (const [f, v] of Object.entries(snap.fields)) y.set(f, structuredClone(v));
         ((layerData.get(sheet) as Y.Map<unknown>).get('bricks') as Y.Array<unknown>).push([y]);
-        where.set(partId, y);
       }
     }
     const cache = readSidecarCache(doc) ?? {};

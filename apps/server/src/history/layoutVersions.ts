@@ -6,7 +6,9 @@
 //     and the newest version is older than half an hour, if anything changed;
 //   - just before a big change: an import into the layout or another layout
 //     pasted into it (the apps ask first: POST …/versions), a restore (here),
-//     and an edit that deletes many parts at once (ws/handler.ts);
+//     an edit that deletes many parts at once (ws/handler.ts), and a repair
+//     of a shared module's parts (sharedModules/repair.ts; kept even with the
+//     history switched off);
 //   - when someone asks ("Save a version now", with an optional name).
 //
 // How long they're kept (thinVersions, nightly), by default: every one
@@ -30,7 +32,7 @@ import { db, schema } from '../db/index.js';
 import { summarize } from '../ops/unmergeLayouts.js';
 import { DEFAULT_HISTORY_LIMITS, historySettings, type HistoryLimits } from './settings.js';
 
-export const VERSION_REASONS = ['auto', 'manual', 'before-import', 'before-merge', 'before-restore', 'before-bulk-delete'] as const;
+export const VERSION_REASONS = ['auto', 'manual', 'before-import', 'before-merge', 'before-restore', 'before-bulk-delete', 'before-repair'] as const;
 export type VersionReason = (typeof VERSION_REASONS)[number];
 /** Reasons the apps may ask for themselves. */
 export const CLIENT_REASONS: readonly VersionReason[] = ['manual', 'before-import', 'before-merge'];
@@ -63,7 +65,7 @@ export function summaryOf(doc: Y.Doc): VersionSummary {
   };
 }
 
-const hashOf = (state: Uint8Array) => createHash('sha256').update(state).digest('hex');
+export const hashOf = (state: Uint8Array) => createHash('sha256').update(state).digest('hex');
 
 /** The newest version of a layout, without its document. */
 async function newest(layoutId: string) {
@@ -85,6 +87,8 @@ export interface TakeOptions {
   label?: string | null;
   editors?: Editor[];
   now?: number;
+  /** Keep it even with the history switched off (before a change the server makes by itself). */
+  always?: boolean;
 }
 
 /**
@@ -92,8 +96,8 @@ export interface TakeOptions {
  * one is the same document (and, for anything but a named version, recent
  * enough), so nothing identical is kept twice. Null when the layout is gone.
  */
-export async function takeVersion({ layoutId, state, reason, by = null, label = null, editors = [], now = Date.now() }: TakeOptions): Promise<string | null> {
-  if (!(await historySettings()).enabled) return null;
+export async function takeVersion({ layoutId, state, reason, by = null, label = null, editors = [], now = Date.now(), always = false }: TakeOptions): Promise<string | null> {
+  if (!always && !(await historySettings()).enabled) return null;
   const layout = await db.select({ title: schema.layouts.title }).from(schema.layouts).where(eq(schema.layouts.id, layoutId)).get();
   if (!layout) return null;
   const docHash = hashOf(state);

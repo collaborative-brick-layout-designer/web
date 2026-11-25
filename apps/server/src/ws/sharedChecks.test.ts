@@ -5,8 +5,8 @@ import * as Y from 'yjs';
 import * as encoding from 'lib0/encoding';
 import * as syncProtocol from 'y-protocols/sync';
 import type { WebSocket } from '@fastify/websocket';
-import { createDefaultLayoutDoc } from '@cld/ydoc';
-import { appendBricks } from '@cld/modules';
+import { createDefaultLayoutDoc, readSidecarCache } from '@cld/ydoc';
+import { appendBricks, sharedModulesIn } from '@cld/modules';
 import { DocSession } from './docHub.js';
 import { handleMessage, type Sender } from './handler.js';
 import { decodeIncoming } from './decoded.js';
@@ -157,5 +157,28 @@ describe('a shared module stays as it was', () => {
       send(u);
       expect(pnOf(doc, locked[1]!)).toEqual(['b.1']);
     }
+  });
+  it('a sheet taken off the list', () => {
+    const { doc, locked, send, client } = room();
+    const c = client(9001);
+    c.transact(() => {
+      const l = new Y.Map<unknown>();
+      l.set('id', 'other');
+      l.set('type', 'brick');
+      l.set('bricks', new Y.Array());
+      c.getMap('layerData').set('other', l);
+      c.getArray('layers').push(['other']);
+    });
+    send(Y.encodeStateAsUpdate(c, Y.encodeStateVector(doc)));
+    send(
+      step(c, () => {
+        const order = c.getArray<string>('layers');
+        order.delete(order.toArray().indexOf(SHEET), 1);
+        bricks(c).delete(1, 1);
+      }),
+    );
+    expect(sharedModulesIn(readSidecarCache(doc))[0]!.members).toEqual(locked);
+    const here = (doc.getMap<Y.Map<unknown>>('layerData').get('other')!.get('bricks') as Y.Array<Y.Map<unknown>>).toArray();
+    expect(here.map((b) => b.get('id')).sort()).toEqual([...locked].sort());
   });
 });

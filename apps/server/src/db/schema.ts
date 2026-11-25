@@ -682,7 +682,7 @@ export const layoutVersions = sqliteTable(
     layoutId: text('layout_id')
       .notNull()
       .references(() => layouts.id, { onDelete: 'cascade' }),
-    /** Why it was taken: 'auto' | 'manual' | 'before-import' | 'before-merge' | 'before-restore' | 'before-bulk-delete'. */
+    /** Why it was taken: 'auto' | 'manual' | 'before-import' | 'before-merge' | 'before-restore' | 'before-bulk-delete' | 'before-repair'. */
     reason: text('reason').notNull(),
     /** The layout's title then. */
     title: text('title').notNull(),

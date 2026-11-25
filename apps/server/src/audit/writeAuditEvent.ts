@@ -65,6 +65,9 @@ export type AuditEventType =
   // the server (sharedModules/auto.ts): which module, placed where, from
   // which version to which. "Updated while you were away" reads these.
   | 'shared_module_auto_update'
+  // Extra copies of a shared module's parts were taken out of a layout (sharedModules/repair.ts):
+  // which module, how many parts, and the version of the layout kept just before.
+  | 'shared_module_repair'
   // A demo visitor's space deleted with everything in it (demo/reset.ts), with counts: one per space.
   | 'demo_space_deleted'
   // Its owner deleted a layout (routes/layouts.ts): who, its title, whose it was.
