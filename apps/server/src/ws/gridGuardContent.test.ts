@@ -75,3 +75,51 @@ describe('a ruler written as another kind of content', () => {
     expect(checkGridSizes(doc, entryUpdate(rulers, 5, JSON.stringify({ id: 'ok', unit: 3 })))).toBeNull();
   });
 });
+
+describe('a layout already holding odd values', () => {
+  // A nested value where a number goes, a sheet that isn't one, a list that is something else.
+  const odd = (): Y.Doc => {
+    const { doc, rulers } = room();
+    const data = doc.getMap<unknown>('layerData');
+    doc.transact(() => {
+      data.set('plain', { type: 'ruler', rulerItems: [{ id: 'r', unit: 'x' }] });
+      data.set('text', new Y.Text('sheet'));
+      const grid = new Y.Map<unknown>();
+      data.set('grid', grid);
+      grid.set('type', 'grid');
+      grid.set('gridSizeInStud', new Y.Map([['a', 1]]));
+      grid.set('gridThickness', new Y.Array());
+      const lists = new Y.Map<unknown>();
+      data.set('lists', lists);
+      lists.set('type', 'ruler');
+      lists.set('rulerItems', new Y.Map([['0', null]]));
+      rulers.push([null, 'x', [1], new Y.Array() as unknown]);
+    });
+    return doc;
+  };
+
+  it('takes ordinary edits to it, here and after it is opened again', () => {
+    const doc = odd();
+    const again = new Y.Doc();
+    Y.applyUpdate(again, Y.encodeStateAsUpdate(doc));
+    for (const at of [doc, again]) {
+      const c = new Y.Doc();
+      Y.applyUpdate(c, Y.encodeStateAsUpdate(at));
+      const edits = [
+        () => c.getMap('meta').set('author', 'a'),
+        () => (c.getMap<Y.Map<unknown>>('layerData').get('sheet') as Y.Map<unknown>).set('name', 'Rulers'),
+        () => ((c.getMap<Y.Map<unknown>>('layerData').get('sheet') as Y.Map<unknown>).get('rulerItems') as Y.Array<unknown>).push([{ id: 'r2', unit: 2, lineThickness: 1 }]),
+        () => (c.getMap<Y.Map<unknown>>('layerData').get('grid') as Y.Map<unknown>).set('gridSizeInStud', 32),
+        () => c.getMap('layerData').delete('text'),
+      ];
+      for (const edit of edits) {
+        const sv = Y.encodeStateVector(c);
+        c.transact(edit);
+        const u = Y.encodeStateAsUpdate(c, sv);
+        expect(checkGridSizesOnCopy(at, u)).toBeNull();
+        expect(checkGridSizes(at, u)).toBeNull();
+        Y.applyUpdate(at, u);
+      }
+    }
+  });
+});

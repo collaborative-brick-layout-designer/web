@@ -276,9 +276,16 @@ export function checkGridSizesDecoded(doc: Y.Doc | null, update: Uint8Array, dec
 /** The same worked out on a copy of the room's document (exact for any update; costs the layout's size). */
 export function checkGridSizesOnCopy(doc: Y.Doc | null, update: Uint8Array): string | null {
   guardWork.docCopies += 1;
-  const before = doc ? drawingProblems(doc) : new Set<string>();
   const after = new Y.Doc();
   try {
+    let before: Set<string>;
+    try {
+      before = doc ? drawingProblems(doc) : new Set<string>();
+    } catch (err) {
+      // The layout was like that already: an edit isn't to blame for it.
+      console.error('[ws] a layout has drawing settings that cannot be read:', err);
+      return null;
+    }
     if (doc) {
       const state = Y.encodeStateAsUpdate(doc);
       guardWork.copyBytes += state.length;
@@ -291,7 +298,14 @@ export function checkGridSizesOnCopy(doc: Y.Doc | null, update: Uint8Array): str
       // applied before (the room would too): that is what is checked. One it
       // can't read at all throws before changing anything.
     }
-    for (const p of drawingProblems(after)) if (!before.has(p)) return refusal(p);
+    let now: Set<string>;
+    try {
+      now = new Set(drawingProblems(after));
+    } catch (err) {
+      console.error('[ws] an update leaves drawing settings that cannot be read:', err);
+      return refusal('drawing settings that cannot be read');
+    }
+    for (const p of now) if (!before.has(p)) return refusal(p);
     return null;
   } catch {
     return null; // the room's own document can't be copied: nothing to compare
