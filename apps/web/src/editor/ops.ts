@@ -282,7 +282,7 @@ export function previewWaybills(view: OpsView, seed: number): MadeWaybills {
 
 /** Make them: one undo step. Returns how many (as many as there is room for). */
 export function addMadeWaybills(doc: Y.Doc, made: MadeWaybills): number {
-  const room = OPS_LIMITS.waybills - readRecordsFromDoc(doc, WAYBILLS_KEY).length;
+  const free = OPS_LIMITS.waybills - readRecordsFromDoc(doc, WAYBILLS_KEY).length;
   const { waybills } = readOps(doc);
   const { stock } = readStanding(doc);
   // (Someone may have given a car one since the preview.)
@@ -290,7 +290,7 @@ export function addMadeWaybills(doc: Y.Doc, made: MadeWaybills): number {
     const s = stock.get(m.car);
     const w = s ? pocketOf(s, waybills) : null;
     return s && (!w || currentSlot(w) === 0);
-  }).slice(0, Math.max(0, room));
+  }).slice(0, Math.max(0, free));
   if (list.length === 0) return 0;
   prepareCars(doc, list.map((m) => m.car), ['opsWaybill']);
   doc.transact(() => {

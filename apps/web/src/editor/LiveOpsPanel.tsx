@@ -79,7 +79,12 @@ export function LiveOpsPanel(props: Props) {
     <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-2 text-sm" data-testid="ops-panel">
       <div role="tablist" aria-label="Live Ops" className="flex gap-1">
         {tabs.map(([id, text]) => (
-          <button key={id} type="button" role="tab" aria-selected={tab === id} data-testid={`ops-tab-${id}`} onClick={() => setTab(id)} className={`flex-1 rounded-control px-2 text-xs font-semibold ${touch ? 'h-11' : 'h-8'} ${tab === id ? 'bg-accent text-accent-ink' : 'bg-soft hover:bg-line'}`}>
+          <button key={id} type="button" role="tab" aria-selected={tab === id} data-testid={`ops-tab-${id}`} onClick={() => {
+            // (A tab opens on its list, as on the desktop.)
+            setTab(id);
+            setWaybill(null);
+            setJob(null);
+          }} className={`flex-1 rounded-control px-2 text-xs font-semibold ${touch ? 'h-11' : 'h-8'} ${tab === id ? 'bg-accent text-accent-ink' : 'bg-soft hover:bg-line'}`}>
             {text}
           </button>
         ))}
