@@ -269,6 +269,8 @@ a silent no:
   replace over its parts (skipped, and the result says how many were
   skipped);
 - renaming: it is the owner's name. (A layout label can be added on top.)
+- its places (Live Ops): they are the owner's, in each version's contents, and
+  come with its updates (the server puts a change of them back).
 
 **Undo** stays each person's own. It can only reverse what they did, which
 was allowed. Undoing "Make it mine" puts the lock back. Since updates keep

@@ -136,7 +136,7 @@ test('right-click on track makes a place; deleting it and its track says so plai
   await expect(page.locator('canvas').first()).toBeVisible({ timeout: 20000 });
   await page.waitForTimeout(1000);
   await page.keyboard.press('f');
-  const at = await onPage(page, STUB.x, STUB.top + 56);
+  const at = await onPage(page, STUB.x, STUB.top + 8);
   await page.mouse.click(at.x, at.y, { button: 'right' });
   await page.getByRole('button', { name: 'Make a place…' }).or(page.getByRole('menuitem', { name: 'Make a place…' })).click();
   const editor = page.getByTestId('place-editor');
@@ -146,7 +146,7 @@ test('right-click on track makes a place; deleting it and its track says so plai
   await page.keyboard.press('Delete');
   await expect(editor.getByTestId('spot-capacity')).toContainText('Its track was moved or removed. Pick it again.');
   await editor.getByTestId('spot-pick').click();
-  const there = await onPage(page, STUB.x, STUB.top + 8);
+  const there = await onPage(page, STUB.x, STUB.top + 80);
   await page.mouse.click(there.x, there.y);
   await expect(editor.getByTestId('spot-capacity')).toContainText('from the track’s length');
   // Deleted, and undone.
@@ -168,9 +168,9 @@ test.describe('on a phone', () => {
     await page.goto(`/editor/${await newLayout(page, 'Phone places', BBM)}`);
     await expect(page.locator('canvas').first()).toBeVisible({ timeout: 20000 });
     await page.waitForTimeout(1500);
-    await page.getByRole('button', { name: 'Edit', exact: true }).first().tap();
+    await page.getByTestId('mode-switch').getByRole('radio', { name: 'Edit' }).tap();
     const open = async () => {
-      await page.getByTestId('layout-name-menu').or(page.getByRole('button', { name: /Phone places/ })).first().tap();
+      await page.getByRole('button', { name: /Phone places/ }).first().tap();
       await page.getByTestId('phone-map').tap();
       await page.getByRole('menuitem', { name: 'Places…' }).tap();
     };

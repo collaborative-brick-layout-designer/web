@@ -11,7 +11,8 @@ const PX = 8;
 const TICK = 5;
 
 interface Props {
-  spots: Iterable<SpotNow>;
+  /** By spotKey, in place order (places.ts useSpots). */
+  spots: ReadonlyMap<string, SpotNow>;
   zoom: number;
 }
 
@@ -31,7 +32,7 @@ export function PlaceLayer({ spots, zoom }: Props) {
   const named = new Set<string>();
   return (
     <Group name="places" listening={false}>
-      {[...spots].map(({ owner, place, spot, at, capacity }) => {
+      {[...spots.values()].map(({ owner, place, spot, at, capacity }) => {
         if (!at || at.line.length === 0) return null;
         const color = kindColor(place.kind);
         const key = `${owner ?? ''}/${place.id}`;

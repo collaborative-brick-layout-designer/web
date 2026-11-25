@@ -5335,7 +5335,7 @@ function Canvas({
             draft={routeDraft ? { ends: [routeDraft.from, ...routeDraft.via, routeDraft.to].filter((p): p is TrackPosition => !!p), route: draftFound && typeof draftFound !== 'string' && routeDraft.from && routeDraft.to ? { steps: draftFound.steps, from: routeDraft.from, to: routeDraft.to } : null } : null}
           />
           <TrainLayer trains={trains} placed={standingTrains} stock={stockById} partsByKey={partsByKey} zoom={zoom} picked={trainPlacing} />
-          {showPlaces && anyPlaces && <PlaceLayer spots={shownSpots.values()} zoom={zoom} />}
+          {showPlaces && anyPlaces && <PlaceLayer spots={shownSpots} zoom={zoom} />}
           <FitLayer runs={showSidingLengths ? runs : []} checks={checks} spotlight={spotlight} zoom={zoom} />
           {(showSwitches || runMode) && <SwitchLayer net={trackNet} states={shownStates} zoom={zoom} />}
           {runMode && (

@@ -10,7 +10,7 @@
 
 import * as Y from 'yjs';
 import { BBM_FORMAT_VERSION, type BbmMap } from '@cld/model';
-import { readPlaces, readRecordsField, readRoutesField, readSwitchStatesField, readTrainScaleField, type Place, type Sidecar, type SidecarRecord, type SidecarRoute } from '@cld/bbm';
+import { readPlace, readRecordsField, readRoutesField, readSwitchStatesField, readTrainScaleField, type Place, type Sidecar, type SidecarRecord, type SidecarRoute } from '@cld/bbm';
 import { bbmToDoc, docToBbm } from './projection.js';
 import { keepDrawnSettingsInRange } from './drawnLimits.js';
 
@@ -351,7 +351,8 @@ type RecordsKey = typeof ROLLING_STOCK_KEY | typeof TRAINS_KEY | typeof PLACES_K
 
 /** The doc's own places, each within the limits (@cld/bbm places.ts), by name then id. */
 export function readPlacesFromDoc(doc: Y.Doc): Place[] {
-  const list = readPlaces(readRecordsFromDoc(doc, PLACES_KEY));
+  // (Two people may each add the last ones at once: none is left out here.)
+  const list = readRecordsFromDoc(doc, PLACES_KEY).flatMap((r) => readPlace(r) ?? []);
   return list.sort((a, b) => a.name.localeCompare(b.name) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 }
 
