@@ -2,12 +2,14 @@ name: Journeys
 
 # The whole app, driven in a real browser against a real server: the
 # journeys under apps/web/e2e/test/journeys/ (a club member's paths from end
-# to end) plus a core set of e2e specs on every PR, and every e2e spec at
-# night. Unit tests can all pass while a feature is useless (New module once
+# to end) plus a core set of e2e specs on every PR and again on main after
+# every merge, and every e2e spec at night. Unit tests can all pass while a feature is useless (New module once
 # made a module nothing could open); this is the check that catches that.
 
 on:
   pull_request:
+    branches: [main]
+  push:
     branches: [main]
   schedule:
     - cron: '17 7 * * *'  # nightly, every e2e spec
@@ -21,8 +23,10 @@ on:
 permissions:
   contents: read
 
+# A pull request's newer push cancels its older run. Each commit on main is
+# its own group, so its run always finishes.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || (github.event_name == 'push' && github.sha) || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
@@ -33,7 +37,7 @@ env:
 jobs:
   journeys:
     name: Journeys (e2e)
-    if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && !inputs.full)
+    if: github.event_name == 'pull_request' || github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && !inputs.full)
     runs-on: ubuntu-latest
     timeout-minutes: 40
     env: &e2e-env
@@ -182,13 +186,13 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      # The timings the last finished run on main wrote; the copy in the
-      # repo if there is none.
+      # The timings the last finished night wrote (the runs after each merge
+      # write none); the copy in the repo if there is none.
       - name: Last run's timings
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          for id in $(gh run list -R "$GITHUB_REPOSITORY" -w journeys.yml -b main -s completed -L 10 --json databaseId -q '.[].databaseId'); do
+          for id in $(gh run list -R "$GITHUB_REPOSITORY" -w journeys.yml -b main -e schedule -s completed -L 10 --json databaseId -q '.[].databaseId'); do
             if gh run download "$id" -R "$GITHUB_REPOSITORY" -n e2e-timings -D .e2e-timings 2>/dev/null; then
               echo "Timings from run $id"
               break
