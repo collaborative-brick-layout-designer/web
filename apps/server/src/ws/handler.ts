@@ -34,6 +34,7 @@ import {
   MAX_PENDING_BYTES,
   MAX_PENDING_DS_BYTES,
   copyPayer,
+  dropPending,
   mayLeaveForeignWaits,
   newForeignWaits,
   noteForeignWaits,
@@ -55,7 +56,7 @@ import { LOCK_COPY_BUDGET_SPENT, LOCK_NOT_PUT_BACK, repairShared, sharedLockChec
 import { sharedPartLookup } from './sharedGeometry.js';
 import { decodeIncoming, guardWork, type DecodedUpdate } from './decoded.js';
 import { MAX_HELD_UPDATES, deletesPresent, waitsOn } from './held.js';
-import { MAX_UPDATE_WORK, yjsWork } from './yjsWork.js';
+import { MAX_UPDATE_WORK, ownWork, yjsWork } from './yjsWork.js';
 import { eq } from 'drizzle-orm';
 import { db, schema } from '../db/index.js';
 import { deviceName } from '../auth/session.js';
@@ -361,6 +362,13 @@ export function handleMessage(
         // update, and per person (ws/pacing.ts workBudget: past it, they slow down).
         if (decoded) {
           const work = yjsWork(session.doc, decoded);
+          if (work > MAX_UPDATE_WORK && ownWork(session.doc, decoded) <= MAX_UPDATE_WORK) {
+            // Too much only with what waits in the room: that goes, and the
+            // sender tries again (what it sends then holds all the room lacks).
+            dropPending(session.doc);
+            slowDown(ws, session, sender, update.length);
+            return;
+          }
           if (work > MAX_UPDATE_WORK) {
             refuseUpdate(ws, session, sender, update.length, 'unreadable', `applying it would take ${work} steps, more than ${MAX_UPDATE_WORK}`);
             return;

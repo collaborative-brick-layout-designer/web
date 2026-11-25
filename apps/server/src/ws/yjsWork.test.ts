@@ -191,3 +191,16 @@ describe('two blocks of one client that overlap', () => {
     expect(work(null, u)).toBeLessThan(10);
   });
 });
+
+describe('a deleted range that starts where the update has nothing', () => {
+  // Found by fuzzing (fuzz/regressions/guard/deleted-range-across-a-gap).
+  const update = Uint8Array.from(Buffer.from('AwF6AAABAOIAAAF6JAD///8DAXoBA0FBcg==', 'base64'));
+
+  it('counts the block it ends inside, as when it starts inside one', () => {
+    expect(yjsWork(null, decodeIncoming(update)!)).toBeGreaterThan(MAX_UPDATE_WORK);
+    // What the update makes is never counted dearer than twice the update.
+    const doc = new Y.Doc();
+    Y.applyUpdate(doc, update);
+    expect(yjsWork(null, decodeIncoming(Y.encodeStateAsUpdate(doc))!)).toBeLessThanOrEqual(2 * yjsWork(null, decodeIncoming(update)!));
+  });
+});

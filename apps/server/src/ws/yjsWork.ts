@@ -101,7 +101,12 @@ function rangeWork(l: Lists, client: number, clock: number, len: number): number
     const i = indexOf(list, from);
     const j = indexOf(list, to - 1);
     if (i < 0 || j < 0) {
-      work += list.length; // a gap: as if it walked them all
+      // A gap: as if it walked them all, and what it splits at either end.
+      const a = i < 0 ? undefined : list[i]!;
+      const b = j < 0 ? undefined : list[j]!;
+      work += list.length;
+      if (a && a.id.clock < from) work += a.length;
+      if (b && b.id.clock + b.length > to) work += b.length;
       continue;
     }
     work += j - i + 1;
@@ -156,8 +161,19 @@ function decodePending(bytes: Uint8Array): ReturnType<typeof Y.decodeUpdateV2> |
 
 /** The work Yjs does to apply `update` to `doc` (null: a whole document on its own). */
 export function yjsWork(doc: Y.Doc | null, update: DecodedUpdate): number {
+  return ownWork(doc, update) + waitingWork(doc, update);
+}
+
+/** The part of it that is the update's own. */
+export function ownWork(doc: Y.Doc | null, update: DecodedUpdate): number {
   const l: Lists = { doc, update: update.byClient };
-  let work = structsWork(l, update.structs) + deleteSetWork(l, update.ds);
+  return structsWork(l, update.structs) + deleteSetWork(l, update.ds);
+}
+
+/** The part that is changes waiting in `doc` that may land with it. */
+function waitingWork(doc: Y.Doc | null, update: DecodedUpdate): number {
+  const l: Lists = { doc, update: update.byClient };
+  let work = 0;
   if (doc && pendingMayLand(doc, update)) {
     const ps = doc.store.pendingStructs ? decodePending(doc.store.pendingStructs.update) : null;
     if (ps) work += structsWork(l, ps.structs) + deleteSetWork(l, ps.ds);
