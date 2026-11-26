@@ -21,8 +21,10 @@ import {
 } from './ops';
 import { openPlaces } from './places';
 import { stockLabel } from './trains';
+import { OpsSessionTab } from './OpsSessionTab';
+import type { SessionState } from './sessions';
 
-export type OpsTab = 'cars' | 'waybills' | 'jobs';
+export type OpsTab = 'session' | 'cars' | 'waybills' | 'jobs';
 
 interface Props {
   doc: Y.Doc;
@@ -36,6 +38,8 @@ interface Props {
   touch?: boolean;
   /** On a phone: showing something on the map closes the sheet. */
   onShown?: () => void;
+  /** Operating sessions (OpsSessionTab): their state, and whether you may set them up (an owner or editor), and who and where you are. */
+  sessions?: { state: SessionState; canEdit: boolean; userId: string; layoutId: string } | null;
 }
 
 const btn = 'rounded border border-border px-2 py-1 text-xs hover:bg-soft disabled:opacity-50';
@@ -46,7 +50,7 @@ const label = 'flex flex-col gap-0.5 text-xs font-semibold';
 
 export function LiveOpsPanel(props: Props) {
   const { view, isViewer, open, touch = false, doc, onTrains } = props;
-  const [tab, setTab] = useState<OpsTab>('cars');
+  const [tab, setTab] = useState<OpsTab>(props.sessions?.state.running ? 'session' : 'cars');
   const [waybill, setWaybill] = useState<string | null>(null);
   const [job, setJob] = useState<string | null>(null);
   useEffect(() => {
@@ -74,7 +78,7 @@ export function LiveOpsPanel(props: Props) {
     setTab('waybills');
     setWaybill(id);
   };
-  const tabs: [OpsTab, string][] = [['cars', 'Cars'], ['waybills', 'Waybills'], ['jobs', 'Jobs']];
+  const tabs: [OpsTab, string][] = [...(props.sessions ? [['session', 'Session'] as [OpsTab, string]] : []), ['cars', 'Cars'], ['waybills', 'Waybills'], ['jobs', 'Jobs']];
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-2 text-sm" data-testid="ops-panel">
       <div role="tablist" aria-label="Live Ops" className="flex gap-1">
@@ -89,7 +93,9 @@ export function LiveOpsPanel(props: Props) {
           </button>
         ))}
       </div>
-      {view.places.length === 0 ? (
+      {tab === 'session' && props.sessions ? (
+        <OpsSessionTab doc={doc} view={view} state={props.sessions.state} canEdit={props.sessions.canEdit} userId={props.sessions.userId} layoutId={props.sessions.layoutId} touch={touch} />
+      ) : view.places.length === 0 ? (
         <Nothing text="Cars go to places: industries, yards, staging and interchanges. There are none on this layout yet." button={isViewer ? null : 'Open Places'} onClick={() => openPlaces({ module: null })} />
       ) : cars.length === 0 ? (
         <Nothing text="There are no cars on this layout yet." button={isViewer ? null : 'Open Trains'} onClick={onTrains} />

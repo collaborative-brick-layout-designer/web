@@ -308,6 +308,10 @@ export interface Sidecar {
   waybills?: SidecarRecord[];
   /** Jobs (Live Ops design 2.5): `{ id, name, kind, train, order, stop_<id>: { place, at } ... }`. Live: `meta.opsJobs`. Never in a .bbm. */
   opsJobs?: SidecarRecord[];
+  /** Operating sessions (Live Ops design 2.5): `{ id, name, status, seed, layout, host, crew: [...], clockFast, clockStart, startedAt, endedAt, start }`. Live: `meta.opsSessions`. Never in a .bbm. */
+  opsSessions?: SidecarRecord[];
+  /** The sessions' log, an entry a record (`{ id, session, at, by, kind, what, from, to, note }`), never changed once written. Live: `meta.opsLog`. Never in a .bbm. */
+  opsLog?: SidecarRecord[];
   /** Unknown top-level fields preserved verbatim across round-trip. */
   extras?: Record<string, unknown>;
 }
@@ -423,6 +427,10 @@ export function readSidecar(raw: string): Sidecar {
   if (waybills) sidecar.waybills = waybills;
   const opsJobs = readRecordsField(parsed.opsJobs);
   if (opsJobs) sidecar.opsJobs = opsJobs;
+  const opsSessions = readRecordsField(parsed.opsSessions);
+  if (opsSessions) sidecar.opsSessions = opsSessions;
+  const opsLog = readRecordsField(parsed.opsLog);
+  if (opsLog) sidecar.opsLog = opsLog;
 
   const knownKeys = new Set([
     'schemaVersion',
@@ -442,6 +450,8 @@ export function readSidecar(raw: string): Sidecar {
     'layoutPlaces',
     'waybills',
     'opsJobs',
+    'opsSessions',
+    'opsLog',
   ]);
   const extras: Record<string, unknown> = {};
   for (const key of Object.keys(parsed)) {
@@ -496,6 +506,8 @@ export function writeSidecar(sidecar: Sidecar, opts: WriteSidecarOptions = {}): 
   if (sidecar.layoutPlaces && sidecar.layoutPlaces.length > 0) out.layoutPlaces = sidecar.layoutPlaces;
   if (sidecar.waybills && sidecar.waybills.length > 0) out.waybills = sidecar.waybills;
   if (sidecar.opsJobs && sidecar.opsJobs.length > 0) out.opsJobs = sidecar.opsJobs;
+  if (sidecar.opsSessions && sidecar.opsSessions.length > 0) out.opsSessions = sidecar.opsSessions;
+  if (sidecar.opsLog && sidecar.opsLog.length > 0) out.opsLog = sidecar.opsLog;
   if (sidecar.extras) {
     for (const [k, v] of Object.entries(sidecar.extras)) out[k] = v;
   }

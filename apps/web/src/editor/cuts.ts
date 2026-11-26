@@ -12,6 +12,7 @@ import {
   asStock,
   CUT_LIMITS,
   EMPTIED_KEEP_MS,
+  mayMove,
   newCut,
   placeTrain,
   settleTrains,
@@ -21,6 +22,7 @@ import {
   type CutChange,
   type CutMove,
   type Load,
+  type OpsReach,
   type RollingStock,
   type TrackNetwork,
   type Train,
@@ -29,6 +31,7 @@ import {
 import { LOCAL_ORIGIN } from './useLayoutDoc';
 import { makeId } from './mutations';
 import { asTrain, stockLabel } from './trains';
+import { writeLog } from './sessions';
 
 const BEFORE_ORIGIN = Symbol('cld-before-cut');
 const plain = <T extends object>(v: T) => JSON.parse(JSON.stringify(v)) as Record<string, unknown> & { id: string };
@@ -47,7 +50,7 @@ function setCarCut(doc: Y.Doc, car: string, cut: string): void {
 }
 
 /** Write what a drag (or taking a car out) does: one undo step. */
-export function writeCutChange(doc: Y.Doc, change: CutChange, now = Date.now()): void {
+export function writeCutChange(doc: Y.Doc, change: CutChange, now = Date.now(), session: { reach: OpsReach; id: string; userId: string } | null = null): void {
   if (change.trains.length === 0 && change.emptied.length === 0 && Object.keys(change.cars).length === 0) return;
   const { trains, stock } = readStanding(doc);
   const byId = new Map(trains.map((t) => [t.id, t]));
@@ -56,10 +59,10 @@ export function writeCutChange(doc: Y.Doc, change: CutChange, now = Date.now()):
     for (const car of Object.keys(change.cars)) {
       setCarCut(doc, car, standingIn(car, trains)?.id ?? '');
     }
-    // Cuts left empty a day ago or more, that no car names, go.
+    // Cuts left empty a day ago or more, that no car names, go (in a session, only those within your reach).
     const named = new Set([...stock.values()].map((s) => s.opsCut));
     for (const t of trains)
-      if (t.cut && t.units.length === 0 && typeof t.emptiedAt === 'number' && now - t.emptiedAt > EMPTIED_KEEP_MS && !named.has(t.id) && !change.trains.some((x) => x.id === t.id)) deleteRecord(doc, TRAINS_KEY, t.id);
+      if ((!session || mayMove(session.reach, t.id, t.position)) && t.cut && t.units.length === 0 && typeof t.emptiedAt === 'number' && now - t.emptiedAt > EMPTIED_KEEP_MS && !named.has(t.id) && !change.trains.some((x) => x.id === t.id)) deleteRecord(doc, TRAINS_KEY, t.id);
   }, BEFORE_ORIGIN);
   doc.transact(() => {
     for (const t of change.trains) writeRecord(doc, TRAINS_KEY, plain(t));
@@ -68,6 +71,8 @@ export function writeCutChange(doc: Y.Doc, change: CutChange, now = Date.now()):
       if (t) writeRecord(doc, TRAINS_KEY, plain({ ...t, units: [], emptiedAt: now }));
     }
     for (const [car, cut] of Object.entries(change.cars)) setCarCut(doc, car, cut ?? '');
+    // The session's log: who moved which cut, from where to where.
+    if (session) for (const t of change.trains) writeLog(doc, session.id, session.userId, 'move', t.id, byId.get(t.id)?.position ?? null, t.position, '', now);
   }, LOCAL_ORIGIN);
 }
 

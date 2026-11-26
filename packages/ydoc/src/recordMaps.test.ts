@@ -128,7 +128,7 @@ describe('the maps a layout keeps its records in', () => {
     expect(readPlacesFromDoc(old).map((x) => x.id)).toEqual(['x']);
   });
 
-  it('a layout that has the first five gets the two more, once, and nothing else changes', () => {
+  it('a layout that has the first five gets the four more, once, and nothing else changes', () => {
     const room = layout();
     ensureRecordMaps(room);
     // As one opened before there were waybills and jobs.
@@ -147,8 +147,8 @@ describe('the maps a layout keeps its records in', () => {
     expect(ensureRecordMaps(older)).toBe(true);
     // What it adds: two structs of their own, and no deletion.
     const added = Y.decodeUpdate(Y.encodeStateAsUpdate(older, sv));
-    expect(added.structs.map((s) => [s.id.client, s.id.clock, s.length]).sort()).toEqual([[6, 0, 1], [7, 0, 1]]);
-    const keys = (d: Y.Doc) => [...d.getMap('meta').keys()].filter((k) => k !== WAYBILLS_KEY && k !== OPS_JOBS_KEY).sort();
+    expect(added.structs.map((s) => [s.id.client, s.id.clock, s.length]).sort()).toEqual([[6, 0, 1], [7, 0, 1], [8, 0, 1], [9, 0, 1]]);
+    const keys = (d: Y.Doc) => [...d.getMap('meta').keys()].filter((k) => k !== WAYBILLS_KEY && k !== OPS_JOBS_KEY && k !== 'opsSessions' && k !== 'opsLog').sort();
     expect(keys(older)).toEqual(keys(was));
     for (const k of keys(was)) expect(JSON.stringify(older.getMap('meta').get(k))).toBe(JSON.stringify(was.getMap('meta').get(k)));
     expect(exportSidecarFromDoc(older)).toEqual(files);

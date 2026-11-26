@@ -27,7 +27,8 @@ export interface OpsRecords {
 export function readOps(doc: Y.Doc): OpsRecords {
   return {
     waybills: new Map(readRecordsFromDoc(doc, WAYBILLS_KEY).map((r) => [r.id, asWaybill(r)])),
-    jobs: jobsInOrder(readRecordsFromDoc(doc, OPS_JOBS_KEY).map((r) => asJob(r))),
+    // (With its status in a session, opsSession.ts JOB_STATUSES.)
+    jobs: jobsInOrder(readRecordsFromDoc(doc, OPS_JOBS_KEY).map((r) => Object.assign(asJob(r), { status: r.status }))),
   };
 }
 
@@ -382,7 +383,7 @@ export const JOB_KIND_HINT: Record<string, string> = {
 };
 
 /** Ask for the Live Ops panel (on a phone, its sheet). */
-export function openLiveOps(detail: { tab?: 'cars' | 'waybills' | 'jobs'; waybill?: string; job?: string } = {}): void {
+export function openLiveOps(detail: { tab?: 'session' | 'cars' | 'waybills' | 'jobs'; waybill?: string; job?: string } = {}): void {
   window.dispatchEvent(new CustomEvent('cld:open-live-ops', { detail }));
 }
 

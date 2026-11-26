@@ -99,6 +99,8 @@ export class DocSession {
   readonly clientAwarenessIds = new Map<unknown, Set<number>>();
   /** The attached client that owns each awareness clientID (the first to set it). */
   readonly awarenessOwners = new Map<number, unknown>();
+  /** The client ids a session's viewer crew have written with, and whose they are (ws/opsGuard.ts): nobody else writes with them. */
+  readonly opsClaims = new Map<number, string>();
   /**
    * Updates held back until the edit before them arrives (held.ts), each
    * with the connection that sent it: dropped when it detaches, and all

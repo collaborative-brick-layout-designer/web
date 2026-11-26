@@ -175,7 +175,7 @@ export function readBudgetLimitsFromDoc(doc: Y.Doc): Record<string, number> | un
  * budget in the sidecar, the doc's budget is left as it is.
  */
 export function importSidecarIntoDoc(doc: Y.Doc, sidecar: Sidecar): void {
-  const { budgetLimits, switchStates, routes, rollingStock, trains, trainScale, layoutPlaces, waybills, opsJobs, ...rest } = sidecar;
+  const { budgetLimits, switchStates, routes, rollingStock, trains, trainScale, layoutPlaces, waybills, opsJobs, opsSessions, opsLog, ...rest } = sidecar;
   const meta = doc.getMap('meta');
   meta.set('cache', rest as unknown as Record<string, unknown>);
   if (trainScale !== undefined) meta.set(TRAIN_SCALE_KEY, trainScale);
@@ -184,7 +184,7 @@ export function importSidecarIntoDoc(doc: Y.Doc, sidecar: Sidecar): void {
     for (const r of routes) y.set(r.id, routeMap(r));
     meta.set(ROUTES_KEY, y);
   }
-  for (const [key, list] of [[ROLLING_STOCK_KEY, rollingStock], [TRAINS_KEY, trains], [PLACES_KEY, layoutPlaces], [WAYBILLS_KEY, waybills], [OPS_JOBS_KEY, opsJobs]] as const) {
+  for (const [key, list] of [[ROLLING_STOCK_KEY, rollingStock], [TRAINS_KEY, trains], [PLACES_KEY, layoutPlaces], [WAYBILLS_KEY, waybills], [OPS_JOBS_KEY, opsJobs], [OPS_SESSIONS_KEY, opsSessions], [OPS_LOG_KEY, opsLog]] as const) {
     if (!list || list.length === 0) continue;
     const y = new Y.Map<Y.Map<unknown>>();
     for (const r of list) y.set(r.id, routeMap(r as SidecarRoute));
@@ -214,6 +214,8 @@ function withBudget(doc: Y.Doc, cache: Record<string, unknown> | null): Sidecar 
   const layoutPlaces = readPlacesFromDoc(doc);
   const waybills = readRecordsFromDoc(doc, WAYBILLS_KEY);
   const opsJobs = readRecordsFromDoc(doc, OPS_JOBS_KEY);
+  const opsSessions = readRecordsFromDoc(doc, OPS_SESSIONS_KEY);
+  const opsLog = readRecordsFromDoc(doc, OPS_LOG_KEY);
   const live = {
     ...(budgetLimits ? { budgetLimits } : {}),
     ...(switchStates ? { switchStates } : {}),
@@ -224,12 +226,14 @@ function withBudget(doc: Y.Doc, cache: Record<string, unknown> | null): Sidecar 
     ...(layoutPlaces.length ? { layoutPlaces } : {}),
     ...(waybills.length ? { waybills } : {}),
     ...(opsJobs.length ? { opsJobs } : {}),
+    ...(opsSessions.length ? { opsSessions } : {}),
+    ...(opsLog.length ? { opsLog } : {}),
   };
   if (!cache) {
-    if (!budgetLimits && !switchStates && !routes && !stockList.length && !trainList.length && trainScale === undefined && !layoutPlaces.length && !waybills.length && !opsJobs.length) return null;
+    if (!budgetLimits && !switchStates && !routes && !stockList.length && !trainList.length && trainScale === undefined && !layoutPlaces.length && !waybills.length && !opsJobs.length && !opsSessions.length && !opsLog.length) return null;
     return { schemaVersion: 1, bbmHashSha256: '', ...live };
   }
-  const { budgetLimits: _inCache, switchStates: _statesInCache, routes: _routesInCache, rollingStock: _stockInCache, trains: _trainsInCache, trainScale: _scaleInCache, layoutPlaces: _placesInCache, waybills: _waybillsInCache, opsJobs: _jobsInCache, ...rest } = cache;
+  const { budgetLimits: _inCache, switchStates: _statesInCache, routes: _routesInCache, rollingStock: _stockInCache, trains: _trainsInCache, trainScale: _scaleInCache, layoutPlaces: _placesInCache, waybills: _waybillsInCache, opsJobs: _jobsInCache, opsSessions: _sessionsInCache, opsLog: _logInCache, ...rest } = cache;
   return { ...withoutMovedExtras(rest), ...live } as unknown as Sidecar;
 }
 
@@ -355,7 +359,10 @@ export const PLACES_KEY = 'places';
 /** Waybills and jobs (Live Ops design 2.4, 2.5): flat fields, kept like trains; an older web build kept a file's in the cache's extras too. */
 export const WAYBILLS_KEY = 'waybills';
 export const OPS_JOBS_KEY = 'opsJobs';
-type RecordsKey = typeof ROLLING_STOCK_KEY | typeof TRAINS_KEY | typeof PLACES_KEY | typeof WAYBILLS_KEY | typeof OPS_JOBS_KEY;
+/** Operating sessions and their log (Live Ops design 2.5, 4): kept like jobs; a log entry is never changed once written. */
+export const OPS_SESSIONS_KEY = 'opsSessions';
+export const OPS_LOG_KEY = 'opsLog';
+type RecordsKey = typeof ROLLING_STOCK_KEY | typeof TRAINS_KEY | typeof PLACES_KEY | typeof WAYBILLS_KEY | typeof OPS_JOBS_KEY | typeof OPS_SESSIONS_KEY | typeof OPS_LOG_KEY;
 
 /** The doc's own places, each within the limits (@cld/bbm places.ts), by name then id. */
 export function readPlacesFromDoc(doc: Y.Doc): Place[] {
@@ -373,7 +380,7 @@ export function writePlace(doc: Y.Doc, place: Place): void {
 }
 
 /** The kinds of records an older build, not knowing them, left in the cache's extras, and their name there. */
-const IN_EXTRAS: Partial<Record<RecordsKey, string>> = { [PLACES_KEY]: 'layoutPlaces', [WAYBILLS_KEY]: 'waybills', [OPS_JOBS_KEY]: 'opsJobs' };
+const IN_EXTRAS: Partial<Record<RecordsKey, string>> = { [PLACES_KEY]: 'layoutPlaces', [WAYBILLS_KEY]: 'waybills', [OPS_JOBS_KEY]: 'opsJobs', [OPS_SESSIONS_KEY]: 'opsSessions', [OPS_LOG_KEY]: 'opsLog' };
 
 /** The cache's extras without those records (they are read above). */
 function withoutMovedExtras(cache: Record<string, unknown>): Record<string, unknown> {
