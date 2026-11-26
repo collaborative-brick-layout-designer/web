@@ -14,12 +14,12 @@
 
 import * as Y from 'yjs';
 import { placeSize } from '@cld/bbm';
-import { CUT_LIMITS, OPS_LIMITS, STOP_PREFIX, WAYBILL_SLOTS } from '@cld/parts-catalog/browser';
-import { OPS_JOBS_KEY, ROLLING_STOCK_KEY, TRAINS_KEY, WAYBILLS_KEY } from '@cld/ydoc';
+import { CREW_ROLES, CUT_LIMITS, JOB_STATUSES, OPS_LIMITS, SESSION_LIMITS, SESSION_STATUSES, STOP_PREFIX, WAYBILL_SLOTS } from '@cld/parts-catalog/browser';
+import { OPS_JOBS_KEY, OPS_LOG_KEY, OPS_SESSIONS_KEY, ROLLING_STOCK_KEY, TRAINS_KEY, WAYBILLS_KEY } from '@cld/ydoc';
 import type { DecodedUpdate } from './decoded.js';
 import { pathsOf } from './mapPaths.js';
 
-export const CARS_KEYS: readonly string[] = [ROLLING_STOCK_KEY, TRAINS_KEY, WAYBILLS_KEY, OPS_JOBS_KEY];
+export const CARS_KEYS: readonly string[] = [ROLLING_STOCK_KEY, TRAINS_KEY, WAYBILLS_KEY, OPS_JOBS_KEY, OPS_SESSIONS_KEY, OPS_LOG_KEY];
 
 /** More than the apps make (two people may each add the last ones at once). */
 export const MAX_RECORDS = 2 * CUT_LIMITS.records;
@@ -30,8 +30,8 @@ export const MAX_RECORD_SIZE = 2 * 64 * 1024;
 /** One waybill, or one job with its stops. */
 export const MAX_OPS_SIZE = 32 * 1024;
 /** How many of each, and how big one may be. */
-export const MAX_OF: Readonly<Record<string, number>> = { [ROLLING_STOCK_KEY]: MAX_RECORDS, [TRAINS_KEY]: MAX_RECORDS, [WAYBILLS_KEY]: 2 * OPS_LIMITS.waybills, [OPS_JOBS_KEY]: 2 * OPS_LIMITS.jobs };
-export const SIZE_OF: Readonly<Record<string, number>> = { [ROLLING_STOCK_KEY]: MAX_RECORD_SIZE, [TRAINS_KEY]: MAX_RECORD_SIZE, [WAYBILLS_KEY]: MAX_OPS_SIZE, [OPS_JOBS_KEY]: MAX_OPS_SIZE };
+export const MAX_OF: Readonly<Record<string, number>> = { [ROLLING_STOCK_KEY]: MAX_RECORDS, [TRAINS_KEY]: MAX_RECORDS, [WAYBILLS_KEY]: 2 * OPS_LIMITS.waybills, [OPS_JOBS_KEY]: 2 * OPS_LIMITS.jobs, [OPS_SESSIONS_KEY]: 2 * SESSION_LIMITS.sessions, [OPS_LOG_KEY]: 2 * SESSION_LIMITS.log };
+export const SIZE_OF: Readonly<Record<string, number>> = { [ROLLING_STOCK_KEY]: MAX_RECORD_SIZE, [TRAINS_KEY]: MAX_RECORD_SIZE, [WAYBILLS_KEY]: MAX_OPS_SIZE, [OPS_JOBS_KEY]: MAX_OPS_SIZE, [OPS_SESSIONS_KEY]: 2 * SESSION_LIMITS.size, [OPS_LOG_KEY]: 2 * SESSION_LIMITS.logSize };
 const MAX_ID = 128;
 const MAX_FIELD = 64;
 /** The longest car, studs (a roster's limit too). */
@@ -63,7 +63,71 @@ function validJobField(field: string, value: unknown): boolean {
   if (field === 'kind') return typeof value === 'string' && value.length <= MAX_FIELD;
   if (field === 'train') return idOrNone(value);
   if (field === 'order') return typeof value === 'number' && Number.isFinite(value);
+  if (field === 'status') return (JOB_STATUSES as readonly unknown[]).includes(value);
   return true;
+}
+
+const shortText = (v: unknown, n: number): boolean => typeof v === 'string' && v.length <= n;
+const when = (v: unknown): boolean => typeof v === 'number' && Number.isFinite(v) && v >= 0;
+
+function validCrew(v: unknown): boolean {
+  if (!Array.isArray(v) || v.length > 2 * SESSION_LIMITS.crew) return false;
+  return v.every(
+    (c) =>
+      isObj(c) &&
+      idOrNone(c.userId) &&
+      shortText(c.name, OPS_LIMITS.name) &&
+      (CREW_ROLES as readonly unknown[]).includes(c.role) &&
+      (c.places === undefined || (Array.isArray(c.places) && c.places.length <= 200 && c.places.every(goodId))) &&
+      (c.job === undefined || idOrNone(c.job)),
+  );
+}
+
+function validSessionField(field: string, value: unknown): boolean {
+  switch (field) {
+    case 'name':
+      return shortText(value, OPS_LIMITS.name);
+    case 'status':
+      return (SESSION_STATUSES as readonly unknown[]).includes(value);
+    case 'seed':
+      return typeof value === 'number' && Number.isInteger(value);
+    case 'layout':
+    case 'host':
+      return idOrNone(value);
+    case 'crew':
+      return validCrew(value);
+    case 'clockFast':
+      return wholeIn(value, SESSION_LIMITS.clockFast);
+    case 'clockStart':
+      return value === '' || (typeof value === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(value));
+    case 'startedAt':
+    case 'endedAt':
+      return when(value);
+    case 'start':
+      return value === null || (isObj(value) && isObj(value.trains) && isObj(value.cars));
+    default:
+      return true;
+  }
+}
+
+function validLogField(field: string, value: unknown): boolean {
+  switch (field) {
+    case 'session':
+    case 'by':
+      return goodId(value);
+    case 'at':
+      return when(value);
+    case 'kind':
+    case 'what':
+      return shortText(value, 2 * MAX_ID);
+    case 'note':
+      return shortText(value, OPS_LIMITS.note);
+    case 'from':
+    case 'to':
+      return value === null || isObj(value) || typeof value === 'number' || typeof value === 'string';
+    default:
+      return true;
+  }
 }
 
 /** Whether `value` may be field `field` of a car (`rollingStock`), train (`trains`), waybill or job. */
@@ -71,6 +135,8 @@ export function validCarField(key: string, field: string, value: unknown): boole
   if (field.length > MAX_FIELD || value instanceof Y.AbstractType || value instanceof Uint8Array) return false;
   if (key === WAYBILLS_KEY) return validWaybillField(field, value);
   if (key === OPS_JOBS_KEY) return validJobField(field, value);
+  if (key === OPS_SESSIONS_KEY) return validSessionField(field, value);
+  if (key === OPS_LOG_KEY) return validLogField(field, value);
   if (key === ROLLING_STOCK_KEY) {
     switch (field) {
       case 'length':
@@ -137,7 +203,7 @@ function liveMap(doc: Y.Doc | null, key: string): Y.Map<unknown> | null {
   return item && !item.deleted && item.content instanceof Y.ContentType && item.content.type instanceof Y.Map ? (item.content.type as Y.Map<unknown>) : null;
 }
 
-const WHAT: Record<string, string> = { [ROLLING_STOCK_KEY]: 'car', [TRAINS_KEY]: 'train', [WAYBILLS_KEY]: 'waybill', [OPS_JOBS_KEY]: 'job' };
+const WHAT: Record<string, string> = { [ROLLING_STOCK_KEY]: 'car', [TRAINS_KEY]: 'train', [WAYBILLS_KEY]: 'waybill', [OPS_JOBS_KEY]: 'job', [OPS_SESSIONS_KEY]: 'session', [OPS_LOG_KEY]: 'log entry' };
 
 /** Null when every car, train, waybill and job `decoded` writes is within the limits; else why not. Only its structs are read: placesProblem works the rest out on a copy. */
 export function carsProblem(doc: Y.Doc | null, decoded: DecodedUpdate): string | null {

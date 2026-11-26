@@ -50,6 +50,7 @@ import { COPY_BUDGET_SPENT, checkGridSizesDecoded, heldValueProblem } from './gr
 import { backgroundUrlProblem } from './backgroundGuard.js';
 import { memberKeyProblem } from './memberGuard.js';
 import { PLACES_COPY_BUDGET_SPENT, placesProblem } from './placesGuard.js';
+import { noteClaims, opsProblemSafe as opsProblem, sessionRuns as opsRuns, type OpsSender } from './opsGuard.js';
 import { readSidecarCache } from '@cld/ydoc';
 import { sharedModulesIn } from '@cld/modules';
 import { LOCK_COPY_BUDGET_SPENT, LOCK_NOT_PUT_BACK, repairShared, sharedLockCheck, type LockBreak } from './sharedGuard.js';
@@ -81,6 +82,15 @@ export const MERGE_REFUSED_REASON = 'layout_merge_refused';
  * one the desktop gives an update it can't read.
  */
 export const UPDATE_REFUSED_REASON = 'unreadable_update';
+
+/**
+ * Close reason for an update an operating session doesn't allow
+ * (ws/opsGuard.ts): a viewer's that isn't their crew's to make, or a change
+ * to the map's sheets while a session runs. The same 1008: older apps stop
+ * and keep their copy; newer ones load the layout again (a viewer has no
+ * other changes to lose) and say why.
+ */
+export const OPS_REFUSED_REASON = 'ops_refused';
 
 /**
  * How often we re-check whether the connected user still has access to
@@ -153,6 +163,15 @@ export interface Sender {
   noted: Set<string>;
   /** How fast this connection may send (ws/pacing.ts). */
   pace: Pace;
+  /**
+   * A viewer who may write as a session's crew (ws/opsGuard.ts): signed in
+   * with full rights and not suspended. A read-only token or a suspended
+   * person is held to viewer with this false, so the exception never
+   * reaches them.
+   */
+  crew?: boolean;
+  /** For an update held back (ws/held.ts): the role it was sent with, checked again as it lands. */
+  heldRole?: 'owner' | 'editor';
 }
 
 /** Close code and reason for a connection sending faster than ws/pacing.ts allows: "try again later". */
@@ -219,6 +238,7 @@ export async function attachWsHandlers(
 
   // 4. Wire up message handling: what came early first, in order, then the rest.
   let currentRole = cap(role);
+  sender.crew = !readOnly && !suspended;
   const early = auth.early?.take() ?? [];
   const onMessage = (data: Buffer) => {
     // Nothing more is read from a connection being closed (what follows a
@@ -265,6 +285,7 @@ export async function attachWsHandlers(
     // connection stays; the editor's UI catches up when it refetches the
     // layout.
     currentRole = cap(refreshedRole);
+    sender.crew = !readOnly && !suspended;
   };
   let checking = false;
   let checkAgain = false;
@@ -345,8 +366,10 @@ export function handleMessage(
         withoutPending(session.doc, () => syncProtocol.writeSyncStep2(encoder, session.doc, stateVector));
       } else if (syncType === syncProtocol.messageYjsSyncStep2 || syncType === syncProtocol.messageYjsUpdate) {
         // The client's own state / edits: write paths. A viewer's are
-        // dropped (a hostile viewer can't corrupt the doc).
-        if (role === 'viewer') return;
+        // dropped (a hostile viewer can't corrupt the doc), but for a
+        // session's crew, who may move cars and flip switches within their
+        // role (ws/opsGuard.ts): checked below, before anything else reads it.
+        if (role === 'viewer' && !sender.crew) return;
         const update = decoding.readVarUint8Array(decoder);
         // Checked before it is applied, so a refused one leaves the doc as
         // it was: first that both apps can read it, then what it holds.
@@ -358,6 +381,16 @@ export function handleMessage(
         // Decoded once for the checks that read its structs (ws/decoded.ts).
         // One Yjs can't decode passes them; Yjs refuses it on its own below.
         const decoded = decodeIncoming(update);
+        if (role === 'viewer') {
+          // Nothing a viewer sends is held back or worked out later: it is
+          // checked now, against the layout as it is, or dropped.
+          if (!decoded) return;
+          const bad = opsProblem(session.doc, decoded, session.layoutId, opsSender(ws, session, sender, role));
+          if (bad !== null) {
+            refuseOps(ws, session, sender, update.length, bad);
+            return;
+          }
+        }
         // What applying it costs (ws/yjsWork.ts): within a limit per
         // update, and per person (ws/pacing.ts workBudget: past it, they slow down).
         if (decoded) {
@@ -383,8 +416,8 @@ export function handleMessage(
         // One that would leave some of it waiting for an earlier edit and
         // delete something the room has is held whole until that edit
         // arrives (ws/held.ts), then checked and applied as one.
-        if (decoded && holdIfEarly(ws, session, sender, update, decoded)) return;
-        if (takeUpdate(ws, session, sender, update, decoded)) landHeld(session);
+        if (decoded && role !== 'viewer' && holdIfEarly(ws, session, sender, update, decoded, role)) return;
+        if (takeUpdate(ws, session, sender, update, decoded, role)) landHeld(session);
       }
       if (encoding.length(encoder) > 1) {
         sendBytes(ws, encoding.toUint8Array(encoder));
@@ -414,7 +447,24 @@ export function handleMessage(
  * that just arrived, and for one held until the edit before it arrived
  * (landHeld). False when it was refused (the connection is then closed).
  */
-function takeUpdate(ws: WebSocket, session: DocSession, sender: Sender, update: Uint8Array, decoded: DecodedUpdate | null): boolean {
+function takeUpdate(ws: WebSocket, session: DocSession, sender: Sender, update: Uint8Array, decoded: DecodedUpdate | null, role: 'owner' | 'editor' | 'viewer'): boolean {
+  // What an operating session allows (ws/opsGuard.ts), against the layout as
+  // it is now (for a held update: as it is when it lands). A viewer's was
+  // checked as it came in, and nothing has changed since.
+  if (role !== 'viewer') {
+    if (!decoded) {
+      if (sessionRunsSafe(session)) {
+        refuseOps(ws, session, sender, update.length, 'it can’t be read, while a session runs');
+        return false;
+      }
+    } else {
+      const bad = opsProblem(session.doc, decoded, session.layoutId, opsSender(ws, session, sender, role));
+      if (bad !== null) {
+        refuseOps(ws, session, sender, update.length, bad);
+        return false;
+      }
+    }
+  }
   // The few it works out on a copy of the layout count against the
   // sender's copy budget (ws/pacing.ts): past it, they slow down. One
   // that lands changes waiting on another editor counts against the
@@ -495,6 +545,7 @@ function takeUpdate(ws: WebSocket, session: DocSession, sender: Sender, update: 
     }
   }
   if (broken) putSharedBack(session, sender, update.length, broken);
+  if (decoded && role === 'viewer') noteClaims(decoded, opsSender(ws, session, sender, role));
   lookOverNewShared(session, sharedBefore);
   // What it left waiting for changes the room doesn't have is kept up
   // to a limit (ws/pending.ts), with the updates the room holds back
@@ -534,7 +585,7 @@ function takeUpdate(ws: WebSocket, session: DocSession, sender: Sender, update: 
  * held or refused. A drawing setting it writes out of range, where that can
  * be told now, is refused at once; the rest is checked when it lands.
  */
-function holdIfEarly(ws: WebSocket, session: DocSession, sender: Sender, update: Uint8Array, decoded: DecodedUpdate): boolean {
+function holdIfEarly(ws: WebSocket, session: DocSession, sender: Sender, update: Uint8Array, decoded: DecodedUpdate, role: 'owner' | 'editor' | 'viewer'): boolean {
   const waitsFor = waitsOn(session.doc, decoded);
   if (!waitsFor || !deletesPresent(session.doc, decoded.ds)) return false;
   const bad = heldValueProblem(session.doc, decoded);
@@ -555,7 +606,7 @@ function holdIfEarly(ws: WebSocket, session: DocSession, sender: Sender, update:
     }
     return true;
   }
-  held.add({ client: ws, sender, update, decoded, waitsFor });
+  held.add({ client: ws, sender: { ...sender, heldRole: role === 'owner' ? 'owner' : 'editor' }, update, decoded, waitsFor });
   return true;
 }
 
@@ -564,7 +615,8 @@ function landHeld(session: DocSession): void {
   for (let entry = session.held.takeReady(session.doc); entry; entry = session.held.takeReady(session.doc)) {
     const ws = entry.client as WebSocket;
     if (ws.readyState !== ws.OPEN || !session.clients.has(ws)) continue;
-    takeUpdate(ws, session, entry.sender, entry.update, entry.decoded);
+    // (Only an owner's or editor's update is ever held.)
+    takeUpdate(ws, session, entry.sender, entry.update, entry.decoded, entry.sender.heldRole ?? 'editor');
   }
 }
 
@@ -700,6 +752,43 @@ function putSharedBack(session: DocSession, sender: Sender, updateBytes: number,
     userId: sender.userId,
     eventType: 'layout_update_refused',
     payload: { client: auditClient(sender.client), via: sender.credential?.kind ?? null, updateBytes, kind: 'locked', why: broken.why, putBack: broken.modules.length },
+  }).catch((err) => console.error('[ws] could not write the layout_update_refused audit event', err));
+}
+
+/** Who sends an update, as the session guard reads it. */
+function opsSender(ws: WebSocket, session: DocSession, sender: Sender, role: 'owner' | 'editor' | 'viewer'): OpsSender {
+  return {
+    userId: sender.userId,
+    role,
+    crew: sender.crew === true,
+    ownsClient: (client) => session.awarenessOwners.get(client) === ws,
+    claims: session.opsClaims,
+  };
+}
+
+function sessionRunsSafe(session: DocSession): boolean {
+  try {
+    return opsRuns(session.doc);
+  } catch {
+    return true;
+  }
+}
+
+/** An update the operating session doesn't allow: dropped, the connection closed with OPS_REFUSED_REASON, said once in the log and the audit. */
+function refuseOps(ws: WebSocket, session: DocSession, sender: Sender, updateBytes: number, why: string): void {
+  session.held.drop(ws);
+  try {
+    ws.close(CLOSE_MERGE_REFUSED, OPS_REFUSED_REASON);
+  } catch {
+    /* already closed */
+  }
+  if (!once(sender, 'ops_refused')) return;
+  console.warn(`[ws] refused an update to layout ${session.layoutId} from user ${sender.userId} (${sender.client || 'unknown client'}): ${why} (${updateBytes} bytes)`);
+  writeAuditEvent({
+    layoutId: session.layoutId,
+    userId: sender.userId,
+    eventType: 'layout_update_refused',
+    payload: { client: auditClient(sender.client), via: sender.credential?.kind ?? null, updateBytes, kind: 'ops', why },
   }).catch((err) => console.error('[ws] could not write the layout_update_refused audit event', err));
 }
 

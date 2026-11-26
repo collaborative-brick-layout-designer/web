@@ -26,13 +26,15 @@ export const RECORD_MAPS: ReadonlyArray<readonly [key: string, client: number]> 
   ['switchStates', 5],
   ['waybills', 6],
   ['opsJobs', 7],
+  ['opsSessions', 8],
+  ['opsLog', 9],
 ];
 
 /** An older web build that imported a file kept them in `meta.cache`: the first write moves those over, as before. */
 function inCache(cache: unknown, key: string): boolean {
   if (cache === null || typeof cache !== 'object') return false;
   const c = cache as Record<string, unknown>;
-  if (key !== 'places' && key !== 'waybills' && key !== 'opsJobs') return c[key] !== undefined;
+  if (key !== 'places' && key !== 'waybills' && key !== 'opsJobs' && key !== 'opsSessions' && key !== 'opsLog') return c[key] !== undefined;
   const name = key === 'places' ? 'layoutPlaces' : key;
   const extras = c.extras as Record<string, unknown> | null | undefined;
   return c[name] !== undefined || (!!extras && typeof extras === 'object' && extras[name] !== undefined);
