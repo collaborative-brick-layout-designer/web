@@ -116,6 +116,12 @@ export const UPDATE_REFUSED =
 
 const UPDATE_REFUSED_REASON = 'unreadable_update';
 
+/** The server refused a change an operating session doesn't allow (apps/server/src/ws/opsGuard.ts): the page loads the layout again. */
+const OPS_REFUSED_REASON = 'ops_refused';
+/** Set before that reload, so the page can say why (EditorPage). */
+export const OPS_REFUSED_NOTE = 'cld:ops-refused';
+export const OPS_REFUSED_TEXT = 'Your last change wasn’t taken: it’s outside what your role may do in this session. The layout was loaded again.';
+
 /**
  * Close codes after which a connection never comes back: retrying can't
  * succeed (and y-websocket would otherwise reconnect with backoff forever).
@@ -132,7 +138,7 @@ function isFinalClose(event: CloseEvent): boolean {
 /** Why a final close ended the layout, for the kept copy's card. */
 function whyEnded(event: CloseEvent): RefusedWhy {
   if (event.reason === MERGE_REFUSED_REASON) return 'merge';
-  if (event.reason === UPDATE_REFUSED_REASON) return 'unreadable';
+  if (event.reason === UPDATE_REFUSED_REASON || event.reason === OPS_REFUSED_REASON) return 'unreadable';
   return event.code === 4404 ? 'gone' : 'signed_out';
 }
 
@@ -483,6 +489,19 @@ export function useLayoutDoc(layoutId: string, canEdit?: boolean): LayoutDocStat
         setSignedOut(true);
         setStatus({ kind: 'offline', lastSyncedAt });
         announceSignInEnded();
+        return;
+      }
+      if (event.code === 1008 && event.reason === OPS_REFUSED_REASON && !unsent) {
+        // A move the session doesn't allow (another job's car, the sheets
+        // while it runs): nothing else waits to be sent, so the layout is
+        // loaded again as the server has it, and the page says why.
+        provider.disconnect();
+        try {
+          window.sessionStorage.setItem(OPS_REFUSED_NOTE, layoutId);
+        } catch {
+          /* no storage: it just loads again */
+        }
+        window.location.reload();
         return;
       }
       if (isFinalClose(event)) {

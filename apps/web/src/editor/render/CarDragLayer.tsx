@@ -10,7 +10,7 @@ import type * as Y from 'yjs';
 import type Konva from 'konva';
 import { Group, Rect } from 'react-konva';
 import type { KonvaEventObject } from 'konva/lib/Node';
-import { placeTrain, startDrag, type CutDrag, type CutMove, type PlacedTrain, type RollingStock, type TrackNetwork, type Train } from '@cld/parts-catalog/browser';
+import { mayMove, mayPut, placeTrain, startDrag, type CutDrag, type CutMove, type OpsReach, type PlacedTrain, type RollingStock, type TrackNetwork, type Train } from '@cld/parts-catalog/browser';
 import type { PartWire } from '../../api';
 import { moveText, writeCutChange } from '../cuts';
 import { useEditorStore } from '../editorStore';
@@ -29,11 +29,32 @@ interface Props {
   states: Readonly<Record<string, number>>;
   partsByKey: ReadonlyMap<string, PartWire>;
   zoom: number;
+  /**
+   * While a session runs: what you may move (opsReach), the session and you,
+   * for its log. A car outside your role's reach isn't moved, and says why.
+   */
+  session?: { reach: OpsReach; id: string; userId: string } | null;
+}
+
+/** Why a move is outside a reach ('' when it isn't): a car you may not take, or a place you may not put it. */
+export function outOfReach(reach: OpsReach, move: CutMove, before: readonly Train[]): string {
+  if (reach.all) return '';
+  const was = new Map(before.map((t) => [t.id, t]));
+  for (const t of move.change.trains) {
+    const had = was.get(t.id);
+    if (had && !mayMove(reach, t.id, had.position)) return reach.why || 'That car is outside your role’s reach in this session.';
+    if (t.position && !mayPut(reach, t.id, t.position)) return 'You can’t take cars there in this session: that track is another role’s.';
+  }
+  for (const id of move.change.emptied) {
+    const had = was.get(id);
+    if (had && !mayMove(reach, id, had.position)) return 'That car is outside your role’s reach in this session.';
+  }
+  return '';
 }
 
 const none: ReadonlyMap<string, PlacedTrain | null> = new Map();
 
-export function CarDragLayer({ doc, net, trains, placed, stock, states, partsByKey, zoom }: Props) {
+export function CarDragLayer({ doc, net, trains, placed, stock, states, partsByKey, zoom, session = null }: Props) {
   const picked = useEditorStore((s) => s.pickedCar);
   const [move, setMove] = useState<CutMove | null>(null);
   const stop = useRef<(() => void) | null>(null);
@@ -53,6 +74,10 @@ export function CarDragLayer({ doc, net, trains, placed, stock, states, partsByK
     const stage = e.target.getStage();
     if (!stage) return;
     e.cancelBubble = true;
+    if (session && !mayMove(session.reach, train.id, train.position)) {
+      useEditorStore.getState().showStatusMessage(session.reach.why || 'That car is outside your role’s reach in this session.', 5000);
+      return;
+    }
     const isPicked = useEditorStore.getState().pickedCar === car;
     const at = (evt: MouseEvent | TouchEvent): { x: number; y: number } => {
       const p = 'touches' in evt ? (evt.touches[0] ?? evt.changedTouches[0])! : evt;
@@ -96,7 +121,14 @@ export function CarDragLayer({ doc, net, trains, placed, stock, states, partsByK
       }
       if (!latest) return;
       const text = moveText(latest, trains, stock);
-      writeCutChange(doc, latest.change);
+      if (session) {
+        const why = outOfReach(session.reach, latest, trains);
+        if (why) {
+          st.showStatusMessage(why, 5000);
+          return;
+        }
+      }
+      writeCutChange(doc, latest.change, Date.now(), session);
       if (text) st.showStatusMessage(text, 4000);
     };
     const onUp = () => end(true);

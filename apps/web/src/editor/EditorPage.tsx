@@ -11,7 +11,8 @@ import { Stage, Layer as KonvaLayer, Circle, Group, Image as KonvaImage, Line, R
 import Konva from 'konva';
 import type { KonvaEventObject } from 'konva/lib/Node';
 import { api, spriteUrlFor, type LayoutSummary, type PartWire } from '../api';
-import { DEMO_WAS_RESET, MERGE_REFUSED, SIGN_IN_TO_OPEN, useLayoutDoc, type LayoutDocState } from './useLayoutDoc';
+import { DEMO_WAS_RESET, MERGE_REFUSED, OPS_REFUSED_NOTE, OPS_REFUSED_TEXT, SIGN_IN_TO_OPEN, useLayoutDoc, type LayoutDocState } from './useLayoutDoc';
+import { roleName, useLiveSessionState } from './sessions';
 import { useModuleDoc } from './useModuleDoc';
 import { ModuleChangedCard } from './ModuleChangedCard';
 import { ShareToCatalogDialog, useCatalogStatus } from '../catalog/ShareToCatalog';
@@ -492,7 +493,31 @@ function Editor({ layoutId, docState, moduleMode }: { layoutId: string; docState
     },
     [layoutId],
   );
-  const isViewer = role === 'viewer' || (viewport.isMobile && !phoneEdit);
+  // An operating session (Live Ops design 4): while one runs the map's
+  // sheets are locked for everyone, and cars and switches are each person's
+  // role's (the server holds everyone to the same, ws/opsGuard.ts).
+  const sessionState = useLiveSessionState(moduleMode ? null : doc, me.data?.user?.id ?? '', layoutId, role === 'owner');
+  const opsMode = !!sessionState?.locked;
+  /** Viewing only, by role or on a phone: what the Live Ops panel and panels like it go by. */
+  const viewOnly = role === 'viewer' || (viewport.isMobile && !phoneEdit);
+  const isViewer = viewOnly || opsMode;
+  useEffect(() => {
+    const st = useEditorStore.getState();
+    const now = sessionState?.running ? { reach: sessionState.reach, id: sessionState.running.id, userId: me.data?.user?.id ?? '', name: sessionState.running.name } : null;
+    if (JSON.stringify(now && { ...now, reach: { ...now.reach, bricks: [...now.reach.bricks], trains: [...now.reach.trains] } }) !== JSON.stringify(st.opsSession && { ...st.opsSession, reach: { ...st.opsSession.reach, bricks: [...st.opsSession.reach.bricks], trains: [...st.opsSession.reach.trains] } })) st.setOpsSession(now);
+    if (now && st.tool !== 'select') st.setTool('select');
+  }, [sessionState, me.data?.user?.id]);
+  useEffect(() => {
+    // A change the session didn't take: the layout was loaded again (useLayoutDoc), say why.
+    try {
+      if (window.sessionStorage.getItem(OPS_REFUSED_NOTE) === layoutId) {
+        window.sessionStorage.removeItem(OPS_REFUSED_NOTE);
+        useEditorStore.getState().showStatusMessage(OPS_REFUSED_TEXT, 8000);
+      }
+    } catch {
+      /* no storage */
+    }
+  }, [layoutId]);
   const [renaming, setRenaming] = useState(false);
   /** Editing on a phone: the touch bar, Undo / Redo and Add part over the map. */
   const touchEditing = viewport.isMobile && !isViewer;
@@ -962,7 +987,8 @@ function Editor({ layoutId, docState, moduleMode }: { layoutId: string; docState
         net={editorTrackNet}
         states={editorSwitchStates}
         view={opsNow}
-        isViewer={isViewer}
+        isViewer={viewOnly}
+        sessions={moduleMode || !sessionState ? null : { state: sessionState, canEdit: role === 'owner' || role === 'editor', userId: me.data?.user?.id ?? '', layoutId }}
         open={opsOpen}
         touch={touch}
         onTrains={() => {
@@ -3177,7 +3203,11 @@ function Canvas({
     if (trainPlacing && !trains.some((t) => t.id === trainPlacing)) useEditorStore.getState().setTrainPlacing(null);
   }, [trainPlacing, trains]);
   // Cars on the track are dragged along it (Live Ops design 2.3).
-  const carsMove = !isViewer && !runMode && !routeDraft && !placingTrain && !placePick && tool === 'select';
+  // (In a running session the map is locked, but your role's cars still move: a viewer crew's too.)
+  const opsSession = useEditorStore((s) => s.opsSession);
+  const opsReachesAny = !!opsSession && (opsSession.reach.all || opsSession.reach.bricks.size > 0 || opsSession.reach.trains.size > 0);
+  const carsMove = (!isViewer || opsReachesAny) && !runMode && !routeDraft && !placingTrain && !placePick && tool === 'select';
+  const opsBanner = opsSession ? `${opsSession.name} running · ${opsSession.reach.role ? `you’re the ${roleName(opsSession.reach.role)}` : 'you’re watching'}` : '';
   /** Putting a train on the track: its front goes where the click is, the rest of it the way more track lies. */
   const onPlaceTrainClick = (e: KonvaEventObject<MouseEvent | TouchEvent>) => {
     if ('button' in e.evt && e.evt.button !== 0) return;
@@ -3250,12 +3280,12 @@ function Canvas({
     }
     // From where it is set now (a running train may have pushed it): the click is the layout's again.
     const exit = nextExit(sw, trackNet.settingOf(sw, shownStates));
+    if (!setSwitch(doc, sw.key, exit === sw.default ? null : exit, useEditorStore.getState().opsSession)) return;
     const r = useRunStore.getState().run;
     if (r) {
       r.dropOverlay(sw.key);
       useRunStore.setState({ states: { ...r.states, [sw.key]: exit } });
     }
-    setSwitch(doc, sw.key, exit === sw.default ? null : exit);
     showStatusMessage(`Switch set: ${legLabel(sw.legs[exit] ?? 'straight')}`, 3000);
   };
   // Placed custom sets whose set changed since (sidecar `sets`, editor/setUpdates.ts).
@@ -5422,7 +5452,7 @@ function Canvas({
             draft={routeDraft ? { ends: [routeDraft.from, ...routeDraft.via, routeDraft.to].filter((p): p is TrackPosition => !!p), route: draftFound && typeof draftFound !== 'string' && routeDraft.from && routeDraft.to ? { steps: draftFound.steps, from: routeDraft.from, to: routeDraft.to } : null } : null}
           />
           <TrainLayer trains={trains} placed={standingTrains} stock={stockById} partsByKey={partsByKey} zoom={zoom} picked={trainPlacing} />
-          {carsMove && <CarDragLayer doc={doc} net={trackNet} trains={trains} placed={placedTrains} stock={stockById} states={switchStates} partsByKey={partsByKey} zoom={zoom} />}
+          {carsMove && <CarDragLayer doc={doc} net={trackNet} trains={trains} placed={placedTrains} stock={stockById} states={switchStates} partsByKey={partsByKey} zoom={zoom} session={opsSession} />}
           {showPlaces && anyPlaces && <PlaceLayer spots={shownSpots} zoom={zoom} />}
           <FitLayer runs={showSidingLengths ? runs : []} checks={checks} spotlight={spotlight} zoom={zoom} />
           {(showSwitches || runMode) && <SwitchLayer net={trackNet} states={shownStates} zoom={zoom} />}
@@ -5602,7 +5632,8 @@ function Canvas({
         />
       )}
       </Suspense>
-      {runMode && <RunModeBanner />}
+      {runMode && !opsBanner && <RunModeBanner />}
+      {opsBanner && <OpsSessionBanner text={opsBanner} />}
       {runMode && <RunPanel doc={doc} trains={runnable} routes={routes} statuses={routeStatuses} placed={placedTrains} scale={trainScale} isViewer={isViewer} top={phone} />}
       {placingTrain && <TrainPlaceBanner name={placingName} />}
       {carsMove && trackNet && <CarBar doc={doc} net={trackNet} trains={trains} stock={stockById} states={switchStates} groups={placeGroups} />}
@@ -5658,7 +5689,7 @@ function Canvas({
           onModulePlaces={(id) => openPlaces({ module: id })}
           onSetSwitch={(it) => {
             const sw = trackNet?.switchAt(it.key);
-            setSwitch(doc, it.key, sw && it.exit === sw.default ? null : it.exit);
+            setSwitch(doc, it.key, sw && it.exit === sw.default ? null : it.exit, useEditorStore.getState().opsSession);
           }}
           selectedRulerId={selectedRulerId}
           onAttachRuler={(which) => {
@@ -7417,6 +7448,21 @@ function TrainPlaceBanner({ name }: { name: string }) {
       <HelpButton helpKey="trains.putOnTrack" />
       <button type="button" onClick={() => useEditorStore.setState({ trainPlacing: null, carsPlacing: null })} className="h-8 rounded px-3 text-xs font-semibold hover:bg-soft">
         Cancel
+      </button>
+    </div>
+  );
+}
+
+/** A session runs (Live Ops design 4.4): who you are in it; the sheets are locked. */
+function OpsSessionBanner({ text }: { text: string }) {
+  return (
+    <div role="status" data-testid="ops-session-banner" className="pointer-events-auto absolute left-1/2 top-3 z-20 flex max-w-[95%] -translate-x-1/2 flex-wrap items-center gap-2 rounded-2xl border border-line bg-panel px-4 py-2 text-sm shadow-pop">
+      <span>
+        <b>{text}.</b> The track is locked while it runs.
+      </span>
+      <HelpButton helpKey="ops.roles" />
+      <button type="button" onClick={() => openLiveOps({ tab: 'session' })} className="h-8 rounded-control bg-accent px-3 text-xs font-bold text-accent-ink hover:bg-accent-hover">
+        Session
       </button>
     </div>
   );

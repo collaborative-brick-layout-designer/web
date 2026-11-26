@@ -27,6 +27,9 @@ const CARS = [
   { id: 'c2', number: '102', length: 20, trucks: [{ at: 5, swivelMax: 30 }, { at: -5, swivelMax: 30 }], opsCut: 'ct-1', opsHold: true },
 ];
 const WAYBILLS = [{ id: 'wb-1', car: 'c1', from: 'pl-1', leg: 1, to1: 'pl-2', spot1: '', load1: 'loaded', note1: 'Ice first', to2: 'pl-1', spot2: '', load2: 'empty', note2: '' }];
+// An ended session and its log (Live Ops design 2.5): they go along with the layout, as they were.
+const SESSIONS = [{ id: 'os-1', name: 'Session 1 — Nov 22', status: 'ended', seed: 7, layout: 'old', host: 'sam', crew: [{ userId: '', name: 'Guest 1', role: 'crew', places: [], job: 'jb-1' }], clockFast: 4, clockStart: '06:00', startedAt: 1.7e12, endedAt: 1.7e12 + 3600e3, start: null }];
+const LOG = [{ id: 'log-1', session: 'os-1', at: 1.7e12 + 60e3, by: 'sam', kind: 'move', what: 'ct-1', from: null, to: { brick: '222', from: 0, to: 1, s: 4, facing: 'to' }, note: '' }];
 const JOBS = [{ id: 'jb-1', name: 'Cannery Turn', kind: 'turn', train: '', order: 1, stop_a: { place: 'pl-1', at: 1 }, stop_b: { place: 'pl-2', at: 2 } }];
 const CUTS = [
   { id: 'ct-1', name: '', cut: true, units: [{ stock: 'c1', reversed: false }, { stock: 'c2', reversed: true }], position: { brick: '222', from: 0, to: 1, s: 4, facing: 'to' }, over: { '222/0': 1 }, color: '#B40000', speed: 40, trackKind: 'rail' },
@@ -62,6 +65,8 @@ test('a member downloads a backup of their things and restores what they lost', 
       trains: CUTS,
       waybills: WAYBILLS,
       opsJobs: JOBS,
+      opsSessions: SESSIONS,
+      opsLog: LOG,
     }),
   });
   await post('/api/layouts', { title: `Harbor ${ts}` });
@@ -135,6 +140,8 @@ test('a member downloads a backup of their things and restores what they lost', 
     expect(records(doc, 'trains')).toEqual(byId(CUTS));
     expect(records(doc, 'waybills')).toEqual(byId(WAYBILLS));
     expect(records(doc, 'opsJobs')).toEqual(byId(JOBS));
+    expect(records(doc, 'opsSessions')).toEqual(byId(SESSIONS));
+    expect(records(doc, 'opsLog')).toEqual(byId(LOG));
   }
   const cornerCopy = library.find((m) => m.title === `Corner ${ts} (restored)`)!;
   expect(placesIn(await docOf(`/api/modules/${cornerCopy.id}/snapshot`))).toEqual({ 'pl-3': place('pl-3', 'Corner mill') });

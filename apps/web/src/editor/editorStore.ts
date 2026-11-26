@@ -1,4 +1,4 @@
-import type { TrackPosition } from '@cld/parts-catalog/browser';
+import type { OpsReach, TrackPosition } from '@cld/parts-catalog/browser';
 // Local-only editor state. Selection, current tool, viewport pan/zoom.
 // Phase 4 will project a slim subset of this to Yjs awareness so other
 // users can see "alice is hovering on this brick"; in Phase 3 it stays
@@ -310,6 +310,13 @@ export interface EditorState {
   /** The car picked on the map, or null. */
   pickedCar: string | null;
   setPickedCar: (id: string | null) => void;
+  /**
+   * The operating session that runs (Live Ops design 4): what you may move
+   * and flip, its id and you (for its log). Null when none runs: then the
+   * map is the editor's as always.
+   */
+  opsSession: { reach: OpsReach; id: string; userId: string; name: string } | null;
+  setOpsSession: (s: { reach: OpsReach; id: string; userId: string; name: string } | null) => void;
   /** Stamp export watermark on canvas export (`export/watermark`). */
   showExportWatermark: boolean;
   /** Module label font size percent (`view/moduleLabelPercent`). */
@@ -552,6 +559,7 @@ export const useEditorStore = create<EditorState>((set) => ({
   trainPlacing: null,
   carsPlacing: null,
   pickedCar: null,
+  opsSession: null,
   showExportWatermark: localStorage.getItem('cld:showExportWatermark') === 'true',
   // Desktop `view/moduleLabelPercent`: % of the module's long axis,
   // 5..100, default 35. New storage key — the old one held a different,
@@ -683,6 +691,7 @@ export const useEditorStore = create<EditorState>((set) => ({
   setPlacePick: (p) => set(p ? { placePick: p, routeDraft: null, trainPlacing: null, carsPlacing: null, pickedCar: null, runMode: false, selection: [], tool: 'select' } : { placePick: null }),
   setSpotlight: (p) => set({ spotlight: p ? { ...p, at: Date.now() } : null }),
   // Run mode starts with nothing picked, so no edit key acts on parts.
+  setOpsSession: (opsSession) => set({ opsSession }),
   setRunMode: (v) => set(v ? { runMode: true, placePick: null, routeDraft: null, trainPlacing: null, carsPlacing: null, pickedCar: null, selection: [], tool: 'select' } : { runMode: false }),
   setRouteDraft: (d) => set(d ? { routeDraft: d, placePick: null, runMode: false, trainPlacing: null, carsPlacing: null, pickedCar: null, selection: [], tool: 'select' } : { routeDraft: null }),
   setTrainPlacing: (id) => set(id ? { trainPlacing: id, carsPlacing: null, pickedCar: null, placePick: null, routeDraft: null, runMode: false, selection: [], tool: 'select' } : { trainPlacing: null }),

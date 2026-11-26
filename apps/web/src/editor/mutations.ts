@@ -27,7 +27,9 @@ import {
 } from '@cld/ydoc';
 import { moduleCopy } from './moduleCopy';
 import { LOCAL_ORIGIN } from './useLayoutDoc';
-import { imageOffset } from '@cld/parts-catalog/browser';
+import { imageOffset, mayFlip, type OpsReach } from '@cld/parts-catalog/browser';
+import { writeLog } from './sessions';
+import { useEditorStore } from './editorStore';
 import { areaForPivot, connectionWorld, pivotOf, rotateAroundPivots, rotated, type PartGeom } from './brickGeometry';
 import { connectedTurn, type TurnBrick } from './rotateTurn';
 import { cloneGroups, topGroupId, type ExpandedSet, type SetModule } from './sets';
@@ -3074,10 +3076,19 @@ function bricksInDoc(doc: Y.Doc): Set<string> {
  * in Run mode too (Aaron, 2026-11-19). Keys of parts no longer on the map
  * are dropped as it writes.
  */
-export function setSwitch(doc: Y.Doc, key: string, exit: number | null): void {
+export function setSwitch(doc: Y.Doc, key: string, exit: number | null, session: { reach: OpsReach; id: string; userId: string } | null = null): boolean {
+  // While a session runs: only the switches your role reaches, logged; and
+  // no tidying of other keys (they aren't yours to change then).
+  if (session && !mayFlip(session.reach, key)) {
+    useEditorStore.getState().showStatusMessage(session.reach.why || 'That switch is another role’s in this session: the dispatcher sets the main line.', 5000);
+    return false;
+  }
+  const was = readSwitchStatesFromDoc(doc)[key] ?? null;
   doc.transact(() => {
-    writeSwitchStates(doc, { [key]: exit }, bricksInDoc(doc));
+    writeSwitchStates(doc, { [key]: exit }, session ? undefined : bricksInDoc(doc));
+    if (session) writeLog(doc, session.id, session.userId, 'switch', key, was, exit);
   }, LOCAL_ORIGIN);
+  return true;
 }
 
 /** Several switches at once, as one undo step (a route's Set switches). */
