@@ -3280,7 +3280,11 @@ function Canvas({
     }
     // From where it is set now (a running train may have pushed it): the click is the layout's again.
     const exit = nextExit(sw, trackNet.settingOf(sw, shownStates));
-    if (!setSwitch(doc, sw.key, exit === sw.default ? null : exit, useEditorStore.getState().opsSession)) return;
+    const refused = setSwitch(doc, sw.key, exit === sw.default ? null : exit, useEditorStore.getState().opsSession);
+    if (refused) {
+      showStatusMessage(refused, 5000);
+      return;
+    }
     const r = useRunStore.getState().run;
     if (r) {
       r.dropOverlay(sw.key);
@@ -5689,7 +5693,8 @@ function Canvas({
           onModulePlaces={(id) => openPlaces({ module: id })}
           onSetSwitch={(it) => {
             const sw = trackNet?.switchAt(it.key);
-            setSwitch(doc, it.key, sw && it.exit === sw.default ? null : it.exit, useEditorStore.getState().opsSession);
+            const refused = setSwitch(doc, it.key, sw && it.exit === sw.default ? null : it.exit, useEditorStore.getState().opsSession);
+            if (refused) useEditorStore.getState().showStatusMessage(refused, 5000);
           }}
           selectedRulerId={selectedRulerId}
           onAttachRuler={(which) => {

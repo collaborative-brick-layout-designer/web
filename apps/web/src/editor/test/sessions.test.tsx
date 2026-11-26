@@ -12,7 +12,6 @@ import networkFile from '../../../../../fixtures/contracts/route-search.json?raw
 import { ensureRecordMaps, OPS_JOBS_KEY, OPS_LOG_KEY, OPS_SESSIONS_KEY, readRecordsFromDoc, readSwitchStatesFromDoc, TRAINS_KEY, writeRecord } from '@cld/ydoc';
 import { asStock, startDrag, TrackNetwork } from '@cld/parts-catalog/browser';
 import { putCarsOnTrack, readStanding, writeCutChange } from '../cuts';
-import { useEditorStore } from '../editorStore';
 import { setSwitch } from '../mutations';
 import { outOfReach } from '../render/CarDragLayer';
 import { bannerText, crewMember, endSession, newSession, nextSession, pauseSession, readSessionState, setJobStatus, setSession, startSession } from '../sessions';
@@ -96,10 +95,9 @@ describe('outside your role’s reach', () => {
     startSession(doc, id, 'alice', 'lay-1');
     setJobStatus(doc, 'j1', 'out', id, 'alice');
     const reach = readSessionState(doc, 'vic', 'lay-1', false).reach;
-    useEditorStore.setState({ statusMessage: null } as never);
-    expect(setSwitch(doc, 'OTHER/0', 1, { reach, id, userId: 'vic' })).toBe(false);
+    expect(setSwitch(doc, 'OTHER/0', 1, { reach, id, userId: 'vic' })).toMatch(/dispatcher sets the main line/);
     expect(readSwitchStatesFromDoc(doc)['OTHER/0']).toBeUndefined();
-    expect(setSwitch(doc, 'M/0', 1, { reach, id, userId: 'vic' })).toBe(true);
+    expect(setSwitch(doc, 'M/0', 1, { reach, id, userId: 'vic' })).toBe('');
     expect(readSwitchStatesFromDoc(doc)).toEqual({ 'GONE/0': 1, 'M/0': 1 });
     expect(readRecordsFromDoc(doc, OPS_LOG_KEY).filter((e) => e.kind === 'switch')).toMatchObject([{ what: 'M/0', by: 'vic' }]);
   });
