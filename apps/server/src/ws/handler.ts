@@ -385,7 +385,7 @@ export function handleMessage(
           // Nothing a viewer sends is held back or worked out later: it is
           // checked now, against the layout as it is, or dropped.
           if (!decoded) return;
-          const bad = opsProblem(session.doc, decoded, session.layoutId, opsSender(ws, session, sender, role));
+          const bad = opsProblem(session.doc, decoded, session.layoutId, opsSender(ws, session, sender, role), update);
           if (bad === VIEWER_DROPPED) return;
           if (bad !== null) {
             refuseOps(ws, session, sender, update.length, bad);
@@ -459,7 +459,7 @@ function takeUpdate(ws: WebSocket, session: DocSession, sender: Sender, update: 
         return false;
       }
     } else {
-      const bad = opsProblem(session.doc, decoded, session.layoutId, opsSender(ws, session, sender, role));
+      const bad = opsProblem(session.doc, decoded, session.layoutId, opsSender(ws, session, sender, role), update);
       if (bad !== null) {
         refuseOps(ws, session, sender, update.length, bad);
         return false;

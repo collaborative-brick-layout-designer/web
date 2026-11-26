@@ -543,23 +543,58 @@ export function noteClaims(decoded: DecodedUpdate, who: OpsSender): void {
   for (const c of decoded.byClient.keys()) if (!who.claims.has(c)) who.claims.set(c, who.userId);
 }
 
+/** Field names a session gates (cars, cuts, switches, the log and sessions): a throw on an update naming one refuses it. */
+const GATED_NAMES = [TRAINS_KEY, ROLLING_STOCK_KEY, SWITCH_STATES_KEY, OPS_LOG_KEY, OPS_SESSIONS_KEY, 'opsCut', ...MOVE_FIELDS, 'cut', ...CHECKED_FIELDS];
+
 /**
- * opsProblem, refusing when it throws, for a viewer or while a session
- * runs (a check that can't finish says no). For an editor with no session
- * running it lets the update through: only the log's and sessions' own
- * fields were left to check, and a broken check mustn't stop every edit.
+ * Whether an update may touch what a session gates, worked out plainly
+ * (used when the guard itself failed): each new struct's keys up to its
+ * root, from the room's items it hangs on; one that can't be told counts as
+ * gated, and so does any update while the layout has a session record.
  */
-export function opsProblemSafe(doc: Y.Doc, decoded: DecodedUpdate, layoutId: string, who: OpsSender): string | null {
+export function mayTouchGated(doc: Y.Doc, decoded: DecodedUpdate, update: Uint8Array): boolean {
+  const sessions = liveMap(doc, OPS_SESSIONS_KEY);
+  if (sessions && sessions.size > 0) return true;
+  const b = Buffer.from(update.buffer, update.byteOffset, update.byteLength);
+  if (GATED_NAMES.some((n) => b.includes(n))) return true;
+  const gatedPath = (keys: readonly (string | null)[]) => keys.some((k) => k !== null && GATED_NAMES.includes(k));
+  for (const s of decoded.structs) {
+    if (!(s instanceof Y.Item)) continue;
+    if (s.id.clock + s.length <= Y.getState(doc.store, s.id.client)) continue;
+    if (s.parentSub !== null && GATED_NAMES.includes(s.parentSub)) return true;
+    if (typeof s.parent === 'string') continue;
+    const ref = s.parent !== null ? (s.parent as unknown as Y.ID) : (s.origin ?? s.rightOrigin);
+    const hang = ref ? roomItem(doc, ref) : null;
+    if (!hang) return true;
+    const keys: (string | null)[] = [];
+    let at: Y.Item | null = hang;
+    for (let depth = 0; at && depth < 64; depth++) {
+      keys.push(at.parentSub);
+      const parent = at.parent as Y.AbstractType<unknown> | null;
+      at = parent?._item ?? null;
+    }
+    if (gatedPath(keys)) return true;
+  }
+  return false;
+}
+
+/**
+ * opsProblem, refusing when it throws (a check that can't finish says
+ * no), and saying so in the log. Only an editor's update that can't touch
+ * anything a session gates (mayTouchGated) is let through then: a broken
+ * check mustn't stop every edit of a layout with no sessions.
+ */
+export function opsProblemSafe(doc: Y.Doc, decoded: DecodedUpdate, layoutId: string, who: OpsSender, update?: Uint8Array): string | null {
   try {
     return opsProblem(doc, decoded, layoutId, who);
   } catch (err) {
-    let runs = true;
+    console.error(`[ws] the session guard failed on an update to layout ${layoutId} from user ${who.userId}: ${String(err)}`);
+    let gated = true;
     try {
-      runs = sessionRuns(doc);
+      gated = who.role === 'viewer' || !update || mayTouchGated(doc, decoded, update);
     } catch {
       /* can't tell: refuse */
     }
-    if (who.role === 'viewer' || runs) return `it can’t be checked against the running session (${String(err).slice(0, 80)})`;
-    return null;
+    return gated ? `it can’t be checked against the operating sessions (${String(err).slice(0, 80)})` : null;
   }
 }

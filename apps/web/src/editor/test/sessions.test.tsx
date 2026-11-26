@@ -37,17 +37,17 @@ function layout(): Y.Doc {
   });
   return doc;
 }
-const sessionOf = (doc: Y.Doc) => readRecordsFromDoc(doc, OPS_SESSIONS_KEY)[0]!;
+const sessionOf = (doc: Y.Doc, id?: string) => readRecordsFromDoc(doc, OPS_SESSIONS_KEY).find((s) => !id || s.id === id)!;
 
 describe('a session, from setting up to the next one', () => {
   it('starts with you as its host and the cars as they stood; pauses; ends leaving the cars, or putting them back', () => {
     for (const back of [false, true]) {
       const doc = layout();
-      const id = newSession(doc, null, Date.UTC(2026, 10, 22));
+      const id = newSession(doc, null, Date.UTC(2026, 10, 22, 12));
       expect(sessionOf(doc)).toMatchObject({ status: 'setup', name: 'Session 1 — Nov 22', crew: [] });
       setSession(doc, id, { crew: [crewMember('vic', 'Vic', 'crew')] });
       expect(startSession(doc, id, 'alice', 'lay-1')).toBeNull();
-      expect(sessionOf(doc)).toMatchObject({ status: 'running', host: 'alice', layout: 'lay-1' });
+      expect(sessionOf(doc, id)).toMatchObject({ status: 'running', host: 'alice', layout: 'lay-1' });
       const was = readStanding(doc).trains.map((t) => [t.id, t.position]);
       // A second session can't start while one runs.
       const other = newSession(doc);
@@ -64,7 +64,7 @@ describe('a session, from setting up to the next one', () => {
       pauseSession(doc, id, 'alice');
       expect(readSessionState(doc, 'alice', 'lay-1', false).locked).toBe(false);
       endSession(doc, id, 'alice', back);
-      expect(sessionOf(doc).status).toBe('ended');
+      expect(sessionOf(doc, id).status).toBe('ended');
       const now = readStanding(doc).trains.filter((t) => t.units.length > 0).map((t) => [t.id, t.position]);
       if (back) expect(now).toEqual(was);
       else expect(now).not.toEqual(was);
@@ -83,7 +83,7 @@ describe('a session, from setting up to the next one', () => {
     setJobStatus(doc, 'j1', 'out', id, 'alice');
     const vic = readSessionState(doc, 'vic', 'lay-1', false);
     expect([...vic.reach.bricks]).toEqual(['M']);
-    expect(readRecordsFromDoc(doc, OPS_LOG_KEY).at(-1)).toMatchObject({ kind: 'job', what: 'j1', to: 'out', by: 'alice' });
+    expect(readRecordsFromDoc(doc, OPS_LOG_KEY).filter((e) => e.kind === 'job')).toMatchObject([{ what: 'j1', to: 'out', by: 'alice' }]);
   });
 });
 
@@ -101,7 +101,7 @@ describe('outside your role’s reach', () => {
     expect(readSwitchStatesFromDoc(doc)['OTHER/0']).toBeUndefined();
     expect(setSwitch(doc, 'M/0', 1, { reach, id, userId: 'vic' })).toBe(true);
     expect(readSwitchStatesFromDoc(doc)).toEqual({ 'GONE/0': 1, 'M/0': 1 });
-    expect(readRecordsFromDoc(doc, OPS_LOG_KEY).at(-1)).toMatchObject({ kind: 'switch', what: 'M/0', by: 'vic' });
+    expect(readRecordsFromDoc(doc, OPS_LOG_KEY).filter((e) => e.kind === 'switch')).toMatchObject([{ what: 'M/0', by: 'vic' }]);
   });
 
   it('a car standing elsewhere, or put elsewhere, is a move outside the reach', () => {
@@ -112,7 +112,7 @@ describe('outside your role’s reach', () => {
     const reach = readSessionState(doc, 'yan', 'lay-1', false).reach;
     const { trains, stock } = readStanding(doc);
     const m = startDrag(net, trains, stock, {}, trains[0]!.id, 0, 'new')!.to({ x: 10, y: 0 });
-    expect(outOfReach(reach, m, trains)).toMatch(/reach/);
+    expect(outOfReach(reach, m, trains)).toMatch(/nothing to move/);
     expect(outOfReach(readSessionState(doc, 'alice', 'lay-1', false).reach, m, trains)).toBe('');
     void TRAINS_KEY;
   });

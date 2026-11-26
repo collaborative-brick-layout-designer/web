@@ -15,7 +15,7 @@ import { createDefaultLayoutDoc, ensureRecordMaps, importSidecarIntoDoc, OPS_JOB
 import { DocSession } from './docHub.js';
 import { handleMessage, OPS_REFUSED_REASON, type Sender } from './handler.js';
 import { newPace, resetCopyBudgets } from './pacing.js';
-import { opsProblemSafe } from './opsGuard.js';
+import { opsProblemSafe, VIEWER_DROPPED } from './opsGuard.js';
 import { decodeIncoming } from './decoded.js';
 
 beforeAll(() => {
@@ -468,7 +468,7 @@ describe('how a viewer’s update arrives', () => {
     refusedWhole(r, vic, (d) => rec(d, TRAINS_KEY, 'cut-can').set('position', pos('B-can', 2)));
   });
 
-  it('growth: a log entry too big, or more entries than the limit', () => {
+  it('growth: a log entry too big', () => {
     const r = room();
     const before = json(r.doc);
     const why = r.person('vic', 'viewer').edit((d) => (meta(d).get(OPS_LOG_KEY) as Y.Map<unknown>).set('log-2', logEntry('log-2', 'vic', { note: 'x'.repeat(5000) })));
@@ -476,17 +476,47 @@ describe('how a viewer’s update arrives', () => {
     expect(json(r.doc)).toBe(before);
   });
 
-  it('a check that throws refuses (for a viewer, or while a session runs)', () => {
-    const r = room();
-    const vic = r.person('vic', 'viewer');
-    const sv = Y.encodeStateVector(vic.d);
-    vic.d.transact(() => move(vic.d));
-    const decoded = decodeIncoming(Y.encodeStateAsUpdate(vic.d, sv))!;
+  it('a check that throws refuses, but for an editor’s update that can’t touch anything a session gates', () => {
     const boom = () => {
       throw new Error('boom');
     };
-    expect(opsProblemSafe(r.doc, decoded, LAYOUT, { userId: 'vic', role: 'viewer', crew: true, ownsClient: boom, claims: new Map() })).toMatch(/can’t be checked/);
-    expect(opsProblemSafe(r.doc, decoded, LAYOUT, { userId: 'ed', role: 'editor', crew: false, ownsClient: boom, claims: new Map() })).not.toBeNull();
+    const who = (role: 'viewer' | 'editor') => ({ userId: role === 'viewer' ? 'vic' : 'ed', role, crew: role === 'viewer', ownsClient: boom, claims: new Map<number, string>() });
+    const upd = (doc: Y.Doc, fn: (d: Y.Doc) => void) => {
+      const d = new Y.Doc();
+      Y.applyUpdate(d, Y.encodeStateAsUpdate(doc));
+      const sv = Y.encodeStateVector(d);
+      d.transact(() => fn(d));
+      const u = Y.encodeStateAsUpdate(d, sv);
+      return { u, decoded: decodeIncoming(u)! };
+    };
+    const verdict = (doc: Y.Doc, role: 'viewer' | 'editor', fn: (d: Y.Doc) => void) => {
+      const { u, decoded } = upd(doc, fn);
+      // (The guard's own work throws: a client id check, which every update in a running session or from a viewer reaches; elsewhere a struct read.)
+      const thrower = new Proxy(decoded, { get: (t, k) => (k === 'overlapping' ? boom() : (t as never)[k]) });
+      return opsProblemSafe(doc, thrower, LAYOUT, who(role), u);
+    };
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    // With sessions: everything refuses, a viewer's too.
+    const r = room();
+    expect(verdict(r.doc, 'viewer', move)).toMatch(/can’t be checked/);
+    expect(verdict(r.doc, 'editor', (d) => rec(d, WAYBILLS_KEY, 'w1').set('to1', 'pl-can'))).toMatch(/can’t be checked/);
+    // No session records: an editor's edit of something else goes through; one naming the gated keys doesn't.
+    const plain = room();
+    plain.doc.transact(() => (plain.doc.getMap('meta').get(OPS_SESSIONS_KEY) as Y.Map<unknown>).delete('s1'));
+    expect(verdict(plain.doc, 'editor', (d) => rec(d, WAYBILLS_KEY, 'w1').set('to1', 'pl-can'))).toBeNull();
+    expect(verdict(plain.doc, 'editor', (d) => meta(d).set('title', 'Mine'))).toBeNull();
+    const gated = [
+      (d: Y.Doc) => rec(d, TRAINS_KEY, 'cut-can').set('position', pos('B-can', 2)),
+      (d: Y.Doc) => rec(d, ROLLING_STOCK_KEY, 'car1').set('opsCut', ''),
+      (d: Y.Doc) => (meta(d).get(SWITCH_STATES_KEY) as Y.Map<number>).set('B-can/0', 1),
+      (d: Y.Doc) => (meta(d).get(OPS_LOG_KEY) as Y.Map<unknown>).set('log-9', logEntry('log-9', 'ed')),
+      (d: Y.Doc) => (meta(d).get(OPS_SESSIONS_KEY) as Y.Map<unknown>).set('s9', new Y.Map(Object.entries(session('s9', 'setup')))),
+    ];
+    expect(gated.map((fn) => /can’t be checked/.test(verdict(plain.doc, 'editor', fn) ?? ''))).toEqual(gated.map(() => true));
+    // (A viewer in no session's crew is dropped before anything that could throw.)
+    expect(verdict(plain.doc, 'viewer', (d) => meta(d).set('title', 'Mine'))).toBe(VIEWER_DROPPED);
+    expect(err).toHaveBeenCalled();
+    err.mockRestore();
   });
 });
 
