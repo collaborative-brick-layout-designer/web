@@ -50,7 +50,7 @@ import { COPY_BUDGET_SPENT, checkGridSizesDecoded, heldValueProblem } from './gr
 import { backgroundUrlProblem } from './backgroundGuard.js';
 import { memberKeyProblem } from './memberGuard.js';
 import { PLACES_COPY_BUDGET_SPENT, placesProblem } from './placesGuard.js';
-import { noteClaims, opsProblemSafe as opsProblem, sessionRuns as opsRuns, type OpsSender } from './opsGuard.js';
+import { VIEWER_DROPPED, noteClaims, opsProblemSafe as opsProblem, sessionRuns as opsRuns, type OpsSender } from './opsGuard.js';
 import { readSidecarCache } from '@cld/ydoc';
 import { sharedModulesIn } from '@cld/modules';
 import { LOCK_COPY_BUDGET_SPENT, LOCK_NOT_PUT_BACK, repairShared, sharedLockCheck, type LockBreak } from './sharedGuard.js';
@@ -386,6 +386,7 @@ export function handleMessage(
           // checked now, against the layout as it is, or dropped.
           if (!decoded) return;
           const bad = opsProblem(session.doc, decoded, session.layoutId, opsSender(ws, session, sender, role));
+          if (bad === VIEWER_DROPPED) return;
           if (bad !== null) {
             refuseOps(ws, session, sender, update.length, bad);
             return;

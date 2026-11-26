@@ -230,7 +230,20 @@ describe('a viewer in the running session’s crew', () => {
   it('a crew whose job isn’t out, and someone not in the crew, move nothing', () => {
     const r = room();
     refusedWhole(r, r.person('wes', 'viewer'), (d) => (meta(d).get(SWITCH_STATES_KEY) as Y.Map<number>).set('B-yard1/0', 1));
-    refusedWhole(r, r.person('zed', 'viewer'), (d) => rec(d, TRAINS_KEY, 'cut-can').set('position', pos('B-can', 4)));
+    // Someone not in the crew: dropped, as any viewer's edit was before sessions.
+    const before = json(r.doc);
+    expect(r.person('zed', 'viewer').edit((d) => rec(d, TRAINS_KEY, 'cut-can').set('position', pos('B-can', 4)))).toBe('');
+    expect(json(r.doc)).toBe(before);
+  });
+
+  it('joining (a sync step 2 with nothing new) is never refused, for a viewer or an editor, while a session runs', () => {
+    const r = room();
+    for (const [who, role] of [['vic', 'viewer'], ['zed', 'viewer'], ['ed', 'editor'], ['alice', 'owner']] as const) {
+      const p = r.person(who, role);
+      const before = json(r.doc);
+      expect(p.sendBytes(Y.encodeStateAsUpdate(p.d))).toBe('');
+      expect(json(r.doc)).toBe(before);
+    }
   });
 
   it('nothing else: track, modules, places, waybills, jobs, sessions, layout settings, a car’s other fields, a nearby key', () => {
@@ -292,14 +305,14 @@ describe('when the session isn’t running, or the role is gone', () => {
     }
   });
 
-  it('a write made while it ran, landing after it ended or the role went, is refused', () => {
-    for (const end of [
-      (d: Y.Doc) => rec(d, OPS_SESSIONS_KEY, 's1').set('status', 'ended'),
-      (d: Y.Doc) => rec(d, OPS_SESSIONS_KEY, 's1').set('status', 'paused'),
-      (d: Y.Doc) => rec(d, OPS_SESSIONS_KEY, 's1').set('crew', CREW.filter((c) => c.userId !== 'vic')),
-      (d: Y.Doc) => rec(d, OPS_JOBS_KEY, 'j1').set('status', 'done'),
-      (d: Y.Doc) => rec(d, OPS_SESSIONS_KEY, 's1').set('layout', 'another'),
-    ]) {
+  it('a write made while it ran, landing after it ended or the role went, is refused (dropped, once they are out of every crew)', () => {
+    for (const [end, why] of [
+      [(d: Y.Doc) => rec(d, OPS_SESSIONS_KEY, 's1').set('status', 'ended'), OPS_REFUSED_REASON],
+      [(d: Y.Doc) => rec(d, OPS_SESSIONS_KEY, 's1').set('status', 'paused'), OPS_REFUSED_REASON],
+      [(d: Y.Doc) => rec(d, OPS_SESSIONS_KEY, 's1').set('crew', CREW.filter((c) => c.userId !== 'vic')), ''],
+      [(d: Y.Doc) => rec(d, OPS_JOBS_KEY, 'j1').set('status', 'done'), OPS_REFUSED_REASON],
+      [(d: Y.Doc) => rec(d, OPS_SESSIONS_KEY, 's1').set('layout', 'another'), OPS_REFUSED_REASON],
+    ] as const) {
       const r = room();
       const vic = r.person('vic', 'viewer');
       // Vic's edit, made on their copy, not yet sent.
@@ -308,8 +321,9 @@ describe('when the session isn’t running, or the role is gone', () => {
       const queued = Y.encodeStateAsUpdate(vic.d, sv);
       expect(r.person('alice', 'owner').edit(end)).toBe('');
       const before = json(r.doc);
-      expect(vic.sendBytes(queued)).toBe(OPS_REFUSED_REASON);
+      expect(vic.sendBytes(queued)).toBe(why);
       expect(json(r.doc)).toBe(before);
+      expect(reopened(r.doc)).toBe(before);
     }
   });
 
@@ -389,15 +403,16 @@ describe('how a viewer’s update arrives', () => {
     b.clientID = vic.d.clientID;
     Y.applyUpdate(b, Y.encodeStateAsUpdate(r.doc));
     const sva = Y.encodeStateVector(a);
-    a.transact(() => move(a));
-    b.transact(() => rec(b, WAYBILLS_KEY, 'w1').set('to1', 'pl-can'));
+    // (New keys only: no deletions, so each update is one client's block and an empty delete set.)
+    a.transact(() => (meta(a).get(SWITCH_STATES_KEY) as Y.Map<number>).set('B-can/0', 1));
+    b.transact(() => rec(b, WAYBILLS_KEY, 'w1').set('to3', 'pl-can'));
     const ua = Y.encodeStateAsUpdate(a, sva);
     const ub = Y.encodeStateAsUpdate(b, sva);
     // One update carrying both blocks of one client at the same clock.
     const x = ua.subarray(1, ua.length - 1);
     const y = ub.subarray(1, ub.length - 1);
     for (const u of [new Uint8Array([2, ...x, ...y, 0]), new Uint8Array([2, ...y, ...x, 0])]) {
-      if (!decodeIncoming(u)?.overlapping) continue;
+      expect(decodeIncoming(u)?.overlapping).toBe(true);
       const before = json(r.doc);
       expect(vic.sendBytes(u)).toBe(OPS_REFUSED_REASON);
       expect(json(r.doc)).toBe(before);

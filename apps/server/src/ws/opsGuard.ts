@@ -42,6 +42,9 @@ import { asJob, asSession, mayFlip, mayMove, mayPut, opsReach, reachPlaces, runn
 import { findStruct, type DecodedUpdate } from './decoded.js';
 import { pendingMayLand } from './pending.js';
 
+/** opsProblem's answer for a viewer's update that is simply dropped, as any viewer's was before sessions: not in a running session's crew, or nothing new in it. */
+export const VIEWER_DROPPED = 'a viewer’s update, dropped';
+
 /** Who sends an update, as the guard needs it. */
 export interface OpsSender {
   userId: string;
@@ -279,10 +282,14 @@ export function opsProblem(doc: Y.Doc, decoded: DecodedUpdate, layoutId: string,
   const touchesOps = viewer || runs || mayTouchLogOrSessions(doc, decoded);
   if (!touchesOps) return null;
   const sessionsLive = runs || roomSessions(doc).some((x) => x.status === 'paused');
-  if (viewer && !who.crew) return 'a viewer can’t change the layout';
-  if (viewer && !runs) return 'a viewer can’t change the layout when no session is running';
-  if ((viewer || runs) && pendingMayLand(doc, decoded)) return 'it may bring in changes the layout holds back, while a session runs';
+  // A viewer is dropped silently, as before sessions, unless they are named
+  // in a session's crew (their app then loads the layout again on a refusal).
+  if (viewer && !who.crew) return VIEWER_DROPPED;
+  if (viewer && !roomSessions(doc).some((x) => x.crew.some((c) => c.userId !== '' && c.userId === who.userId))) return VIEWER_DROPPED;
   const placed = place(doc, decoded, viewer || sessionsLive);
+  // Nothing new (an app's sync step 2 on joining): nothing to check; a viewer's is dropped, as any viewer's.
+  if (placed.structs.length === 0 && placed.deletes.length === 0 && !placed.unknown && (viewer || sessionsLive)) return viewer ? VIEWER_DROPPED : null;
+  if ((viewer || runs) && pendingMayLand(doc, decoded)) return 'it may bring in changes the layout holds back, while a session runs';
   // (An editor's change that waits for others can't be read here: one that names a log entry's or a session's checked fields is refused.)
   if (placed.unknown && !viewer && !runs && decoded.structs.some((s) => s instanceof Y.Item && s.parentSub !== null && CHECKED_FIELDS.has(s.parentSub) && !s.deleted)) return 'it writes a log entry or a session that can’t be checked (it depends on changes the layout doesn’t have)';
   if (placed.unknown && (viewer || runs)) return 'it can’t be checked against the running session (it depends on changes the layout doesn’t have)';
@@ -290,6 +297,7 @@ export function opsProblem(doc: Y.Doc, decoded: DecodedUpdate, layoutId: string,
   const sessions = roomSessions(doc);
   const running = runningSessions(sessions);
   const reach = runs || viewer ? roomReach(doc, layoutId, who.userId, who.role === 'owner') : null;
+  if (viewer && !runs) return 'a viewer can’t change the layout when no session is running';
   const free = !!reach && reach.role === 'host';
   const trains = liveMap(doc, TRAINS_KEY);
   const stock = liveMap(doc, ROLLING_STOCK_KEY);

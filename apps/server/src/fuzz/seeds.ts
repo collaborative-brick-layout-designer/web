@@ -21,9 +21,9 @@ import { readFileSync } from 'node:fs';
 import * as Y from 'yjs';
 import * as encoding from 'lib0/encoding';
 import * as syncProtocol from 'y-protocols/sync';
-import { deleteRecord, OPS_JOBS_KEY, PLACES_KEY, ROLLING_STOCK_KEY, TRAINS_KEY, WAYBILLS_KEY, writePlace, writeRecord } from '@cld/ydoc';
+import { deleteRecord, OPS_JOBS_KEY, OPS_LOG_KEY, OPS_SESSIONS_KEY, PLACES_KEY, ROLLING_STOCK_KEY, SWITCH_STATES_KEY, TRAINS_KEY, WAYBILLS_KEY, writePlace, writeRecord } from '@cld/ydoc';
 import { fromHex, fuzzData, updateGuardContract } from './common.js';
-import { SHARED_ROOM, convertShape, encodeRoomInput, roomStates } from './room.js';
+import { SESSION_ROOM, SHARED_ROOM, convertShape, encodeRoomInput, roomStates } from './room.js';
 
 type Msg = [number, Uint8Array];
 
@@ -310,7 +310,7 @@ export function taggedRoomSeeds(): RoomSeed[] {
   states.forEach((state, r) => {
     // The edits below don't know which parts are a shared module's (the web's
     // tools refuse those), so on the shared room they aren't a real client's.
-    const real = r === SHARED_ROOM.index ? other : realClient;
+    const real = r === SHARED_ROOM.index || r === SESSION_ROOM.index ? other : realClient;
     const roomSv = (() => {
       const d = new Y.Doc();
       Y.applyUpdate(d, state);
@@ -388,6 +388,7 @@ export function taggedRoomSeeds(): RoomSeed[] {
     );
   });
   sharedSeeds(states[SHARED_ROOM.index]!, realClient, other);
+  sessionSeeds(states[SESSION_ROOM.index]!, realClient, other);
   // The contract's grid and drawing-settings updates on their own rooms (2 and 3).
   for (const [room, vectors] of [
     [2, c.gridSize.vectors],
@@ -414,6 +415,60 @@ export function taggedRoomSeeds(): RoomSeed[] {
     ]),
   );
   return out;
+}
+
+/**
+ * The session room (room.ts sessionRoom): Bob (connection 1) is a viewer
+ * crew, Carol (3) a viewer dispatcher, Alice (0) the host. Their own moves
+ * are a real client's; another job's car, a switch out of reach, anything
+ * else, or the sheets while it runs, aren't.
+ */
+function sessionSeeds(state: Uint8Array, real: (u: Uint8Array) => void, other: (u: Uint8Array) => void): void {
+  const r = SESSION_ROOM.index;
+  const [b1, b2, b3, b4] = SESSION_ROOM.parts;
+  const viewers = 0b1010;
+  const pos = (brick: string, at: number) => ({ brick, from: 0, to: 1, s: at, facing: 'to' });
+  const rec = (d: Y.Doc, key: string, id: string) => (d.getMap('meta').get(key) as Y.Map<Y.Map<unknown>>).get(id)!;
+  const switches = (d: Y.Doc) => d.getMap('meta').get(SWITCH_STATES_KEY) as Y.Map<number>;
+  const as = (conn: number, user: string, id: number, edits: ((d: Y.Doc) => void)[], take: (u: Uint8Array) => void) => {
+    const a = client(state, id);
+    for (const e of edits) a.doc.transact(() => e(a.doc));
+    // (Their presence first, as both apps send it on joining: a viewer writes only with a client id it holds.)
+    const here: [number, number, unknown] = [id, 1, { user: { id: user, displayName: user }, selection: { brickIds: [] }, lastActivityMs: 1 }];
+    if (a.edits.length) take(encodeRoomInput(r, viewers, [[conn, msgAwareness([here])], ...a.edits.map((u): Msg => [conn, msgUpdate(u)])]));
+  };
+  const logEntry = (id: string, by: string) => new Y.Map<unknown>(Object.entries({ id, session: 's1', at: 5, by, kind: 'move', what: 'cut-can', from: null, to: null, note: '' }));
+  // Bob's own: the cannery's cut along the module, his train anywhere, a switch at his stop, a log entry; a car set out and picked up again.
+  as(1, 'bob', 8101, [
+    (d) => rec(d, TRAINS_KEY, 'cut-can').set('position', pos(b2!, 3)),
+    (d) => rec(d, TRAINS_KEY, 't-local').set('position', pos(b1!, 6)),
+    (d) => switches(d).set(`${b1}/0`, 1),
+    (d) => (d.getMap('meta').get(OPS_LOG_KEY) as Y.Map<unknown>).set('log-b1', logEntry('log-b1', 'bob')),
+    (d) => {
+      (d.getMap('meta').get(TRAINS_KEY) as Y.Map<unknown>).set('cut-new', new Y.Map<unknown>(Object.entries({ id: 'cut-new', name: '', trackKind: 'rail', units: [{ stock: 'car3', reversed: false }], position: pos(b2!, 9), color: '#888888', speed: 0, cut: true })));
+      rec(d, TRAINS_KEY, 't-local').set('units', []);
+      rec(d, ROLLING_STOCK_KEY, 'car3').set('opsCut', 'cut-new');
+    },
+  ], real);
+  // Carol, the dispatcher: anything with cars and switches.
+  as(3, 'carol', 8301, [(d) => rec(d, TRAINS_KEY, 'cut-yard').set('position', pos(b3!, 7)), (d) => switches(d).set(`${b4}/1`, 2)], real);
+  // Bob out of reach, or writing something else: refused.
+  for (const [i, e] of ([
+    (d) => rec(d, TRAINS_KEY, 'cut-yard').set('position', pos(b3!, 5)),
+    (d) => switches(d).set(`${b3}/0`, 1),
+    (d) => writeRecord(d, WAYBILLS_KEY, { id: 'w1', to1: 'x' }),
+    (d) => rec(d, OPS_JOBS_KEY, 'j1').set('status', 'done'),
+    (d) => rec(d, OPS_SESSIONS_KEY, 's1').set('crew', []),
+    (d) => rec(d, ROLLING_STOCK_KEY, 'car2').set('opsCut', 't-local'),
+    (d) => (d.getMap('meta').get(OPS_LOG_KEY) as Y.Map<unknown>).set('log-b2', logEntry('log-b2', 'alice')),
+    (d) => ((d.getMap('layerData').get(SESSION_ROOM.sheet) as Y.Map<unknown>).get('bricks') as Y.Array<unknown>).delete(0),
+    (d) => d.getMap('meta').set(TRAINS_KEY, new Y.Map()),
+  ] as ((d: Y.Doc) => void)[]).entries())
+    as(1, 'bob', 8110 + i, [e], other);
+  // The host changing the sheets while it runs: refused.
+  as(0, 'alice', 8001, [(d) => ((d.getMap('layerData').get(SESSION_ROOM.sheet) as Y.Map<unknown>).get('bricks') as Y.Array<Y.Map<unknown>>).get(0).set('orientation', 90)], other);
+  // The host pausing it, then the sheets: taken.
+  as(0, 'alice', 8002, [(d) => rec(d, OPS_SESSIONS_KEY, 's1').set('status', 'paused'), (d) => ((d.getMap('layerData').get(SESSION_ROOM.sheet) as Y.Map<unknown>).get('bricks') as Y.Array<Y.Map<unknown>>).get(0).set('orientation', 90)], real);
 }
 
 /** The shared module's parts in `doc`, by id. */

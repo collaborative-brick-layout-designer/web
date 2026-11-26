@@ -45,7 +45,7 @@ import * as syncProtocol from 'y-protocols/sync';
 import * as awarenessProtocol from 'y-protocols/awareness';
 import type { WebSocket } from '@fastify/websocket';
 import { readBbm } from '@cld/bbm';
-import { bbmToDoc, rulersInPlace, markShapeInPlace, cellOffsetOf, readSidecarCache, writeSidecarCache } from '@cld/ydoc';
+import { bbmToDoc, rulersInPlace, markShapeInPlace, cellOffsetOf, ensureRecordMaps, readSidecarCache, writeSidecarCache, writePlace, writeRecord, OPS_JOBS_KEY, OPS_LOG_KEY, OPS_SESSIONS_KEY, ROLLING_STOCK_KEY, TRAINS_KEY } from '@cld/ydoc';
 import { DocSession, MAX_AWARENESS_IDS } from '../ws/docHub.js';
 import { handleMessage, type Sender } from '../ws/handler.js';
 import { newPace, resetCopyBudgets } from '../ws/pacing.js';
@@ -55,6 +55,7 @@ import { checkUpdate } from '../ws/updateGuard.js';
 import { decodeIncoming, guardWork } from '../ws/decoded.js';
 import { UNSURE, checkGridSizesOnCopy, drawingProblems, exactVerdict } from '../ws/gridGuard.js';
 import { lockBroken, lockState } from '../ws/sharedGuard.js';
+import { sessionRuns } from '../ws/opsGuard.js';
 import { PropertyFailure, clocksInRange, desktopReads, fail, fromHex, fuzzData, serverDir, stateKey, timed, updateGuardContract } from './common.js';
 
 // ---- rooms ------------------------------------------------------------------
@@ -117,8 +118,100 @@ export function roomStates(): Uint8Array[] {
     bbmRoom('tight-corner.bbm', 104),
     new Uint8Array(readFileSync(fuzzData('seeds', 'desktop-tight-corner.ydoc'))),
     sharedRoom(),
+    sessionRoom(),
   ];
   return rooms;
+}
+
+/** The session room: an operating session running, Bob a viewer in its crew (job j1, out), Carol a viewer dispatcher, Alice the host. */
+export const SESSION_ROOM = {
+  index: 8,
+  sheet: 'ops-sheet',
+  parts: ['8200000000000001', '8200000000000002', '8200000000000003', '8200000000000004'],
+} as const;
+
+/** A small layout with a running operating session: a module with a cannery, a yard on loose track, cuts and a job's train. */
+function sessionRoom(): Uint8Array {
+  const doc = new Y.Doc();
+  doc.clientID = 108;
+  Y.applyUpdate(doc, bbmRoom('oracle/sleepers.bbm', 101));
+  ensureRecordMaps(doc);
+  const [b1, b2, b3, b4] = SESSION_ROOM.parts;
+  const pos = (brick: string, at: number) => ({ brick, from: 0, to: 1, s: at, facing: 'to' });
+  doc.transact(() => {
+    const l = new Y.Map<unknown>();
+    l.set('id', SESSION_ROOM.sheet);
+    l.set('type', 'brick');
+    l.set('name', 'Ops');
+    l.set('visible', true);
+    const bricks = new Y.Array<Y.Map<unknown>>();
+    bricks.push(SESSION_ROOM.parts.map((id, i) => new Y.Map<unknown>([['id', id], ['partNumber', '2865.8'], ['displayArea', { x: 16 * i, y: 0, width: 16, height: 8 }], ['orientation', 0]])));
+    l.set('bricks', bricks);
+    l.set('groups', new Y.Array());
+    doc.getMap('layerData').set(SESSION_ROOM.sheet, l);
+    doc.getArray<string>('layers').push([SESSION_ROOM.sheet]);
+    const cache = readSidecarCache(doc) ?? { schemaVersion: 1, bbmHashSha256: '' };
+    writeSidecarCache(doc, {
+      ...cache,
+      modules: [...(Array.isArray(cache.modules) ? cache.modules : []), { id: 'm-can', name: 'Cannery', members: [b1, b2], places: [{ id: 'pl-can', name: 'Cannery', kind: 'industry', spots: [], accepts: [], ships: [], tags: [], notes: '' }] }],
+    });
+    writePlace(doc, { id: 'pl-yard', name: 'Yard', kind: 'yard', spots: [{ id: 'sp-1', name: 'Track 1', track: { brick: b3!, from: 0, to: 1 } }], accepts: [], ships: [], tags: [], notes: '' });
+    for (const c of ['car1', 'car2', 'car3']) writeRecord(doc, ROLLING_STOCK_KEY, { id: c, number: c, length: 32 });
+    const cut = (id: string, brick: string, cars: string[], isCut = true) => ({ id, name: '', trackKind: 'rail', units: cars.map((stock) => ({ stock, reversed: false })), position: pos(brick, 2), color: '#888888', speed: 0, cut: isCut });
+    writeRecord(doc, TRAINS_KEY, cut('t-local', b4!, ['car3'], false));
+    writeRecord(doc, TRAINS_KEY, cut('cut-can', b1!, ['car1']));
+    writeRecord(doc, TRAINS_KEY, cut('cut-yard', b3!, ['car2']));
+    for (const [car, at] of [['car1', 'cut-can'], ['car2', 'cut-yard'], ['car3', 't-local']] as const) (doc.getMap('meta').get(ROLLING_STOCK_KEY) as Y.Map<Y.Map<unknown>>).get(car)!.set('opsCut', at);
+    writeRecord(doc, OPS_JOBS_KEY, { id: 'j1', name: 'Cannery Turn', kind: 'turn', train: 't-local', order: 1, status: 'out', stop_a: { place: 'pl-can', at: 1 } });
+    writeRecord(doc, OPS_SESSIONS_KEY, {
+      id: 's1',
+      name: 'Session 1',
+      status: 'running',
+      seed: 1,
+      layout: 'fuzz-room',
+      host: 'alice',
+      crew: [
+        { userId: 'bob', name: 'Bob', role: 'crew', places: [], job: 'j1' },
+        { userId: 'carol', name: 'Carol', role: 'dispatcher', places: [], job: '' },
+      ],
+      clockFast: 0,
+      clockStart: '',
+      startedAt: 1,
+      endedAt: 0,
+      start: null,
+    });
+  });
+  return Y.encodeStateAsUpdate(doc);
+}
+
+/** What a viewer in a session's crew may not change: everything but where cuts stand, cars' cuts, switch settings and new log entries. */
+export function viewerLocked(doc: Y.Doc): string {
+  const all = Object.fromEntries([...doc.share.keys()].sort().map((k) => [k, (doc.share.get(k) as Y.AbstractType<unknown>).toJSON()])) as Record<string, unknown>;
+  const meta = { ...((all.meta as Record<string, unknown>) ?? {}) };
+  const strip = (v: unknown, fields: readonly string[]) => (v && typeof v === 'object' ? Object.fromEntries(Object.entries(v as Record<string, unknown>).filter(([k]) => !fields.includes(k))) : v);
+  if (meta.trains && typeof meta.trains === 'object') {
+    meta.trains = Object.fromEntries(
+      Object.entries(meta.trains as Record<string, Record<string, unknown>>)
+        .filter(([, t]) => !(t && t.cut === true))
+        .map(([id, t]) => [id, strip(t, ['position', 'units', 'over', 'emptiedAt'])]),
+    );
+  }
+  if (meta.rollingStock && typeof meta.rollingStock === 'object') meta.rollingStock = Object.fromEntries(Object.entries(meta.rollingStock as Record<string, unknown>).map(([id, c]) => [id, strip(c, ['opsCut'])]));
+  delete meta.switchStates;
+  delete meta.opsLog;
+  all.meta = meta;
+  return JSON.stringify(all);
+}
+
+/** The log entries of a layout, by id. */
+function logEntries(doc: Y.Doc): Record<string, unknown> {
+  const m = doc.getMap('meta').get(OPS_LOG_KEY);
+  return m instanceof Y.Map ? (m.toJSON() as Record<string, unknown>) : {};
+}
+
+/** The map's sheets, which nobody changes while a session runs. */
+function sheetsOf(doc: Y.Doc): string {
+  return JSON.stringify({ layers: doc.getArray('layers').toJSON(), layerData: doc.getMap('layerData').toJSON() });
 }
 
 /** The shared room's module, its parts and its sheet. */
@@ -190,7 +283,7 @@ function sharedRoom(): Uint8Array {
 // ---- connections --------------------------------------------------------------
 
 const USERS = ['alice', 'bob', 'alice', 'carol'] as const;
-const CLOSES = new Set(['1008 unreadable_update', '1008 layout_merge_refused', '1013 slow_down']);
+const CLOSES = new Set(['1008 unreadable_update', '1008 layout_merge_refused', '1008 ops_refused', '1013 slow_down']);
 
 /** A socket as the handler sees it, keeping what it was sent and how it was closed. */
 class FakeSocket {
@@ -219,7 +312,8 @@ function connect(session: DocSession, i: number, role: Conn['role'], userId: str
   const ws = new FakeSocket();
   session.clients.add(ws);
   session.clientUsers.set(ws, userId);
-  return { ws, role, sender: { layoutId: session.layoutId, userId, client: `fuzz-${i}`, noted: new Set(), pace: newPace() } };
+  // (Viewers sign in with full rights: the session room's are its crew.)
+  return { ws, role, sender: { layoutId: session.layoutId, userId, client: `fuzz-${i}`, noted: new Set(), pace: newPace(), crew: role === 'viewer' } };
 }
 
 /** What the handler's cleanup does when a socket goes (handler.ts attachWsHandlers). */
@@ -353,6 +447,9 @@ export function fuzzRoom(data: Uint8Array, { allTaken = false } = {}): void {
       if (update && base.length <= DIFF_ROOM_BYTES) compareGridChecks(Y.encodeStateAsUpdate(session.doc), update);
       const sentBefore = conn.ws.sent.length;
       const locks = lockState(session.doc);
+      const viewerBefore = conn.role === 'viewer' ? viewerLocked(session.doc) : null;
+      const logBefore = conn.role === 'viewer' ? logEntries(session.doc) : null;
+      const sheetsBefore = sessionRuns(session.doc) ? sheetsOf(session.doc) : null;
       relayed = [];
       let threw: unknown = null;
       timed('handling a message', () => {
@@ -377,7 +474,15 @@ export function fuzzRoom(data: Uint8Array, { allTaken = false } = {}): void {
         // (An update held back lands with another connection's message: its own connection is the one refused.)
         for (const other of conns) if (other.ws.closed !== null) fail(`a real client's message was refused (${other.ws.closed})`);
       }
-      if (conn.role === 'viewer' && relayed.length > 0) fail('a viewer changed the room');
+      if (conn.role === 'viewer' && relayed.length > 0) {
+        // Only a running session's crew, and only where cuts stand, cars' cuts, switches and new log entries (ws/opsGuard.ts).
+        if (room % states.length !== SESSION_ROOM.index) fail('a viewer changed the room');
+        if (viewerLocked(session.doc) !== viewerBefore) fail('a viewer changed more than cars and switches');
+        const logNow = logEntries(session.doc);
+        for (const [id, e] of Object.entries(logBefore!)) if (JSON.stringify(logNow[id]) !== JSON.stringify(e)) fail('a viewer changed the session log');
+        for (const [id, e] of Object.entries(logNow)) if (!(id in logBefore!) && (e as { by?: unknown }).by !== conn.sender.userId) fail('a viewer wrote a log entry in someone else’s name');
+      }
+      if (sheetsBefore !== null && relayed.length > 0 && sheetsOf(session.doc) !== sheetsBefore) fail('the sheets changed while a session ran');
       for (const u of relayed) {
         desktopReads(u, 'a relayed update', mirror);
         try {
