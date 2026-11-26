@@ -23,9 +23,9 @@ const cut = (id: string, brick: string) => ({ id: `cut-${id}`, name: '', cut: tr
 const SIDECAR = JSON.stringify({
   schemaVersion: 1,
   bbmHashSha256: '',
-  layoutPlaces: [place('cannery', 'Acme Cannery', '141'), place('mill', 'Mill', '322')],
+  layoutPlaces: [place('cannery', 'Acme Cannery', '1372'), place('mill', 'Mill', '1339')],
   rollingStock: [car('c1', '101'), car('c2', '102')],
-  trains: [cut('c1', '141'), cut('c2', '322')],
+  trains: [cut('c1', '1372'), cut('c2', '1339')],
   opsJobs: [
     { id: 'j1', name: 'Cannery Turn', kind: 'turn', train: '', order: 1, stop_a: { place: 'cannery', at: 1 } },
     { id: 'j2', name: 'Mill Job', kind: 'local', train: '', order: 2, stop_a: { place: 'mill', at: 1 } },
@@ -56,6 +56,21 @@ function cars(page: Page): Promise<Record<string, { x: number; y: number }>> {
   });
 }
 /** Press on a car and pull it along (a picked car, on a phone: tap it first). */
+/** Zoom in with the wheel over a car (the map zooms about the pointer). */
+async function zoomAt(page: Page, id: string) {
+  const at = (await cars(page))[id]!;
+  const p = await page.evaluate(([sx, sy]) => {
+    type St = { getAbsoluteTransform: () => { point: (p: { x: number; y: number }) => { x: number; y: number } }; container: () => HTMLElement };
+    const st = (window as unknown as { Konva: { stages: St[] } }).Konva.stages[0]!;
+    const q = st.getAbsoluteTransform().point({ x: sx! * 8, y: sy! * 8 });
+    const box = st.container().getBoundingClientRect();
+    return { x: box.left + q.x, y: box.top + q.y };
+  }, [at.x, at.y]);
+  await page.mouse.move(p.x, p.y);
+  for (let i = 0; i < 8; i++) await page.mouse.wheel(0, -200);
+  await page.waitForTimeout(500);
+}
+
 async function dragCar(page: Page, id: string, dx: number, dy: number) {
   const at = (await cars(page))[id]!;
   const on = (x: number, y: number) =>
@@ -85,7 +100,7 @@ test('a session with a viewer as crew: their car moves, another job’s doesn’
   const invite = await post(page, `/api/layouts/${layout.id}/invites`, { email: BEN, role: 'viewer' });
   await post(ben, `/api/invites/${invite.token}`, {});
   const before = await cutsOnServer(page, layout.id!);
-  expect(before['cut-c1']).toBe('141@8');
+  expect(before['cut-c1']).toBe('1372@8');
 
   // Ada sets the session up: Ben is the Cannery Turn's crew.
   await page.goto(`/editor/${layout.id}`);
@@ -101,10 +116,10 @@ test('a session with a viewer as crew: their car moves, another job’s doesn’
   await panel.getByLabel('Ben Crew’s job').selectOption({ label: 'Cannery Turn' });
   await panel.getByTestId('ops-session-start').click();
   await expect(page.getByTestId('ops-session-banner')).toContainText('you’re the Host');
-  // The session panel shows over the map now (the map is locked): send the job out.
-  await mapMenu(page, 'Modules & sets', 'Live Ops');
+  // The map is locked now: the banner's Session button opens the session over the map. Send the job out.
+  await page.getByTestId('ops-session-banner').getByRole('button', { name: 'Session' }).click();
   const sheet = page.getByTestId('ops-panel');
-  await sheet.getByTestId('ops-tab-session').click();
+  await expect(sheet.getByTestId('ops-session')).toBeVisible();
   await sheet.locator('[data-board-job="j1"]').getByRole('button', { name: 'Send out' }).click();
   await expect(sheet.locator('[data-board-job="j1"]').getByTestId('ops-board-status')).toHaveText('Out');
 
@@ -112,11 +127,16 @@ test('a session with a viewer as crew: their car moves, another job’s doesn’
   await ben.goto(`/editor/${layout.id}`);
   await expect(ben.locator('canvas').first()).toBeVisible({ timeout: 20000 });
   await expect(ben.getByTestId('ops-session-banner')).toContainText('you’re the Crew', { timeout: 15000 });
-  await ben.waitForTimeout(1000);
-  await dragCar(ben, 'c1', 4, 0);
-  await expect.poll(async () => (await cutsOnServer(page, layout.id!))['cut-c1'], { timeout: 15000 }).not.toBe('141@8');
+  // (The track and its cars are drawn once the parts are in.)
+  await expect.poll(async () => Object.keys(await cars(ben)).sort(), { timeout: 30000 }).toEqual(['c1', 'c2']);
+  // (Closer, so a short pull along the track is a drag, not a tap.)
+  await zoomAt(ben, 'c1');
+  await dragCar(ben, 'c1', 3, 3);
+  await expect.poll(async () => (await cutsOnServer(page, layout.id!))['cut-c1'], { timeout: 15000 }).not.toBe('1372@8');
   // The mill's car is another job's: it stays, and he is told why.
-  await dragCar(ben, 'c2', 4, 0);
+  await ben.getByRole('button', { name: 'Fit', exact: true }).click();
+  await zoomAt(ben, 'c2');
+  await dragCar(ben, 'c2', 3, 3);
   await expect(ben.getByText(/outside your role’s reach/)).toBeVisible();
   expect((await cutsOnServer(page, layout.id!))['cut-c2']).toBe(before['cut-c2']);
   // Nothing wider than his screen.
@@ -126,7 +146,7 @@ test('a session with a viewer as crew: their car moves, another job’s doesn’
   await sheet.getByTestId('ops-session-end').click();
   await sheet.getByTestId('ops-end-back').click();
   await expect(page.getByTestId('ops-session-banner')).toHaveCount(0);
-  await expect.poll(async () => (await cutsOnServer(page, layout.id!))['cut-c1'], { timeout: 15000 }).toBe('141@8');
+  await expect.poll(async () => (await cutsOnServer(page, layout.id!))['cut-c1'], { timeout: 15000 }).toBe('1372@8');
   await expect(ben.getByTestId('ops-session-banner')).toHaveCount(0, { timeout: 15000 });
   await benContext.close();
 });

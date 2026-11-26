@@ -58,7 +58,7 @@ describe('a session, from setting up to the next one', () => {
       expect(bannerText(st)).toBe('Session 1 — Nov 22 running · you’re the Host');
       const { trains, stock } = readStanding(doc);
       const drag = startDrag(net, trains, stock, {}, trains[0]!.id, 0, 'new')!;
-      const m = drag.to({ x: 10, y: 0 });
+      const m = drag.to({ x: 10, y: 0 })!;
       writeCutChange(doc, m.change, 5, { reach: st.reach, id, userId: 'alice' });
       expect(readRecordsFromDoc(doc, OPS_LOG_KEY).filter((e) => e.kind === 'move').every((e) => e.by === 'alice' && e.session === id)).toBe(true);
       pauseSession(doc, id, 'alice');
@@ -111,7 +111,7 @@ describe('outside your role’s reach', () => {
     startSession(doc, id, 'alice', 'lay-1');
     const reach = readSessionState(doc, 'yan', 'lay-1', false).reach;
     const { trains, stock } = readStanding(doc);
-    const m = startDrag(net, trains, stock, {}, trains[0]!.id, 0, 'new')!.to({ x: 10, y: 0 });
+    const m = startDrag(net, trains, stock, {}, trains[0]!.id, 0, 'new')!.to({ x: 10, y: 0 })!;
     expect(outOfReach(reach, m, trains)).toMatch(/nothing to move/);
     expect(outOfReach(readSessionState(doc, 'alice', 'lay-1', false).reach, m, trains)).toBe('');
     void TRAINS_KEY;

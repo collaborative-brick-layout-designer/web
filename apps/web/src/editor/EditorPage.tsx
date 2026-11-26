@@ -6572,12 +6572,17 @@ function StatusBar({ gridSpan, status, venue, budgetLimits, budgetMap, onZoomIn,
         style={{ gridColumn: `span ${gridSpan}`, gridRow: '4' }}
       >
         {/* Stacked, so nothing gets cut short on a narrow phone. */}
-        <span className="flex min-w-0 flex-col leading-tight">
-          <span data-testid="piece-count" className="truncate">{pieces === 1 ? '1 piece' : `${pieces} pieces`}</span>
-          {mapW !== null && mapH !== null && (
-            <span className="truncate" title="Size of everything on the map">{studDisplay(mapW)} × {studDisplay(mapH)}</span>
-          )}
-        </span>
+        {/* (A message, such as why a move wasn't made in a session, shows here on a phone too.) */}
+        {statusMessage ? (
+          <span role="status" className="min-w-0 text-xs leading-tight text-accent-text">{statusMessage}</span>
+        ) : (
+          <span className="flex min-w-0 flex-col leading-tight">
+            <span data-testid="piece-count" className="truncate">{pieces === 1 ? '1 piece' : `${pieces} pieces`}</span>
+            {mapW !== null && mapH !== null && (
+              <span className="truncate" title="Size of everything on the map">{studDisplay(mapW)} × {studDisplay(mapH)}</span>
+            )}
+          </span>
+        )}
         <div className="flex shrink-0 items-center gap-1.5">
           <button type="button" aria-label="Zoom out" onClick={onZoomOut} className={bigBtn}>−</button>
           <ZoomPercent className="min-w-[3.25rem] text-center font-bold tabular-nums text-ink" aria-label="Zoom" />
